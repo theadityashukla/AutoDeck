@@ -1,0 +1,9 @@
+Great, I already have a MacBook Pro 14 inch with apple silicon. I have python, docker and conda set up and ready to go.
+
+I want you to create a parser which initializes a docker container with the following docker command:
+
+docker run --rm --gpus all --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.8.2
+
+Next, it should parse the input document using GROBID with the configuration settings defined in the attached screenshot. Feel free to either retain or exclude the "add coordinates" feature depending on whether it can be used with the extractor to ensure the image and table descriptions are plugged in with the correct place.
+
+After that format the output. Please remember to design the system in such a way that it can work with the extractor component which we will be working on later.
