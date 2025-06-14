@@ -5,169 +5,377 @@ import requests
 import subprocess
 from lxml import etree
 from typing import List, Dict, Any, Optional
+import logging
 
 # --- Configuration ---
-GROBID_IMAGE = "grobid/grobid:0.8.2"
-GROBID_PORT = "8070"
-GROBID_URL = f"http://localhost:{GROBID_PORT}"
-# For M1/M2/M3 Macs, Docker will automatically use the correct ARM64 architecture for this image.
-# The --platform linux/amd64 flag can be added if you need to force the x86 version.
-DOCKER_COMMAND = [
-    "docker", "run", "--rm", "--init",
-    "-p", f"{GROBID_PORT}:{GROBID_PORT}",
-    GROBID_IMAGE
-]
+GROBID_URL = "http://localhost:8070"
+CONTAINER_NAME = "grobid-daemon"
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class GrobidParser:
     """
-    A class to manage the GROBID service in a Docker container
+    A class to interact with a GROBID daemon running in Docker
     and parse PDF documents to structured TEI XML.
+    
+    This version assumes GROBID is running as a daemon service,
+    not managing the container lifecycle itself.
     """
-    def __init__(self):
-        self.grobid_container: Optional[subprocess.Popen] = None
-        self.container_name = "grobid-parser-container"
+    
+    def __init__(self, grobid_url: str = GROBID_URL):
+        self.grobid_url = grobid_url
+        self.container_name = CONTAINER_NAME
 
-    def start_grobid(self) -> bool:
+    def is_service_available(self) -> bool:
         """
-        Starts the GROBID Docker container.
-        Returns True if successful, False otherwise.
+        Check if GROBID service is available and responding.
+        
+        Returns:
+            True if service is available, False otherwise.
         """
-        print("Starting GROBID container...")
         try:
-            # Clean up any old container with the same name to avoid conflicts
-            subprocess.run(["docker", "rm", "-f", self.container_name], check=False, capture_output=True)
-            
-            cmd = [
-                "docker", "run", "--rm", "--init", "--name", self.container_name,
-                "-p", f"{GROBID_PORT}:{GROBID_PORT}", GROBID_IMAGE
-            ]
-            self.grobid_container = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            )
-            print(f"GROBID container '{self.container_name}' started with PID: {self.grobid_container.pid}")
-            
-            return self._wait_for_service()
-        except FileNotFoundError:
-            print("Error: 'docker' command not found. Is Docker installed and in your PATH?")
-            return False
-        except Exception as e:
-            print(f"An unexpected error occurred while starting GROBID: {e}")
-            if self.grobid_container:
-                # If something went wrong, print the logs we have
-                stdout, stderr = self.grobid_container.communicate()
-                print("\n--- Docker Logs on Failure ---")
-                print("STDOUT:\n" + stdout)
-                print("STDERR:\n" + stderr)
-                print("----------------------------")
+            response = requests.get(f"{self.grobid_url}/api/isalive", timeout=5)
+            return response.status_code == 200 and response.text.strip() == "true"
+        except requests.RequestException:
             return False
 
-    def _wait_for_service(self, timeout: int = 120) -> bool:
+    def wait_for_service(self, timeout: int = 60) -> bool:
         """
-        Waits for the GROBID service to become available.
+        Wait for GROBID service to become available.
+        
+        Args:
+            timeout: Maximum time to wait in seconds.
+            
+        Returns:
+            True if service becomes available, False on timeout.
         """
-        print("Waiting for GROBID service to be ready...")
+        logger.info("Checking GROBID service availability...")
         start_time = time.time()
+        
         while time.time() - start_time < timeout:
-            try:
-                response = requests.get(f"{GROBID_URL}/api/isalive")
-                if response.status_code == 200 and response.text == "true":
-                    print("GROBID service is alive.")
-                    return True
-            except requests.ConnectionError:
-                # This is expected while the service is starting up.
-                # Adding a print statement here to show progress.
-                print(f"  - GROBID not ready yet. Waiting... ({int(time.time() - start_time)}s)")
-                time.sleep(2)
+            if self.is_service_available():
+                logger.info("GROBID service is available")
+                return True
+            
+            elapsed = int(time.time() - start_time)
+            logger.info(f"GROBID not ready yet. Waiting... ({elapsed}s)")
+            time.sleep(2)
         
-        # --- ENHANCED DEBUGGING ON TIMEOUT ---
-        print("\nError: GROBID service did not start within the timeout period.")
-        print("--- Capturing Docker container logs for debugging ---")
-        self.grobid_container.terminate() # Ensure the process is stopped
-        stdout, stderr = self.grobid_container.communicate()
-        print("STDOUT from container:")
-        print(stdout)
-        print("\nSTDERR from container:")
-        print(stderr)
-        print("--- End of logs ---")
-        # --- END OF DEBUGGING ---
-        
-        # Attempt to clean up the named container after failure
-        self.stop_grobid()
+        logger.error(f"GROBID service did not become available within {timeout}s")
         return False
 
-    def stop_grobid(self):
+    def start_daemon(self) -> bool:
         """
-        Stops the GROBID Docker container gracefully.
+        Start the GROBID daemon using docker-compose.
+        
+        Returns:
+            True if daemon started successfully, False otherwise.
         """
-        print(f"Attempting to stop and remove GROBID container '{self.container_name}'...")
         try:
-            # Use the container name to stop it. It's more reliable.
-            subprocess.run(
-                ["docker", "stop", self.container_name],
-                check=True, capture_output=True, timeout=20
-            )
-            print("GROBID container stopped successfully.")
-        except FileNotFoundError:
-            print("Warning: 'docker' command not found. Cannot stop container.")
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            # This can happen if the container already crashed or was manually stopped.
-            error_output = e.stderr.decode('utf-8', errors='ignore') if hasattr(e, 'stderr') else str(e)
-            print(f"Could not stop container '{self.container_name}' (it may have already stopped): {error_output.strip()}")
-        finally:
-             self.grobid_container = None
+            # Check if already running
+            if self.is_service_available():
+                logger.info("GROBID daemon is already running")
+                return True
+            
+            logger.info("Starting GROBID daemon...")
+            
+            # First, check if container already exists and try to start it
+            check_result = subprocess.run([
+                "docker", "ps", "-a", "--filter", f"name={self.container_name}", "--format", "{{.Names}}"
+            ], capture_output=True, text=True)
+            
+            if check_result.returncode == 0 and self.container_name in check_result.stdout:
+                logger.info(f"Found existing container {self.container_name}, attempting to start it...")
+                start_result = subprocess.run([
+                    "docker", "start", self.container_name
+                ], capture_output=True, text=True)
+                
+                if start_result.returncode == 0:
+                    return self.wait_for_service(timeout=120)  # Give more time for restart
+                else:
+                    logger.warning(f"Could not start existing container: {start_result.stderr}")
+                    # Remove the problematic container
+                    subprocess.run(["docker", "rm", "-f", self.container_name], capture_output=True)
+            
+            # Try to start using docker-compose first
+            if os.path.exists("docker-compose.yml"):
+                logger.info("Found docker-compose.yml, using docker-compose...")
+                result = subprocess.run(
+                    ["docker-compose", "up", "-d"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if result.returncode == 0:
+                    return self.wait_for_service(timeout=120)
+                else:
+                    logger.warning(f"docker-compose failed: {result.stderr}")
+            
+            # Check available GROBID images
+            logger.info("Checking available GROBID Docker images...")
+            images_result = subprocess.run([
+                "docker", "images", "--filter", "reference=*grobid*", "--format", "{{.Repository}}:{{.Tag}}"
+            ], capture_output=True, text=True)
+            
+            available_images = []
+            if images_result.returncode == 0:
+                available_images = [img.strip() for img in images_result.stdout.split('\n') if img.strip()]
+                logger.info(f"Available GROBID images: {available_images}")
+            
+            # Try different image names in order of preference
+            image_candidates = [
+                "grobid-custom:latest",
+                # "lfoppiano/grobid:0.8.0",
+                # "lfoppiano/grobid:latest",
+                # "grobid/grobid:0.8.0",
+                "grobid/grobid:latest"
+            ]
+            
+            # Prioritize available images
+            for img in available_images:
+                if img not in image_candidates:
+                    image_candidates.insert(0, img)
+            
+            for image in image_candidates:
+                logger.info(f"Trying to start GROBID with image: {image}")
+                
+                # Remove any existing container first
+                subprocess.run(["docker", "rm", "-f", self.container_name], 
+                             capture_output=True, text=True)
+                
+                result = subprocess.run([
+                    "docker", "run", "-d",
+                    "--name", self.container_name,
+                    "--restart", "unless-stopped",
+                    "-p", "8070:8070",
+                    image
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    logger.info(f"Successfully started container with image {image}")
+                    # Give GROBID more time to start up (it can be slow)
+                    if self.wait_for_service(timeout=180):
+                        return True
+                    else:
+                        logger.warning(f"Container started but service not available for {image}")
+                        # Check container logs for debugging
+                        logs_result = subprocess.run([
+                            "docker", "logs", "--tail", "20", self.container_name
+                        ], capture_output=True, text=True)
+                        if logs_result.returncode == 0:
+                            logger.info(f"Container logs:\n{logs_result.stdout}")
+                        continue
+                else:
+                    logger.warning(f"Failed to start with image {image}: {result.stderr}")
+                    continue
+            
+            # If we get here, all images failed
+            logger.error("Failed to start GROBID with any available image")
+            
+            # Try pulling the official image as last resort
+            logger.info("Attempting to pull official GROBID image...")
+            pull_result = subprocess.run([
+                "docker", "pull", "lfoppiano/grobid:0.8.0"
+            ], capture_output=True, text=True, timeout=600)
+            
+            if pull_result.returncode == 0:
+                logger.info("Successfully pulled lfoppiano/grobid:0.8.0, attempting to start...")
+                subprocess.run(["docker", "rm", "-f", self.container_name], capture_output=True)
+                
+                result = subprocess.run([
+                    "docker", "run", "-d",
+                    "--name", self.container_name,
+                    "--restart", "unless-stopped",
+                    "-p", "8070:8070",
+                    "lfoppiano/grobid:0.8.0"
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    return self.wait_for_service(timeout=180)
+            
+            return False
+                
+        except Exception as e:
+            logger.error(f"Error starting GROBID daemon: {e}")
+            return False
 
-
-    def process_pdf(self, pdf_path: str) -> Optional[str]:
+    def stop_daemon(self) -> bool:
         """
-        Processes a PDF file using the GROBID service.
+        Stop the GROBID daemon.
+        
+        Returns:
+            True if daemon stopped successfully, False otherwise.
+        """
+        try:
+            logger.info("Stopping GROBID daemon...")
+            
+            # Try docker-compose first
+            if os.path.exists("docker-compose.yml"):
+                result = subprocess.run(
+                    ["docker-compose", "down"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    logger.info("GROBID daemon stopped via docker-compose")
+                    return True
+            
+            # Fallback to direct docker stop
+            result = subprocess.run([
+                "docker", "stop", self.container_name
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                subprocess.run(["docker", "rm", self.container_name], capture_output=True)
+                logger.info("GROBID daemon stopped")
+                return True
+            else:
+                logger.warning(f"Could not stop daemon: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error stopping GROBID daemon: {e}")
+            return False
+
+    def process_pdf(self, pdf_path: str, **kwargs) -> Optional[str]:
+        """
+        Process a PDF file using the GROBID service.
 
         Args:
             pdf_path: The file path to the PDF document.
+            **kwargs: Additional parameters for GROBID processing.
 
         Returns:
             The TEI XML content as a string, or None if an error occurs.
         """
         if not os.path.exists(pdf_path):
-            print(f"Error: PDF file not found at {pdf_path}")
+            logger.error(f"PDF file not found at {pdf_path}")
             return None
 
-        print(f"Processing PDF: {pdf_path}")
+        if not self.is_service_available():
+            logger.error("GROBID service is not available")
+            return None
+
+        logger.info(f"Processing PDF: {pdf_path}")
+        
+        # Default parameters - can be overridden via kwargs
+        default_params = {
+            'consolidateHeader': 'true',
+            'consolidateCitations': 'true',
+            'consolidateFunders': 'true',
+            'includeRawAffiliations': 'false',
+            'includeRawCitations': 'false',
+            'segmentSentences': 'false',
+            'generateIDs': 'true',  # Essential for linking
+            'addCoordinates': 'true'  # Essential for extractor
+        }
+        
+        # Update with any provided kwargs
+        params = {**default_params, **kwargs}
+        
         try:
             with open(pdf_path, 'rb') as f:
-                params = {
-                    'consolidateHeader': 'true',
-                    'consolidateCitations': 'true',
-                    'consolidateFunders': 'true',
-                    'includeRawAffiliations': 'false',
-                    'includeRawCitations': 'false',
-                    'segmentSentences': 'false',
-                    'generateIDs': 'true', # Essential for linking
-                    'addCoordinates': 'true' # Essential for extractor
-                }
                 files = {'input': f}
                 
                 response = requests.post(
-                    f"{GROBID_URL}/api/processFulltextDocument",
+                    f"{self.grobid_url}/api/processFulltextDocument",
                     files=files,
                     data=params,
                     timeout=120
                 )
                 
                 if response.status_code == 200:
-                    print("Successfully processed PDF.")
+                    logger.info("Successfully processed PDF")
                     return response.text
                 else:
-                    print(f"Error processing PDF. Status: {response.status_code}, Body: {response.text}")
+                    logger.error(f"Error processing PDF. Status: {response.status_code}")
+                    logger.error(f"Response: {response.text}")
                     return None
 
         except requests.exceptions.RequestException as e:
-            print(f"An error occurred during the request to GROBID: {e}")
+            logger.error(f"Request error while processing PDF: {e}")
+            return None
+
+    def process_header(self, pdf_path: str) -> Optional[str]:
+        """
+        Process only the header/metadata of a PDF using GROBID.
+        
+        Args:
+            pdf_path: Path to the PDF file.
+            
+        Returns:
+            TEI XML string containing header information, or None if error.
+        """
+        if not os.path.exists(pdf_path):
+            logger.error(f"PDF file not found at {pdf_path}")
+            return None
+
+        if not self.is_service_available():
+            logger.error("GROBID service is not available")
+            return None
+
+        try:
+            with open(pdf_path, 'rb') as f:
+                files = {'input': f}
+                response = requests.post(
+                    f"{self.grobid_url}/api/processHeaderDocument",
+                    files=files,
+                    timeout=60
+                )
+                
+                if response.status_code == 200:
+                    return response.text
+                else:
+                    logger.error(f"Error processing header. Status: {response.status_code}")
+                    return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error while processing header: {e}")
+            return None
+
+    def process_references(self, pdf_path: str) -> Optional[str]:
+        """
+        Process only the references section of a PDF using GROBID.
+        
+        Args:
+            pdf_path: Path to the PDF file.
+            
+        Returns:
+            TEI XML string containing references, or None if error.
+        """
+        if not os.path.exists(pdf_path):
+            logger.error(f"PDF file not found at {pdf_path}")
+            return None
+
+        if not self.is_service_available():
+            logger.error("GROBID service is not available")
+            return None
+
+        try:
+            with open(pdf_path, 'rb') as f:
+                files = {'input': f}
+                response = requests.post(
+                    f"{self.grobid_url}/api/processReferences",
+                    files=files,
+                    timeout=60
+                )
+                
+                if response.status_code == 200:
+                    return response.text
+                else:
+                    logger.error(f"Error processing references. Status: {response.status_code}")
+                    return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error while processing references: {e}")
             return None
 
     @staticmethod
     def parse_grobid_xml(xml_string: str) -> List[Dict[str, Any]]:
         """
-        Parses GROBID TEI XML and extracts structured content blocks,
+        Parse GROBID TEI XML and extract structured content blocks,
         including paragraphs, figures, and tables with coordinates.
 
         Args:
@@ -188,25 +396,29 @@ class GrobidParser:
             # Extract abstract first, as it's outside the main body divs
             abstract_p = root.xpath('//tei:profileDesc/tei:abstract/tei:div/tei:p', namespaces=ns)
             if abstract_p:
-                 text = ''.join(abstract_p[0].itertext()).strip()
-                 text = re.sub(r'\s+', ' ', text)
-                 content_blocks.append({
-                     "type": "paragraph",
-                     "text": text,
-                     "headers": ["Abstract"],
-                     "coords": abstract_p[0].get("coords")
-                 })
-
+                text = ''.join(abstract_p[0].itertext()).strip()
+                text = re.sub(r'\s+', ' ', text)
+                content_blocks.append({
+                    "type": "paragraph",
+                    "text": text,
+                    "headers": ["Abstract"],
+                    "coords": abstract_p[0].get("coords")
+                })
 
             def process_element(elem, headers):
                 """Helper to process a single element (p, figure, etc.)"""
+                # Remove references to clean up text
                 for ref in elem.xpath('.//tei:ref', namespaces=ns):
-                    if ref.tail:
-                        if ref.getprevious() is not None:
-                             ref.getprevious().tail = (ref.getprevious().tail or '') + (ref.text or '') + ref.tail
-                        else:
-                             ref.getparent().text = (ref.getparent().text or '') + (ref.text or '') + ref.tail
-                    ref.drop_tree()
+                    # Modified line: Use getparent().remove(ref) instead of drop_tree()
+                    if ref.getparent() is not None:
+                        # Append tail to previous sibling or parent text before removal
+                        if ref.tail:
+                            if ref.getprevious() is not None:
+                                ref.getprevious().tail = (ref.getprevious().tail or '') + (ref.text or '') + ref.tail
+                            else:
+                                ref.getparent().text = (ref.getparent().text or '') + (ref.text or '') + ref.tail
+                        ref.getparent().remove(ref) # Corrected line
+                    
 
                 if etree.QName(elem).localname == 'p':
                     text = ''.join(elem.itertext()).strip()
@@ -236,7 +448,6 @@ class GrobidParser:
                     }
                 return None
 
-
             def traverse_divs(div, parent_headers=[]):
                 """Recursively traverse <div> elements and process their children."""
                 head = div.xpath('./tei:head', namespaces=ns)
@@ -250,6 +461,7 @@ class GrobidParser:
                 for child_div in div.xpath('./tei:div', namespaces=ns):
                     traverse_divs(child_div, current_headers)
 
+            # Process main body content
             body = root.xpath('//tei:body/tei:div', namespaces=ns)
             for div in body:
                 traverse_divs(div)
@@ -257,42 +469,97 @@ class GrobidParser:
             return content_blocks
 
         except etree.XMLSyntaxError as e:
-            print(f"Error parsing XML: {e}")
+            logger.error(f"Error parsing XML: {e}")
             return []
 
 
+# Context manager for automatic daemon management
+class GrobidDaemon:
+    """
+    Context manager for GROBID daemon that automatically starts and stops the service.
+    """
+    
+    def __init__(self, auto_start: bool = True, auto_stop: bool = False):
+        self.parser = GrobidParser()
+        self.auto_start = auto_start
+        self.auto_stop = auto_stop
+        self.started_here = False
+
+    def __enter__(self):
+        if self.auto_start and not self.parser.is_service_available():
+            logger.info("Starting GROBID daemon...")
+            if self.parser.start_daemon():
+                self.started_here = True
+            else:
+                raise RuntimeError("Failed to start GROBID daemon")
+        return self.parser
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.auto_stop and self.started_here:
+            logger.info("Stopping GROBID daemon...")
+            self.parser.stop_daemon()
+
+
 if __name__ == '__main__':
+    # Example usage with automatic daemon management
     PDF_FILE = "/Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf"
+    
     if not os.path.exists(PDF_FILE):
-        print(f"Creating a dummy PDF named '{PDF_FILE}' for demonstration.")
-        try:
-            from fpdf import FPDF
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, text="This is a sample PDF for the GROBID parser.", ln=True, align='C')
-            pdf.output(PDF_FILE)
-        except ImportError:
-            print("\nWARNING: fpdf library not found. Cannot create a sample PDF.")
-            print("Please create a file named 'sample.pdf' manually to run the demo.")
-            print("You can install it with: pip install fpdf\n")
-            exit()
-
-
-    parser = GrobidParser()
-    # Using a with statement is not feasible here as start/stop are not __enter__/__exit__
-    # So we use a try/finally block to ensure cleanup.
-    if parser.start_grobid():
-        try:
-            xml_output = parser.process_pdf(PDF_FILE)
+        print(f"PDF file not found: {PDF_FILE}")
+        print("Please update the PDF_FILE path to test the parser.")
+        exit(1)
+    
+    # First, let's check Docker status
+    print("=== Docker Diagnostics ===")
+    try:
+        docker_version = subprocess.run(["docker", "--version"], capture_output=True, text=True)
+        if docker_version.returncode == 0:
+            print(f"Docker version: {docker_version.stdout.strip()}")
+        else:
+            print("Docker not found or not running!")
+            exit(1)
             
-            if xml_output:
-                structured_data = GrobidParser.parse_grobid_xml(xml_output)
-                print("\n--- Structured Document Output ---")
-                import json
-                print(json.dumps(structured_data, indent=2))
-                print(f"\nSuccessfully parsed document into {len(structured_data)} chunks.")
-
-        finally:
-            parser.stop_grobid()
-
+        # Check if Docker daemon is running
+        docker_info = subprocess.run(["docker", "info"], capture_output=True, text=True)
+        if docker_info.returncode != 0:
+            print("Docker daemon is not running!")
+            print("Please start Docker Desktop or Docker daemon")
+            exit(1)
+        
+        # Check existing GROBID containers
+        existing_containers = subprocess.run([
+            "docker", "ps", "-a", "--filter", "name=grobid", "--format", "{{.Names}} {{.Status}} {{.Image}}"
+        ], capture_output=True, text=True)
+        
+        if existing_containers.returncode == 0 and existing_containers.stdout.strip():
+            print("Existing GROBID containers:")
+            print(existing_containers.stdout.strip())
+        
+        # Check available GROBID images
+        grobid_images = subprocess.run([
+            "docker", "images", "--filter", "reference=*grobid*", "--format", "{{.Repository}}:{{.Tag}} ({{.Size}})"
+        ], capture_output=True, text=True)
+        
+        if grobid_images.returncode == 0 and grobid_images.stdout.strip():
+            print("Available GROBID images:")
+            print(grobid_images.stdout.strip())
+        else:
+            print("No GROBID images found locally")
+            
+    except Exception as e:
+        print(f"Error checking Docker: {e}")
+        exit(1)
+    
+    print("\n=== Starting GROBID Processing ===")
+    
+    with GrobidDaemon(auto_start=True, auto_stop=False) as parser:
+        xml_output = parser.process_pdf(PDF_FILE)
+        
+        if xml_output:
+            structured_data = GrobidParser.parse_grobid_xml(xml_output)
+            print("\n--- Structured Document Output ---")
+            import json
+            print(json.dumps(structured_data[:3], indent=2))  # Show first 3 chunks
+            print(f"\nSuccessfully parsed document into {len(structured_data)} chunks.")
+        else:
+            print("Failed to process PDF")
