@@ -1,0 +1,22 @@
+# PDF Parsing Alternatives for ARM MacBook Pro
+# These work much better than GROBID on Apple Silicon
+
+# Primary recommendation - PyMuPDF (fastest and most reliable)
+PyMuPDF==1.23.8
+
+# Alternative 1 - Unstructured (great for complex documents)
+unstructured[pdf]==0.11.8
+unstructured-inference==0.7.23
+
+# Alternative 2 - PDFPlumber (excellent for table extraction)
+pdfplumber==0.10.3
+
+# Alternative 3 - PDF2Image (for image extraction)
+pdf2image==1.17.0
+
+# Alternative 4 - Pymupdf2 (if you need newer features)
+# pymupdf2==2.0.0
+
+# Additional utilities
+Pillow==10.1.0
+numpy==1.24.3 

@@ -1,0 +1,55 @@
+# Use Debian as base image (ARM64 compatible)
+FROM debian:bullseye-slim
+
+# Set up multiple mirrors and retry logic
+RUN echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::https::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries
+
+# Install packages in smaller chunks with retries
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends openjdk-11-jdk && \
+    apt-get install -y --no-install-recommends git && \
+    apt-get install -y --no-install-recommends curl wget && \
+    apt-get install -y --no-install-recommends unzip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set up GROBID
+WORKDIR /opt/grobid
+
+# Clone GROBID repository
+RUN git clone --depth 1 --branch 0.8.2 https://github.com/kermitt2/grobid.git . && \
+    chmod +x gradlew
+
+# Build GROBID
+RUN ./gradlew clean install
+
+# Create necessary directories
+RUN mkdir -p /opt/grobid/grobid-home/tmp
+
+# Create server configuration
+RUN echo "server:\n\
+  applicationContextPath: /\n\
+  applicationConnectors:\n\
+    - type: http\n\
+      port: 8070\n\
+      bindHost: 0.0.0.0\n\
+  adminConnectors:\n\
+    - type: http\n\
+      port: 8071\n\
+      bindHost: 0.0.0.0\n\
+logging:\n\
+  level: INFO\n\
+  appenders:\n\
+    - type: console\n\
+      threshold: ALL\n\
+      timeZone: UTC\n\
+      target: stdout\n\
+" > /opt/grobid/grobid-home/config/config.yaml
+
+# Expose ports
+EXPOSE 8070 8071
+
+# Start GROBID service
+CMD ["java", "-jar", "grobid-service/build/libs/grobid-service-0.8.2-onejar.jar", "server", "grobid-home/config/config.yaml"] 

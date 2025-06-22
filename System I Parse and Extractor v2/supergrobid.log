@@ -1,0 +1,241 @@
+2025-06-21 22:48:00,471 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:13:28,855 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:13:39,313 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:13:39,313 - supergrobid.extractors.layoutparser - WARNING - Could not load LayoutParser model: module layoutparser has no attribute PaddleDetectionLayoutModel
+2025-06-22 00:13:39,313 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:13:39,314 - supergrobid - INFO - Starting parsing of /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:13:39,314 - supergrobid - INFO - Step 1: Extracting text with PyMuPDF
+2025-06-22 00:13:39,314 - supergrobid.extractors.pymupdf - INFO - Extracting text from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:13:39,999 - supergrobid.extractors.pymupdf - INFO - Extracted 1566 text blocks
+2025-06-22 00:13:39,999 - supergrobid - INFO - Step 2: Nougat disabled, skipping structure generation
+2025-06-22 00:13:39,999 - supergrobid - INFO - Step 3: LayoutParser disabled, skipping layout detection
+2025-06-22 00:13:40,000 - supergrobid - INFO - Step 4: Reconciling outputs
+2025-06-22 00:13:40,000 - supergrobid.reconciliation - INFO - Starting reconciliation process
+2025-06-22 00:13:40,000 - supergrobid.reconciliation - INFO - Handled 1566 orphan blocks
+2025-06-22 00:13:40,000 - supergrobid.reconciliation - INFO - Reconciliation complete: 1566 elements
+2025-06-22 00:13:40,000 - supergrobid - INFO - Step 5: Parsing specialized content
+2025-06-22 00:13:40,000 - supergrobid - INFO - Step 6: Generating output
+2025-06-22 00:13:40,000 - supergrobid.output - INFO - Generating markdown output
+2025-06-22 00:13:40,001 - supergrobid.output - INFO - Output saved to alphafold_output.md
+2025-06-22 00:13:40,001 - supergrobid - INFO - Parsing completed successfully in 0.69 seconds
+2025-06-22 00:14:17,651 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:14:25,488 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:14:25,488 - supergrobid.extractors.layoutparser - WARNING - Could not load LayoutParser model: module layoutparser has no attribute PaddleDetectionLayoutModel
+2025-06-22 00:14:25,488 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:14:25,488 - supergrobid - INFO - Starting parsing of /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:14:25,488 - supergrobid - INFO - Step 1: Extracting text with PyMuPDF
+2025-06-22 00:14:25,489 - supergrobid.extractors.pymupdf - INFO - Extracting text from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:14:26,127 - supergrobid.extractors.pymupdf - INFO - Extracted 1566 text blocks
+2025-06-22 00:14:26,127 - supergrobid - INFO - Step 2: Nougat disabled, skipping structure generation
+2025-06-22 00:14:26,127 - supergrobid - INFO - Step 3: LayoutParser disabled, skipping layout detection
+2025-06-22 00:14:26,127 - supergrobid - INFO - Step 4: Reconciling outputs
+2025-06-22 00:14:26,127 - supergrobid.reconciliation - INFO - Starting reconciliation process
+2025-06-22 00:14:26,127 - supergrobid.reconciliation - INFO - Handled 1566 orphan blocks
+2025-06-22 00:14:26,127 - supergrobid.reconciliation - INFO - Reconciliation complete: 1566 elements
+2025-06-22 00:14:26,127 - supergrobid - INFO - Step 5: Parsing specialized content
+2025-06-22 00:14:26,128 - supergrobid - INFO - Step 6: Generating output
+2025-06-22 00:14:26,128 - supergrobid.output - INFO - Generating markdown output
+2025-06-22 00:14:26,128 - supergrobid.output - INFO - Output saved to alphafold_output.md
+2025-06-22 00:14:26,129 - supergrobid - INFO - Parsing completed successfully in 0.64 seconds
+2025-06-22 00:36:08,787 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:36:16,929 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:36:16,930 - supergrobid.extractors.layoutparser - WARNING - Could not load LayoutParser model: module layoutparser has no attribute PaddleDetectionLayoutModel
+2025-06-22 00:36:16,930 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:36:16,930 - supergrobid - INFO - Starting parsing of /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:36:16,930 - supergrobid - INFO - Step 1: Extracting text with PyMuPDF
+2025-06-22 00:36:16,930 - supergrobid.extractors.pymupdf - INFO - Extracting text from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:36:17,574 - supergrobid.extractors.pymupdf - INFO - Extracted 1566 text blocks
+2025-06-22 00:36:17,574 - supergrobid - INFO - Step 2: Nougat disabled, skipping structure generation
+2025-06-22 00:36:17,574 - supergrobid - INFO - Step 3: LayoutParser disabled, skipping layout detection
+2025-06-22 00:36:17,574 - supergrobid - INFO - Step 4: Reconciling outputs
+2025-06-22 00:36:17,574 - supergrobid.reconciliation - INFO - Starting reconciliation process
+2025-06-22 00:36:17,574 - supergrobid.reconciliation - INFO - Handled 1566 orphan blocks
+2025-06-22 00:36:17,574 - supergrobid.reconciliation - INFO - Reconciliation complete: 1566 elements
+2025-06-22 00:36:17,575 - supergrobid - INFO - Step 5: Parsing specialized content
+2025-06-22 00:36:17,575 - supergrobid - INFO - Step 6: Generating output
+2025-06-22 00:36:17,575 - supergrobid.output - INFO - Generating json output
+2025-06-22 00:36:17,584 - supergrobid.output - INFO - Output saved to alphafold_output.json
+2025-06-22 00:36:17,584 - supergrobid - INFO - Parsing completed successfully in 0.65 seconds
+2025-06-22 00:36:41,684 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:36:48,746 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:36:48,746 - supergrobid.extractors.layoutparser - WARNING - Could not load LayoutParser model: module layoutparser has no attribute PaddleDetectionLayoutModel
+2025-06-22 00:36:48,746 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:39:00,920 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:39:09,686 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:39:09,686 - supergrobid.extractors.layoutparser - WARNING - PaddleDetectionLayoutModel not available, trying AutoLayoutModel
+2025-06-22 00:39:09,704 - supergrobid.extractors.layoutparser - WARNING - No LayoutParser model available, layout detection will be disabled
+2025-06-22 00:39:09,704 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:39:09,704 - supergrobid - INFO - Starting parsing of /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:39:09,705 - supergrobid - INFO - Step 1: Extracting text with PyMuPDF
+2025-06-22 00:39:09,705 - supergrobid.extractors.pymupdf - INFO - Extracting text from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:39:10,345 - supergrobid.extractors.pymupdf - INFO - Extracted 1566 text blocks
+2025-06-22 00:39:10,345 - supergrobid - INFO - Step 2: Generating structure with Nougat
+2025-06-22 00:39:10,345 - supergrobid.extractors.nougat - INFO - Generating structured content from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:39:10,345 - supergrobid.extractors.nougat - INFO - Using fallback extraction method
+2025-06-22 00:39:10,582 - supergrobid - INFO - Step 3: Detecting layout regions
+2025-06-22 00:39:10,582 - supergrobid.extractors.layoutparser - INFO - Detecting layout regions in /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:39:10,582 - supergrobid - INFO - Step 4: Reconciling outputs
+2025-06-22 00:39:10,582 - supergrobid.reconciliation - INFO - Starting reconciliation process
+2025-06-22 00:39:11,378 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 493 Article Accu...
+2025-06-22 00:39:12,035 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 494 | Nature | Vol 630 | 13 June 2024 Article Netw...
+2025-06-22 00:39:12,638 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 495 The diffusio...
+2025-06-22 00:39:13,511 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 496 | Nature | Vol 630 | 13 June 2024 Article we f...
+2025-06-22 00:39:14,763 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 497 like RoseTTA...
+2025-06-22 00:39:15,251 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 498 | Nature | Vol 630 | 13 June 2024 Article that...
+2025-06-22 00:39:15,794 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 499 strongly is ...
+2025-06-22 00:39:17,241 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 500 | Nature | Vol 630 | 13 June 2024 Article thes...
+2025-06-22 00:39:18,401 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Methods Full algorithm details Extensive explanati...
+2025-06-22 00:39:19,549 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Article between AF3 and RF2NA, a subset of our rec...
+2025-06-22 00:39:20,424 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 52. Werel, L. et al. Structural basis of dual spec...
+2025-06-22 00:39:20,541 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Extended Data Fig. 4 | PoseBusters analysis. a, Co...
+2025-06-22 00:39:20,556 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Article Extended Data Fig. 5 | Nucleic acid predic...
+2025-06-22 00:39:20,578 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Extended Data Fig. 6 | Analysis and examples for m...
+2025-06-22 00:39:20,589 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Article Extended Data Fig. 7 | Model accuracy with...
+2025-06-22 00:39:20,595 - supergrobid.reconciliation - INFO - Handled 0 orphan blocks
+2025-06-22 00:39:20,595 - supergrobid.reconciliation - INFO - Reconciliation complete: 9 elements
+2025-06-22 00:39:20,595 - supergrobid - INFO - Step 5: Parsing specialized content
+2025-06-22 00:39:20,595 - supergrobid.specialized.table - INFO - Parsing 0 tables
+2025-06-22 00:39:20,595 - supergrobid.specialized.table - INFO - Successfully parsed 0 tables
+2025-06-22 00:39:20,595 - supergrobid.specialized.equation - INFO - Parsing 0 equations
+2025-06-22 00:39:20,595 - supergrobid.specialized.equation - INFO - Successfully parsed 0 equations
+2025-06-22 00:39:20,595 - supergrobid.specialized.reference - INFO - Parsing references from 0 regions
+2025-06-22 00:39:20,595 - supergrobid.specialized.reference - INFO - Successfully parsed 0 references
+2025-06-22 00:39:20,595 - supergrobid - INFO - Step 6: Generating output
+2025-06-22 00:39:20,595 - supergrobid.output - INFO - Generating markdown output
+2025-06-22 00:39:20,596 - supergrobid.output - INFO - Output saved to alphafold_enhanced.md
+2025-06-22 00:39:20,596 - supergrobid - INFO - Parsing completed successfully in 10.89 seconds
+2025-06-22 00:39:47,321 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:39:55,069 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:39:55,069 - supergrobid.extractors.layoutparser - WARNING - PaddleDetectionLayoutModel not available, trying AutoLayoutModel
+2025-06-22 00:39:55,078 - supergrobid.extractors.layoutparser - WARNING - No LayoutParser model available, layout detection will be disabled
+2025-06-22 00:39:55,078 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:42:27,637 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:42:37,115 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:42:42,154 - supergrobid.extractors.layoutparser - WARNING - LayoutParser model loading failed: PaddleDetectionLayoutModel.__init__() got an unexpected keyword argument 'threshold'
+2025-06-22 00:42:42,155 - supergrobid.extractors.layoutparser - WARNING - No LayoutParser model available, layout detection will be disabled
+2025-06-22 00:42:42,155 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:44:24,112 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:44:32,842 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:45:12,974 - supergrobid.extractors.layoutparser - INFO - Loaded LayoutParser model: PubLayNet
+2025-06-22 00:45:12,975 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:45:12,976 - supergrobid - INFO - Starting parsing of /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:45:12,976 - supergrobid - INFO - Step 1: Extracting text with PyMuPDF
+2025-06-22 00:45:12,976 - supergrobid.extractors.pymupdf - INFO - Extracting text from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:45:13,617 - supergrobid.extractors.pymupdf - INFO - Extracted 1566 text blocks
+2025-06-22 00:45:13,618 - supergrobid - INFO - Step 2: Generating structure with Nougat
+2025-06-22 00:45:13,618 - supergrobid.extractors.nougat - INFO - Generating structured content from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:45:13,618 - supergrobid.extractors.nougat - INFO - Using fallback extraction method
+2025-06-22 00:45:13,852 - supergrobid - INFO - Step 3: Detecting layout regions
+2025-06-22 00:45:13,852 - supergrobid.extractors.layoutparser - INFO - Detecting layout regions in /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:45:14,022 - supergrobid.extractors.layoutparser - ERROR - Error in layout detection: Unable to get page count. Is poppler installed and in PATH?
+2025-06-22 00:45:14,022 - supergrobid - INFO - Step 4: Reconciling outputs
+2025-06-22 00:45:14,022 - supergrobid.reconciliation - INFO - Starting reconciliation process
+2025-06-22 00:45:14,837 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 493 Article Accu...
+2025-06-22 00:45:15,502 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 494 | Nature | Vol 630 | 13 June 2024 Article Netw...
+2025-06-22 00:45:16,101 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 495 The diffusio...
+2025-06-22 00:45:16,994 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 496 | Nature | Vol 630 | 13 June 2024 Article we f...
+2025-06-22 00:45:18,252 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 497 like RoseTTA...
+2025-06-22 00:45:18,755 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 498 | Nature | Vol 630 | 13 June 2024 Article that...
+2025-06-22 00:45:19,308 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 499 strongly is ...
+2025-06-22 00:45:20,933 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 500 | Nature | Vol 630 | 13 June 2024 Article thes...
+2025-06-22 00:45:22,116 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Methods Full algorithm details Extensive explanati...
+2025-06-22 00:45:23,338 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Article between AF3 and RF2NA, a subset of our rec...
+2025-06-22 00:45:24,270 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 52. Werel, L. et al. Structural basis of dual spec...
+2025-06-22 00:45:24,390 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Extended Data Fig. 4 | PoseBusters analysis. a, Co...
+2025-06-22 00:45:24,406 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Article Extended Data Fig. 5 | Nucleic acid predic...
+2025-06-22 00:45:24,429 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Extended Data Fig. 6 | Analysis and examples for m...
+2025-06-22 00:45:24,440 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Article Extended Data Fig. 7 | Model accuracy with...
+2025-06-22 00:45:24,446 - supergrobid.reconciliation - INFO - Handled 0 orphan blocks
+2025-06-22 00:45:24,446 - supergrobid.reconciliation - INFO - Reconciliation complete: 9 elements
+2025-06-22 00:45:24,446 - supergrobid - INFO - Step 5: Parsing specialized content
+2025-06-22 00:45:24,446 - supergrobid.specialized.table - INFO - Parsing 0 tables
+2025-06-22 00:45:24,446 - supergrobid.specialized.table - INFO - Successfully parsed 0 tables
+2025-06-22 00:45:24,446 - supergrobid.specialized.equation - INFO - Parsing 0 equations
+2025-06-22 00:45:24,446 - supergrobid.specialized.equation - INFO - Successfully parsed 0 equations
+2025-06-22 00:45:24,446 - supergrobid.specialized.reference - INFO - Parsing references from 0 regions
+2025-06-22 00:45:24,446 - supergrobid.specialized.reference - INFO - Successfully parsed 0 references
+2025-06-22 00:45:24,446 - supergrobid - INFO - Step 6: Generating output
+2025-06-22 00:45:24,446 - supergrobid.output - INFO - Generating markdown output
+2025-06-22 00:45:24,447 - supergrobid.output - INFO - Output saved to alphafold_layout_mps.md
+2025-06-22 00:45:24,447 - supergrobid - INFO - Parsing completed successfully in 11.47 seconds
+2025-06-22 00:59:10,345 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 00:59:19,840 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 00:59:21,873 - supergrobid.extractors.layoutparser - INFO - Loaded LayoutParser model: PubLayNet
+2025-06-22 00:59:21,873 - supergrobid - INFO - SuperGrobid parser initialized successfully
+2025-06-22 00:59:21,873 - supergrobid - INFO - Starting parsing of /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:59:21,874 - supergrobid - INFO - Step 1: Extracting text with PyMuPDF
+2025-06-22 00:59:21,874 - supergrobid.extractors.pymupdf - INFO - Extracting text from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:59:22,512 - supergrobid.extractors.pymupdf - INFO - Extracted 1566 text blocks
+2025-06-22 00:59:22,512 - supergrobid - INFO - Step 2: Generating structure with Nougat
+2025-06-22 00:59:22,512 - supergrobid.extractors.nougat - INFO - Generating structured content from /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:59:22,513 - supergrobid.extractors.nougat - INFO - Using fallback extraction method
+2025-06-22 00:59:22,745 - supergrobid - INFO - Step 3: Detecting layout regions
+2025-06-22 00:59:22,745 - supergrobid.extractors.layoutparser - INFO - Detecting layout regions in /Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/0. Input Data/AlphaFold.pdf
+2025-06-22 00:59:22,887 - supergrobid.extractors.layoutparser - INFO - Found poppler at: /opt/homebrew/bin
+2025-06-22 00:59:48,554 - supergrobid.extractors.layoutparser - INFO - Detected 159 layout regions
+2025-06-22 00:59:48,565 - supergrobid - INFO - Step 4: Reconciling outputs
+2025-06-22 00:59:48,565 - supergrobid.reconciliation - INFO - Starting reconciliation process
+2025-06-22 00:59:50,355 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 493 Article Accu...
+2025-06-22 00:59:51,603 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 494 | Nature | Vol 630 | 13 June 2024 Article Netw...
+2025-06-22 00:59:52,787 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 495 The diffusio...
+2025-06-22 00:59:54,658 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 496 | Nature | Vol 630 | 13 June 2024 Article we f...
+2025-06-22 00:59:56,796 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 497 like RoseTTA...
+2025-06-22 00:59:57,692 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 498 | Nature | Vol 630 | 13 June 2024 Article that...
+2025-06-22 00:59:58,749 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Nature | Vol 630 | 13 June 2024 | 499 strongly is ...
+2025-06-22 01:00:01,769 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 500 | Nature | Vol 630 | 13 June 2024 Article thes...
+2025-06-22 01:00:04,230 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Methods Full algorithm details Extensive explanati...
+2025-06-22 01:00:06,668 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Article between AF3 and RF2NA, a subset of our rec...
+2025-06-22 01:00:08,567 - supergrobid.reconciliation - INFO - Discarding element with low similarity: 52. Werel, L. et al. Structural basis of dual spec...
+2025-06-22 01:00:08,694 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Extended Data Fig. 4 | PoseBusters analysis. a, Co...
+2025-06-22 01:00:08,722 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Article Extended Data Fig. 5 | Nucleic acid predic...
+2025-06-22 01:00:08,758 - supergrobid.reconciliation - INFO - Discarding element with low similarity: Extended Data Fig. 6 | Analysis and examples for m...
+2025-06-22 01:00:08,768 - supergrobid.reconciliation - WARNING - Potential hallucination detected: Article Extended Data Fig. 7 | Model accuracy with...
+2025-06-22 01:00:08,774 - supergrobid.reconciliation - INFO - Handled 0 orphan blocks
+2025-06-22 01:00:08,774 - supergrobid.reconciliation - INFO - Reconciliation complete: 9 elements
+2025-06-22 01:00:08,774 - supergrobid - INFO - Step 5: Parsing specialized content
+2025-06-22 01:00:08,774 - supergrobid.specialized.table - INFO - Parsing 1 tables
+2025-06-22 01:00:10,431 - supergrobid.specialized.table - ERROR - Error in Camelot extraction: area cannot be used with flavor='stream'
+2025-06-22 01:00:10,432 - supergrobid.specialized.table - INFO - LLM-based table OCR not implemented yet
+2025-06-22 01:00:10,432 - supergrobid.specialized.table - INFO - Successfully parsed 0 tables
+2025-06-22 01:00:10,432 - supergrobid.specialized.equation - INFO - Parsing 0 equations
+2025-06-22 01:00:10,432 - supergrobid.specialized.equation - INFO - Successfully parsed 0 equations
+2025-06-22 01:00:10,432 - supergrobid.specialized.reference - INFO - Parsing references from 0 regions
+2025-06-22 01:00:10,432 - supergrobid.specialized.reference - INFO - Successfully parsed 0 references
+2025-06-22 01:00:10,432 - supergrobid - INFO - Step 6: Generating output
+2025-06-22 01:00:10,432 - supergrobid.output - INFO - Generating markdown output
+2025-06-22 01:00:10,432 - supergrobid.output - INFO - Output saved to alphafold_final.md
+2025-06-22 01:00:10,432 - supergrobid - INFO - Parsing completed successfully in 48.56 seconds
+2025-06-22 01:04:24,663 - supergrobid - INFO - Initializing SuperGrobid parser
+2025-06-22 01:04:32,880 - supergrobid.extractors.nougat - WARNING - Nougat model loading failed: 1 validation error for InitSchema
+compression_type
+  Input should be 'jpeg' or 'webp' [type=literal_error, input_value=95, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/literal_error, using fallback method
+2025-06-22 01:04:34,581 - supergrobid.extractors.layoutparser - INFO - Loaded LayoutParser model: PubLayNet
+2025-06-22 01:04:34,581 - supergrobid - INFO - SuperGrobid parser initialized successfully

@@ -1,0 +1,59 @@
+# SuperGrobid Configuration
+# Document-wide parameters for the hybrid parsing system
+
+# Text extraction settings
+text_extraction:
+  pymupdf:
+    extract_images: true
+    extract_tables: true
+    min_font_size: 8
+    max_font_size: 72
+  nougat:
+    enabled: true  # Enable Nougat for structure generation
+    model_name: "facebook/nougat-base"
+    max_length: 4096
+    device: "auto"  # auto, cpu, cuda
+
+# Layout detection settings
+layout_detection:
+  layoutparser:
+    enabled: true  # Enable LayoutParser for layout detection
+    model_name: "PubLayNet"
+    confidence_threshold: 0.5
+
+# Reconciliation settings
+reconciliation:
+  similarity:
+    method: "levenshtein"  # levenshtein, cosine, fuzzy
+    threshold: 0.8
+  hallucination:
+    detection_threshold: 0.6
+    discard_threshold: 0.4
+
+# Specialized parsing settings
+specialized_parsing:
+  tables:
+    enabled: true  # Enable table parsing
+    method: "camelot"
+    fallback_to_llm: true
+  equations:
+    enabled: true  # Enable equation parsing
+    method: "im2latex"
+  references:
+    enabled: true  # Enable reference parsing
+    method: "pdfx"
+    use_scibert: false
+
+# Output settings
+output:
+  formats: ["markdown", "json", "xml"]
+  include_metadata: true
+  include_bbox: false
+  include_confidence: true
+
+# Logging settings
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "supergrobid.log"
+  console: true 
