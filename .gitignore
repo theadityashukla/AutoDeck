@@ -1,1 +1,21 @@
-.pdf
+# Data
+*.pdf
+extracted_images/
+chroma_db/
+
+# Models
+gemma-3-12b-mlx/
+gemma3-12b-int4/
+
+# Secrets
+tokens/
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# System
+.DS_Store
