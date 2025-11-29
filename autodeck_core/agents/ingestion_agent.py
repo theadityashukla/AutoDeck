@@ -10,38 +10,67 @@ class IngestionAgent:
         self.chunker = AgenticChunker(mock=mock_llm)
         self.vector_store = VectorStore()
 
-    def ingest(self, pdf_path: str):
-        print(f"Starting ingestion for: {pdf_path}")
+    def ingest(self, pdf_path: str, progress_callback=None, stop_check=None, log_callback=None):
+        def log(msg):
+            print(msg)
+            if log_callback:
+                log_callback(msg)
+
+        filename = os.path.basename(pdf_path)
+        log(f"Starting ingestion for: {filename}")
         
         # 1. Parse PDF
-        print("Parsing PDF...")
+        if progress_callback:
+            progress_callback(0, "Parsing PDF...")
+        
         parsed_data = self.parser.parse(pdf_path)
         full_text = parsed_data['full_text']
         images = []
         for page in parsed_data['pages']:
             images.extend(page['images'])
             
-        print(f"Extracted {len(full_text)} characters and {len(images)} images.")
+        log(f"Extracted {len(full_text)} characters and {len(images)} images.")
         
-        # 2. Page-Aware Chunking & Image Association
-        print("Chunking text page by page (this may take time with local LLM)...")
-        processed_chunks = []
+        # 2. Check for existing pages (Resume Logic)
+        existing_pages = self.vector_store.get_existing_pages(filename)
+        log(f"Found {len(existing_pages)} existing pages in DB.")
         
-        for page_data in parsed_data['pages']:
+        # 3. Page-Aware Chunking & Image Association
+        total_pages = len(parsed_data['pages'])
+        
+        for i, page_data in enumerate(parsed_data['pages']):
+            # Check for stop signal
+            if stop_check and stop_check():
+                log("Ingestion stopped by user.")
+                if progress_callback:
+                    progress_callback(i / total_pages, "Ingestion stopped.")
+                return
+
             page_num = page_data['page_number']
+            
+            # Skip if already processed
+            if page_num in existing_pages:
+                log(f"Skipping Page {page_num} (already processed).")
+                if progress_callback:
+                    progress_callback((i + 1) / total_pages, f"Skipping Page {page_num} (already done)...")
+                continue
+
             page_text = page_data['text']
             page_images = page_data['images']
             
             if not page_text.strip():
                 continue
                 
-            print(f"Processing Page {page_num}...")
+            log(f"Processing Page {page_num}...")
+            if progress_callback:
+                progress_callback((i + 0.1) / total_pages, f"Processing Page {page_num} of {total_pages}...")
             
             # Chunk the page text, passing available images
             page_chunks = self.chunker.chunk(page_text, images=page_images)
             
+            processed_chunks = []
             # Process chunks and resolve image indices to paths
-            for i, chunk in enumerate(page_chunks):
+            for j, chunk in enumerate(page_chunks):
                 # Resolve image indices to actual paths
                 related_image_paths = []
                 related_indices = chunk.get('related_images', [])
@@ -51,12 +80,12 @@ class IngestionAgent:
                         related_image_paths.append(page_images[idx]['path'])
                 
                 meta = {
-                    "source": parsed_data['filename'],
+                    "source": filename,
                     "title": chunk.get('title', 'Untitled'),
                     "summary": chunk.get('summary', ''),
                     "page_number": page_num,
-                    "chunk_index": len(processed_chunks) + i,
-                    "related_images": str(related_image_paths) # Store as string representation
+                    "chunk_index": j, # Index within page
+                    "related_images": str(related_image_paths)
                 }
                 
                 processed_chunks.append({
@@ -64,14 +93,16 @@ class IngestionAgent:
                     "metadata": meta
                 })
             
-
+            # Store IMMEDIATELY after processing the page to allow resume
+            if processed_chunks:
+                self.vector_store.add_documents(processed_chunks)
             
-        print(f"Generated {len(processed_chunks)} total chunks.")
+            if progress_callback:
+                progress_callback((i + 1) / total_pages, f"Completed Page {page_num}")
             
-        # 4. Store in Vector DB
-        print("Storing in Vector DB...")
-        self.vector_store.add_documents(processed_chunks)
-        print("Ingestion complete!")
+        log("Ingestion complete!")
+        if progress_callback:
+            progress_callback(1.0, "Ingestion Complete!")
 
 if __name__ == "__main__":
     import sys

@@ -18,6 +18,97 @@ if not os.path.exists(pdf_dir):
 pdf_files = [f for f in os.listdir(pdf_dir) if f.endswith(".pdf")]
 selected_pdf = st.sidebar.selectbox("Select PDF", pdf_files)
 
+# Theme Selector
+theme = st.sidebar.selectbox("Theme", ["Default", "Black & Gold"])
+
+if theme == "Black & Gold":
+    st.markdown("""
+    <style>
+    /* Global Variables */
+    :root {
+        --gold: #D4AF37;
+        --dark-bg: #0E1117;
+        --card-bg: #1E1E1E;
+        --text-color: #E0E0E0;
+    }
+    
+    /* Main Background */
+    .stApp {
+        background-color: var(--dark-bg);
+        color: var(--text-color);
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #000000;
+        border-right: 1px solid var(--gold);
+    }
+    
+    /* Headers */
+    h1, h2, h3, .stHeader {
+        color: var(--gold) !important;
+        font-family: 'Helvetica Neue', sans-serif;
+        font-weight: 600;
+    }
+    
+    /* Normal Text */
+    p, li, label, .stMarkdown {
+        color: var(--text-color) !important;
+    }
+    
+    /* Inputs */
+    .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
+        background-color: var(--card-bg) !important;
+        color: var(--gold) !important;
+        border: 1px solid #333 !important;
+        border-radius: 8px;
+    }
+    .stTextInput input:focus, .stTextArea textarea:focus {
+        border-color: var(--gold) !important;
+        box-shadow: 0 0 5px rgba(212, 175, 55, 0.5);
+    }
+    
+    /* Buttons */
+    .stButton button {
+        background-color: transparent !important;
+        color: var(--gold) !important;
+        border: 1px solid var(--gold) !important;
+        border-radius: 20px;
+        transition: all 0.3s ease;
+    }
+    .stButton button:hover {
+        background-color: var(--gold) !important;
+        color: #000000 !important;
+        border-color: var(--gold) !important;
+    }
+    
+    /* Primary Buttons (Solid Gold) */
+    .stButton button[kind="primary"] {
+        background-color: var(--gold) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }
+    
+    /* Expanders/Cards */
+    .streamlit-expanderHeader {
+        background-color: var(--card-bg) !important;
+        color: var(--gold) !important;
+        border: 1px solid #333;
+        border-radius: 8px;
+    }
+    
+    /* Progress Bar */
+    .stProgress > div > div > div > div {
+        background-color: var(--gold) !important;
+    }
+    
+    /* Dividers */
+    hr {
+        border-color: #333 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Initialize Agents (Lazy Load)
 @st.cache_resource
 def get_ingestion_agent():
@@ -32,31 +123,65 @@ def get_content_agent():
     return SlideContentAgent()
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["1. Ingestion", "2. Outline", "3. Content"])
+tab1, tab2, tab3, tab4 = st.tabs(["Ingestion", "Outline", "Content", "Logs"])
+
+# Initialize Logs
+if 'logs' not in st.session_state:
+    st.session_state['logs'] = []
+
+def log_message(msg):
+    st.session_state['logs'].append(msg)
 
 # --- TAB 1: INGESTION ---
 with tab1:
-    st.header("Document Ingestion")
+    st.header("Document Ingestion", divider="gray")
     if selected_pdf:
         st.write(f"Selected Document: **{selected_pdf}**")
-        if st.button("Ingest Document"):
-            with st.spinner("Ingesting... This may take a while."):
+        
+        # Controls
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            start_btn = st.button("Ingest / Resume Document", icon=":material/play_arrow:", use_container_width=True)
+        with col2:
+            stop_btn = st.button("Stop Ingestion", icon=":material/stop:", type="primary", use_container_width=True)
+        
+        # Progress UI
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        if stop_btn:
+            st.session_state['stop_ingestion'] = True
+            st.warning("Stopping after current page...")
+        
+        if start_btn:
+            st.session_state['stop_ingestion'] = False
+            
+            def update_progress(progress, message):
+                progress_bar.progress(progress)
+                status_text.text(message)
+                
+            def check_stop():
+                return st.session_state.get('stop_ingestion', False)
+
+            with st.spinner("Initializing..."):
                 agent = get_ingestion_agent()
                 pdf_path = os.path.join(pdf_dir, selected_pdf)
                 
-                # Capture output? For now just run it.
-                # In a real app we might want to capture stdout or have the agent return status
                 try:
-                    agent.ingest(pdf_path)
-                    st.success("Ingestion Complete! Document processed and stored in Vector DB.")
+                    agent.ingest(pdf_path, progress_callback=update_progress, stop_check=check_stop, log_callback=log_message)
+                    if not st.session_state.get('stop_ingestion', False):
+                        st.success("Ingestion Complete! Document processed and stored in Vector DB.")
+                    else:
+                        st.info("Ingestion Paused. Click 'Ingest / Resume' to continue later.")
                 except Exception as e:
                     st.error(f"Ingestion Failed: {e}")
+                    log_message(f"Error: {e}")
     else:
         st.info("Please add a PDF file to the '0. Input Data' directory.")
 
 # --- TAB 2: OUTLINE ---
 with tab2:
-    st.header("📝 Slide Outline")
+    st.header("Slide Outline", divider="gray")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -64,7 +189,7 @@ with tab2:
     with col2:
         audience = st.text_input("Target Audience", value="General Audience")
         
-    if st.button("✨ Generate Outline"):
+    if st.button("Generate Outline", icon=":material/auto_awesome:", type="primary"):
         with st.spinner("Generating Outline..."):
             agent = get_outline_agent()
             outline = agent.generate_outline(topic, audience)
@@ -95,7 +220,7 @@ with tab2:
                     
                     existing_comment = st.session_state['slide_comments'].get(idx, "")
                     comment = st.text_area(
-                        "💬 Comments / Highlights",
+                        "Comments / Highlights",
                         value=existing_comment,
                         key=comment_key,
                         height=80,
@@ -105,7 +230,7 @@ with tab2:
                         st.session_state['slide_comments'][idx] = comment
                 
                 with col2:
-                    if st.button("❌ Delete", key=f"delete_{idx}", use_container_width=True):
+                    if st.button("Delete", key=f"delete_{idx}", icon=":material/delete:", use_container_width=True):
                         st.session_state['outline'].pop(idx)
                         # Clean up comment
                         if idx in st.session_state.get('slide_comments', {}):
@@ -113,7 +238,7 @@ with tab2:
                         st.rerun()
                 
                 with col3:
-                    if st.button("➕ Insert After", key=f"insert_{idx}", use_container_width=True):
+                    if st.button("Insert After", key=f"insert_{idx}", icon=":material/add_circle:", use_container_width=True):
                         # Show form to insert new slide
                         st.session_state[f'show_insert_{idx}'] = True
                         st.rerun()
@@ -140,12 +265,12 @@ with tab2:
         
         # Global Refinement
         st.markdown("---")
-        st. subheader("🔧 Refine Entire Outline")
+        st.subheader("Refine Entire Outline", divider="gray")
         feedback = st.text_area(
             "Describe changes to make across the outline",
             placeholder="e.g., 'Add a slide about cost-effectiveness after introduction'"
         )
-        if st.button("🔄 Refine Outline"):
+        if st.button("Refine Outline", icon=":material/refresh:"):
             with st.spinner("Refining..."):
                 agent = get_outline_agent()
                 refined_outline = agent.refine_outline(st.session_state['outline'], feedback)
@@ -155,7 +280,7 @@ with tab2:
 
 # --- TAB 3: CONTENT ---
 with tab3:
-    st.header("Slide Content")
+    st.header("Slide Content", divider="gray")
     
     if 'outline' in st.session_state:
         slides = st.session_state['outline']
@@ -165,7 +290,7 @@ with tab3:
         selected_slide = slides[selected_slide_idx]
         st.write(f"**Description:** {selected_slide['description']}")
         
-        if st.button("Generate Content for Slide"):
+        if st.button("Generate Content for Slide", icon=":material/draw:", type="primary"):
             with st.spinner("Generating Content..."):
                 agent = get_content_agent()
                 content = agent.generate_slide_content(selected_slide['title'], selected_slide['description'])
@@ -199,7 +324,7 @@ with tab3:
             # Feedback Loop
             st.markdown("---")
             feedback = st.text_area("Refine Slide Content (e.g., 'Make bullets shorter')")
-            if st.button("Refine Slide"):
+            if st.button("Refine Slide", icon=":material/refresh:"):
                 with st.spinner("Refining..."):
                     agent = get_content_agent()
                     refined_content = agent.refine_content(content, feedback)
@@ -208,3 +333,16 @@ with tab3:
             
     else:
         st.info("Please generate an outline in Tab 2 first.")
+
+# --- TAB 4: LOGS ---
+with tab4:
+    st.header("System Logs", divider="gray")
+    if st.button("Clear Logs", icon=":material/delete:"):
+        st.session_state['logs'] = []
+        st.rerun()
+        
+    if 'logs' in st.session_state and st.session_state['logs']:
+        for msg in st.session_state['logs']:
+            st.text(msg)
+    else:
+        st.info("No logs yet.")

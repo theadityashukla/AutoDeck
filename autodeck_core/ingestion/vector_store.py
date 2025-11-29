@@ -41,6 +41,25 @@ class VectorStore:
                 })
         return formatted_results
 
+    def get_existing_pages(self, source_filename: str) -> set:
+        """
+        Returns a set of page numbers that have already been ingested for the given file.
+        """
+        # We need to fetch all metadata for the given source
+        # Chroma doesn't support "select distinct", so we fetch relevant metadata
+        results = self.collection.get(
+            where={"source": source_filename},
+            include=["metadatas"]
+        )
+        
+        existing_pages = set()
+        if results['metadatas']:
+            for meta in results['metadatas']:
+                if 'page_number' in meta:
+                    existing_pages.add(meta['page_number'])
+        
+        return existing_pages
+
 if __name__ == "__main__":
     store = VectorStore()
     print("VectorStore initialized")
