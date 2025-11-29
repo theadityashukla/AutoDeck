@@ -91,15 +91,55 @@ JSON Output:
             else:
                 json_str = response
             
+            # Clean up potential trailing commas or whitespace
+            json_str = json_str.strip()
+            
             content = json.loads(json_str)
             self.logger.info("Successfully parsed slide content")
             return content
         except Exception as e:
+            self.logger.warning(f"JSON parsing failed: {e}. Attempting fallback text parsing.")
+            # Fallback: Regex parsing for non-JSON output
+            
+            content = {
+                "title": slide_title,
+                "bullet_points": [],
+                "image_suggestion": "None",
+                "speaker_notes": ""
+            }
+            
+            # Extract Title
+            title_match = re.search(r'"title":\s*"(.*?)"', response, re.IGNORECASE)
+            if title_match:
+                content["title"] = title_match.group(1)
+                
+            # Extract Bullets (simple list match)
+            bullets_match = re.search(r'"bullet_points":\s*\[(.*?)\]', response, re.DOTALL)
+            if bullets_match:
+                bullets_str = bullets_match.group(1)
+                # Split by quotes
+                bullets = re.findall(r'"(.*?)"', bullets_str)
+                content["bullet_points"] = bullets
+            
+            # Extract Image
+            img_match = re.search(r'"image_suggestion":\s*"(.*?)"', response, re.IGNORECASE)
+            if img_match:
+                content["image_suggestion"] = img_match.group(1)
+                
+            # Extract Notes
+            notes_match = re.search(r'"speaker_notes":\s*"(.*?)"', response, re.DOTALL)
+            if notes_match:
+                content["speaker_notes"] = notes_match.group(1)
+            
+            if content["bullet_points"]:
+                self.logger.info("Fallback parsing recovered content")
+                return content
+                
             self.logger.error(f"Error parsing slide content: {e}")
             self.logger.error(f"Raw response: {response}")
             return {
                 "title": slide_title,
-                "bullet_points": ["Error generating content."],
+                "bullet_points": ["Error generating content. Please try again."],
                 "image_suggestion": "None",
                 "speaker_notes": "Error generating notes."
             }

@@ -33,11 +33,16 @@ Topic: {topic}
 Target Audience: {audience}
 Target Length: Approximately {num_slides} slides.
 
-Output a JSON list of objects, where each object represents a slide and has:
+You MUST output a valid JSON list of objects. Do not output any other text or explanations.
+Each object must have:
 - "title": The title of the slide.
-- "description": A brief 1-sentence description of what this slide should cover.
+- "description": A brief 1-sentence description.
 
-Ensure the flow is logical: Title Slide -> Introduction -> Key Points -> Conclusion.
+Example Output:
+[
+  {{"title": "Title Slide", "description": "Introduction to the topic"}},
+  {{"title": "Key Concept", "description": "Explaining the main idea"}}
+]
 
 JSON Output:
 """
@@ -51,15 +56,84 @@ JSON Output:
             if match:
                 json_str = match.group(1)
             else:
-                json_str = response
+                # Try to find list enclosed in brackets
+                match = re.search(r'\[.*\]', response, re.DOTALL)
+                if match:
+                    json_str = match.group(0)
+                else:
+                    json_str = response
+            
+            # Clean up potential trailing commas or whitespace
+            json_str = json_str.strip()
             
             outline = json.loads(json_str)
+            
+            # Handle case where LLM returns a dict instead of a list
+            if isinstance(outline, dict):
+                # Look for common keys
+                for key in ['slides', 'outline', 'presentation']:
+                    if key in outline and isinstance(outline[key], list):
+                        outline = outline[key]
+                        break
+                else:
+                    # If no list found, try to wrap it or fail
+                    self.logger.warning("LLM returned a dict but no list found. Trying to use as single item if valid.")
+                    # If it looks like a single slide
+                    if 'title' in outline and 'description' in outline:
+                        outline = [outline]
+                    else:
+                        self.logger.error(f"Unexpected JSON structure: {type(outline)}")
+                        return []
+
+            # Clean titles
+            for slide in outline:
+                if 'title' in slide:
+                    slide['title'] = self._clean_title(slide['title'])
+
             self.logger.info(f"Successfully parsed outline with {len(outline)} slides")
             return outline
         except Exception as e:
-            self.logger.error(f"Error parsing outline: {e}")
-            self.logger.error(f"Raw response: {response}")
-            return []
+            self.logger.warning(f"JSON parsing failed: {e}. Attempting fallback text parsing.")
+            # Fallback: Regex parsing for non-JSON output
+            # Look for patterns like "title": "..." and "description": "..."
+            # or - Title: ... \n Description: ...
+            
+            slides = []
+            # Pattern 1: "title": "...", "description": "..." (Double quotes)
+            titles = re.findall(r'"title":\s*"(.*?)"', response, re.IGNORECASE)
+            descriptions = re.findall(r'"description":\s*"(.*?)"', response, re.IGNORECASE)
+            
+            # Pattern 2: 'title': '...', 'description': '...' (Single quotes)
+            if not titles:
+                titles = re.findall(r"'title':\s*'(.*?)'", response, re.IGNORECASE)
+                descriptions = re.findall(r"'description':\s*'(.*?)'", response, re.IGNORECASE)
+
+            # Use the minimum length to avoid errors if counts mismatch
+            count = min(len(titles), len(descriptions))
+            
+            if count > 0:
+                for i in range(count):
+                    slides.append({"title": titles[i], "description": descriptions[i]})
+            # Clean up titles
+            for slide in slides:
+                slide['title'] = self._clean_title(slide['title'])
+
+            self.logger.info(f"Fallback parsing recovered {len(slides)} slides")
+            return slides
+            
+        self.logger.error(f"Fallback parsing failed. Titles found: {len(titles)}, Descriptions found: {len(descriptions)}")
+        self.logger.error(f"Raw response: {response}")
+        return []
+
+    def _clean_title(self, title: str) -> str:
+        """Removes redundant prefixes like 'Slide 1:', 'Title:', etc."""
+        # Remove "Slide X:" or "Slide X -"
+        title = re.sub(r'^Slide\s+\d+[:\-\.]\s*', '', title, flags=re.IGNORECASE)
+        # Remove "Title:"
+        title = re.sub(r'^Title[:\-\.]\s*', '', title, flags=re.IGNORECASE)
+        # Remove quotes if they wrap the whole title
+        title = title.strip('"\'')
+        return title.strip()
 
     def refine_outline(self, current_outline: List[Dict[str, str]], feedback: str, log_callback=None) -> List[Dict[str, str]]:
         """
@@ -99,9 +173,30 @@ JSON Output:
             if match:
                 json_str = match.group(1)
             else:
-                json_str = response
+            # Try to find list enclosed in brackets
+                match = re.search(r'\[.*\]', response, re.DOTALL)
+                if match:
+                    json_str = match.group(0)
+                else:
+                    json_str = response
+            
+            json_str = json_str.strip()
             
             outline = json.loads(json_str)
+            
+            # Handle case where LLM returns a dict instead of a list
+            if isinstance(outline, dict):
+                for key in ['slides', 'outline', 'presentation']:
+                    if key in outline and isinstance(outline[key], list):
+                        outline = outline[key]
+                        break
+                else:
+                    if 'title' in outline and 'description' in outline:
+                        outline = [outline]
+                    else:
+                        self.logger.error(f"Unexpected JSON structure in refinement: {type(outline)}")
+                        return current_outline
+
             self.logger.info(f"Successfully refined outline with {len(outline)} slides")
             return outline
         except Exception as e:

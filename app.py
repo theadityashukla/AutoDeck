@@ -306,7 +306,9 @@ with tab2:
         with st.spinner("Generating Outline..."):
             agent = get_outline_agent()
             outline = agent.generate_outline(topic, audience, log_callback=log_message)
+            # Save outline to session state
             st.session_state['outline'] = outline
+            
             # Initialize comments dict
             if 'slide_comments' not in st.session_state:
                 st.session_state['slide_comments'] = {}
@@ -318,10 +320,25 @@ with tab2:
                 session_name = topic
             # Limit length
             session_name = session_name[:60] if len(session_name) > 60 else session_name
+            
+            # CRITICAL: Save session data to disk BEFORE renaming
+            # This ensures the new outline is persisted.
+            session_data = {
+                "outline": st.session_state.get('outline', []),
+                "content": {}, # Content is empty at this stage
+                "logs": st.session_state.get('logs', []),
+                "slide_comments": st.session_state.get('slide_comments', {})
+            }
+            session_mgr.save_session(st.session_state['current_session_id'], session_data)
+            
+            # Now rename (which loads from disk, updates name, and saves back)
             session_mgr.rename_session(st.session_state['current_session_id'], session_name)
             
-            st.success("Outline Generated!")
-
+            if outline:
+                st.success("Outline Generated!")
+                # st.write("Debug - Raw Outline Data:", outline) # Remove debug
+            else:
+                st.error("Failed to generate outline. Please check the logs.")
     if 'outline' in st.session_state:
         st.markdown("---")
         st.subheader("Current Outline")
@@ -428,6 +445,23 @@ with tab3:
                         validate=False # Don't validate yet
                     )
                     st.session_state[f'content_{selected_slide_idx}'] = content
+                    
+                    # Auto-save session
+                    # Gather all content
+                    content_dict = {}
+                    for key in st.session_state.keys():
+                        if key.startswith('content_'):
+                            idx = key.replace('content_', '')
+                            content_dict[idx] = st.session_state[key]
+                    
+                    session_data = {
+                        "outline": st.session_state.get('outline', []),
+                        "content": content_dict,
+                        "logs": st.session_state.get('logs', []),
+                        "slide_comments": st.session_state.get('slide_comments', {})
+                    }
+                    session_mgr.save_session(st.session_state['current_session_id'], session_data)
+                    
                     st.success("Content Generated!")
                     st.rerun() # Rerun to show content immediately
 

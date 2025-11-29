@@ -1,0 +1,55 @@
+{
+  "id": "e48054d3",
+  "name": "Overview of Alphafold (HCP)",
+  "created_at": "2025-11-29T19:10:04.303793",
+  "last_modified": "2025-11-29T19:12:57.252276",
+  "outline": [
+    {
+      "title": "AlphaFold: Revolutionizing Protein Structure Prediction",
+      "description": "An introduction to AlphaFold and its impact on healthcare research and development."
+    },
+    {
+      "title": "The Protein Folding Problem & Traditional Approaches",
+      "description": "Explain the challenges of protein structure prediction and limitations of historical methods like X-ray crystallography and NMR."
+    },
+    {
+      "title": "AlphaFold: Deep Learning Approach",
+      "description": "Detail how AlphaFold utilizes deep learning, specifically attention mechanisms, to predict 3D protein structures from amino acid sequences."
+    },
+    {
+      "title": "Impact & Applications in Healthcare",
+      "description": "Discuss the potential applications of AlphaFold in drug discovery, personalized medicine, and understanding disease mechanisms."
+    },
+    {
+      "title": "Future Directions & Resources",
+      "description": "Outline future advancements in AlphaFold and provide links to relevant resources for further exploration."
+    }
+  ],
+  "content": {
+    "1": {
+      "title": "The Protein Folding Challenge: A Historical Perspective",
+      "bullet_points": [
+        "Predicting protein structure is crucial for understanding biological function.",
+        "Traditional methods like X-ray crystallography and NMR are time-consuming and limited.",
+        "X-ray crystallography requires well-ordered crystals, often difficult to obtain.",
+        "NMR is limited by protein size and spectral complexity.",
+        "These methods provide valuable insights but struggle with large proteins and dynamic structures."
+      ],
+      "image_suggestion": "/Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/extracted_images/Self-Supervised Learning /img_1_2_bc74fad6.png",
+      "speaker_notes": "For decades, scientists have strived to accurately predict how proteins fold \u2013 a fundamental challenge in biology. The way a protein folds directly impacts its function, so understanding this process is key to drug discovery and countless other applications.  Historically, we\u2019re largely reliant on experimental techniques like X-ray crystallography and Nuclear Magnetic Resonance (NMR) spectroscopy. While powerful, these methods have significant drawbacks. X-ray crystallography demands that proteins form highly ordered crystals, a process that can be incredibly difficult, if not impossible, for many proteins. NMR, while not requiring crystals, faces limitations with protein size and the complexity of the resulting spectra. These approaches, despite their contributions, are slow, resource-intensive, and struggle with the scale and dynamism of modern biological research."
+    }
+  },
+  "logs": [
+    "[INFO] Generating outline for topic: 'Overview of Alphafold' (Audience: HCP)",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Received LLM response (1040 chars)",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Generating content for slide: 'The Protein Folding Problem & Traditional Approaches'",
+    "[INFO] Retrieving context for query: 'The Protein Folding Problem & Traditional Approach...'",
+    "[INFO] Retrieved 3 documents",
+    "[INFO] Calling LLM to generate slide content...",
+    "[INFO] Received LLM response (1607 chars)",
+    "[INFO] Successfully parsed slide content"
+  ],
+  "slide_comments": {}
+}
