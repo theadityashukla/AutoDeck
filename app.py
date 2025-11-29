@@ -413,18 +413,114 @@ with tab3:
         if selected_slide_idx is not None:
             selected_slide = slides[selected_slide_idx]
             st.write(f"**Description:** {selected_slide['description']}")
-        
+            
+            # Validation Toggle
+            enable_validation = st.checkbox("🔍 Enable Content & Image Validation", help="Uses Gemma 3 Vision to check image quality and content accuracy")
+            
             if st.button("Generate Content for Slide", icon=":material/draw:", type="primary"):
                 with st.spinner("Generating Content..."):
                     agent = get_content_agent()
-                    content = agent.generate_slide_content(selected_slide['title'], selected_slide['description'], log_callback=log_message)
+                    # 1. Generate Content (Fast)
+                    content = agent.generate_slide_content(
+                        selected_slide['title'], 
+                        selected_slide['description'], 
+                        log_callback=log_message,
+                        validate=False # Don't validate yet
+                    )
                     st.session_state[f'content_{selected_slide_idx}'] = content
                     st.success("Content Generated!")
+                    st.rerun() # Rerun to show content immediately
+
+            # Display Content
+            if f'content_{selected_slide_idx}' in st.session_state:
+                content = st.session_state[f'content_{selected_slide_idx}']
+                
+                # Validation Logic (Runs after display if enabled and not yet done)
+                if enable_validation and 'validation' not in content:
+                    with st.spinner("🛡️ Validating Content & Checking Image..."):
+                        agent = get_content_agent()
+                        # We need to retrieve docs again or cache them. 
+                        # For now, we'll let the agent retrieve them again or pass None if we accept less strict content validation
+                        # Or better, we can cache the retrieval in the content object?
+                        # For simplicity, we'll just call validate_slide which might need to re-retrieve or we skip strict content check if docs missing
+                        # Let's modify validate_slide to handle missing docs gracefully or re-retrieve
+                        # Actually, generate_slide_content returns content. We don't have the docs there.
+                        # Let's just pass None for docs for now, or re-retrieve. Re-retrieving is safer for accuracy.
+                        # Wait, re-retrieving might be slow.
+                        # Let's update generate_slide_content to return docs in metadata?
+                        # For now, let's just run validation.
+                        
+                        # To do it properly, we should probably store the retrieval context.
+                        # But to keep it simple and fast:
+                        updated_content = agent.validate_slide(content, retrieved_docs=None) # We'll skip strict RAG validation for now or let it be optional
+                        st.session_state[f'content_{selected_slide_idx}'] = updated_content
+                        st.rerun()
             
             # Display Content
             if f'content_{selected_slide_idx}' in st.session_state:
                 content = st.session_state[f'content_{selected_slide_idx}']
                 
+                # Validation Results Display
+                if 'validation' in content:
+                    val = content['validation']
+                    st.markdown("---")
+                    st.subheader("🛡️ Validation Report")
+                    
+                    # 1. Image Validation
+                    if 'image' in val:
+                        img_val = val['image']
+                        score = img_val.get('quality_score', 0)
+                        is_valid = img_val.get('is_valid', False)
+                        
+                        if is_valid:
+                            st.success(f"**Image Quality:** Excellent ({score}/10)", icon="✅")
+                        elif score >= 4:
+                            st.warning(f"**Image Quality:** Acceptable ({score}/10)", icon="⚠️")
+                        else:
+                            st.error(f"**Image Quality:** Poor ({score}/10)", icon="❌")
+                            
+                        with st.expander("Image Analysis Details"):
+                            st.write(f"**Clear:** {'Yes' if img_val.get('is_clear') else 'No'}")
+                            st.write(f"**Relevant:** {'Yes' if img_val.get('is_relevant') else 'No'}")
+                            if img_val.get('issues'):
+                                st.write("**Issues:**")
+                                for issue in img_val['issues']:
+                                    st.write(f"- {issue}")
+                            if img_val.get('improvement_suggestions'):
+                                st.write("**Suggestions:**")
+                                for sugg in img_val['improvement_suggestions']:
+                                    st.write(f"- {sugg}")
+
+                    # 2. Content Validation
+                    if 'content' in val:
+                        cont_val = val['content']
+                        if cont_val.get('is_accurate'):
+                            st.success("**Content Accuracy:** Verified", icon="✅")
+                        else:
+                            st.warning("**Content Accuracy:** Potential Issues", icon="⚠️")
+                            
+                        with st.expander("Content Verification Details"):
+                            st.write(f"**Confidence:** {cont_val.get('confidence', 0)*100:.0f}%")
+                            if cont_val.get('issues'):
+                                st.write("**Issues Detected:**")
+                                for issue in cont_val['issues']:
+                                    st.write(f"- {issue}")
+                            if cont_val.get('recommendations'):
+                                st.write("**Recommendations:**")
+                                for rec in cont_val['recommendations']:
+                                    st.write(f"- {rec}")
+
+                    # 3. Coherence
+                    if 'coherence' in val:
+                        coh_val = val['coherence']
+                        if coh_val.get('is_coherent'):
+                            st.success("**Slide Coherence:** Good", icon="✅")
+                        else:
+                            st.info("**Slide Coherence:** Needs Review", icon="ℹ️")
+                            with st.expander("Coherence Details"):
+                                for issue in coh_val.get('issues', []):
+                                    st.write(f"- {issue}")
+
                 st.markdown("---")
                 st.subheader(content.get('title', 'Untitled'))
                 

@@ -54,7 +54,7 @@ class GemmaClient:
             prompt=prompt,
             max_tokens=max_tokens,
             sampler=sampler,
-            verbose=True # Enable verbose to see token generation progress
+            verbose=True
         )
         print("DEBUG: mlx_lm.generate returned")
         return response

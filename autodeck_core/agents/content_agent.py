@@ -1,8 +1,10 @@
 from typing import List, Dict, Any
 from autodeck_core.llm.gemma_client import GemmaClient
 from autodeck_core.agents.retrieval_agent import RetrievalAgent
+from autodeck_core.agents.validation_agent import ValidationAgent
 import json
 import re
+import os
 
 from autodeck_core.logger import setup_logger
 
@@ -10,18 +12,21 @@ class SlideContentAgent:
     def __init__(self):
         self.llm = GemmaClient()
         self.retriever = RetrievalAgent()
+        self.validator = ValidationAgent()
         self.logger = setup_logger("SlideContentAgent")
 
-    def generate_slide_content(self, slide_title: str, slide_description: str, log_callback=None) -> Dict[str, Any]:
+    def generate_slide_content(self, slide_title: str, slide_description: str, log_callback=None, validate: bool = False) -> Dict[str, Any]:
         """
         Generates detailed content for a single slide using RAG.
         
         Args:
             slide_title: The title of the slide.
             slide_description: A brief description of what the slide should cover.
+            log_callback: Optional callback for UI logging.
+            validate: Whether to perform validation on the generated content.
             
         Returns:
-            Dictionary containing 'title', 'bullet_points', 'image_suggestion', 'speaker_notes'.
+            Dictionary containing 'title', 'bullet_points', 'image_suggestion', 'speaker_notes', and optional 'validation'.
         """
         if log_callback:
             self.logger = setup_logger("SlideContentAgent", log_callback=log_callback)
@@ -98,6 +103,40 @@ JSON Output:
                 "image_suggestion": "None",
                 "speaker_notes": "Error generating notes."
             }
+
+    def validate_slide(self, content: Dict[str, Any], retrieved_docs: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Validates the slide content and returns updated content with validation results.
+        """
+        self.logger.info("Performing content validation...")
+        validation_results = {}
+        
+        # 1. Validate Content Accuracy
+        if retrieved_docs:
+            source_docs = [doc['content'] for doc in retrieved_docs]
+            content_validation = self.validator.validate_content(content, source_docs)
+            validation_results['content'] = content_validation
+        
+        # 2. Validate Image (if path exists)
+        img_path = content.get('image_suggestion')
+        if img_path:
+            # Check if it's a local file or a URL (from replacement)
+            if isinstance(img_path, str) and (os.path.exists(img_path) or img_path.startswith('http')):
+                image_validation = self.validator.validate_image(img_path, content)
+                validation_results['image'] = image_validation
+                
+                # Auto-replace if replacement found
+                if image_validation.get('suggested_replacement'):
+                    content['image_suggestion'] = image_validation['suggested_replacement']
+                    self.logger.info(f"Auto-replaced image with: {content['image_suggestion']}")
+        
+        # 3. Validate Coherence
+        coherence_validation = self.validator.validate_coherence(content)
+        validation_results['coherence'] = coherence_validation
+        
+        content['validation'] = validation_results
+        self.logger.info("Validation complete")
+        return content
 
     def refine_content(self, current_content: Dict[str, Any], feedback: str, log_callback=None) -> Dict[str, Any]:
         """
