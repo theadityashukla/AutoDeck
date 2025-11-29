@@ -4,6 +4,7 @@ import json
 from autodeck_core.agents.ingestion_agent import IngestionAgent
 from autodeck_core.agents.outline_agent import SlideOutlineAgent
 from autodeck_core.agents.content_agent import SlideContentAgent
+from autodeck_core.session_manager import SessionManager
 
 # Page Config
 st.set_page_config(page_title="AutoDeck", layout="wide")
@@ -122,6 +123,112 @@ def get_outline_agent():
 def get_content_agent():
     return SlideContentAgent()
 
+@st.cache_resource
+def get_session_manager():
+    return SessionManager()
+
+# Initialize Session Manager
+session_mgr = get_session_manager()
+
+# Initialize Session
+if 'current_session_id' not in st.session_state:
+    # Create a new session on first run
+    st.session_state['current_session_id'] = session_mgr.create_new_session()
+
+# Initialize state from session
+if 'outline' not in st.session_state:
+    session_data = session_mgr.load_session(st.session_state['current_session_id'])
+    if session_data:
+        st.session_state['outline'] = session_data.get('outline', [])
+        st.session_state['slide_comments'] = session_data.get('slide_comments', {})
+        st.session_state['logs'] = session_data.get('logs', [])
+        # Load content for each slide
+        for slide_idx, content in session_data.get('content', {}).items():
+            st.session_state[f'content_{slide_idx}'] = content
+
+# Session Management UI in Sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader(":material/workspaces: Session Management")
+
+# Session selector
+sessions = session_mgr.list_sessions()
+if sessions:
+    session_options = {s['id']: f"{s['name']} ({s['slide_count']} slides)" for s in sessions}
+    current_session = st.session_state.get('current_session_id')
+    
+    selected_session = st.sidebar.selectbox(
+        "Current Session",
+        options=list(session_options.keys()),
+        format_func=lambda x: session_options[x],
+        index=list(session_options.keys()).index(current_session) if current_session in session_options else 0,
+        key="session_selector"
+    )
+    
+    # Load selected session if different
+    if selected_session != st.session_state.get('current_session_id'):
+        session_data = session_mgr.load_session(selected_session)
+        if session_data:
+            st.session_state['current_session_id'] = selected_session
+            st.session_state['outline'] = session_data.get('outline', [])
+            st.session_state['slide_comments'] = session_data.get('slide_comments', {})
+            st.session_state['logs'] = session_data.get('logs', [])
+            # Clear and reload content
+            for key in list(st.session_state.keys()):
+                if key.startswith('content_'):
+                    del st.session_state[key]
+            for slide_idx, content in session_data.get('content', {}).items():
+                st.session_state[f'content_{slide_idx}'] = content
+            st.rerun()
+
+# Session action buttons
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    if st.button(":material/save: Save", use_container_width=True, help="Save current session"):
+        # Gather all content
+        content_dict = {}
+        for key in st.session_state.keys():
+            if key.startswith('content_'):
+                idx = key.replace('content_', '')
+                content_dict[idx] = st.session_state[key]
+        
+        session_data = {
+            "outline": st.session_state.get('outline', []),
+            "content": content_dict,
+            "logs": st.session_state.get('logs', []),
+            "slide_comments": st.session_state.get('slide_comments', {})
+        }
+        
+        if session_mgr.save_session(st.session_state['current_session_id'], session_data):
+            st.sidebar.success("Saved!", icon=":material/check_circle:")
+        else:
+            st.sidebar.error("Save failed!", icon=":material/error:")
+
+with col2:
+    if st.button(":material/add: New", use_container_width=True, help="Create new session"):
+        new_session_id = session_mgr.create_new_session()
+        st.session_state['current_session_id'] = new_session_id
+        st.session_state['outline'] = []
+        st.session_state['slide_comments'] = {}
+        st.session_state['logs'] = []
+        # Clear content
+        for key in list(st.session_state.keys()):
+            if key.startswith('content_'):
+                del st.session_state[key]
+        st.rerun()
+
+# Delete button (separate row)
+if st.sidebar.button(":material/delete: Delete Session", use_container_width=True, type="secondary", help="Delete current session"):
+    if len(sessions) > 1:  # Don't delete if it's the last session
+        if session_mgr.delete_session(st.session_state['current_session_id']):
+            # Load first available session
+            remaining = session_mgr.list_sessions()
+            if remaining:
+                st.session_state['current_session_id'] = remaining[0]['id']
+                st.rerun()
+    else:
+        st.sidebar.warning("Cannot delete the last session", icon=":material/warning:")
+
+
 # Tabs
 tab1, tab2, tab3, tab4 = st.tabs(["Ingestion", "Outline", "Content", "Logs"])
 
@@ -129,7 +236,13 @@ tab1, tab2, tab3, tab4 = st.tabs(["Ingestion", "Outline", "Content", "Logs"])
 if 'logs' not in st.session_state:
     st.session_state['logs'] = []
 
+# Live Log Count in Sidebar (no dynamic updates - Streamlit limitation)  
+st.sidebar.markdown("---")
+log_count = len(st.session_state.get('logs', []))
+st.sidebar.metric("System Logs", log_count, help="View all logs in the Logs tab")
+
 def log_message(msg):
+    """Add a log message to session state"""
     st.session_state['logs'].append(msg)
 
 # --- TAB 1: INGESTION ---
@@ -192,11 +305,21 @@ with tab2:
     if st.button("Generate Outline", icon=":material/auto_awesome:", type="primary"):
         with st.spinner("Generating Outline..."):
             agent = get_outline_agent()
-            outline = agent.generate_outline(topic, audience)
+            outline = agent.generate_outline(topic, audience, log_callback=log_message)
             st.session_state['outline'] = outline
             # Initialize comments dict
             if 'slide_comments' not in st.session_state:
                 st.session_state['slide_comments'] = {}
+            
+            # Auto-name session based on topic and audience
+            if audience and audience != "General Audience":
+                session_name = f"{topic} ({audience})"
+            else:
+                session_name = topic
+            # Limit length
+            session_name = session_name[:60] if len(session_name) > 60 else session_name
+            session_mgr.rename_session(st.session_state['current_session_id'], session_name)
+            
             st.success("Outline Generated!")
 
     if 'outline' in st.session_state:
@@ -273,7 +396,7 @@ with tab2:
         if st.button("Refine Outline", icon=":material/refresh:"):
             with st.spinner("Refining..."):
                 agent = get_outline_agent()
-                refined_outline = agent.refine_outline(st.session_state['outline'], feedback)
+                refined_outline = agent.refine_outline(st.session_state['outline'], feedback, log_callback=log_message)
                 st.session_state['outline'] = refined_outline
                 st.rerun()
 
@@ -287,49 +410,52 @@ with tab3:
         slide_titles = [s['title'] for s in slides]
         selected_slide_idx = st.selectbox("Select Slide to Edit", range(len(slide_titles)), format_func=lambda x: slide_titles[x])
         
-        selected_slide = slides[selected_slide_idx]
-        st.write(f"**Description:** {selected_slide['description']}")
+        if selected_slide_idx is not None:
+            selected_slide = slides[selected_slide_idx]
+            st.write(f"**Description:** {selected_slide['description']}")
         
-        if st.button("Generate Content for Slide", icon=":material/draw:", type="primary"):
-            with st.spinner("Generating Content..."):
-                agent = get_content_agent()
-                content = agent.generate_slide_content(selected_slide['title'], selected_slide['description'])
-                st.session_state[f'content_{selected_slide_idx}'] = content
-                st.success("Content Generated!")
-        
-        # Display Content
-        if f'content_{selected_slide_idx}' in st.session_state:
-            content = st.session_state[f'content_{selected_slide_idx}']
-            
-            st.markdown("---")
-            st.subheader(content.get('title', 'Untitled'))
-            
-            # Layout: Image Left, Bullets Right
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                img_path = content.get('image_suggestion')
-                if img_path and isinstance(img_path, str) and os.path.exists(img_path):
-                    st.image(img_path, caption="Suggested Image")
-                else:
-                    st.warning(f"Image not found or placeholder: {img_path}")
-            
-            with c2:
-                st.write("### Key Points")
-                for bullet in content.get('bullet_points', []):
-                    st.write(f"- {bullet}")
-            
-            st.write("### Speaker Notes")
-            st.info(content.get('speaker_notes', ''))
-            
-            # Feedback Loop
-            st.markdown("---")
-            feedback = st.text_area("Refine Slide Content (e.g., 'Make bullets shorter')")
-            if st.button("Refine Slide", icon=":material/refresh:"):
-                with st.spinner("Refining..."):
+            if st.button("Generate Content for Slide", icon=":material/draw:", type="primary"):
+                with st.spinner("Generating Content..."):
                     agent = get_content_agent()
-                    refined_content = agent.refine_content(content, feedback)
-                    st.session_state[f'content_{selected_slide_idx}'] = refined_content
-                    st.rerun()
+                    content = agent.generate_slide_content(selected_slide['title'], selected_slide['description'], log_callback=log_message)
+                    st.session_state[f'content_{selected_slide_idx}'] = content
+                    st.success("Content Generated!")
+            
+            # Display Content
+            if f'content_{selected_slide_idx}' in st.session_state:
+                content = st.session_state[f'content_{selected_slide_idx}']
+                
+                st.markdown("---")
+                st.subheader(content.get('title', 'Untitled'))
+                
+                # Layout: Image Left, Bullets Right
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    img_path = content.get('image_suggestion')
+                    if img_path and isinstance(img_path, str) and os.path.exists(img_path):
+                        st.image(img_path, caption="Suggested Image")
+                    else:
+                        st.warning(f"Image not found or placeholder: {img_path}")
+                
+                with c2:
+                    st.write("### Key Points")
+                    for bullet in content.get('bullet_points', []):
+                        st.write(f"- {bullet}")
+                
+                st.write("### Speaker Notes")
+                st.info(content.get('speaker_notes', ''))
+                
+                # Feedback Loop
+                st.markdown("---")
+                feedback = st.text_area("Refine Slide Content (e.g., 'Make bullets shorter')")
+                if st.button("Refine Slide", icon=":material/refresh:"):
+                    with st.spinner("Refining..."):
+                        agent = get_content_agent()
+                        refined_content = agent.refine_content(content, feedback, log_callback=log_message)
+                        st.session_state[f'content_{selected_slide_idx}'] = refined_content
+                        st.rerun()
+        else:
+            st.warning("Please select a slide to edit")
             
     else:
         st.info("Please generate an outline in Tab 2 first.")
@@ -337,12 +463,96 @@ with tab3:
 # --- TAB 4: LOGS ---
 with tab4:
     st.header("System Logs", divider="gray")
-    if st.button("Clear Logs", icon=":material/delete:"):
-        st.session_state['logs'] = []
-        st.rerun()
-        
+    
+    # Controls row
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.metric("Total Logs", len(st.session_state.get('logs', [])))
+    with col3:
+        if st.button("Clear All", icon=":material/delete_sweep:", type="primary", use_container_width=True):
+            st.session_state['logs'] = []
+            st.rerun()
+    
+    st.markdown("---")
+    
     if 'logs' in st.session_state and st.session_state['logs']:
-        for msg in st.session_state['logs']:
-            st.text(msg)
+        # Display all logs in reverse chronological order
+        for i, msg in enumerate(reversed(st.session_state['logs']), 1):
+            log_num = len(st.session_state['logs']) - i + 1
+            
+            # Parse log level and message
+            if '[ERROR]' in msg:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        padding: 12px 16px;
+                        border-left: 4px solid #f44336;
+                        background-color: rgba(244, 67, 54, 0.1);
+                        border-radius: 4px;
+                        margin-bottom: 8px;
+                    ">
+                        <div style="color: #666; font-size: 12px; margin-bottom: 4px;">
+                            #{log_num} • ERROR
+                        </div>
+                        <div style="color: #f44336; font-family: monospace; font-size: 14px;">
+                            {msg.replace('[ERROR] ', '')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            elif '[WARNING]' in msg:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        padding: 12px 16px;
+                        border-left: 4px solid #ff9800;
+                        background-color: rgba(255, 152, 0, 0.1);
+                        border-radius: 4px;
+                        margin-bottom: 8px;
+                    ">
+                        <div style="color: #666; font-size: 12px; margin-bottom: 4px;">
+                            #{log_num} • WARNING
+                        </div>
+                        <div style="color: #ff9800; font-family: monospace; font-size: 14px;">
+                            {msg.replace('[WARNING] ', '')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            elif '[INFO]' in msg:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        padding: 12px 16px;
+                        border-left: 4px solid #2196f3;
+                        background-color: rgba(33, 150, 243, 0.05);
+                        border-radius: 4px;
+                        margin-bottom: 8px;
+                    ">
+                        <div style="color: #666; font-size: 12px; margin-bottom: 4px;">
+                            #{log_num} • INFO
+                        </div>
+                        <div style="color: #424242; font-family: monospace; font-size: 14px;">
+                            {msg.replace('[INFO] ', '')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        padding: 12px 16px;
+                        border-left: 4px solid #9e9e9e;
+                        background-color: rgba(0, 0, 0, 0.02);
+                        border-radius: 4px;
+                        margin-bottom: 8px;
+                    ">
+                        <div style="color: #666; font-size: 12px; margin-bottom: 4px;">
+                            #{log_num}
+                        </div>
+                        <div style="color: #424242; font-family: monospace; font-size: 14px;">
+                            {msg}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
     else:
-        st.info("No logs yet.")
+        st.info("No logs yet. Logs will appear here when you generate outlines, content, or ingest documents.", icon=":material/info:")
+

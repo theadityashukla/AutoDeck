@@ -1,0 +1,98 @@
+{
+  "id": "5608df48",
+  "name": "Applications of Alphafold (Research Scientist)",
+  "created_at": "2025-11-29T14:41:15.653649",
+  "last_modified": "2025-11-29T14:43:14.064485",
+  "outline": [
+    {
+      "title": "AlphaFold: Revolutionizing Structural Biology",
+      "description": "This slide introduces the presentation topic and briefly highlights AlphaFold's impact on structural biology."
+    },
+    {
+      "title": "Understanding AlphaFold's Architecture",
+      "description": "This slide provides a high-level overview of AlphaFold's neural network architecture, focusing on the key components and their roles in protein structure prediction."
+    },
+    {
+      "title": "Applications in Drug Discovery",
+      "description": "This slide details how AlphaFold is being utilized to accelerate drug discovery by enabling better target identification and improved lead compound design."
+    },
+    {
+      "title": "Beyond Drug Discovery: Expanding Applications",
+      "description": "This slide explores additional applications of AlphaFold, such as in understanding protein function, guiding synthetic biology, and advancing protein engineering."
+    },
+    {
+      "title": "Conclusion & Future Directions",
+      "description": "This slide summarizes the key takeaways from the presentation and briefly discusses potential future developments and challenges in the application of AlphaFold."
+    }
+  ],
+  "content": {
+    "1": {
+      "title": "AlphaFold: A Deep Dive into its Architecture",
+      "bullet_points": [
+        "Leverages Joint-Embedding Predictive Architectures (JEPAs): AlphaFold utilizes a novel approach, focusing on learning manipulable representations of the world.",
+        "Employs Isotropic Gaussian Regularization (SIGReg):  This key component constrains embeddings to follow an ideal distribution, minimizing prediction risk and promoting stability.",
+        "Achieves Scalability and Efficiency:  The LeJEPA framework, an instantiation of JEPAs, offers linear time and memory complexity, making it highly scalable across various models and domains.",
+        "Demonstrates Strong Empirical Validation:  LeJEPA consistently outperforms state-of-the-art methods across diverse datasets and architectures, as seen with ImageNet-1k and Galaxy10."
+      ],
+      "image_suggestion": "/Users/aditya/Documents/Codes/Projects/Gen AI assited Keynotes/AutoDeck/extracted_images/Self-Supervised Learning /img_1_2_bc74fad6.png",
+      "speaker_notes": "Let's explore the architecture behind AlphaFold's groundbreaking success. At its core, AlphaFold utilizes Joint-Embedding Predictive Architectures, or JEPAs. Think of this as a way for the model to learn how the world works by predicting how things will behave. A crucial innovation is the incorporation of Isotropic Gaussian Regularization, or SIGReg. This acts like a guiding principle, forcing the model's internal representations to follow a specific, ideal distribution. This leads to remarkably stable training, even with very large models. The LeJEPA framework, a practical implementation of JEPAs, is incredibly efficient, scaling effectively across different models and datasets.  Finally, extensive testing proves LeJEPA's superiority, consistently outperforming existing methods, as demonstrated by its performance on benchmarks like ImageNet-1k and Galaxy10."
+    }
+  },
+  "logs": [
+    "[INFO] Generating outline for topic: 'Overview of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Overview of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Overview of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Overview of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Received LLM response (1076 chars)",
+    "[INFO] Received LLM response (1076 chars)",
+    "[INFO] Received LLM response (1076 chars)",
+    "[INFO] Received LLM response (1076 chars)",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Generating outline for topic: 'Applications of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Applications of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Applications of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Applications of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Generating outline for topic: 'Applications of Alphafold' (Audience: Research Scientist)",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Calling LLM to generate outline...",
+    "[INFO] Received LLM response (1194 chars)",
+    "[INFO] Received LLM response (1194 chars)",
+    "[INFO] Received LLM response (1194 chars)",
+    "[INFO] Received LLM response (1194 chars)",
+    "[INFO] Received LLM response (1194 chars)",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Successfully parsed outline with 5 slides",
+    "[INFO] Generating content for slide: 'Understanding AlphaFold's Architecture'",
+    "[INFO] Generating content for slide: 'Understanding AlphaFold's Architecture'",
+    "[INFO] Generating content for slide: 'Understanding AlphaFold's Architecture'",
+    "[INFO] Retrieving context for query: 'Understanding AlphaFold's Architecture: This slide...'",
+    "[INFO] Retrieving context for query: 'Understanding AlphaFold's Architecture: This slide...'",
+    "[INFO] Retrieving context for query: 'Understanding AlphaFold's Architecture: This slide...'",
+    "[INFO] Retrieved 3 documents",
+    "[INFO] Retrieved 3 documents",
+    "[INFO] Retrieved 3 documents",
+    "[INFO] Calling LLM to generate slide content...",
+    "[INFO] Calling LLM to generate slide content...",
+    "[INFO] Calling LLM to generate slide content...",
+    "[INFO] Received LLM response (1891 chars)",
+    "[INFO] Received LLM response (1891 chars)",
+    "[INFO] Received LLM response (1891 chars)",
+    "[INFO] Successfully parsed slide content",
+    "[INFO] Successfully parsed slide content",
+    "[INFO] Successfully parsed slide content"
+  ],
+  "slide_comments": {}
+}

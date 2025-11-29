@@ -3,11 +3,14 @@ from autodeck_core.llm.gemma_client import GemmaClient
 import json
 import re
 
+from autodeck_core.logger import setup_logger
+
 class SlideOutlineAgent:
     def __init__(self):
         self.llm = GemmaClient()
+        self.logger = setup_logger("SlideOutlineAgent")
 
-    def generate_outline(self, topic: str, audience: str = "General Audience", num_slides: int = 5) -> List[Dict[str, str]]:
+    def generate_outline(self, topic: str, audience: str = "General Audience", num_slides: int = 5, log_callback=None) -> List[Dict[str, str]]:
         """
         Generates a high-level slide outline for the presentation.
         
@@ -19,7 +22,9 @@ class SlideOutlineAgent:
         Returns:
             List of dictionaries with 'title' and 'description' for each slide.
         """
-        print(f"Generating outline for topic: '{topic}' (Audience: {audience})")
+        if log_callback:
+            self.logger = setup_logger("SlideOutlineAgent", log_callback=log_callback)
+        self.logger.info(f"Generating outline for topic: '{topic}' (Audience: {audience})")
         
         prompt = f"""
 You are an expert presentation planner. Create a structured outline for a PowerPoint presentation.
@@ -36,7 +41,9 @@ Ensure the flow is logical: Title Slide -> Introduction -> Key Points -> Conclus
 
 JSON Output:
 """
+        self.logger.info("Calling LLM to generate outline...")
         response = self.llm.generate(prompt, max_tokens=1024, temperature=0.7)
+        self.logger.info(f"Received LLM response ({len(response)} chars)")
         
         # Parse JSON
         try:
@@ -47,13 +54,14 @@ JSON Output:
                 json_str = response
             
             outline = json.loads(json_str)
+            self.logger.info(f"Successfully parsed outline with {len(outline)} slides")
             return outline
         except Exception as e:
-            print(f"Error parsing outline: {e}")
-            print(f"Raw response: {response}")
+            self.logger.error(f"Error parsing outline: {e}")
+            self.logger.error(f"Raw response: {response}")
             return []
 
-    def refine_outline(self, current_outline: List[Dict[str, str]], feedback: str) -> List[Dict[str, str]]:
+    def refine_outline(self, current_outline: List[Dict[str, str]], feedback: str, log_callback=None) -> List[Dict[str, str]]:
         """
         Refines the existing outline based on user feedback.
         
@@ -64,7 +72,9 @@ JSON Output:
         Returns:
             Updated list of slides.
         """
-        print(f"Refining outline with feedback: '{feedback}'")
+        if log_callback:
+            self.logger = setup_logger("SlideOutlineAgent", log_callback=log_callback)
+        self.logger.info(f"Refining outline with feedback: '{feedback}'")
         
         prompt = f"""
 You are an expert presentation planner. Update the following presentation outline based on the user's feedback.
@@ -92,10 +102,11 @@ JSON Output:
                 json_str = response
             
             outline = json.loads(json_str)
+            self.logger.info(f"Successfully refined outline with {len(outline)} slides")
             return outline
         except Exception as e:
-            print(f"Error parsing refined outline: {e}")
-            print(f"Raw response: {response}")
+            self.logger.error(f"Error parsing refined outline: {e}")
+            self.logger.error(f"Raw response: {response}")
             return current_outline
 
 if __name__ == "__main__":

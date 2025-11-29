@@ -4,12 +4,15 @@ from autodeck_core.agents.retrieval_agent import RetrievalAgent
 import json
 import re
 
+from autodeck_core.logger import setup_logger
+
 class SlideContentAgent:
     def __init__(self):
         self.llm = GemmaClient()
         self.retriever = RetrievalAgent()
+        self.logger = setup_logger("SlideContentAgent")
 
-    def generate_slide_content(self, slide_title: str, slide_description: str) -> Dict[str, Any]:
+    def generate_slide_content(self, slide_title: str, slide_description: str, log_callback=None) -> Dict[str, Any]:
         """
         Generates detailed content for a single slide using RAG.
         
@@ -20,11 +23,15 @@ class SlideContentAgent:
         Returns:
             Dictionary containing 'title', 'bullet_points', 'image_suggestion', 'speaker_notes'.
         """
-        print(f"Generating content for slide: '{slide_title}'")
+        if log_callback:
+            self.logger = setup_logger("SlideContentAgent", log_callback=log_callback)
+        self.logger.info(f"Generating content for slide: '{slide_title}'")
         
         # 1. Retrieve Context
         query = f"{slide_title}: {slide_description}"
+        self.logger.info(f"Retrieving context for query: '{query[:50]}...'")
         retrieved_docs = self.retriever.retrieve(query, k=3)
+        self.logger.info(f"Retrieved {len(retrieved_docs)} documents")
         
         context_text = ""
         available_images = []
@@ -67,7 +74,9 @@ Output JSON format:
 
 JSON Output:
 """
+        self.logger.info("Calling LLM to generate slide content...")
         response = self.llm.generate(prompt, max_tokens=1024, temperature=0.5)
+        self.logger.info(f"Received LLM response ({len(response)} chars)")
         
         # Parse JSON
         try:
@@ -78,10 +87,11 @@ JSON Output:
                 json_str = response
             
             content = json.loads(json_str)
+            self.logger.info("Successfully parsed slide content")
             return content
         except Exception as e:
-            print(f"Error parsing slide content: {e}")
-            print(f"Raw response: {response}")
+            self.logger.error(f"Error parsing slide content: {e}")
+            self.logger.error(f"Raw response: {response}")
             return {
                 "title": slide_title,
                 "bullet_points": ["Error generating content."],
@@ -89,7 +99,7 @@ JSON Output:
                 "speaker_notes": "Error generating notes."
             }
 
-    def refine_content(self, current_content: Dict[str, Any], feedback: str) -> Dict[str, Any]:
+    def refine_content(self, current_content: Dict[str, Any], feedback: str, log_callback=None) -> Dict[str, Any]:
         """
         Refines the slide content based on user feedback.
         
@@ -100,7 +110,9 @@ JSON Output:
         Returns:
             Updated slide content dictionary.
         """
-        print(f"Refining content with feedback: '{feedback}'")
+        if log_callback:
+            self.logger = setup_logger("SlideContentAgent", log_callback=log_callback)
+        self.logger.info(f"Refining content with feedback: '{feedback}'")
         
         prompt = f"""
 You are an expert presentation creator. Update the following slide content based on the user's feedback.
@@ -117,7 +129,9 @@ Instructions:
 
 JSON Output:
 """
+        self.logger.info("Calling LLM to refine slide content...")
         response = self.llm.generate(prompt, max_tokens=1024, temperature=0.7)
+        self.logger.info(f"Received LLM response ({len(response)} chars)")
         
         # Parse JSON
         try:
@@ -128,10 +142,11 @@ JSON Output:
                 json_str = response
             
             content = json.loads(json_str)
+            self.logger.info("Successfully refined slide content")
             return content
         except Exception as e:
-            print(f"Error parsing refined content: {e}")
-            print(f"Raw response: {response}")
+            self.logger.error(f"Error parsing refined content: {e}")
+            self.logger.error(f"Raw response: {response}")
             return current_content
 
 if __name__ == "__main__":

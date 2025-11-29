@@ -4,20 +4,22 @@ from autodeck_core.ingestion.parser import PDFParser
 from autodeck_core.ingestion.chunker import AgenticChunker
 from autodeck_core.ingestion.vector_store import VectorStore
 
+from autodeck_core.logger import setup_logger
+
 class IngestionAgent:
     def __init__(self, mock_llm: bool = False):
         self.parser = PDFParser()
         self.chunker = AgenticChunker(mock=mock_llm)
         self.vector_store = VectorStore()
+        self.logger = setup_logger("IngestionAgent")
 
     def ingest(self, pdf_path: str, progress_callback=None, stop_check=None, log_callback=None):
-        def log(msg):
-            print(msg)
-            if log_callback:
-                log_callback(msg)
+        # Update logger with callback if provided
+        if log_callback:
+            self.logger = setup_logger("IngestionAgent", log_callback=log_callback)
 
         filename = os.path.basename(pdf_path)
-        log(f"Starting ingestion for: {filename}")
+        self.logger.info(f"Starting ingestion for: {filename}")
         
         # 1. Parse PDF
         if progress_callback:
@@ -29,11 +31,11 @@ class IngestionAgent:
         for page in parsed_data['pages']:
             images.extend(page['images'])
             
-        log(f"Extracted {len(full_text)} characters and {len(images)} images.")
+        self.logger.info(f"Extracted {len(full_text)} characters and {len(images)} images.")
         
         # 2. Check for existing pages (Resume Logic)
         existing_pages = self.vector_store.get_existing_pages(filename)
-        log(f"Found {len(existing_pages)} existing pages in DB.")
+        self.logger.info(f"Found {len(existing_pages)} existing pages in DB.")
         
         # 3. Page-Aware Chunking & Image Association
         total_pages = len(parsed_data['pages'])
@@ -41,7 +43,7 @@ class IngestionAgent:
         for i, page_data in enumerate(parsed_data['pages']):
             # Check for stop signal
             if stop_check and stop_check():
-                log("Ingestion stopped by user.")
+                self.logger.info("Ingestion stopped by user.")
                 if progress_callback:
                     progress_callback(i / total_pages, "Ingestion stopped.")
                 return
@@ -50,7 +52,7 @@ class IngestionAgent:
             
             # Skip if already processed
             if page_num in existing_pages:
-                log(f"Skipping Page {page_num} (already processed).")
+                self.logger.info(f"Skipping Page {page_num} (already processed).")
                 if progress_callback:
                     progress_callback((i + 1) / total_pages, f"Skipping Page {page_num} (already done)...")
                 continue
@@ -61,7 +63,7 @@ class IngestionAgent:
             if not page_text.strip():
                 continue
                 
-            log(f"Processing Page {page_num}...")
+            self.logger.info(f"Processing Page {page_num}...")
             if progress_callback:
                 progress_callback((i + 0.1) / total_pages, f"Processing Page {page_num} of {total_pages}...")
             
@@ -100,7 +102,7 @@ class IngestionAgent:
             if progress_callback:
                 progress_callback((i + 1) / total_pages, f"Completed Page {page_num}")
             
-        log("Ingestion complete!")
+        self.logger.info("Ingestion complete!")
         if progress_callback:
             progress_callback(1.0, "Ingestion Complete!")
 
