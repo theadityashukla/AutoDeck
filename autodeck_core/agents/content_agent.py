@@ -65,7 +65,7 @@ Available Images: {list(set(available_images))}
 
 Instructions:
 1. Refine the Slide Title if necessary to be more punchy.
-2. Create 3-5 concise, high-impact bullet points.
+2. Create 3-5 concise, high-impact bullet points. Use **bold** for key terms or concepts to improve readability.
 3. Suggest the best image to use from the "Available Images" list. If none are suitable, describe a conceptual image.
 4. Write engaging Speaker Notes that elaborate on the bullet points (approx. 100-150 words).
 

@@ -1,10 +1,12 @@
 import streamlit as st
 import os
 import json
+import uuid
 from autodeck_core.agents.ingestion_agent import IngestionAgent
 from autodeck_core.agents.outline_agent import SlideOutlineAgent
 from autodeck_core.agents.content_agent import SlideContentAgent
 from autodeck_core.session_manager import SessionManager
+from autodeck_core.ppt_generator import PPTGenerator
 
 # Page Config
 st.set_page_config(page_title="AutoDeck", layout="wide")
@@ -21,6 +23,42 @@ selected_pdf = st.sidebar.selectbox("Select PDF", pdf_files)
 
 # Theme Selector
 theme = st.sidebar.selectbox("Theme", ["Default", "Black & Gold"])
+
+# Template Upload
+st.sidebar.markdown("---")
+st.sidebar.subheader("📐 Slide Template")
+uploaded_template = st.sidebar.file_uploader(
+    "Upload PPTX Template", 
+    type=["pptx"],
+    help="Upload a branded template with slide masters. The AI will use these layouts."
+)
+
+if uploaded_template:
+    # Save to temp location
+    template_dir = "templates"
+    os.makedirs(template_dir, exist_ok=True)
+    template_path = os.path.join(template_dir, uploaded_template.name)
+    
+    with open(template_path, "wb") as f:
+        f.write(uploaded_template.getbuffer())
+    
+    st.session_state['template_path'] = template_path
+    st.sidebar.success(f"✓ Template loaded: {uploaded_template.name}")
+    
+    # Show detected layouts
+    from pptx import Presentation as PptxPresentation
+    try:
+        prs = PptxPresentation(template_path)
+        layouts = [layout.name for layout in prs.slide_layouts]
+        st.sidebar.caption(f"Available layouts: {len(layouts)}")
+        with st.sidebar.expander("View Layouts"):
+            for i, name in enumerate(layouts):
+                st.caption(f"{i}. {name}")
+    except Exception as e:
+        st.sidebar.error(f"Error reading template: {e}")
+else:
+    if 'template_path' in st.session_state:
+        del st.session_state['template_path']
 
 if theme == "Black & Gold":
     st.markdown("""
@@ -132,8 +170,8 @@ session_mgr = get_session_manager()
 
 # Initialize Session
 if 'current_session_id' not in st.session_state:
-    # Create a new session on first run
-    st.session_state['current_session_id'] = session_mgr.create_new_session()
+    # Generate a temporary ID. We won't save to disk until data exists.
+    st.session_state['current_session_id'] = str(uuid.uuid4())[:8]
 
 # Initialize state from session
 if 'outline' not in st.session_state:
@@ -230,11 +268,288 @@ if st.sidebar.button(":material/delete: Delete Session", use_container_width=Tru
 
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Ingestion", "Outline", "Content", "Logs"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Ingestion", "Outline", "Content", "Agentic Design", "Logs"])
 
 # Initialize Logs
 if 'logs' not in st.session_state:
     st.session_state['logs'] = []
+
+# ... (Log metric code remains same) ...
+
+# ... (Tab 1, 2, 3 remain same) ...
+
+# --- TAB 4: AGENTIC DESIGN ---
+with tab4:
+    st.header("Agentic Design Studio (Beta)", divider="rainbow")
+    
+    if 'outline' not in st.session_state or len(st.session_state['outline']) == 0:
+        st.warning("Please generate an outline first in the Outline tab.")
+    else:
+        # Check if content exists
+        has_content = any(st.session_state.get(f'content_{i}', {}).get('bullet_points') 
+                         for i in range(len(st.session_state['outline'])))
+        
+        if not has_content:
+            st.warning("Please generate content first in the Content tab.")
+        else:
+            # --- PRIMARY: FULL DECK GENERATION ---
+            st.subheader("🚀 Generate & Auto-Improve Full Deck")
+            
+            # Check if template is being used
+            if st.session_state.get('template_path'):
+                st.warning("⚠️ **Template Mode**: Preview images may show white background due to LibreOffice limitations. The actual PPTX file will have correct styling - use 'Generate Final PPTX' below to get accurate output.")
+            else:
+                st.info("Click below to automatically generate, analyze, and improve ALL slides. Each slide will be shown as it's finalized.")
+            
+            col_gen, col_stop, col_status = st.columns([1, 1, 2])
+            
+            with col_gen:
+                generate_btn = st.button("⚡ Generate Full Deck", type="primary", use_container_width=True, key="gen_full_deck")
+            
+            with col_stop:
+                def stop_pipeline_callback():
+                    st.session_state['pipeline_stopped'] = True
+                stop_btn = st.button("🛑 Stop Generation", type="secondary", use_container_width=True, key="stop_btn", on_click=stop_pipeline_callback)
+            
+            with col_status:
+                if 'pipeline_status' in st.session_state:
+                    st.caption(st.session_state['pipeline_status'])
+            
+            # Progress and live slide container
+            progress_container = st.empty()
+            live_slide_container = st.container()
+            
+            if generate_btn:
+                # Reset stop flag
+                st.session_state['pipeline_stopped'] = False
+                
+                from autodeck_core.pipeline.agentic_pipeline import AgenticPipeline, SlideStatus
+                
+                # Build session data
+                session_data = {
+                    "name": st.session_state.get("session_name", "AutoDeck Presentation"),
+                    "outline": st.session_state.get("outline", []),
+                    "content": {str(i): st.session_state.get(f'content_{i}', {}) for i in range(len(st.session_state.get("outline", [])))}
+                }
+                
+                pipeline = AgenticPipeline(
+                    output_dir="generated_decks", 
+                    max_iterations=3, 
+                    target_score=8.0,
+                    template_path=st.session_state.get('template_path')
+                )
+                
+                # Clear previous queue
+                st.session_state['review_queue'] = []
+                total_slides = len(session_data.get("outline", []))
+                
+                # Process slides one by one
+                with progress_container:
+                    progress = st.progress(0, text="Starting pipeline...")
+                
+                for idx, result in enumerate(pipeline.generate_deck(session_data)):
+                    # Check kill switch
+                    if st.session_state.get('pipeline_stopped', False):
+                        st.session_state['pipeline_status'] = f"⏹ Stopped at slide {idx + 1}/{total_slides}"
+                        with progress_container:
+                            progress.progress(int(((idx + 1) / total_slides) * 100), text="Stopped by user")
+                        st.warning(f"Generation stopped. Processed {idx} slides.")
+                        break
+                    
+                    st.session_state['pipeline_status'] = f"Processing slide {idx + 1}/{total_slides}..."
+                    
+                    # Update progress
+                    with progress_container:
+                        progress.progress(
+                            int(((idx + 1) / total_slides) * 100), 
+                            text=f"Slide {idx + 1}/{total_slides}: {result.title} (Score: {result.final_score:.0f}/10)"
+                        )
+                    
+                    # Add to review queue
+                    slide_data = {
+                        "index": result.index,
+                        "title": result.title,
+                        "status": result.status.value,
+                        "score": result.final_score,
+                        "iterations": result.iterations,
+                        "image_path": result.image_path,
+                        "content": result.content,
+                        "critique": result.critique,
+                        "iteration_history": [
+                            {
+                                "iteration": rec.iteration,
+                                "score": rec.score,
+                                "issues": rec.issues,
+                                "suggested_actions": rec.suggested_actions,
+                                "actions_applied": rec.actions_applied
+                            }
+                            for rec in result.iteration_history
+                        ]
+                    }
+
+                    st.session_state['review_queue'].append(slide_data)
+                    
+                    # Update content in session
+                    st.session_state[f'content_{result.index}'] = result.content
+                    
+                    # Show preview immediately in live container
+                    with live_slide_container:
+                        if result.image_path and os.path.exists(result.image_path):
+                            st.image(result.image_path, caption=f"✅ Slide {idx+1}: {result.title} (Score: {result.final_score:.0f}/10)", width=400)
+                
+                st.session_state['pipeline_status'] = f"✓ Completed {total_slides} slides"
+                with progress_container:
+                    progress.progress(100, text="Pipeline Complete!")
+                st.success(f"Generated and improved {total_slides} slides!")
+            
+            # --- REVIEW QUEUE ---
+            if 'review_queue' in st.session_state and st.session_state['review_queue']:
+                st.markdown("---")
+                st.subheader("📋 Review Queue")
+                
+                for slide in st.session_state['review_queue']:
+                    score_color = "🟢" if slide['score'] >= 8 else "🟡" if slide['score'] >= 5 else "🔴"
+                    with st.expander(f"{score_color} Slide {slide['index']+1}: {slide['title']} (Score: {slide['score']:.0f}/10)", expanded=False):
+                        col_img, col_info = st.columns([1, 1])
+                        
+                        with col_img:
+                            if slide.get('image_path') and os.path.exists(slide['image_path']):
+                                st.image(slide['image_path'], caption="AI Finalized Version")
+                        
+                        with col_info:
+                            st.metric("Final Score", f"{slide['score']:.0f}/10")
+                            st.write(f"**Iterations:** {slide['iterations']}")
+                            st.write(f"**Status:** {slide['status']}")
+                        
+                        # --- ITERATION HISTORY ---
+                        if slide.get('iteration_history'):
+                            st.markdown("---")
+                            st.markdown("### 📝 Improvement History")
+                            
+                            for record in slide['iteration_history']:
+                                iter_num = record['iteration']
+                                iter_score = record['score']
+                                score_icon = "🟢" if iter_score >= 8 else "🟡" if iter_score >= 5 else "🔴"
+                                
+                                st.markdown(f"**Round {iter_num}** {score_icon} Score: {iter_score}/10")
+                                
+                                # Issues found
+                                if record.get('issues'):
+                                    st.markdown("*Issues Found:*")
+                                    for issue in record['issues']:
+                                        st.caption(f"  ⚠️ {issue}")
+                                
+                                # Suggested actions
+                                if record.get('suggested_actions'):
+                                    st.markdown("*Suggested Actions:*")
+                                    st.caption(f"  📋 {', '.join(record['suggested_actions'])}")
+                                
+                                # Actions applied
+                                if record.get('actions_applied'):
+                                    st.markdown("*Actions Taken:*")
+                                    for action in record['actions_applied']:
+                                        st.caption(f"  ✅ {action}")
+                                
+                                st.markdown("---")
+                        
+                        # Comment input with unique key
+                        comment_key = f"review_comment_{slide['index']}_{slide.get('iterations', 0)}"
+                        comment = st.text_input(f"Add comment", key=comment_key)
+                        if comment:
+                            if 'slide_comments' not in st.session_state:
+                                st.session_state['slide_comments'] = {}
+                            st.session_state['slide_comments'][slide['index']] = comment
+
+            
+            # --- SECONDARY: SINGLE SLIDE TOOLS (in expander) ---
+            st.markdown("---")
+            with st.expander("🔧 Single Slide Tools", expanded=False):
+                slides = st.session_state['outline']
+                slide_titles = [f"{i+1}. {s['title']}" for i, s in enumerate(slides)]
+                sel_idx = st.selectbox("Select Slide", range(len(slides)), format_func=lambda i: slide_titles[i], key="design_slide_sel")
+                
+                slide_data = st.session_state.get(f'content_{sel_idx}', {})
+                
+                if not slide_data:
+                    st.warning("No content for this slide.")
+                else:
+                    col_ctrl, col_prev = st.columns([1, 1])
+                    
+                    with col_ctrl:
+                        if st.button("📸 Render & Analyze", use_container_width=True, key="single_render"):
+                            with st.spinner("Processing slide through improvement cycle..."):
+                                # Use same SlideProcessor as AgenticPipeline
+                                from autodeck_core.config import update_config
+                                from autodeck_core.slide_processor import SlideProcessor
+                                
+                                # Update config with template
+                                template_path = st.session_state.get('template_path')
+                                update_config(template_path=template_path)
+                                
+                                # Process the slide
+                                processor = SlideProcessor()
+                                result = processor.process_slide(slide_data, index=sel_idx)
+                                
+                                # Store result for display
+                                st.session_state['current_slide_result'] = {
+                                    'image_path': result.image_path,
+                                    'score': result.final_score,
+                                    'iterations': result.iterations,
+                                    'critique': result.critique,
+                                    'iteration_history': [
+                                        {
+                                            'iteration': rec.iteration,
+                                            'score': rec.score,
+                                            'issues': rec.issues,
+                                            'suggested_actions': rec.suggested_actions,
+                                            'actions_applied': rec.actions_applied,
+                                            'raw_response': rec.raw_response  # Include raw LLM output
+                                        }
+                                        for rec in result.iteration_history
+                                    ]
+                                }
+                                st.session_state['current_preview_img'] = result.image_path
+                                st.success(f"Score: {result.final_score:.0f}/10 after {result.iterations} iteration(s)")
+                    
+                    with col_prev:
+                        if 'current_preview_img' in st.session_state and os.path.exists(st.session_state.get('current_preview_img', '')):
+                            st.image(st.session_state['current_preview_img'], caption="Preview", use_container_width=True)
+                    
+                    # Display iteration history if available
+                    if 'current_slide_result' in st.session_state and st.session_state['current_slide_result'].get('iteration_history'):
+                        st.markdown("---")
+                        st.markdown("### 📝 Improvement History")
+                        
+                        for record in st.session_state['current_slide_result']['iteration_history']:
+                            iter_num = record['iteration']
+                            iter_score = record['score']
+                            score_icon = "🟢" if iter_score >= 8 else "🟡" if iter_score >= 5 else "🔴"
+                            
+                            st.markdown(f"**Round {iter_num}** {score_icon} Score: {iter_score}/10")
+                            
+                            if record.get('issues'):
+                                st.markdown("*Issues Found:*")
+                                for issue in record['issues']:
+                                    st.caption(f"  ⚠️ {issue}")
+                            
+                            if record.get('suggested_actions'):
+                                st.markdown("*Suggested Actions:*")
+                                st.caption(f"  📋 {', '.join(record['suggested_actions'])}")
+                            
+                            if record.get('actions_applied'):
+                                st.markdown("*Actions Taken:*")
+                                for action in record['actions_applied']:
+                                    st.caption(f"  ✅ {action}")
+                            
+                            # Show raw LLM response in expander
+                            if record.get('raw_response'):
+                                with st.expander("🔍 Raw Vision Model Response"):
+                                    st.text(record['raw_response'][:2000])  # Limit length
+                            
+                            st.markdown("---")
+
+
+
 
 # Live Log Count in Sidebar (no dynamic updates - Streamlit limitation)  
 st.sidebar.markdown("---")
@@ -431,23 +746,64 @@ with tab3:
             selected_slide = slides[selected_slide_idx]
             st.write(f"**Description:** {selected_slide['description']}")
             
+            
             # Validation Toggle
             enable_validation = st.checkbox("🔍 Enable Content & Image Validation", help="Uses Gemma 3 Vision to check image quality and content accuracy")
+
+            col_gen_1, col_gen_2 = st.columns(2)
             
-            if st.button("Generate Content for Slide", icon=":material/draw:", type="primary"):
-                with st.spinner("Generating Content..."):
+            with col_gen_1:
+                if st.button("Generate Content for THIS Slide", icon=":material/draw:", type="secondary", use_container_width=True):
+                    with st.spinner("Generating Content..."):
+                        agent = get_content_agent()
+                        content = agent.generate_slide_content(
+                            selected_slide['title'], 
+                            selected_slide['description'], 
+                            log_callback=log_message,
+                            validate=False
+                        )
+                        st.session_state[f'content_{selected_slide_idx}'] = content
+                        
+                        # Save
+                        content_dict = {}
+                        for key in st.session_state.keys():
+                            if key.startswith('content_'):
+                                idx = key.replace('content_', '')
+                                content_dict[idx] = st.session_state[key]
+                        
+                        session_data = {
+                            "outline": st.session_state.get('outline', []),
+                            "content": content_dict,
+                            "logs": st.session_state.get('logs', []),
+                            "slide_comments": st.session_state.get('slide_comments', {})
+                        }
+                        session_mgr.save_session(st.session_state['current_session_id'], session_data)
+                        st.success("Slide Generated!")
+                        st.rerun()
+
+            with col_gen_2:
+                if st.button("✨ Generate ALL Slides", icon=":material/auto_awesome_motion:", type="primary", use_container_width=True):
+                    slides_to_gen = st.session_state['outline']
+                    progress_text = "Starting generation..."
+                    my_bar = st.progress(0, text=progress_text)
                     agent = get_content_agent()
-                    # 1. Generate Content (Fast)
-                    content = agent.generate_slide_content(
-                        selected_slide['title'], 
-                        selected_slide['description'], 
-                        log_callback=log_message,
-                        validate=False # Don't validate yet
-                    )
-                    st.session_state[f'content_{selected_slide_idx}'] = content
                     
-                    # Auto-save session
-                    # Gather all content
+                    total = len(slides_to_gen)
+                    for i, slide in enumerate(slides_to_gen):
+                        my_bar.progress(int((i / total) * 100), text=f"Generating slide {i+1}/{total}: {slide['title']}")
+                        
+                        # Generate
+                        content = agent.generate_slide_content(
+                            slide['title'], 
+                            slide['description'], 
+                            log_callback=log_message,
+                            validate=False
+                        )
+                        st.session_state[f'content_{i}'] = content
+                    
+                    my_bar.progress(100, text="Generation Complete!")
+                    
+                    # Batch Save
                     content_dict = {}
                     for key in st.session_state.keys():
                         if key.startswith('content_'):
@@ -461,9 +817,10 @@ with tab3:
                         "slide_comments": st.session_state.get('slide_comments', {})
                     }
                     session_mgr.save_session(st.session_state['current_session_id'], session_data)
-                    
-                    st.success("Content Generated!")
-                    st.rerun() # Rerun to show content immediately
+                    st.success("All slides generated successfully!")
+                    st.rerun()
+
+            # (Old button removed/merged above)
 
             # Display Content
             if f'content_{selected_slide_idx}' in st.session_state:
@@ -587,11 +944,69 @@ with tab3:
         else:
             st.warning("Please select a slide to edit")
             
+        if selected_slide_idx is not None:
+             # ... (existing code for slide editing) ...
+             pass # Placeholder to match indentation, actually I will append at the end of tab3 block
+        
+        # New Export Section
+        st.markdown("---")
+        st.header("Export Presentation", divider="gray")
+        
+        col_export_1, col_export_2 = st.columns([1, 2])
+        # Get session name safely for both generation and download
+        current_session_id = st.session_state.get('current_session_id')
+        session_name = "Presentation"
+        if current_session_id:
+             loaded_session = session_mgr.load_session(current_session_id)
+             if loaded_session:
+                 session_name = loaded_session.get('name', 'Presentation')
+
+        with col_export_1:
+             if st.button("Generate PowerPoint (.pptx)", icon=":material/slideshow:", type="primary", use_container_width=True):
+                with st.spinner("Generating PowerPoint..."):
+                    try:
+                        # Construct session data from state
+                        content_dict = {}
+                        for key in st.session_state.keys():
+                            if key.startswith('content_'):
+                                idx = key.replace('content_', '')
+                                content_dict[idx] = st.session_state[key]
+                        
+                        session_data = {
+                            "name": session_name,
+                            "outline": st.session_state.get('outline', []),
+                            "content": content_dict
+                        }
+                        
+                        # Use template if uploaded
+                        template_path = st.session_state.get('template_path')
+                        ppt_gen = PPTGenerator(
+                            output_path=f"generated_presentation_{current_session_id}.pptx",
+                            template_path=template_path
+                        )
+                        output_file = ppt_gen.generate(session_data)
+                        st.session_state['last_generated_ppt'] = output_file
+                        st.success(f"PowerPoint generated successfully!")
+                    except Exception as e:
+                        st.error(f"Failed to generate PPT: {e}")
+                        log_message(f"[ERROR] PPT Generation failed: {e}")
+
+        with col_export_2:
+            if 'last_generated_ppt' in st.session_state and os.path.exists(st.session_state['last_generated_ppt']):
+                 with open(st.session_state['last_generated_ppt'], "rb") as f:
+                     st.download_button(
+                         label="Download PowerPoint",
+                         data=f,
+                         file_name=f"{session_name.replace(' ', '_')}.pptx",
+                         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                         use_container_width=True,
+                         icon=":material/download:"
+                     )
     else:
         st.info("Please generate an outline in Tab 2 first.")
 
-# --- TAB 4: LOGS ---
-with tab4:
+# --- TAB 5: LOGS ---
+with tab5:
     st.header("System Logs", divider="gray")
     
     # Controls row
