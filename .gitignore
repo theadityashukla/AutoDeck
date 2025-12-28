@@ -19,3 +19,9 @@ __pycache__/
 
 # System
 .DS_Store
+# Temp render files
+rendered_slides/
+renderer_test_output/
+test_*.pptx
+test_*.png
+
