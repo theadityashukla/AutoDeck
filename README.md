@@ -5,7 +5,7 @@ AutoDeck is an advanced agentic system that transforms scientific documents (PDF
 ![AutoDeck UI Screenshot](static/ui_mockup.png)
 *(Note: Screenshot placeholder)*
 
-## 🚀 Key Features
+## Key Features
 
 *   **Multi-Agent Architecture**: Specialized AI agents for Ingestion, Retrieval, Outlining, Content Generation, and Design.
 *   **Hybrid AI Pipeline**:
@@ -20,7 +20,7 @@ AutoDeck is an advanced agentic system that transforms scientific documents (PDF
 *   **Material Expressive UI**: A modern, professional interface built on Streamlit with custom CSS.
 *   **Template-Based Generation**: Renders final outputs into branded `.pptx` templates, respecting master slide layouts and typography.
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 *   **Hardware**: macOS with Apple Silicon (M1/M2/M3/M4) is required for MLX.
@@ -52,7 +52,7 @@ GEMINI_API_KEY=your_api_key_here
 ### 3. Model Setup
 The system automatically downloads the local LLM (`mlx-community/gemma-3-12b-it-qat-4bit`) on first run.
 
-## 🖥️ Usage Guide
+## Usage Guide
 
 1.  **Launch the Studio**:
     ```bash
@@ -77,7 +77,7 @@ The system automatically downloads the local LLM (`mlx-community/gemma-3-12b-it-
     *   Click **"Generate Full Deck"**. The system renders slides, audits them visually, and iteratively improves them (e.g., shortening text if it overflows).
     *   Click **"Export Presentation"** to download the final `.pptx` file.
 
-## 🏗️ Architecture
+## Architecture
 
 The system is built on a modular "Agent Swarm" pattern:
 
@@ -88,7 +88,7 @@ The system is built on a modular "Agent Swarm" pattern:
 5.  **DesignAgent (Critic/Fixer)**: A multimodal agent that *looks* at rendered slides using Gemini Vision. It acts as a human designer, spotting issues like "text is cut off" or "image overlaps header" and issuing specific correction commands (e.g., `REDUCE_FONT_SIZE`, `MOVE_IMAGE`).
 6.  **PPTGenerator**: The rendering engine that interfaces with `python-pptx` to manipulate the actual slide objects.
 
-## 🧗 Challenges & Solutions
+## Challenges & Solutions
 
 During development, we tackled several critical engineering challenges:
 
@@ -111,7 +111,7 @@ During development, we tackled several critical engineering challenges:
 *   **Challenge**: Managing a long-running multi-step pipeline (Generate -> Render -> Audit -> Fix -> Render...) in Streamlit, which is stateless by default.
 *   **Solution**: Implemented a robust `session_state` machine with flags for `pipeline_running`, `review_queue`, and intermediate checkpoints, allowing the user to pause, inspect, and resume generation.
 
-## 🔮 Future Enhancements
+## Future Enhancements
 
 *   **Advanced Layout Engine**: Move beyond standard "Title + Body" layouts. Implement an AI that can select from 10+ smart layouts (Grid, 2-Column, Hero Image) based on content type.
 *   **Chart Generation**: Instead of pasting static images from PDFs, use the LLM to extract data tables and generate native, editable PowerPoint charts.
