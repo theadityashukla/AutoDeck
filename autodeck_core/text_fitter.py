@@ -17,25 +17,57 @@ import math
 @dataclass
 class SlideConstraints:
     """Slide dimension constraints in points (1 inch = 72 points)."""
+    # These are DEFAULT values - they will be overridden by actual template placeholder dims
     width_pt: float = 720  # 10 inches
     height_pt: float = 540  # 7.5 inches
     
-    # Content area (excluding margins)
-    margin_left_pt: float = 72  # 1 inch
-    margin_right_pt: float = 72
-    margin_top_pt: float = 108  # 1.5 inches (for title)
-    margin_bottom_pt: float = 36  # 0.5 inch
-    
-    # Title constraints
-    title_height_pt: float = 54  # ~0.75 inches
+    # Content area - ACTUAL values from template placeholder
+    # These get set by get_template_constraints() below
+    content_width_pt: float = 576  # 8 inches default
+    content_height_pt: float = 324  # 4.5 inches default (leaves room for header + footer)
     
     @property
     def content_width(self) -> float:
-        return self.width_pt - self.margin_left_pt - self.margin_right_pt
+        return self.content_width_pt
     
     @property
     def content_height(self) -> float:
-        return self.height_pt - self.margin_top_pt - self.margin_bottom_pt
+        return self.content_height_pt
+
+
+def get_template_constraints() -> SlideConstraints:
+    """Get constraints based on actual template placeholder dimensions."""
+    from autodeck_core.config import get_config
+    
+    config = get_config()
+    constraints = SlideConstraints()
+    
+    if config.template_path:
+        try:
+            from pptx import Presentation
+            from pptx.util import Emu
+            
+            prs = Presentation(config.template_path)
+            # Get the bullet layout (usually index 1)
+            slide_layout = prs.slide_layouts[1]
+            
+            # Find the body placeholder
+            for shape in slide_layout.placeholders:
+                if shape.placeholder_format.idx == 1:  # Body placeholder
+                    # Convert EMUs to points (1 inch = 914400 EMUs, 1 inch = 72 pt)
+                    # So 1 EMU = 72/914400 points
+                    emu_to_pt = 72 / 914400
+                    
+                    constraints.content_width_pt = shape.width * emu_to_pt
+                    constraints.content_height_pt = shape.height * emu_to_pt
+                    
+                    print(f"Template placeholder: width={constraints.content_width_pt:.1f}pt, height={constraints.content_height_pt:.1f}pt")
+                    break
+        except Exception as e:
+            print(f"WARNING: Could not read template dimensions: {e}, using defaults")
+    
+    return constraints
+
 
 
 @dataclass
@@ -133,6 +165,9 @@ class TextFitter:
         # Calculate optimal font size
         optimal_font = self.calculate_optimal_font_size(bullet_points, current_font)
         
+        print(f"TextFitter: {len(bullet_points)} bullets, calculated font={optimal_font}pt (from max {current_font}pt)")
+        print(f"Content area: width={self.constraints.content_width:.1f}pt, height={self.constraints.content_height:.1f}pt")
+        
         # Check if we need layout change
         if len(bullet_points) > 6 and optimal_font <= self.MIN_FONT_SIZE:
             # Too many bullets - suggest two-column
@@ -193,6 +228,10 @@ def auto_fit_slide(content: Dict[str, Any]) -> Dict[str, Any]:
     Convenience function to auto-fit slide content.
     
     Call this BEFORE generating the PPTX to ensure content fits.
+    Uses actual template placeholder dimensions if available.
     """
-    fitter = TextFitter()
+    # Get constraints based on actual template
+    constraints = get_template_constraints()
+    fitter = TextFitter(constraints)
     return fitter.fit_content(content)
+

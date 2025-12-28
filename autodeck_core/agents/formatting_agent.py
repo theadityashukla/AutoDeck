@@ -101,9 +101,20 @@ class FormattingAgent:
             if "layout_type" not in layout_data:
                 layout_data["layout_type"] = "standard_list"
                 layout_data["content_mapping"] = {"main_bullets": slide_content.get("bullet_points", [])}
+            
+            # CRITICAL: Don't use image layouts if there's no actual image file
+            import os
+            image_path = slide_content.get("image_suggestion")
+            has_real_image = image_path and os.path.exists(str(image_path))
+            
+            if layout_data["layout_type"] == "image_text_split" and not has_real_image:
+                self.logger.warning(f"Rejecting image_text_split - no actual image file exists")
+                layout_data["layout_type"] = "standard_list"
+                layout_data["content_mapping"] = {"main_bullets": slide_content.get("bullet_points", [])}
                 
             self.logger.info(f"Selected layout: {layout_data['layout_type']}")
             return layout_data
+
             
         except Exception as e:
             self.logger.error(f"Failed to parse layout JSON: {e}")

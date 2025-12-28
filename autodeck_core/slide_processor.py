@@ -169,7 +169,8 @@ class SlideProcessor:
             self.logger.info(f"Slide {index+1} iteration {iteration+1}: score={score}, issues={len(issues)}, suggestions={len(suggested_actions)}")
             
             # 3. Check if good enough OR no suggestions to apply
-            if score >= self.target_score or (not suggested_actions and iteration > 0):
+            # Exit early if score is good OR if there are no suggestions (even on first iteration)
+            if score >= self.target_score or not suggested_actions:
                 # Record final iteration
                 reason = "Target score reached" if score >= self.target_score else "No suggestions to apply"
                 record = IterationRecord(

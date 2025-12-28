@@ -2,6 +2,11 @@ import streamlit as st
 import os
 import json
 import uuid
+
+# Load environment variables from .env file (for API keys)
+from dotenv import load_dotenv
+load_dotenv()
+
 from autodeck_core.agents.ingestion_agent import IngestionAgent
 from autodeck_core.agents.outline_agent import SlideOutlineAgent
 from autodeck_core.agents.content_agent import SlideContentAgent
@@ -9,8 +14,31 @@ from autodeck_core.session_manager import SessionManager
 from autodeck_core.ppt_generator import PPTGenerator
 
 # Page Config
-st.set_page_config(page_title="AutoDeck", layout="wide")
-st.title("AutoDeck: AI Presentation Generator")
+st.set_page_config(
+    page_title="AutoDeck", 
+    layout="wide",
+    page_icon=":material/slideshow:"
+)
+
+# Material Expressive Theme - CSS Injection
+def load_css():
+    css_path = os.path.join(os.path.dirname(__file__), "static", "material_expressive.css")
+    if os.path.exists(css_path):
+        with open(css_path) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    
+    # Google Fonts for Material Design
+    st.markdown("""
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+    """, unsafe_allow_html=True)
+
+load_css()
+
+st.title("AutoDeck")
+st.caption("Intelligent Presentation Studio")
+
 
 # Sidebar
 st.sidebar.header("Configuration")
@@ -26,7 +54,7 @@ theme = st.sidebar.selectbox("Theme", ["Default", "Black & Gold"])
 
 # Template Upload
 st.sidebar.markdown("---")
-st.sidebar.subheader("📐 Slide Template")
+st.sidebar.subheader("Slide Template")
 uploaded_template = st.sidebar.file_uploader(
     "Upload PPTX Template", 
     type=["pptx"],
@@ -293,23 +321,58 @@ with tab4:
             st.warning("Please generate content first in the Content tab.")
         else:
             # --- PRIMARY: FULL DECK GENERATION ---
-            st.subheader("🚀 Generate & Auto-Improve Full Deck")
+            st.subheader("Generate & Auto-Improve Full Deck")
             
             # Check if template is being used
             if st.session_state.get('template_path'):
-                st.warning("⚠️ **Template Mode**: Preview images may show white background due to LibreOffice limitations. The actual PPTX file will have correct styling - use 'Generate Final PPTX' below to get accurate output.")
+                st.warning("**Template Mode**: Preview images may show white background due to LibreOffice limitations. The actual PPTX file will have correct styling - use 'Generate Final PPTX' below to get accurate output.")
             else:
                 st.info("Click below to automatically generate, analyze, and improve ALL slides. Each slide will be shown as it's finalized.")
             
             col_gen, col_stop, col_status = st.columns([1, 1, 2])
             
             with col_gen:
-                generate_btn = st.button("⚡ Generate Full Deck", type="primary", use_container_width=True, key="gen_full_deck")
+                generate_btn = st.button("Generate Full Deck", type="primary", use_container_width=True, key="gen_full_deck", icon=":material/rocket_launch:")
             
             with col_stop:
                 def stop_pipeline_callback():
                     st.session_state['pipeline_stopped'] = True
-                stop_btn = st.button("🛑 Stop Generation", type="secondary", use_container_width=True, key="stop_btn", on_click=stop_pipeline_callback)
+                
+                # Show "Save PPTX" when generation is complete, otherwise "Stop Generation"
+                generation_complete = st.session_state.get('pipeline_status', '').startswith('Pipeline Complete')
+                
+                if generation_complete and 'review_queue' in st.session_state and len(st.session_state['review_queue']) > 0:
+                    # Generation complete - show save button
+                    if st.button("Export Presentation", type="primary", use_container_width=True, key="save_pptx_btn", icon=":material/download:"):
+                        # Generate the PPTX
+                        from autodeck_core.ppt_generator import PPTGenerator
+                        from autodeck_core.config import get_config
+                        import os
+                        
+                        config = get_config()
+                        generator = PPTGenerator(template_path=config.template_path)
+                        
+                        # Build slides from review queue
+                        slides_data = []
+                        for slide in st.session_state['review_queue']:
+                            slide_content = {
+                                "title": slide['title'],
+                                "bullet_points": slide.get('content', {}).get('bullet_points', []),
+                                "visual_overrides": slide.get('content', {}).get('visual_overrides', {})
+                            }
+                            slides_data.append(slide_content)
+                        
+                        # Save PPTX
+                        session_name = st.session_state.get('session_name', 'presentation')
+                        output_path = os.path.join(config.output_dir, f"{session_name.replace(' ', '_')}.pptx")
+                        generator.generate(slides_data, output_path=output_path)
+                        
+                        st.session_state['last_generated_ppt'] = output_path
+                        st.success(f"Saved to: {output_path}")
+                        st.rerun()
+                else:
+                    # Generation in progress - show stop button
+                    stop_btn = st.button("Stop Generation", type="secondary", use_container_width=True, key="stop_btn", on_click=stop_pipeline_callback, icon=":material/stop_circle:")
             
             with col_status:
                 if 'pipeline_status' in st.session_state:
@@ -395,7 +458,7 @@ with tab4:
                     # Show preview immediately in live container
                     with live_slide_container:
                         if result.image_path and os.path.exists(result.image_path):
-                            st.image(result.image_path, caption=f"✅ Slide {idx+1}: {result.title} (Score: {result.final_score:.0f}/10)", width=400)
+                            st.image(result.image_path, caption=f"Slide {idx+1}: {result.title} (Score: {result.final_score:.0f}/10)", width=400)
                 
                 st.session_state['pipeline_status'] = f"✓ Completed {total_slides} slides"
                 with progress_container:
@@ -405,10 +468,10 @@ with tab4:
             # --- REVIEW QUEUE ---
             if 'review_queue' in st.session_state and st.session_state['review_queue']:
                 st.markdown("---")
-                st.subheader("📋 Review Queue")
+                st.subheader("Review Queue")
                 
                 for slide in st.session_state['review_queue']:
-                    score_color = "🟢" if slide['score'] >= 8 else "🟡" if slide['score'] >= 5 else "🔴"
+                    score_color = "[OK]" if slide['score'] >= 8 else "[--]" if slide['score'] >= 5 else "[!!]"
                     with st.expander(f"{score_color} Slide {slide['index']+1}: {slide['title']} (Score: {slide['score']:.0f}/10)", expanded=False):
                         col_img, col_info = st.columns([1, 1])
                         
@@ -424,12 +487,12 @@ with tab4:
                         # --- ITERATION HISTORY ---
                         if slide.get('iteration_history'):
                             st.markdown("---")
-                            st.markdown("### 📝 Improvement History")
+                            st.markdown("### Improvement History")
                             
                             for record in slide['iteration_history']:
                                 iter_num = record['iteration']
                                 iter_score = record['score']
-                                score_icon = "🟢" if iter_score >= 8 else "🟡" if iter_score >= 5 else "🔴"
+                                score_icon = "[OK]" if iter_score >= 8 else "[--]" if iter_score >= 5 else "[!!]"
                                 
                                 st.markdown(f"**Round {iter_num}** {score_icon} Score: {iter_score}/10")
                                 
@@ -437,18 +500,18 @@ with tab4:
                                 if record.get('issues'):
                                     st.markdown("*Issues Found:*")
                                     for issue in record['issues']:
-                                        st.caption(f"  ⚠️ {issue}")
+                                        st.caption(f"  {issue}")
                                 
                                 # Suggested actions
                                 if record.get('suggested_actions'):
                                     st.markdown("*Suggested Actions:*")
-                                    st.caption(f"  📋 {', '.join(record['suggested_actions'])}")
+                                    st.caption(f"  {', '.join(record['suggested_actions'])}")
                                 
                                 # Actions applied
                                 if record.get('actions_applied'):
                                     st.markdown("*Actions Taken:*")
                                     for action in record['actions_applied']:
-                                        st.caption(f"  ✅ {action}")
+                                        st.caption(f"  {action}")
                                 
                                 st.markdown("---")
                         
@@ -463,7 +526,7 @@ with tab4:
             
             # --- SECONDARY: SINGLE SLIDE TOOLS (in expander) ---
             st.markdown("---")
-            with st.expander("🔧 Single Slide Tools", expanded=False):
+            with st.expander("Single Slide Tools", expanded=False):
                 slides = st.session_state['outline']
                 slide_titles = [f"{i+1}. {s['title']}" for i, s in enumerate(slides)]
                 sel_idx = st.selectbox("Select Slide", range(len(slides)), format_func=lambda i: slide_titles[i], key="design_slide_sel")
@@ -476,7 +539,7 @@ with tab4:
                     col_ctrl, col_prev = st.columns([1, 1])
                     
                     with col_ctrl:
-                        if st.button("📸 Render & Analyze", use_container_width=True, key="single_render"):
+                        if st.button("Render & Analyze", use_container_width=True, key="single_render", icon=":material/visibility:"):
                             with st.spinner("Processing slide through improvement cycle..."):
                                 # Use same SlideProcessor as AgenticPipeline
                                 from autodeck_core.config import update_config
@@ -514,36 +577,59 @@ with tab4:
                     with col_prev:
                         if 'current_preview_img' in st.session_state and os.path.exists(st.session_state.get('current_preview_img', '')):
                             st.image(st.session_state['current_preview_img'], caption="Preview", use_container_width=True)
+                            
+                            # Add download button for the PPTX
+                            # The temp PPTX path is stored alongside the image
+                            preview_img = st.session_state.get('current_preview_img', '')
+                            if preview_img:
+                                # Derive PPTX path from PNG path
+                                pptx_path = preview_img.replace('.png', '.pptx').replace('temp_render_', 'temp_render_')
+                                # Also try the original naming
+                                import glob
+                                pptx_dir = os.path.dirname(preview_img)
+                                pptx_files = glob.glob(os.path.join(pptx_dir, 'temp_render_*.pptx'))
+                                if pptx_files:
+                                    latest_pptx = max(pptx_files, key=os.path.getmtime)
+                                    if os.path.exists(latest_pptx):
+                                        with open(latest_pptx, 'rb') as f:
+                                            st.download_button(
+                                                label="Download PPTX",
+                                                data=f,
+                                                file_name="slide_preview.pptx",
+                                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                                use_container_width=True
+                                            )
+
                     
                     # Display iteration history if available
                     if 'current_slide_result' in st.session_state and st.session_state['current_slide_result'].get('iteration_history'):
                         st.markdown("---")
-                        st.markdown("### 📝 Improvement History")
+                        st.markdown("### Improvement History")
                         
                         for record in st.session_state['current_slide_result']['iteration_history']:
                             iter_num = record['iteration']
                             iter_score = record['score']
-                            score_icon = "🟢" if iter_score >= 8 else "🟡" if iter_score >= 5 else "🔴"
+                            score_icon = "[OK]" if iter_score >= 8 else "[--]" if iter_score >= 5 else "[!!]"
                             
                             st.markdown(f"**Round {iter_num}** {score_icon} Score: {iter_score}/10")
                             
                             if record.get('issues'):
                                 st.markdown("*Issues Found:*")
                                 for issue in record['issues']:
-                                    st.caption(f"  ⚠️ {issue}")
+                                    st.caption(f"  {issue}")
                             
                             if record.get('suggested_actions'):
                                 st.markdown("*Suggested Actions:*")
-                                st.caption(f"  📋 {', '.join(record['suggested_actions'])}")
+                                st.caption(f"  {', '.join(record['suggested_actions'])}")
                             
                             if record.get('actions_applied'):
                                 st.markdown("*Actions Taken:*")
                                 for action in record['actions_applied']:
-                                    st.caption(f"  ✅ {action}")
+                                    st.caption(f"  {action}")
                             
                             # Show raw LLM response in expander
                             if record.get('raw_response'):
-                                with st.expander("🔍 Raw Vision Model Response"):
+                                with st.expander("Raw Vision Model Response"):
                                     st.text(record['raw_response'][:2000])  # Limit length
                             
                             st.markdown("---")
@@ -748,7 +834,7 @@ with tab3:
             
             
             # Validation Toggle
-            enable_validation = st.checkbox("🔍 Enable Content & Image Validation", help="Uses Gemma 3 Vision to check image quality and content accuracy")
+            enable_validation = st.checkbox("Enable Content & Image Validation", help="Uses Gemma 3 Vision to check image quality and content accuracy")
 
             col_gen_1, col_gen_2 = st.columns(2)
             
@@ -782,7 +868,7 @@ with tab3:
                         st.rerun()
 
             with col_gen_2:
-                if st.button("✨ Generate ALL Slides", icon=":material/auto_awesome_motion:", type="primary", use_container_width=True):
+                if st.button("Generate ALL Slides", icon=":material/auto_awesome_motion:", type="primary", use_container_width=True):
                     slides_to_gen = st.session_state['outline']
                     progress_text = "Starting generation..."
                     my_bar = st.progress(0, text=progress_text)
@@ -864,11 +950,11 @@ with tab3:
                         is_valid = img_val.get('is_valid', False)
                         
                         if is_valid:
-                            st.success(f"**Image Quality:** Excellent ({score}/10)", icon="✅")
+                            st.success(f"**Image Quality:** Excellent ({score}/10)")
                         elif score >= 4:
-                            st.warning(f"**Image Quality:** Acceptable ({score}/10)", icon="⚠️")
+                            st.warning(f"**Image Quality:** Acceptable ({score}/10)")
                         else:
-                            st.error(f"**Image Quality:** Poor ({score}/10)", icon="❌")
+                            st.error(f"**Image Quality:** Poor ({score}/10)")
                             
                         with st.expander("Image Analysis Details"):
                             st.write(f"**Clear:** {'Yes' if img_val.get('is_clear') else 'No'}")
@@ -886,9 +972,9 @@ with tab3:
                     if 'content' in val:
                         cont_val = val['content']
                         if cont_val.get('is_accurate'):
-                            st.success("**Content Accuracy:** Verified", icon="✅")
+                            st.success("**Content Accuracy:** Verified")
                         else:
-                            st.warning("**Content Accuracy:** Potential Issues", icon="⚠️")
+                            st.warning("**Content Accuracy:** Potential Issues")
                             
                         with st.expander("Content Verification Details"):
                             st.write(f"**Confidence:** {cont_val.get('confidence', 0)*100:.0f}%")
@@ -905,9 +991,9 @@ with tab3:
                     if 'coherence' in val:
                         coh_val = val['coherence']
                         if coh_val.get('is_coherent'):
-                            st.success("**Slide Coherence:** Good", icon="✅")
+                            st.success("**Slide Coherence:** Good")
                         else:
-                            st.info("**Slide Coherence:** Needs Review", icon="ℹ️")
+                            st.info("**Slide Coherence:** Needs Review")
                             with st.expander("Coherence Details"):
                                 for issue in coh_val.get('issues', []):
                                     st.write(f"- {issue}")

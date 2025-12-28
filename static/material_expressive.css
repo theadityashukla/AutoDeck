@@ -1,0 +1,228 @@
+/* 
+ * Material Expressive Theme for AutoDeck
+ * Based on Google's Material Design 3 (M3) Expressive Guidelines
+ * Teal/Cyan accent for professional look
+ */
+
+/* ===== CSS Variables - M3 Color Palette (Teal) ===== */
+:root {
+    --md-sys-color-primary: #0891B2;
+    --md-sys-color-on-primary: #FFFFFF;
+    --md-sys-color-primary-container: #CFFAFE;
+    --md-sys-color-on-primary-container: #164E63;
+
+    --md-sys-color-secondary: #475569;
+    --md-sys-color-on-secondary: #FFFFFF;
+    --md-sys-color-secondary-container: #E2E8F0;
+    --md-sys-color-on-secondary-container: #1E293B;
+
+    --md-sys-color-tertiary: #0D9488;
+    --md-sys-color-tertiary-container: #99F6E4;
+
+    --md-sys-color-surface: #FAFAFA;
+    --md-sys-color-surface-variant: #F0F4F8;
+    --md-sys-color-on-surface: #1E293B;
+    --md-sys-color-on-surface-variant: #475569;
+
+    --md-sys-color-outline: #94A3B8;
+    --md-sys-color-outline-variant: #CBD5E1;
+
+    --md-sys-color-error: #DC2626;
+    --md-sys-color-success: #16A34A;
+
+    /* Elevation shadows */
+    --md-sys-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 3px 1px rgba(0, 0, 0, 0.1);
+    --md-sys-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 6px 2px rgba(0, 0, 0, 0.1);
+    --md-sys-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.15);
+
+    /* Typography */
+    --md-sys-typescale-display-font: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+    --md-sys-typescale-body-font: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ===== Global Styles ===== */
+.stApp {
+    font-family: var(--md-sys-typescale-body-font);
+}
+
+/* ===== Buttons - Filled Style ===== */
+.stButton>button {
+    background-color: var(--md-sys-color-primary) !important;
+    color: var(--md-sys-color-on-primary) !important;
+    border: none !important;
+    border-radius: 20px !important;
+    padding: 10px 24px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.1px !important;
+    transition: all 0.2s ease-in-out !important;
+    box-shadow: var(--md-sys-elevation-1) !important;
+}
+
+.stButton>button:hover {
+    box-shadow: var(--md-sys-elevation-2) !important;
+    opacity: 0.9;
+}
+
+.stButton>button:active {
+    transform: scale(0.98);
+}
+
+/* ===== Cards / Containers ===== */
+.stExpander {
+    border: 1px solid var(--md-sys-color-outline-variant) !important;
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
+div[data-testid="stMetric"] {
+    background: var(--md-sys-color-surface-variant);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* ===== Tabs - Pill/Oval Style ===== */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    background: var(--md-sys-color-surface);
+    padding: 8px;
+    border-radius: 24px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 20px !important;
+    padding: 10px 20px !important;
+    font-weight: 500 !important;
+    color: var(--md-sys-color-on-surface-variant) !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.stTabs [aria-selected="true"] {
+    background: var(--md-sys-color-secondary-container) !important;
+    color: var(--md-sys-color-on-secondary-container) !important;
+}
+
+/* ===== Input Fields ===== */
+.stTextInput>div>div>input,
+.stTextArea>div>div>textarea {
+    border-radius: 8px !important;
+    border: 1px solid var(--md-sys-color-outline) !important;
+    padding: 12px 16px !important;
+}
+
+.stTextInput>div>div>input:focus,
+.stTextArea>div>div>textarea:focus {
+    border-color: var(--md-sys-color-primary) !important;
+    box-shadow: 0 0 0 2px var(--md-sys-color-primary-container) !important;
+}
+
+/* ===== Select Boxes ===== */
+.stSelectbox>div>div {
+    border-radius: 8px !important;
+}
+
+/* ===== Sidebar ===== */
+[data-testid="stSidebar"] {
+    background: var(--md-sys-color-surface-variant) !important;
+}
+
+[data-testid="stSidebar"] .stMarkdown h1,
+[data-testid="stSidebar"] .stMarkdown h2 {
+    color: var(--md-sys-color-on-surface);
+}
+
+/* ===== Headers ===== */
+h1,
+h2,
+h3 {
+    font-family: var(--md-sys-typescale-display-font) !important;
+    font-weight: 500 !important;
+    color: var(--md-sys-color-on-surface) !important;
+}
+
+h1 {
+    font-size: 2rem !important;
+}
+
+/* ===== Dividers ===== */
+hr {
+    border-color: var(--md-sys-color-outline-variant) !important;
+}
+
+/* ===== Success/Error/Warning Messages ===== */
+.stSuccess {
+    background: #DCFCE7 !important;
+    color: var(--md-sys-color-success) !important;
+    border-radius: 8px !important;
+    border-left: 4px solid var(--md-sys-color-success) !important;
+}
+
+.stError {
+    background: #FEE2E2 !important;
+    color: var(--md-sys-color-error) !important;
+    border-radius: 8px !important;
+    border-left: 4px solid var(--md-sys-color-error) !important;
+}
+
+.stWarning {
+    background: #FEF3C7 !important;
+    border-radius: 8px !important;
+    border-left: 4px solid #F59E0B !important;
+}
+
+.stInfo {
+    background: var(--md-sys-color-primary-container) !important;
+    color: var(--md-sys-color-on-primary-container) !important;
+    border-radius: 8px !important;
+    border-left: 4px solid var(--md-sys-color-primary) !important;
+}
+
+/* ===== Download Button ===== */
+.stDownloadButton>button {
+    background: var(--md-sys-color-tertiary) !important;
+    color: white !important;
+    border-radius: 20px !important;
+    border: none !important;
+}
+
+/* ===== File Uploader ===== */
+[data-testid="stFileUploader"] {
+    border: 2px dashed var(--md-sys-color-outline) !important;
+    border-radius: 12px !important;
+    padding: 20px;
+}
+
+/* ===== Image Containers ===== */
+.stImage {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--md-sys-elevation-1);
+}
+
+/* ===== Progress Bar ===== */
+.stProgress>div>div>div {
+    background: var(--md-sys-color-primary) !important;
+    border-radius: 4px !important;
+}
+
+/* ===== Data Editor / Tables ===== */
+[data-testid="stDataFrame"] {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--md-sys-elevation-1);
+}
+
+/* ===== Smooth Scrolling ===== */
+html {
+    scroll-behavior: smooth;
+}
+
+/* ===== Subtle Transitions ===== */
+button,
+input,
+select,
+textarea {
+    transition: all 0.15s ease;
+}

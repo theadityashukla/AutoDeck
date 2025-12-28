@@ -1,2 +1,10 @@
 [server]
 headless = true
+
+[theme]
+# Material Expressive - Teal/Cyan accent (professional, not purple)
+primaryColor = "#0891B2"  # Teal primary
+backgroundColor = "#FAFAFA"  # Light surface
+secondaryBackgroundColor = "#F0F4F8"  # Surface variant
+textColor = "#1E293B"  # Slate text
+font = "sans serif"

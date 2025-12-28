@@ -117,10 +117,13 @@ class SlideFactory:
                 subprocess.run(cmd, capture_output=True, text=True)
             
             # 4. Cleanup temp files
-            if temp_pptx.exists():
-                os.remove(temp_pptx)
+            # DEBUG: Keep PPTX for manual inspection
+            # if temp_pptx.exists():
+            #     os.remove(temp_pptx)
+            print(f"PPTX saved for inspection: {temp_pptx}")
             if temp_pdf.exists():
                 os.remove(temp_pdf)
+
             
             if output_png.exists():
                 return str(output_png)

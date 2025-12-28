@@ -13,6 +13,8 @@ import copy
 import logging
 from pathlib import Path
 from autodeck_core.llm.gemma_client import GemmaClient
+from autodeck_core.llm.gemini_client import GeminiClient
+
 
 
 # =============================================================================
@@ -547,9 +549,26 @@ def _apply_action(content: Dict[str, Any], action: str) -> Dict[str, Any]:
 # =============================================================================
 
 class DesignAgent:
-    def __init__(self):
-        self.llm = GemmaClient()
+    def __init__(self, use_gemini: bool = True):
+        """
+        Initialize DesignAgent.
+        
+        Args:
+            use_gemini: If True, use Gemini API for vision (better quality).
+                       Falls back to local Gemma if Gemini unavailable.
+        """
         self.logger = logging.getLogger("DesignAgent")
+        
+        # Try Gemini first for vision (better quality)
+        self.gemini = GeminiClient() if use_gemini else None
+        self.use_gemini = use_gemini and self.gemini and self.gemini.is_available()
+        
+        if self.use_gemini:
+            self.logger.info("DesignAgent using Gemini API for vision")
+        else:
+            self.logger.info("DesignAgent using local Gemma for vision")
+            self.llm = GemmaClient()
+
 
     def analyze_slide(self, image_path: str, slide_content: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -597,58 +616,63 @@ class DesignAgent:
         if current_overrides.get("para_spacing"):
             already_applied.append(f"para_spacing already at {current_overrides.get('para_spacing')}")
         
-        already_applied_text = "\n".join(f"  ✓ {x}" for x in already_applied) if already_applied else "  (none)"
+        already_applied_text = "\n".join(f"  - {x}" for x in already_applied) if already_applied else "  (none)"
         
-        prompt = f"""You are a Presentation Design Expert. Analyze this slide image and suggest improvements.
+        prompt = f"""You are a conservative Presentation Design reviewer. Your job is to identify ONLY critical issues.
 
 ## Current Slide State:
-- Layout: {current_layout}
-- Body Width: {current_body_width}" (max is 9.4")
-- Font Size: {current_font}pt
 - Bullets: {num_bullets}
+- Font Size: {current_font}pt
 
 ## ALREADY APPLIED (do not re-suggest):
 {already_applied_text}
 
-## CONSTRAINTS:
-{constraints_text}
+## CRITICAL RULES - READ CAREFULLY:
+1. **DO NOT increase font size** - it causes text overflow and looks unprofessional
+2. **DO NOT suggest changes if the slide looks reasonable** - the template is well-designed
+3. **Preserve bottom margin** - space must remain for footnotes
+4. If content fits well and is readable, return score 8+ with EMPTY suggested_actions
 
-## FIRST: Check for these visual problems:
+## ONLY suggest fixes for these SEVERE problems:
 
-1. **UNUSED HORIZONTAL SPACE** - Is there empty space on the right side of the slide while text is crammed on the left?
-   → FIX: `body_width:full` (expands text box from {current_body_width}" to 9.4", filling the slide)
+1. **TEXT OVERFLOW** - Content is cut off or runs off the slide
+   → FIX: `split_slide` (split into multiple slides)
 
-2. **TEXT LINES TOO CLOSE** - Are bullet points squished together vertically?
-   → FIX: `line_spacing:1.5` or `para_spacing:loose`
-
-3. **FONT TOO SMALL** - Is the text hard to read?
-   → FIX: `body_font_size:large` (20pt)
+2. **COMPLETELY UNREADABLE** - Font is impossibly small (under 12pt)
+   → FIX: `body_font_size:medium` (16pt) - ONLY if severely unreadable
 
 ## Output (JSON only):
 ```json
 {{
-    "issues": ["describe what you see wrong"],
+    "issues": ["describe severe problems ONLY, or empty if none"],
     "score": 1-10,
-    "suggested_actions": ["body_width:full"]
+    "suggested_actions": []
 }}
 ```
 
-If the slide already uses the full width and looks balanced, return score 8+ with empty suggested_actions.
+IMPORTANT: If the slide looks professional and readable, return score 8+ with NO suggested actions.
+A well-designed template slide with proper margins is ALREADY good - don't mess with it.
 """
 
 
 
+
         
-        # Call vision model
-        response = self.llm.generate(prompt, images=[image_path], max_tokens=512)
-        
-        # Process response
-        if hasattr(response, 'text'):
-            response_text = response.text
-        elif hasattr(response, '__str__'):
-            response_text = str(response)
+        # Call vision model - use Gemini if available, fallback to Gemma
+        if self.use_gemini:
+            self.logger.info("Using Gemini API for vision analysis")
+            response = self.gemini.generate_with_image(prompt, image_path)
+            response_text = response if response else ""
         else:
-            response_text = response
+            response = self.llm.generate(prompt, images=[image_path], max_tokens=512)
+            # Process response
+            if hasattr(response, 'text'):
+                response_text = response.text
+            elif hasattr(response, '__str__'):
+                response_text = str(response)
+            else:
+                response_text = response
+
         
         # Store raw response
         raw_response = response_text.strip()
@@ -663,11 +687,11 @@ If the slide already uses the full width and looks balanced, return score 8+ wit
         
         # Debug output
         print("\n" + "="*60)
-        print("🔍 VISION MODEL RESPONSE:")
+        print("VISION MODEL RESPONSE:")
         print("="*60)
         print(raw_response[:800] + "..." if len(raw_response) > 800 else raw_response)
         print("="*60)
-        print("📋 EXTRACTED JSON:", json_str[:300])
+        print("EXTRACTED JSON:", json_str[:300])
         print("="*60 + "\n")
         
         # Parse JSON

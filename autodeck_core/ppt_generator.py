@@ -1,4 +1,3 @@
-
 import os
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -177,27 +176,22 @@ class PPTGenerator:
         if not content_item or "bullet_points" not in content_item or not content_item["bullet_points"]:
              is_draft = True
         
-        layout_data = None
-        if not is_draft:
-            try:
-                # Lazy init or use pre-initialized agent
-                if not hasattr(self, 'formatting_agent'):
-                    from autodeck_core.agents.formatting_agent import FormattingAgent
-                    self.formatting_agent = FormattingAgent()
-                
-                layout_data = self.formatting_agent.determine_layout(content_item)
-            except Exception as e:
-                logging.error(f"Formatting Agent failed: {e}")
-                layout_data = {"layout_type": "standard_list", "content_mapping": {"main_bullets": content_item.get("bullet_points", [])}}
+        # Skip FormattingAgent - it uses local Gemma which is slow
+        # The template placeholder with standard_list layout works best
+        layout_data = {
+            "layout_type": "standard_list", 
+            "content_mapping": {"main_bullets": content_item.get("bullet_points", []) if content_item else []}
+        }
         
         # --- RENDERER SWITCH ---
-        # IMPORTANT: forced_layout from design agent takes priority over FormattingAgent
+        # IMPORTANT: forced_layout from design agent takes priority
         if content_item and content_item.get("forced_layout"):
             layout_type = content_item["forced_layout"]
-            logging.info(f"🎨 Using FORCED layout: {layout_type}")
+            logging.info(f"Using FORCED layout: {layout_type}")
         else:
-            layout_type = layout_data.get("layout_type", "standard_list") if layout_data else "draft"
-            logging.info(f"🎨 Using FormattingAgent layout: {layout_type}")
+            layout_type = layout_data.get("layout_type", "standard_list")
+            logging.info(f"Using default layout: {layout_type}")
+
 
         
         if is_draft:
@@ -365,41 +359,57 @@ class PPTGenerator:
                  logging.error(f"Failed to add image {image_path}: {e}")
 
         else:
-            # Fallback to Standard List (Full Width)
-            # Apply body_width and body_left from visual_overrides (new system)
-            # Also support legacy content_width for backwards compatibility
+            # Standard List - USE THE TEMPLATE'S BODY PLACEHOLDER
+            # This ensures proper positioning and sizing from the template design
             
-            body_width = overrides.get("body_width")
-            body_left = overrides.get("body_left")
-            body_top = overrides.get("body_top", 2.0)
+            bullets = mapping.get("main_bullets", [])
+            if not bullets:
+                bullets = content_item.get("bullet_points", []) if content_item else []
             
-            # DEBUG: Log what we're using
-            logging.info(f"🎨 RENDER DEBUG: layout_type={layout_type}, body_width={body_width}, body_left={body_left}, overrides={overrides}")
+            print(f"Using TEMPLATE PLACEHOLDER for standard_list")
+            print(f"Placeholder size: left={body_shape.left}, width={body_shape.width}")
             
-            if body_width:
-                # New system: use explicit values
-                content_width = Inches(body_width)
-                left_margin = Inches(body_left) if body_left else Inches((10 - body_width) / 2)
-                logging.info(f"🎨 USING body_width={body_width}, left_margin={left_margin}")
-
-            else:
-                # Legacy support for content_width presets
-                width_setting = overrides.get("content_width", "normal")
+            # Use the placeholder's text frame directly
+            tf = body_shape.text_frame
+            tf.word_wrap = True
+            tf.clear()  # Clear any default placeholder text
+            
+            # Apply text formatting from overrides
+            for i, point in enumerate(bullets):
+                p = tf.add_paragraph()
+                p.level = 0
+                p.space_before = Pt(para_spacing)
+                p.space_after = Pt(para_spacing / 2)
+                p.line_spacing = line_spacing
+                p.alignment = alignment
                 
-                if width_setting == "full":
-                    left_margin = Inches(0.3)
-                    content_width = Inches(9.4)
-                elif width_setting == "wide":
-                    left_margin = Inches(0.5)
-                    content_width = Inches(9.0)
-                elif width_setting == "narrow":
-                    left_margin = Inches(2.0)
-                    content_width = Inches(6.0)
-                else:  # normal
-                    left_margin = Inches(1.0)
-                    content_width = Inches(8.0)
+                # Clean up bullet point text
+                clean_text = point.strip()
+                if clean_text.startswith("- ") or clean_text.startswith("* "):
+                    clean_text = clean_text[2:]
+                
+                # Markdown bold support
+                parts = clean_text.split("**")
+                for j, part in enumerate(parts):
+                    run = p.add_run()
+                    run.text = part
+                    font = run.font
+                    
+                    if not self.template_path:
+                        font.name = "Aptos"
+                        font.size = Pt(base_font_size)
+                        font.color.rgb = RGBColor(0, 0, 0)
+                    else:
+                        if base_font_size != 18:
+                            font.size = Pt(base_font_size)
+                    
+                    # Every odd part (1, 3, 5...) was between ** markers = bold
+                    if j % 2 == 1:
+                        font.bold = True
             
-            add_bullet_list(left_margin, Inches(body_top), content_width, Inches(4.5), mapping.get("main_bullets", []))
+            print(f"Added {len(bullets)} bullets to template placeholder")
+
+
 
 
 
