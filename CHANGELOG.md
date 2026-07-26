@@ -7,6 +7,61 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Phase 0: foundations & de-risking
+
+All seven Phase 0 tasks. **GATE 0 is not closed** — its criteria require the owner to open
+the spike files in PowerPoint, which no headless environment can do. See
+`docs/handovers/PHASE-0.md` §10.
+
+### Added
+- `autodeck/ir/` — **Deck IR v1** (D4). `models.py` finalises the §6.1 sketch; `schema.py`
+  exports JSON Schema in three provider dialects; `store.py` versions IR immutably under
+  `runs/<id>/` and diffs two versions by object id so an inserted slide reads as one
+  addition rather than a cascade.
+- **A1 enforced structurally**: `Claim.citations` has `min_length=1`, so a claim carrying no
+  evidence cannot be constructed — speaker notes included.
+- `autodeck/providers/` — provider protocol with schema-enforced `complete_structured`,
+  repair-retry that hard-fails rather than returning a partial object, 429-aware backoff,
+  and a resumable on-disk response cache. Gemini, Groq and Claude adapters over one shared
+  httpx transport (B14); environment-tiered registry with `--env` (B8).
+- `autodeck/design/` — font resolution that raises rather than substituting (B11);
+  glyph-metric text budgets (§6.7); OOXML theme and slide-master generation (D1);
+  `layout_kit` v0; `big_number` and `two_column_compare`; SVG→DrawingML `custGeom` icon
+  converter with ten vendored Lucide icons under ISC (D11).
+- `autodeck/render/qa/libreoffice.py` — headless render to PNG that **refuses to render**
+  when a declared font is absent, rather than producing a silently substituted preview.
+- `autodeck/pipeline/orchestrator.py` — run directories, resumable stages, and A7 gate
+  stubs that raise `GateBlocked`. A test asserts no CLI flag can bypass a gate.
+- `autodeck/audit/manifest.py` — A6 build manifest recording environment, resolved model
+  IDs, prompt hashes and IR hash; compares two builds excluding timestamps.
+- `autodeck/cli.py` — `run --stub`, `approve`, `status`, `models`, `ir`, `fonts`, `spike`.
+- `config/models.yaml`, `config/tokens/{aptos,dev}.json`, `.github/workflows/ci.yml`,
+  `pyproject.toml`, `fonts/README.md`, `prompts/README.md`.
+- `spikes/gate0/` — the three GATE 0 artifacts, their previews, and `provenance.json`
+  recording which font family each was rendered in.
+- `docs/handovers/PHASE-0.md`.
+
+### Changed
+- `.gitignore` — comment clarifying that `tokens/` is v1's *secrets* directory, which is
+  why v2 design tokens live in `config/tokens/` (B18).
+- `STATUS.md`, `docs/INVARIANTS.md` coverage tracker, `docs/handovers/README.md` index.
+
+### Findings
+- **Spike 0.5 supports D5.** Two components reach a high visual bar authored natively, and
+  the edit→preview loop runs at **2.25s median** — fast enough for a 15-component library.
+- **Spike 0.6 supports D11** at the geometry level: ten icons round-trip to native
+  theme-recolourable vector strokes, arcs and compound paths included.
+- **B11 check #4 answered by verification, not assumption: Aptos has no metric-compatible
+  open clone.** "Aptos installed on the build machine" is a hard prerequisite for Phase 2b.
+- Groq serves no multimodal model, so it cannot relieve Gemini's free-tier pressure on
+  `ingest_vlm` (B16).
+
+### Decisions
+B13 (derivation inputs carry values), B14 (one HTTP transport), B15 (resolved model IDs),
+B16 (Groq text-only), B17 (`TextStyle` unifies measurement and rendering), B18 (token path).
+
+---
+
 ## [Unreleased] — v2 scaffold
 
 Planning scaffold for the v2 rewrite. No v2 package code — see `STATUS.md`.

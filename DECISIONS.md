@@ -340,6 +340,45 @@ the owner with options.
   the guard. A negative result worth keeping: Groq cannot relieve Gemini's free-tier
   pressure on `ingest_vlm`, which is where §MODEL_ROUTING predicts rate limits bite first.
 
+### B17 — `TextStyle` unifies text measurement and text rendering
+- **Date:** 2026-07-26
+- **Phase / branch:** Phase 0, spike 0.5 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** the first component render placed an accent rule straight through a
+  headline's second line. The renderer applied a 1.25 line-spacing multiplier that the
+  measurement function knew nothing about, so every measured height was ~20% short and each
+  element was drawn over the previous one. This is precisely the failure the §6.7 budget
+  system exists to prevent, arriving through the back door: measurement and rendering had
+  drifted apart because they took *separate arguments*.
+- **Decision:** a single frozen `TextStyle` (family, size, colour, weight, alignment,
+  line spacing, paragraph spacing) is passed to both `Canvas.measure`/`Canvas.fit` and
+  `draw.add_text`. `add_text` takes no loose text keyword arguments at all.
+- **Rationale:** fixing the two call sites would have left the class of bug alive, and it
+  is a class that fails *quietly* — a slide that is 20pt out looks like a design choice
+  until someone measures it. Passing one object makes the divergence unrepresentable rather
+  than merely discouraged.
+- **Consequences:** anything later affecting rendered height — paragraph indents, tracking,
+  a new type role — goes **on `TextStyle`**, never into a renderer argument. Phase 3a's
+  component library and Phase 2b's budget checks both depend on this holding. A related
+  guard landed alongside it: `LayoutOverflowError` is raised when content exceeds its
+  region, because §6.9 calls the geometry check a safety net and a net that silently draws
+  past the edge is not one.
+
+### B18 — Design tokens live in `config/tokens/`, not `tokens/`
+- **Date:** 2026-07-26
+- **Phase / branch:** Phase 0, spike 0.4 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** `DesignTokens` files were written to `tokens/`, which git silently refused to
+  track: v1's `.gitignore` claims `tokens/` under "Secrets" for API tokens.
+- **Decision:** design tokens live in `config/tokens/`, beside `config/models.yaml`. The
+  `.gitignore` rule keeps its v1 meaning and gains a comment explaining the collision.
+- **Rationale:** un-ignoring a directory named for secrets to make room for config is the
+  wrong direction on a repository that will hold client material. Per-client tokens still
+  live at `knowledge/clients/<c>/theme/tokens.json` per §6.4; `config/tokens/` holds only
+  the project-level `aptos` and `dev` sets.
+- **Consequences:** `--tokens config/tokens/<name>.json` throughout. Phase 4 onboarding
+  writes per-client tokens to the knowledge folder, not here.
+
 ### B7 — Open questions from plan §11 are carried, not answered
 - **Date:** 2026-07-26
 - **Phase / branch:** scaffold
