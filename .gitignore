@@ -25,3 +25,18 @@ renderer_test_output/
 test_*.pptx
 test_*.png
 
+# --- v2 ---
+# Per-build artifacts (IR versions, verdicts, renders) — plan §4
+runs/
+# Eval outputs; the harness and fixtures under evals/ ARE tracked
+evals/out/
+# Environments
+.venv/
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+# Licensed font binaries — see the Phase 0 font spike before committing any
+fonts/*.ttf
+fonts/*.otf
+
