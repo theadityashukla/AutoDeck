@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["v2/**"]
+  pull_request:
+    branches: ["v2/**"]
+
+# What this workflow deliberately does NOT do, per decision B10 (local development only):
+#
+#   * no container build — there is no Dockerfile and none is planned before v3;
+#   * no LibreOffice render path — it needs a font stack and a display stack, so the
+#     `render` marker is deselected and visual verification stays on the owner's machine;
+#   * no live provider calls — the `live` marker is deselected; CI holds no API keys.
+#
+# Both markers are declared in pyproject.toml and excluded by the default pytest addopts,
+# so `uv run pytest` here matches `uv run pytest` locally.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint · types · tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Types
+        run: uv run pyright
+
+      - name: Tests
+        run: uv run pytest -q
