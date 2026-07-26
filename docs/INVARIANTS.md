@@ -12,6 +12,34 @@ is untrustworthy.
 
 ---
 
+## Which invariants can be verified on the dev binding (decision B8)
+
+Development runs on free-tier Gemini + Groq; SIT and production run on Claude. That split
+divides the invariants in two, and the division decides where a verification result is
+worth anything.
+
+| | Invariants | Verify on |
+|---|---|---|
+| **Deterministic** — enforced by code | A1, A2, A4, A5, A6 | any environment; results transfer unchanged |
+| **Model-sensitive** — enforced by judgment | **A3, A8** | `sit` before any production reliance |
+
+A1's citation structure is a schema constraint. A2's linting and derivation re-execution
+is arithmetic. A4, A5, A6 are lints, guards, and hashes. None of them care which model
+produced the text they inspect, so a green result on `dev` is a green result everywhere.
+
+A3 and A8 are different in kind. "Did the validator find the contradicting span?" and
+"did the writer hedge honestly where sources conflict?" are judgments, and a weaker model
+fails them **plausibly rather than loudly** — you get a clean-looking claims table that
+happens to have missed something. A contradiction-catch rate measured on Gemini is
+evidence about Gemini.
+
+**The operational rule:** a dev-environment pass on A3 or A8 is a smoke test, not a
+verification. Phase 5 records the environment on every eval result, and headline metrics
+are measured on `sit`. A7 sits slightly apart — the gate *mechanism* is deterministic and
+verifiable anywhere, but what a human approves at those gates depends on A3's output.
+
+---
+
 ## A1 — Universal citation
 
 > Every factual assertion in rendered slide content or speaker notes carries ≥1 citation
@@ -58,6 +86,7 @@ is untrustworthy.
   A test asserting the orchestrator raises rather than renders.
 - **Watch for:** v1's validator trusted the writer (`legacy/v1/LEGACY.md` records this).
   Independent re-retrieval is the whole point and has **no v1 ancestor** — build it new.
+- **Model-sensitive (B8):** a dev-binding pass is a smoke test. Verify on `sit`.
 
 ## A4 — Client isolation
 
@@ -121,6 +150,9 @@ is untrustworthy.
   the deck must hedge and the report must show both.
 - **Watch for:** the only invariant not fully reducible to a deterministic check. It needs
   an eval, and it is the most likely to silently regress on a model swap.
+- **Model-sensitive (B8):** a dev-binding pass is a smoke test. Verify on `sit`. Note that
+  moving between `dev` and `sit` **is itself a model swap** — exactly the event this
+  invariant is most likely to regress on.
 
 ---
 
