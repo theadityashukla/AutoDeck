@@ -47,7 +47,7 @@ uv run autodeck fonts check --family "Aptos"
 
 Neither this repository's CI (B10 — no render path) nor an ephemeral dev container can
 have Aptos: it cannot be legally fetched. Work in those environments uses the OFL token set
-(`tokens/dev.json`) so that previews are **true renders of a font that is genuinely
+(`config/tokens/dev.json`) so that previews are **true renders of a font that is genuinely
 installed**, never a substituted Aptos. Preview output records which family it rendered in.
 
 Aptos remains the deliverable default and the target for any visual sign-off.

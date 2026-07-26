@@ -8,6 +8,8 @@ gemma-3-12b-mlx/
 gemma3-12b-int4/
 
 # Secrets
+# NOTE: this is v1's API-token directory, not v2's design tokens — those live in
+# config/tokens/ precisely so this rule cannot swallow them (see PHASE-0 handover).
 tokens/
 .env
 
