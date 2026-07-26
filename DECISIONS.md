@@ -261,6 +261,85 @@ the owner with options.
   - Client brand fonts still override per-client in Phase 4 onboarding; Aptos is the
     default and the development target, not a lock-in.
 
+### B13 — `Derivation.inputs` carries values, not bare citations
+- **Date:** 2026-07-26
+- **Phase / branch:** Phase 0, task 0.2 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** plan §6.1 sketches `Derivation.inputs` as `dict[str, Citation]`. A2 requires
+  the numeric linter to **re-execute** every derivation formula to confirm the arithmetic.
+  A citation carries a quote, not a number, so re-execution would have to re-parse the
+  quote and guess which numeral the writer meant — and a quote like "rose from 412 to 671"
+  contains two.
+- **Decision:** `inputs` maps a name to a `DerivationInput` holding both `value: float` and
+  `citation: Citation`. A further validator requires every derivation input's citation to
+  also appear in the claim's own `citations`.
+- **Rationale:** the value makes A2's re-execution possible at all; the citation still
+  proves the number was copied rather than invented, so nothing is given up. The
+  subset rule prevents a derived figure resting on a span that never reaches the claims
+  table — which would make the audit report (A6) show working citing sources it does not
+  list.
+- **Consequences:** Phase 2b's content agent must emit values alongside citations, and the
+  numeric linter can be pure arithmetic over the IR with no re-parsing of source text.
+  The §6.1 sketch is superseded on this field; plan §0.6 covers the deviation.
+
+### B14 — One HTTP transport, not three vendor SDKs
+- **Date:** 2026-07-26
+- **Phase / branch:** Phase 0, task 0.3 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** task 0.3 needs Gemini, Groq and Claude adapters. The obvious route is each
+  vendor's Python SDK.
+- **Decision:** all three adapters are thin request builders over a single shared `httpx`
+  transport in `providers/base.py`. No vendor SDK is a dependency.
+- **Rationale:** the three providers disagree about JSON Schema, and the *whole point* of
+  `ir/schema.py` is controlling exactly which dialect goes on the wire — an SDK that
+  helpfully reshapes the schema defeats that. One transport also means one backoff policy,
+  one cache, one place where 429s are read, and a mocked-transport test that exercises the
+  real code path rather than three sets of SDK internals. Three SDKs would be three
+  independent version-drift surfaces for a request body that is a dozen lines each.
+- **Consequences:** SDK conveniences (streaming helpers, batch, prompt caching) must be
+  implemented here if they are ever wanted. Adding a provider means one small subclass:
+  `build_request`, `parse_response`, and a schema flavour. Adapters must never let a raw
+  parsing error escape — `_send_once` wraps them as `ProviderResponseError`.
+
+### B15 — Resolved model IDs for the `dev` environment
+- **Date:** 2026-07-26
+- **Phase / branch:** Phase 0, task 0.3 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** plan §6.2 and §9 require model IDs to be looked up at implementation time
+  rather than recalled, and recorded here.
+- **Decision:** IDs listed from the live provider APIs on 2026-07-26 and written into
+  `config/models.yaml`:
+  - **dev** — `planner`, `outline`, `validation`, `aesthetic`: `gemini-2.5-pro`;
+    `ingest_vlm`: `gemini-2.5-flash`; `content`: `openai/gpt-oss-120b` (Groq).
+  - **sit / prod** — `claude-opus-5` for the judgment-heavy roles, `claude-sonnet-5` for
+    `content`, with `ingest_vlm` staying on `gemini-2.5-flash`.
+- **Rationale:** Gemini's live list offered newer preview families (`gemini-3.x`), but dev
+  is where months of iteration happen and a preview ID that is withdrawn breaks the build;
+  `gemini-2.5-pro` and `-flash` are GA. On Groq, `openai/gpt-oss-120b` is the strongest
+  served model that supports `response_format: json_schema`.
+- **Consequences:** the **Claude IDs are unverified against a live API** — this environment
+  has no `ANTHROPIC_API_KEY`. Confirm them against the models endpoint before the first
+  `sit` run. Every deck's manifest records the environment and the resolved IDs (A6), so a
+  dev-built deck is never mistaken for a production one.
+
+### B16 — Groq is text-only; the registry refuses to bind it to a vision role
+- **Date:** 2026-07-26
+- **Phase / branch:** Phase 0, task 0.3 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** the live provider test sent an image to Groq and got
+  `messages[0].content must be a string`. Groq's served model list on 2026-07-26 contains
+  no multimodal model at all.
+- **Decision:** `GroqProvider.supports_vision = False`, and `ModelRegistry` rejects any
+  config binding a text-only provider to `aesthetic` or `ingest_vlm` **at load time**.
+- **Rationale:** the current config never makes that binding — Groq serves only `content`,
+  which is text — so nothing is broken today. But `ingest_vlm` is the highest-volume
+  role in Phase 1 and the natural place to reach for a cheap free-tier provider, and the
+  failure would otherwise land at the first figure of a corpus run rather than at startup.
+- **Consequences:** the vision roles stay on Gemini in `dev` and on Gemini/Claude in
+  `sit`/`prod`. If Groq later serves a multimodal model, flip the flag rather than removing
+  the guard. A negative result worth keeping: Groq cannot relieve Gemini's free-tier
+  pressure on `ingest_vlm`, which is where §MODEL_ROUTING predicts rate limits bite first.
+
 ### B7 — Open questions from plan §11 are carried, not answered
 - **Date:** 2026-07-26
 - **Phase / branch:** scaffold
