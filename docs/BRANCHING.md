@@ -3,8 +3,8 @@
 ## Topology
 
 ```
-main                                          ← frozen at v1, never receives v2 work
- └── claude/phased-feature-branch-plan-atygas  ← v2 integration branch (long-lived)
+main                                  ← frozen at v1, never receives v2 work
+ └── v2/integration                    ← v2 integration branch (long-lived)
       ├── v2/phase-0-foundations        → PR → GATE 0   go/no-go on render strategy
       ├── v2/phase-1-ingest-knowledge   → PR → GATE 1a  citation spot-check
       ├── v2/phase-2a-plan-outline      → PR → GATE 1   outline vs brief
@@ -14,6 +14,9 @@ main                                          ← frozen at v1, never receives v
       ├── v2/phase-4-workflow           → PR → GATE 4   real consulting deck
       └── v2/phase-5-evals-hardening    → PR
 ```
+
+The branch advances only when a phase branch merges after a human gate — nothing builds
+from it on a schedule, and B10 (local dev only) means there is no CI that could.
 
 ## Rules
 

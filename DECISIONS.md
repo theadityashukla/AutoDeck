@@ -63,7 +63,7 @@ the owner with options.
 
 ## Build-process decisions
 
-### B1 — `claude/phased-feature-branch-plan-atygas` is the v2 integration branch
+### B1 — `v2/integration` is the v2 integration branch
 - **Date:** 2026-07-26
 - **Phase / branch:** scaffold
 - **Status:** active
@@ -191,6 +191,24 @@ the owner with options.
   first. No body under `autodeck/ir/`, `autodeck/audit/`, or `prompts/` is delegated
   regardless of docstring quality — in the numeric linter the invariant lives in the edge
   cases, so a complete-looking docstring is precisely the trap.
+
+### B12 — Integration branch renamed to `v2/integration`
+- **Date:** 2026-07-26
+- **Phase / branch:** scaffold
+- **Status:** active — amends B1
+- **Context:** the branch was created by tooling as
+  `claude/phased-feature-branch-plan-atygas`, a name that describes nothing. A rename to
+  `autodeck-v2-nightly` was briefly considered and dropped: the branch is not a
+  nightly-build branch — nothing builds from it on a schedule, and B10 rules out the CI
+  that would normally host one — so the name would have misdescribed it.
+- **Decision:** `v2/integration`.
+- **Rationale:** says what the branch is, and sits in the same `v2/` namespace as the
+  `v2/phase-*` children so the whole v2 effort groups together in branch listings. (A bare
+  `v2` was rejected: a ref named `v2` collides with the `v2/` ref directory the phase
+  branches live in.)
+- **Consequences:** the old remote branch is deleted, so any link or checkout referencing
+  it breaks. Commit history is unaffected — a rename moves the ref, not the commits. B1's
+  substance is unchanged; only the branch name it names.
 
 ### B10 — Local development only; containerisation deferred to v3
 - **Date:** 2026-07-26

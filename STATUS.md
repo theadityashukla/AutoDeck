@@ -8,7 +8,7 @@ every phase handover. If this file disagrees with your memory, this file is righ
 | | |
 |---|---|
 | **Current phase** | Scaffold complete — Phase 0 not started |
-| **Integration branch** | `claude/phased-feature-branch-plan-atygas` |
+| **Integration branch** | `v2/integration` |
 | **Active phase branch** | none yet |
 | **Last gate passed** | none |
 | **Next gate** | GATE 0 — go/no-go on the whole rendering strategy |
