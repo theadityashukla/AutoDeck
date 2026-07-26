@@ -192,6 +192,57 @@ the owner with options.
   regardless of docstring quality — in the numeric linter the invariant lives in the edge
   cases, so a complete-looking docstring is precisely the trap.
 
+### B10 — Local development only; containerisation deferred to v3
+- **Date:** 2026-07-26
+- **Phase / branch:** scaffold (answers plan §11 Q1)
+- **Status:** active
+- **Context:** plan §11 Q1 asked whether the pipeline targets local dev only or a
+  containerised small-team setup. It gates CI and packaging in Phase 0 task 0.1.
+- **Decision:** local development only. Containers are a v3 consideration.
+- **Rationale:** one user, one machine; containerisation would be scaffolding for a team
+  that does not exist yet.
+- **Consequences:**
+  - Task 0.1 ships no Dockerfile and no container CI. CI runs lint, types, and unit tests
+    only — **not** the LibreOffice render path, which needs fonts and a display stack.
+  - D2's stated rationale ("runs anywhere — laptop, container, CI") is now *aspirational*
+    rather than demonstrated. The provider abstraction still keeps it reachable; nothing
+    should assume a local filesystem layout beyond `runs/` and `knowledge/`.
+  - Anything requiring a rendered slide (design preview loop, `qa/libreoffice.py`,
+    `qa/aesthetic.py`) is a **local-machine** operation. Phase 3 planning should not
+    assume CI can verify visual output.
+
+### B11 — Aptos is the default type family
+- **Date:** 2026-07-26
+- **Phase / branch:** scaffold (answers plan §11 Q3)
+- **Status:** active
+- **Context:** plan §11 Q3 asked whether brand fonts are licensed for the seed client, or
+  whether to design against a safe default and swap later. The Phase 0 font spike (0.4)
+  needs a concrete family to measure and embed.
+- **Decision:** Aptos, using Aptos Display for headings and Aptos for body — the pairing
+  Microsoft ships as the Office default font scheme.
+- **Rationale:** as the current Office default it is present on essentially every
+  corporate client machine, so deliverables render as intended without relying on
+  embedding, and decks look native rather than obviously templated. It also maps cleanly
+  onto the theme XML's major/minor font scheme (§6.8).
+- **Consequences / risks — resolve in spike 0.4:**
+  - **The font files are not freely redistributable.** Aptos is bundled with Microsoft 365
+    rather than openly licensed. The TTFs must **not** be committed; `.gitignore` already
+    excludes `fonts/*.ttf` and `fonts/*.otf`. The build machine sources them from a local
+    Office installation, and setup documents that path.
+  - **Budget measurement (§6.7) requires the real TTF.** If the files are absent, metrics
+    fall back to a substitute and every computed budget is quietly wrong — the same class
+    of failure that produced v1's overflow problem, arriving through a new door.
+  - **Headless LibreOffice needs Aptos installed too**, or preview PNGs render in a
+    substituted face. That would make the "true render" (D5) untrue and mislead both the
+    design loop and the vision critique.
+  - **Metric-compatible substitution is likely unavailable.** The familiar pairs
+    (Carlito↔Calibri, Caladea↔Cambria, Liberation↔Arial) exist because those fonts are old;
+    Aptos is recent and probably has no metric-compatible open clone. **Verify this in
+    0.4** rather than assuming a fallback exists — if none does, "Aptos present on the
+    build machine" becomes a hard prerequisite, not a convenience.
+  - Client brand fonts still override per-client in Phase 4 onboarding; Aptos is the
+    default and the development target, not a lock-in.
+
 ### B7 — Open questions from plan §11 are carried, not answered
 - **Date:** 2026-07-26
 - **Phase / branch:** scaffold

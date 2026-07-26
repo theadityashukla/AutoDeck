@@ -20,14 +20,17 @@ every phase handover. If this file disagrees with your memory, this file is righ
 Cut `v2/phase-0-foundations` from the integration branch tip and work
 `docs/phases/PHASE-0.md`.
 
-**Blocked on two owner answers** (from plan §11, tracked in the Phase 0 brief):
+**Not blocked** — both Phase 0 questions are answered:
 
-- **Q1 — deployment target.** Local dev only, or containerised for a small team?
-  Determines CI and packaging in task 0.1.
-- **Q3 — brand fonts.** Available and licensed for the seed client, or design against a
-  safe default and swap later? Determines what the font spike (0.4) measures.
+- **Q1 — deployment target:** local dev only; containers deferred to v3 (B10). Task 0.1
+  ships no Dockerfile, and CI does not run the LibreOffice render path.
+- **Q3 — brand fonts:** Aptos Display / Aptos (B11). Spike 0.4 must settle four things
+  before Phase 2b's budgets can be trusted — see the Aptos checks in the Phase 0 brief.
+  The one most likely to be skipped: **headless LibreOffice needs Aptos installed**, or
+  preview renders come back in a substituted face and the design loop is judging a lie.
 
-Phase 0 can start without them; it cannot close GATE 0 without them.
+**Next question needed: Q2** — which project and client seed the build, real or
+anonymised? Answer before Phase 1 is cut.
 
 ## Invariant coverage
 

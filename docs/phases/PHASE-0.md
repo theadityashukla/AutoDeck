@@ -18,10 +18,10 @@
 
 | id | Task | Model | Files | Invariants | Done when |
 |---|---|---|---|---|---|
-| 0.1 | Repo skeleton per plan §5; `pyproject.toml` (Python 3.11+, pydantic v2, typer, pytest, ruff, pyright); CI running lint + types + tests | Opus scaffolds, **Haiku** fills boilerplate | `pyproject.toml`, `.github/workflows/`, package tree | — | CI green on an empty test suite; `ruff` and `pyright` clean |
+| 0.1 | Repo skeleton per plan §5; `pyproject.toml` (Python 3.11+, pydantic v2, typer, pytest, ruff, pyright); CI running lint + types + tests. **Local dev only — no container** (B10) | Opus scaffolds, **Haiku** fills boilerplate | `pyproject.toml`, `.github/workflows/`, package tree | — | CI green on an empty test suite; `ruff` and `pyright` clean. CI does **not** run the LibreOffice render path — it needs fonts and a display stack, so visual verification stays local |
 | 0.2 | **Deck IR v1** — pydantic models per §6.1, JSON-schema export, `store.py` with versioning + diff | **Opus** | `autodeck/ir/{models,schema,store}.py` | **A1** | Golden-file round-trip test on a hand-authored sample IR; **a `claim` block with zero citations raises `ValidationError`** |
 | 0.3 | **Provider abstraction** — protocol, `complete_structured` with schema enforcement and repair-retry (N attempts then hard-fail, never silent field drop), **Gemini + Groq + Claude** adapters, environment-tiered role registry (`dev`/`sit`/`prod`, decision B8) | **Opus** | `autodeck/providers/*`, `config/models.yaml` | — | Structured output validated against a trivial schema on **all three** providers; malformed JSON triggers repair then hard-fails; `--env` selects bindings; **backoff + resumability** proven against a free-tier rate limit; resolved model IDs recorded in `DECISIONS.md` |
-| 0.4 | **SPIKE — font/theme.** One real brand → tokens → theme XML + one slide master. Confirm PowerPoint shows palette/fonts natively; confirm a TTF measures correctly; confirm embedding + fallback | **Opus** | `autodeck/design/theme/*`, `fonts/` | — | Owner opens the PPTX and sees the palette in PowerPoint's own colour UI; measured text height matches rendered height within tolerance; findings in `DECISIONS.md` |
+| 0.4 | **SPIKE — font/theme.** Tokens → theme XML + one slide master, using **Aptos Display / Aptos** as the major/minor font scheme (B11). Confirm PowerPoint shows palette/fonts natively; confirm the TTF measures correctly; confirm embedding + fallback | **Opus** | `autodeck/design/theme/*`, `fonts/` | — | Owner opens the PPTX and sees the palette in PowerPoint's own colour UI; measured text height matches LibreOffice-rendered height within tolerance; **the four Aptos checks below all answered**; findings in `DECISIONS.md` |
 | 0.5 | **SPIKE — native design.** `layout_kit` v0 (stacks, grids, gutters, baseline spacing) + watch-render preview gallery (render → headless LibreOffice → PNG). Design **`big_number`** and **`two_column_compare`** to a high visual bar, natively | **Opus** | `autodeck/design/layout_kit.py`, `autodeck/design/components/renderers/`, `autodeck/render/qa/libreoffice.py` | — | Two components meet the owner's visual bar; **iteration loop is fast enough to sustain a 15-component library** (record the actual edit→preview seconds) |
 | 0.6 | **SPIKE — icon vector.** One library SVG → DrawingML `custGeom` → placed in a themed PPTX | **Opus** | `autodeck/design/icons/` | — | Owner confirms **in PowerPoint** the icon is selectable, losslessly scalable, and recolours from the theme palette; converter edge cases (arcs, compound paths, fill rules) documented in `DECISIONS.md` |
 | 0.7 | Orchestrator skeleton — run dirs under `runs/<run_id>/`, resumability, gate stubs | **Sonnet** | `autodeck/pipeline/orchestrator.py`, `autodeck/cli.py` | **A7** | Empty pipeline runs end to end on a stub, producing a versioned IR and a blank manifest; gate stubs **block** rather than log |
@@ -77,14 +77,43 @@ providers (Gemini, Groq, Claude) with environment tiers selectable via `--env`.
 - **0.4 shows the brand font cannot be licensed or embedded** — resolve with the owner
   before Phase 3 depends on the metrics.
 
-## Open questions carried from plan §11
+## The Aptos checks in spike 0.4 (B11)
 
-| Q | Question | Starts blocking |
+Aptos is the current Office default, which makes it a strong *deliverable* choice —
+present on essentially every corporate client machine, so decks render as intended without
+leaning on embedding. The wrinkle is on the **build** side, and it must be settled here
+because Phase 2b's text budgets and Phase 3's design loop both depend on it.
+
+1. **Are the TTFs obtainable on the build machine?** Aptos ships with Microsoft 365 and is
+   not freely redistributable, so it cannot be committed (`.gitignore` already excludes
+   `fonts/*.ttf`). Locate the files in the local Office installation and document the path
+   in setup.
+2. **Does `budgets.py` measure the real Aptos metrics?** If the file is missing, the
+   measurement library substitutes silently and **every computed budget is wrong** — the
+   same failure that produced v1's overflow problem, arriving through a different door.
+   Make a missing font a **loud error**, never a fallback.
+3. **Does headless LibreOffice have Aptos installed?** If not, preview PNGs render in a
+   substituted face, which makes the "true render" (D5) untrue and misleads both the
+   design loop and the vision critique. This is the check most likely to be skipped and
+   most damaging to skip.
+4. **Is there a metric-compatible fallback?** The familiar substitution pairs
+   (Carlito↔Calibri, Caladea↔Cambria, Liberation↔Arial) exist because those faces are old.
+   Aptos is recent and probably has no metric-compatible open clone — **verify rather than
+   assume.** If none exists, "Aptos installed on the build machine" is a hard prerequisite
+   to document, not a convenience.
+
+Client brand fonts still override per-client in Phase 4 onboarding. Aptos is the default
+and the development target, not a lock-in.
+
+## Open questions from plan §11
+
+| Q | Question | Status |
 |---|---|---|
-| Q1 | Deployment target — local dev only, or containerised for a team? | **Phase 0** — determines CI and packaging in 0.1 |
-| Q2 | Which project + client seed the build? Real or anonymised? | Phase 1 |
-| Q3 | Are brand fonts available and licensed for the seed client, or design against a safe default? | **Phase 0** — determines what 0.4 measures |
-| Q4 | Audit report audience — internal only, or client-facing? | Phase 4 |
-| Q5 | Any client with a mandated corporate template to target as mode (a)? | Phase 3a |
+| Q1 | Deployment target | **Answered** — local dev only; containers deferred to v3 (B10) |
+| Q3 | Brand fonts | **Answered** — Aptos Display / Aptos (B11), with the four checks above |
+| Q2 | Which project + client seed the build? Real or anonymised? | Open — blocks **Phase 1** |
+| Q4 | Audit report audience — internal only, or client-facing? | Open — blocks Phase 4 |
+| Q5 | Any client with a mandated corporate template to target as mode (a)? | Open — blocks Phase 3a |
 
-Q1 and Q3 block GATE 0. The rest are tracked and re-surfaced by the phase that needs them.
+**GATE 0 is no longer blocked on open questions.** Q2 is the next one needed; it should be
+answered before Phase 1 is cut.
