@@ -39,15 +39,32 @@ app = typer.Typer(
 ir_app = typer.Typer(help="Inspect and diff Deck IR versions.", no_args_is_help=True)
 spike_app = typer.Typer(help="GATE 0 spike artifacts.", no_args_is_help=True)
 fonts_app = typer.Typer(help="Font availability checks.", no_args_is_help=True)
+knowledge_app = typer.Typer(
+    help="Knowledge folders and the document corpus.", no_args_is_help=True
+)
 app.add_typer(ir_app, name="ir")
 app.add_typer(spike_app, name="spike")
 app.add_typer(fonts_app, name="fonts")
+app.add_typer(knowledge_app, name="knowledge")
 
 EnvOption = Annotated[
     str, typer.Option("--env", help="Provider environment: dev, sit or prod.")
 ]
 RunsRoot = Annotated[Path, typer.Option("--runs-root", help="Where run directories live.")]
 TokensOption = Annotated[Path, typer.Option("--tokens", help="Path to a tokens.json.")]
+KnowledgeRoot = Annotated[
+    Path, typer.Option("--knowledge-root", help="Root of the knowledge folders.")
+]
+CorpusRoot = Annotated[
+    Path,
+    typer.Option(
+        "--corpus-root",
+        help="Where ingested documents are stored. Derived data — not committed.",
+    ),
+]
+
+DEFAULT_KNOWLEDGE_ROOT = Path("knowledge")
+DEFAULT_CORPUS_ROOT = Path("corpus")
 
 
 def _echo_error(message: str) -> None:
@@ -292,6 +309,197 @@ def fonts_check(
             typer.echo(f"          {exc}")
     if missing:
         raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# knowledge
+# ---------------------------------------------------------------------------
+
+
+@knowledge_app.command("validate")
+def knowledge_validate(knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT) -> None:
+    """Load every project and client folder, failing on the first malformed one.
+
+    Worth running before a build rather than during one: the loader's errors name the
+    missing file, and finding out here costs seconds instead of finding out mid-pipeline.
+    """
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+
+    loader = KnowledgeLoader(knowledge_root)
+    projects, clients = loader.project_names(), loader.client_names()
+    if not projects and not clients:
+        _echo_error(f"no knowledge folders under {knowledge_root}")
+        raise typer.Exit(code=2)
+
+    try:
+        for name in projects:
+            project = loader.load_project(name)
+            typer.secho(
+                f"  project  {name:<28} {len(project.claims)} claim(s), "
+                f"{len(project.papers)} paper(s)",
+                fg=typer.colors.GREEN,
+            )
+        for name in clients:
+            client = loader.load_client(name)
+            extras = [
+                label
+                for label, present in (
+                    ("headers", client.header_profile is not None),
+                    ("tokens", client.tokens_path is not None),
+                    ("template", client.template_path is not None),
+                    ("icons", client.icons_dir is not None),
+                    (f"{len(client.decks)} deck(s)", bool(client.decks)),
+                    (f"{len(client.engagements)} engagement(s)", bool(client.engagements)),
+                )
+                if present
+            ]
+            typer.secho(
+                f"  client   {name:<28} {', '.join(extras) or 'required files only'}",
+                fg=typer.colors.GREEN,
+            )
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+@knowledge_app.command("ingest")
+def knowledge_ingest(
+    project: Annotated[str, typer.Argument(help="Project whose papers/ to ingest.")],
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    force: Annotated[
+        bool, typer.Option("--force", help="Re-ingest papers already in the store.")
+    ] = False,
+) -> None:
+    """Ingest a project's papers into its document store.
+
+    Slow and model-dependent — Docling downloads weights on first use and runs a layout
+    model per page. Already-ingested papers are skipped unless `--force`, so an interrupted
+    run resumes instead of starting over.
+
+    The `doc_id` is the PDF's filename stem. That is what appears in every citation, which
+    is why `SOURCES.md` asks for readable slugs rather than bare identifiers.
+    """
+    from autodeck.ingest.docling_runner import ingest_pdf
+    from autodeck.ingest.document_store import DocumentStore, IngestError
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+
+    try:
+        knowledge = KnowledgeLoader(knowledge_root).load_project(project)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    if not knowledge.papers:
+        _echo_error(f"project {project!r} has no PDFs under {knowledge.root / 'papers'}")
+        raise typer.Exit(code=2)
+
+    store = DocumentStore(corpus_root / project)
+    flagged: list[str] = []
+
+    for pdf in knowledge.papers:
+        doc_id = pdf.stem
+        if not force and store.path_for(doc_id).exists():
+            typer.echo(f"  skipped   {doc_id} (already ingested)")
+            continue
+        try:
+            document = ingest_pdf(pdf, doc_id=doc_id)
+        except IngestError as exc:
+            _echo_error(f"{doc_id}: {exc}")
+            raise typer.Exit(code=1) from None
+        store.add(document)
+
+        coverage = document.provenance_coverage()
+        line = (
+            f"  ingested  {doc_id:<52} {document.page_count:>3}p "
+            f"{len(document.elements):>4} elements  coverage {coverage:.0%}"
+        )
+        if document.low_provenance:
+            flagged.append(doc_id)
+            typer.secho(line + "  LOW PROVENANCE", fg=typer.colors.YELLOW)
+        else:
+            typer.echo(line)
+
+    if flagged:
+        typer.secho(
+            f"\n{len(flagged)} document(s) flagged low-provenance: {', '.join(flagged)}.\n"
+            "Plan §9: these need human review and their content cannot back a claim. They "
+            "are excluded from the retrieval index rather than cited approximately.",
+            fg=typer.colors.YELLOW,
+        )
+
+
+@knowledge_app.command("ask")
+def knowledge_ask(
+    project: Annotated[str, typer.Argument(help="Project to search.")],
+    question: Annotated[str, typer.Argument(help="What to look for.")],
+    client: Annotated[
+        str | None, typer.Option("--client", help="Bind the search to one client (A4).")
+    ] = None,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    limit: Annotated[int, typer.Option("--limit")] = 5,
+) -> None:
+    """Search the corpus and print each hit with a hash-verified citation.
+
+    The Phase 1 milestone in one command: ask a factual question, get answers with page and
+    bbox citations that verify against stored text. Uncitable hits — figures, page furniture
+    — are shown as such rather than hidden, because a searcher needs to know the difference.
+    """
+    from autodeck.ingest.document_store import DocumentStore, IngestError
+    from autodeck.knowledge.context_assembler import ContextAssembler
+    from autodeck.knowledge.loader import KnowledgeError
+    from autodeck.retrieval.hybrid import build_index, search
+
+    store = DocumentStore(corpus_root / project)
+    documents = list(store.documents())
+    if not documents:
+        _echo_error(
+            f"no ingested documents under {corpus_root / project}. "
+            f"Run `autodeck knowledge ingest {project}` first."
+        )
+        raise typer.Exit(code=2)
+
+    index = build_index(documents, project=project)
+    if client is not None:
+        try:
+            ContextAssembler(knowledge_root, client=client, project=project).use_index(index)
+        except KnowledgeError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from None
+
+    hits = search(index, question, limit=limit)
+    if not hits:
+        typer.echo("no matches")
+        return
+
+    for hit in hits:
+        typer.secho(f"\n{hit.doc_id}  p.{hit.page}  (score {hit.score:.4f})", bold=True)
+        typer.echo(f"  {_shorten(hit.text)}")
+        if not hit.citable:
+            typer.secho(
+                "  NOT CITABLE — retrievable metadata (figure or page furniture). A1 "
+                "forbids it backing a claim; cite the caption or the prose instead.",
+                fg=typer.colors.YELLOW,
+            )
+            continue
+        try:
+            citation = hit.to_citation(store)
+        except IngestError as exc:  # pragma: no cover — defensive
+            typer.secho(f"  citation failed: {exc}", fg=typer.colors.RED)
+            continue
+        verified = store.verify_citation(citation)
+        typer.secho(
+            f"  bbox {tuple(round(v, 1) for v in citation.bbox)}  "
+            f"sha256 {citation.quote_sha256[:12]}…  "
+            f"{'VERIFIED' if verified else 'FAILED'}",
+            fg=typer.colors.GREEN if verified else typer.colors.RED,
+        )
+
+
+def _shorten(text: str, width: int = 300) -> str:
+    collapsed = " ".join(text.split())
+    return collapsed if len(collapsed) <= width else collapsed[: width - 1] + "…"
 
 
 # ---------------------------------------------------------------------------
