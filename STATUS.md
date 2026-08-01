@@ -7,41 +7,33 @@ every phase handover. If this file disagrees with your memory, this file is righ
 
 | | |
 |---|---|
-| **Current phase** | Phase 0 — code complete, **GATE 0 open** |
+| **Current phase** | Phase 1 — ingestion & knowledge |
 | **Integration branch** | `v2/integration` |
-| **Active phase branch** | `v2/phase-0-foundations` |
-| **Last gate passed** | none |
-| **Next gate** | GATE 0 — go/no-go on the whole rendering strategy |
+| **Active phase branch** | `v2/phase-1-ingest-knowledge` |
+| **Last gate passed** | **GATE 0** — approved with conditions (DECISIONS.md G0) |
+| **Next gate** | GATE 1a — owner spot-checks 10 citations against source PDFs |
 | **Latest handover** | `docs/handovers/PHASE-0.md` |
-| **Updated** | 2026-07-26 |
+| **Updated** | 2026-08-01 |
 
 ## Next action
 
-**The owner opens three PPTX files in PowerPoint.** All seven Phase 0 tasks are built and
-every check that can be run headlessly is green — but GATE 0's criteria are all phrased as
-*"the owner opens the file in PowerPoint"*, and Phase 0 was built in a Linux container with
-neither PowerPoint nor Aptos.
+Phase 1 — build the provenance chain (`docs/phases/PHASE-1.md`). Every citation the system
+will ever produce resolves through what is built here; if provenance breaks, A1 is
+unenforceable no matter how good the agents are.
 
-Download from `spikes/gate0/` on `v2/phase-0-foundations` and check, in PowerPoint:
+**Q2 answered (2026-08-01):** seed with a **synthetic corpus** — public papers plus a
+fictional client — so the chain is exercised end to end now. The real project and client
+swap in later; GATE 1a's citation spot-check works against public PDFs just as well.
 
-1. `theme.pptx` — palette appears under Design → Variants; a hand-added slide inherits it.
-2. `components.pptx` — `big_number` and `two_column_compare` meet the visual bar.
-3. `icon.pptx` — icons select as shapes, scale losslessly, recolour from the theme.
+### Carried from GATE 0 — verification debt, not blockers
 
-Full instructions in `docs/handovers/PHASE-0.md` §10. Then, on a machine with Aptos:
-re-run the spike with `--tokens config/tokens/aptos.json`, and run
-`pytest -m live -k claude` with an `ANTHROPIC_API_KEY` to close the last 0.3 criterion.
-
-**Do not merge on the strength of the committed PNGs.** They were rendered by LibreOffice,
-in Inter, on Linux. GATE 0 is the go/no-go for the entire rendering strategy.
-
-**Also still open — the Aptos prerequisite.** Spike 0.4 verified rather than assumed
-B11 check #4: **there is no metric-compatible open clone of Aptos.** "Aptos installed on
-the build machine" is therefore a hard prerequisite for Phase 2b's budgets and Phase 3's
-design loop, not a convenience. Checks #1–#3 need the owner's machine.
-
-**Next question needed: Q2** — which project and client seed the build, real or
-anonymised? Answer before Phase 1 is cut.
+- **Icon and theme behaviour in PowerPoint is unconfirmed.** Approved on the visual bar
+  (D5) only. **Phase 3a must check both before building on them** — see DECISIONS.md G0.
+- **Aptos is a hard prerequisite.** Spike 0.4 verified rather than assumed B11 check #4:
+  there is no metric-compatible open clone. Phase 2b's budgets are wrong-by-default on a
+  machine without it. Checks #1–#3 still need the owner's machine.
+- **The Claude adapter has never been called live.** The first `sit` run will be its first
+  real request.
 
 ## Invariant coverage
 
@@ -57,8 +49,8 @@ See the tracker in `docs/INVARIANTS.md`.
 
 | Phase | Branch | Gate | Status |
 |---|---|---|---|
-| 0 — Foundations | `v2/phase-0-foundations` | GATE 0 | **code complete — gate open** |
-| 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | not started |
+| 0 — Foundations | `v2/phase-0-foundations` | GATE 0 | **merged — gate approved** |
+| 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | **in progress** |
 | 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | not started |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | GATE 2 | not started |
 | 3a — Design system | `v2/phase-3a-design-system` | internal | not started |

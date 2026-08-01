@@ -379,6 +379,39 @@ the owner with options.
 - **Consequences:** `--tokens config/tokens/<name>.json` throughout. Phase 4 onboarding
   writes per-client tokens to the knowledge folder, not here.
 
+### G0 — GATE 0 approved: the rendering strategy proceeds
+- **Date:** 2026-08-01
+- **Phase / branch:** Phase 0 / `v2/phase-0-foundations`
+- **Status:** active
+- **Context:** GATE 0 is plan §7's *"go/no-go for the whole rendering strategy"*. Phase 0
+  delivered all seven tasks and three spike artifacts under `spikes/gate0/`.
+- **Decision:** **approved by the owner** — *"the presentation is good. let's proceed."*
+  Phase 0 merges to `v2/integration` and Phase 1 is cut.
+- **What the owner actually confirmed:** the rendered output of spike 0.5 —
+  `big_number` and `two_column_compare` meet the visual bar. That is the criterion D5
+  turns on, and it is the substantive go/no-go: native authoring in python-pptx can be
+  beautiful. Combined with the measured 2.25s edit→preview loop, a 15-component library is
+  credible.
+- **What was *not* separately confirmed, and is carried forward:** the owner did not
+  report the two PowerPoint-behaviour checks — that the palette appears under Design →
+  Variants (0.4), and that an icon selects, scales and recolours as a native shape (0.6).
+  Both artifacts are committed and were sent directly. Recording this precisely rather
+  than reading "proceed" as blanket sign-off, because the handover template asks what the
+  owner *actually checked* and plan §0.3 forbids the implementing agent self-approving a
+  criterion nobody exercised.
+- **Rationale:** D5 was the architectural risk — §6.6 rejects every alternative rendering
+  path, so a failure there needed re-planning before Phase 3. It passed. D11 is narrower
+  and has a documented retreat (`svgBlip` + PNG, plan §9), so carrying it as verification
+  debt costs a fallback rather than a re-plan.
+- **Consequences:**
+  - **Phase 3a must confirm the icon and theme behaviour in PowerPoint before building on
+    it.** The converter is proven at the geometry level only. If it fails there, D11 falls
+    back to `svgBlip` and "icons are vectors end to end" weakens.
+  - Aptos remains a hard prerequisite (B11 check #4 verified: no metric-compatible clone).
+    Phase 2b's budgets are wrong-by-default on a machine without it.
+  - The Claude adapter is still unexercised live; the first `sit` run will be its first
+    real call.
+
 ### B7 — Open questions from plan §11 are carried, not answered
 - **Date:** 2026-07-26
 - **Phase / branch:** scaffold

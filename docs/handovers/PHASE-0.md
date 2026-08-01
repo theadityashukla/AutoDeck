@@ -9,16 +9,25 @@
 | **Phase** | 0 — Foundations & de-risking |
 | **Branch** | `v2/phase-0-foundations` |
 | **PR** | not opened — the owner has not asked for one |
-| **Started / completed** | 2026-07-26 → 2026-07-26 (code complete; gate open) |
+| **Started / completed** | 2026-07-26 → 2026-08-01 |
 | **Gate** | GATE 0 |
-| **Gate status** | **pending** — cannot be closed from this environment |
-| **Approved by / when** | — |
-| **What the owner actually checked** | Nothing yet. The three spike PPTX files are committed under `spikes/gate0/` and must be opened **in PowerPoint**; see §10. |
+| **Gate status** | **approved with conditions** — see DECISIONS.md G0 |
+| **Approved by / when** | Owner, 2026-08-01: *"the presentation is good. let's proceed."* |
+| **What the owner actually checked** | The rendered output of spike 0.5 — `big_number` and `two_column_compare` meet the visual bar. The owner did **not** separately report the two PowerPoint-behaviour checks: palette under Design → Variants (0.4), and icon select/scale/recolour as a native shape (0.6). |
 
-**Why the gate is still open.** GATE 0's three criteria are all phrased as *"the owner
-opens the file in PowerPoint"*, and Phase 0 was built in an ephemeral Linux container with
-no PowerPoint and no Aptos. Everything that could be closed here is closed and green; the
-rest is a download and a double-click, listed in §10.
+**What the approval settles, and what it does not.** D5 was the architectural risk — plan
+§6.6 rejects every alternative rendering path, so a failure there would have forced
+re-planning before Phase 3. It passed: native authoring reaches the bar, and the measured
+2.25s edit→preview loop makes a 15-component library credible.
+
+D11 is carried as **verification debt**. The converter is proven at the geometry level
+(ten icons round-trip and rasterise correctly) but not in PowerPoint, which is where the
+criterion lives. **Phase 3a must confirm it before building the icon system on it**; the
+documented retreat is `svgBlip` + PNG embedding (plan §9), which costs "icons are vectors
+end to end" but not the architecture. The theme check (0.4) is in the same position.
+
+This is recorded precisely rather than as blanket sign-off because plan §0.3 forbids the
+implementing agent self-approving a criterion nobody exercised.
 
 ## 2. What shipped
 
