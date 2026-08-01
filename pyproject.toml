@@ -16,6 +16,7 @@ dependencies = [
     # decision B14. Keeps the on-the-wire schema dialect, the backoff policy, and the
     # mocked-transport tests uniform across providers.
     "httpx>=0.27",
+    "docling>=2.117.0",
 ]
 
 [project.scripts]
@@ -52,6 +53,12 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011"]
+# The lookalike-substitution table is a map *from* ambiguous Unicode; flagging the very
+# characters it exists to normalise would make the rule unusable exactly where it applies.
+"autodeck/ingest/provenance.py" = ["RUF001"]
+# Its fixtures contain the ligatures, curly quotes and thin spaces the matcher exists to
+# tolerate; the characters are the test.
+"tests/test_ingest.py" = ["B011", "RUF001"]
 
 # ---------------------------------------------------------------------------
 # Types
@@ -63,6 +70,11 @@ exclude = ["legacy", "**/__pycache__", "runs", ".venv"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false
+# docling_core.types.doc is docling's documented public API, but its __init__ re-exports
+# without `__all__`, which trips pyright's strict re-export rule. That is the library's
+# packaging hygiene, not ours, and the alternative — importing from private submodule
+# paths — would couple us to internals that really can move.
+reportPrivateImportUsage = false
 
 # ---------------------------------------------------------------------------
 # Tests
