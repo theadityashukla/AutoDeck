@@ -1,0 +1,245 @@
+{
+  "run_id": "sample-0001",
+  "project": "attention-efficiency",
+  "client": "acme-health",
+  "audience": "Acme Health engineering leadership",
+  "version": 1,
+  "slides": [
+    {
+      "id": "s1",
+      "narrative_role": "big_number",
+      "component": "big_number",
+      "communication_mode": "text_led",
+      "blocks": [
+        {
+          "id": "s1-b1",
+          "kind": "claim",
+          "slot": "figure",
+          "text": null,
+          "claim": {
+            "text": "Throughput improved 62.9% after the kernel rewrite.",
+            "citations": [
+              {
+                "doc_id": "kaplan2024-attention",
+                "page": 4,
+                "bbox": [
+                  72.0,
+                  310.5,
+                  523.2,
+                  336.0
+                ],
+                "quote": "Training throughput rose from 412 to 671 sequences per second after the kernel rewrite.",
+                "quote_sha256": "02465cae47fcb7e22349814cdc4603f6fb9555ddf82e5058eab479968a0d9b01",
+                "retrieved_by": "writer"
+              }
+            ],
+            "derivation": {
+              "formula": "(new - old) / old * 100",
+              "inputs": {
+                "new": {
+                  "value": 671.0,
+                  "citation": {
+                    "doc_id": "kaplan2024-attention",
+                    "page": 4,
+                    "bbox": [
+                      72.0,
+                      310.5,
+                      523.2,
+                      336.0
+                    ],
+                    "quote": "Training throughput rose from 412 to 671 sequences per second after the kernel rewrite.",
+                    "quote_sha256": "02465cae47fcb7e22349814cdc4603f6fb9555ddf82e5058eab479968a0d9b01",
+                    "retrieved_by": "writer"
+                  }
+                },
+                "old": {
+                  "value": 412.0,
+                  "citation": {
+                    "doc_id": "kaplan2024-attention",
+                    "page": 4,
+                    "bbox": [
+                      72.0,
+                      310.5,
+                      523.2,
+                      336.0
+                    ],
+                    "quote": "Training throughput rose from 412 to 671 sequences per second after the kernel rewrite.",
+                    "quote_sha256": "02465cae47fcb7e22349814cdc4603f6fb9555ddf82e5058eab479968a0d9b01",
+                    "retrieved_by": "writer"
+                  }
+                }
+              },
+              "result": 62.86407766990291,
+              "unit": "%"
+            },
+            "verdict": "unverified",
+            "verdict_notes": null,
+            "contradicting_spans": []
+          },
+          "chart": null,
+          "figure": null,
+          "diagram": null,
+          "icon": null
+        },
+        {
+          "id": "s1-b2",
+          "kind": "framing",
+          "slot": "support",
+          "text": "Efficiency work compounds: every point of throughput is capacity you do not buy.",
+          "claim": null,
+          "chart": null,
+          "figure": null,
+          "diagram": null,
+          "icon": null
+        }
+      ],
+      "speaker_notes": [
+        {
+          "id": "s1-n1",
+          "kind": "claim",
+          "slot": "notes",
+          "text": null,
+          "claim": {
+            "text": "Throughput figures are measured on a single A100-80GB node.",
+            "citations": [
+              {
+                "doc_id": "kaplan2024-attention",
+                "page": 4,
+                "bbox": [
+                  72.0,
+                  340.0,
+                  523.2,
+                  361.4
+                ],
+                "quote": "All throughput figures are measured on a single A100-80GB node.",
+                "quote_sha256": "db78c8c39c60f802f0f9f639fce1df13408d8fdd37d1275a7d7e704afa445e96",
+                "retrieved_by": "validator"
+              }
+            ],
+            "derivation": null,
+            "verdict": "supported",
+            "verdict_notes": "Independently re-retrieved from the methods section.",
+            "contradicting_spans": []
+          },
+          "chart": null,
+          "figure": null,
+          "diagram": null,
+          "icon": null
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "narrative_role": "evidence",
+      "component": "two_column_compare",
+      "communication_mode": "icon_anchored",
+      "blocks": [
+        {
+          "id": "s2-b1",
+          "kind": "section_header",
+          "slot": "title",
+          "text": "Cost and speed moved together",
+          "claim": null,
+          "chart": null,
+          "figure": null,
+          "diagram": null,
+          "icon": null
+        },
+        {
+          "id": "s2-b2",
+          "kind": "claim",
+          "slot": "left",
+          "text": null,
+          "claim": {
+            "text": "Median inference cost fell to $0.42 per million tokens.",
+            "citations": [
+              {
+                "doc_id": "internal-benchmark-2025",
+                "page": 2,
+                "bbox": [
+                  60.0,
+                  120.0,
+                  500.0,
+                  148.0
+                ],
+                "quote": "Median inference cost per million tokens fell to $0.42 in the Q3 measurement window.",
+                "quote_sha256": "e625e37ba6e0cd3d1b37c01c1299dc52f16854062ea594daf679d6bf82295b0a",
+                "retrieved_by": "writer"
+              }
+            ],
+            "derivation": null,
+            "verdict": "supported",
+            "verdict_notes": null,
+            "contradicting_spans": []
+          },
+          "chart": null,
+          "figure": null,
+          "diagram": null,
+          "icon": null
+        },
+        {
+          "id": "s2-b3",
+          "kind": "icon",
+          "slot": "left_icon",
+          "text": null,
+          "claim": null,
+          "chart": null,
+          "figure": null,
+          "diagram": null,
+          "icon": {
+            "concept": "cost-reduction",
+            "glyph_id": "trending-down",
+            "color_token": "accent2"
+          }
+        },
+        {
+          "id": "s2-b4",
+          "kind": "chart",
+          "slot": "right",
+          "text": null,
+          "claim": null,
+          "chart": {
+            "chart_type": "column",
+            "title": "Throughput by build",
+            "categories": [
+              "baseline",
+              "kernel rewrite"
+            ],
+            "series": [
+              {
+                "name": "sequences/sec",
+                "values": [
+                  412.0,
+                  671.0
+                ]
+              }
+            ],
+            "x_axis_label": null,
+            "y_axis_label": "sequences/sec",
+            "source_citations": [
+              {
+                "doc_id": "kaplan2024-attention",
+                "page": 4,
+                "bbox": [
+                  72.0,
+                  310.5,
+                  523.2,
+                  336.0
+                ],
+                "quote": "Training throughput rose from 412 to 671 sequences per second after the kernel rewrite.",
+                "quote_sha256": "02465cae47fcb7e22349814cdc4603f6fb9555ddf82e5058eab479968a0d9b01",
+                "retrieved_by": "writer"
+              }
+            ]
+          },
+          "figure": null,
+          "diagram": null,
+          "icon": null
+        }
+      ],
+      "speaker_notes": []
+    }
+  ],
+  "theme_ref": "themes/acme-health@1",
+  "component_lib_version": "0.1.0"
+}

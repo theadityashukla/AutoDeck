@@ -15,7 +15,7 @@ That pairing is the design; if it stops being true, fix `TEMPLATE.md`.
 | 2b — Content & validation | `v2/phase-2b-content-validate` | — | GATE 2 | not started |
 | 2a — Planning & outline | `v2/phase-2a-plan-outline` | — | GATE 1 | not started |
 | 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | — | GATE 1a | not started |
-| 0 — Foundations | `v2/phase-0-foundations` | — | GATE 0 | not started |
+| 0 — Foundations | `v2/phase-0-foundations` | [PHASE-0.md](PHASE-0.md) | GATE 0 | **code complete — gate open** |
 
 Fill the **Handover** column with a link (`PHASE-0.md`) as each phase closes, and update
 `STATUS.md` in the same commit.

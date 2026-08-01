@@ -163,14 +163,21 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | not-started | | | | | | | |
-| A2 numbers | not-started | | | | | | | |
-| A3 validation | not-started | | | | | | | |
+| A1 citation | **tested** | | | | | | | |
+| A2 numbers | partial | | | | | | | |
+| A3 validation | partial | | | | | | | |
 | A4 isolation | not-started | | | | | | | |
 | A5 framing | not-started | | | | | | | |
-| A6 reproducibility | not-started | | | | | | | |
-| A7 gates | not-started | | | | | | | |
+| A6 reproducibility | partial | | | | | | | |
+| A7 gates | **enforced** | | | | | | | |
 | A8 uncertainty | not-started | | | | | | | |
+
+**Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
+`min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
+*mechanism* is enforced and tested (gates raise; no CLI flag bypasses one), but the four
+real gates are wired in Phases 2a, 2b and 4. A2's IR can express a re-executable derivation
+(B13) and A6's manifest compares correctly excluding timestamps, but both linters and the
+validator are Phase 2b — hence `partial` rather than `enforced`.
 
 Fill each cell as its phase completes. A phase whose brief claims an invariant cannot
 close its gate with that cell below `enforced`.

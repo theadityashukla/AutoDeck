@@ -1,0 +1,52 @@
+# Runtime provider bindings — plan §6.2, decision B8, docs/MODEL_ROUTING.md Part 2.
+#
+# Three environments, because the cost profile of development and the accuracy requirement
+# of production pull in opposite directions:
+#
+#   dev  — Gemini + Groq free tiers. Day-to-day iteration: high call volume, low cost.
+#   sit  — Claude. Pre-production verification on the bindings production actually uses.
+#   prod — Claude. Real client deliverables.
+#
+# Selected with `--env`, defaulting to `dev`. The build manifest records the environment
+# and every resolved model ID (A6), so a dev-built deck is never mistaken for a production
+# one.
+#
+# READ THIS BEFORE TRUSTING A DEV RESULT: A3 (independent re-retrieval) and A8 (honest
+# uncertainty) are *model-sensitive*. A weaker model fails them plausibly rather than
+# loudly, so an accuracy result measured on `dev` is evidence about `dev` only. The
+# deterministic invariants — A1, A2, A4, A5, A6 — are code and transfer unchanged.
+#
+# Model IDs are resolved by querying each provider at implementation time, never recalled
+# from memory (plan §6.2, §9). The dev IDs below were listed from the live APIs on
+# 2026-07-26; see DECISIONS.md B15.
+
+default_env: dev
+
+environments:
+  dev:
+    planner:    {provider: gemini, model: gemini-2.5-pro}
+    outline:    {provider: gemini, model: gemini-2.5-pro}
+    content:    {provider: groq,   model: openai/gpt-oss-120b}
+    validation: {provider: gemini, model: gemini-2.5-pro}
+    aesthetic:  {provider: gemini, model: gemini-2.5-pro}
+    ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
+
+  # Claude bindings are unverified against a live API — this environment has no
+  # ANTHROPIC_API_KEY. Confirm the IDs against the models endpoint before first use.
+  sit:
+    planner:    {provider: claude, model: claude-opus-5}
+    outline:    {provider: claude, model: claude-opus-5}
+    content:    {provider: claude, model: claude-sonnet-5}
+    validation: {provider: claude, model: claude-opus-5}
+    aesthetic:  {provider: claude, model: claude-opus-5}
+    # ingest_vlm stays on Gemini in every environment: its output is metadata that can
+    # never back a claim, so there is no accuracy reason to pay for it.
+    ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
+
+  prod:
+    planner:    {provider: claude, model: claude-opus-5}
+    outline:    {provider: claude, model: claude-opus-5}
+    content:    {provider: claude, model: claude-sonnet-5}
+    validation: {provider: claude, model: claude-opus-5}
+    aesthetic:  {provider: claude, model: claude-opus-5}
+    ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
