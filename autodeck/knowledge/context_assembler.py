@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from autodeck.knowledge.loader import (
     CLIENTS_DIR,
@@ -100,6 +101,21 @@ class ClientNamespace:
         module would create a route around A4, which is why there isn't one.
         """
         return self.guard(path).read_text(encoding="utf-8")
+
+
+class NamespacedIndex(Protocol):
+    """Anything carrying the namespace it was built for.
+
+    Structural rather than nominal so `autodeck.retrieval.HybridIndex` is covered without
+    this module importing it — the isolation guard must not depend on the retrieval
+    implementation, or a future second index type would silently escape it.
+    """
+
+    @property
+    def client(self) -> str | None: ...
+
+    @property
+    def project(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -224,7 +240,7 @@ class ContextAssembler:
         candidates = [knowledge.tokens_path, knowledge.template_path, knowledge.icons_dir]
         return [self.namespace.guard(path) for path in candidates if path is not None]
 
-    def use_index(self, index: RetrievalIndex) -> RetrievalIndex:
+    def use_index(self, index: NamespacedIndex) -> NamespacedIndex:
         """Accept a retrieval index only if it was built for this build.
 
         A cached index is the leak that touches no files: another client's text arrives
