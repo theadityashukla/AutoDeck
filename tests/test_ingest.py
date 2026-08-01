@@ -23,6 +23,7 @@ from docling_core.types.doc import (
     DocItemLabel,
     DoclingDocument,
     ProvenanceItem,
+    Size,
 )
 
 from autodeck.ingest.docling_runner import (
@@ -415,8 +416,15 @@ def prov(page: int, left: float, top: float, right: float, bottom: float) -> Pro
     )
 
 
-def build_docling_document() -> DoclingDocument:
+#: Height of the fixture page. Bottom-left to top-left conversion is `height - y`, so a
+#: round number keeps the expected boxes readable.
+PAGE_HEIGHT = 800.0
+
+
+def build_docling_document(*, with_page_size: bool = True) -> DoclingDocument:
     doc = DoclingDocument(name="probe")
+    if with_page_size:
+        doc.add_page(page_no=1, size=Size(width=595.0, height=PAGE_HEIGHT))
     doc.add_title(text="Attention Is All You Need", prov=prov(1, 72, 720, 523, 700))
     doc.add_text(label=DocItemLabel.TEXT, text=QUOTE, prov=prov(1, 72, 660, 523, 640))
     doc.add_text(
@@ -429,26 +437,59 @@ def build_docling_document() -> DoclingDocument:
 
 
 def test_the_mapping_preserves_page_and_converts_the_bbox_origin() -> None:
-    """Docling reports bottom-left origin; a straight copy mirrors every citation box."""
+    """Docling reports bottom-left origin; the conversion needs the page height."""
     document = document_from_docling(build_docling_document(), doc_id="p", source_path="p.pdf")
     body = next(e for e in document.elements if e.kind == "text")
     assert body.page == 1
-    assert body.bbox == (72.0, 640.0, 523.0, 660.0)
+    # Bottom-left t=660, b=640 on an 800pt page -> 140..160 from the top.
+    assert body.bbox == (72.0, 140.0, 523.0, 160.0)
     assert bbox_is_sane(body.bbox)
 
 
-def test_bottom_left_boxes_are_flipped() -> None:
+def test_an_element_near_the_top_of_the_page_gets_a_small_y() -> None:
+    """The regression test for a real bug found on the first real-PDF run.
+
+    Swapping `t` and `b` yields a well-formed rectangle that is still in bottom-left
+    space, so a heading at the top of the page reads as y≈690 instead of y≈90 — every
+    citation box mirrored about the page centre, plausible until someone checks it.
+    """
+    document = document_from_docling(build_docling_document(), doc_id="p", source_path="p.pdf")
+    title = next(e for e in document.elements if e.kind == "title")
+    assert title.bbox == (72.0, 80.0, 523.0, 100.0)
+    assert title.bbox[1] < PAGE_HEIGHT / 2, "a title at the top of the page must have a small y"
+
+
+def test_bottom_left_boxes_are_converted_using_the_page_height() -> None:
     box = BoundingBox(l=10, t=700, r=100, b=680, coord_origin=CoordOrigin.BOTTOMLEFT)
-    assert _bbox_from_docling(box) == (10.0, 680.0, 100.0, 700.0)
+    assert _bbox_from_docling(box, 800.0) == (10.0, 100.0, 100.0, 120.0)
+
+
+def test_a_bottom_left_box_without_a_page_height_is_refused() -> None:
+    """Impossible to convert, so it yields no box rather than a mirrored one.
+
+    A wrong box is worse than no box: the element becomes uncitable, which is loud, instead
+    of producing a citation that points at the wrong part of the page.
+    """
+    box = BoundingBox(l=10, t=700, r=100, b=680, coord_origin=CoordOrigin.BOTTOMLEFT)
+    assert _bbox_from_docling(box, None) == (0.0, 0.0, 0.0, 0.0)
+    assert not bbox_is_sane(_bbox_from_docling(box, None))
+
+
+def test_a_document_without_page_sizes_yields_nothing_citable() -> None:
+    document = document_from_docling(
+        build_docling_document(with_page_size=False), doc_id="p", source_path="p.pdf"
+    )
+    assert document.citable_elements() == []
+    assert document.low_provenance
 
 
 def test_top_left_boxes_are_left_alone() -> None:
     box = BoundingBox(l=10, t=100, r=100, b=140, coord_origin=CoordOrigin.TOPLEFT)
-    assert _bbox_from_docling(box) == (10.0, 100.0, 100.0, 140.0)
+    assert _bbox_from_docling(box, 800.0) == (10.0, 100.0, 100.0, 140.0)
 
 
 def test_a_missing_box_becomes_degenerate_not_invented() -> None:
-    assert _bbox_from_docling(None) == (0.0, 0.0, 0.0, 0.0)
+    assert _bbox_from_docling(None, 800.0) == (0.0, 0.0, 0.0, 0.0)
 
 
 def test_the_mapping_carries_labels_across() -> None:

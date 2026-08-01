@@ -181,9 +181,12 @@ def document_from_docling(
     complete when it is not. What must never happen is inventing a plausible box for them.
     """
     elements: list[DocumentElement] = []
+    page_heights = _page_heights(doc)
 
     for order, (item, _level) in enumerate(doc.iterate_items()):
-        element = _element_from_item(item, doc_id=doc_id, reading_order=order)
+        element = _element_from_item(
+            item, doc_id=doc_id, reading_order=order, page_heights=page_heights
+        )
         if element is not None:
             elements.append(element)
 
@@ -224,7 +227,9 @@ def _label_of(item: Any) -> str:
     return getattr(label, "value", label) if label is not None else ""
 
 
-def _element_from_item(item: Any, *, doc_id: str, reading_order: int) -> DocumentElement | None:
+def _element_from_item(
+    item: Any, *, doc_id: str, reading_order: int, page_heights: dict[int, float]
+) -> DocumentElement | None:
     """Convert one Docling item. Returns None for items that carry nothing citable."""
     kind = _LABEL_MAP.get(_label_of(item))
     if kind is None:
@@ -238,12 +243,12 @@ def _element_from_item(item: Any, *, doc_id: str, reading_order: int) -> Documen
     else:
         first = provenance[0]
         page = int(getattr(first, "page_no", 1) or 1)
-        bbox = _bbox_from_docling(getattr(first, "bbox", None))
+        bbox = _bbox_from_docling(getattr(first, "bbox", None), page_heights.get(page))
 
     self_ref = getattr(item, "self_ref", None) or f"#/items/{reading_order}"
     element_id = f"{doc_id}:{str(self_ref).lstrip('#/').replace('/', '-')}"
 
-    table = _table_from_item(item) if kind == "table" else None
+    table = _table_from_item(item, page_heights.get(page)) if kind == "table" else None
     text = getattr(item, "text", "") or ""
     if kind == "table" and not text.strip() and table is not None:
         # Docling gives tables no flat text; a searchable rendering keeps them findable
@@ -262,13 +267,25 @@ def _element_from_item(item: Any, *, doc_id: str, reading_order: int) -> Documen
     )
 
 
-def _bbox_from_docling(bbox: Any) -> tuple[float, float, float, float]:
+def _bbox_from_docling(
+    bbox: Any, page_height: float | None = None
+) -> tuple[float, float, float, float]:
     """Convert a Docling bounding box to top-left `(x0, y0, x1, y1)`.
 
-    Docling defaults to a `BOTTOMLEFT` origin, where `t` is *above* `b` in page
-    coordinates. Copying `(l, t, r, b)` straight across yields an inverted rectangle that
-    fails `bbox_is_sane` — which is the good outcome, since the alternative is a citation
-    box mirrored about the page centre that looks entirely reasonable in a report.
+    Docling reports a `BOTTOMLEFT` origin by default — PDF convention, where y grows
+    *upward* from the bottom of the page. AutoDeck uses top-left throughout.
+
+    Converting between them needs the **page height**: `y_top = page_height - y_bottomleft`.
+    Merely swapping `t` and `b` produces a well-formed rectangle that is still in
+    bottom-left space, so a heading at the top of an A4 page reads as y≈690 instead of
+    y≈137 — every citation box mirrored about the page centre. It looks entirely reasonable
+    in a report and fails the moment anyone checks it against the source, which is exactly
+    what GATE 1a does. (This is not hypothetical: the first real-PDF run produced precisely
+    that, which is why the page height is now threaded through.)
+
+    When the origin is bottom-left and the page height is unknown, the conversion is
+    impossible and this returns a degenerate box. That makes the element uncitable, which
+    is the honest outcome — a wrong box is worse than no box.
     """
     if bbox is None:
         return (0.0, 0.0, 0.0, 0.0)
@@ -280,15 +297,29 @@ def _bbox_from_docling(bbox: Any) -> tuple[float, float, float, float]:
 
     origin = getattr(bbox, "coord_origin", None)
     origin_name = str(getattr(origin, "value", origin) or "").upper()
+    is_bottom_left = origin_name == "BOTTOMLEFT" or (not origin_name and top > bottom)
 
-    if origin_name == "BOTTOMLEFT" or (not origin_name and top > bottom):
-        # In a bottom-left system the larger y is nearer the top of the page.
-        top, bottom = bottom, top
+    if is_bottom_left:
+        if page_height is None or page_height <= 0:
+            return (0.0, 0.0, 0.0, 0.0)
+        # Larger y is nearer the top of the page, so the box's top edge is max(t, b).
+        return (left, page_height - max(top, bottom), right, page_height - min(top, bottom))
 
     return (left, min(top, bottom), right, max(top, bottom))
 
 
-def _table_from_item(item: Any) -> TableData | None:
+def _page_heights(doc: DoclingDocument) -> dict[int, float]:
+    """Page number -> height in points, for the bottom-left conversion."""
+    heights: dict[int, float] = {}
+    for number, page in (getattr(doc, "pages", None) or {}).items():
+        size = getattr(page, "size", None)
+        height = getattr(size, "height", None) if size is not None else None
+        if height:
+            heights[int(number)] = float(height)
+    return heights
+
+
+def _table_from_item(item: Any, page_height: float | None) -> TableData | None:
     """Extract cell structure so individual cells stay citable (task 1.4)."""
     data = getattr(item, "data", None)
     if data is None:
@@ -305,7 +336,9 @@ def _table_from_item(item: Any) -> TableData | None:
         end_col = getattr(cell, "end_col_offset_idx", start_col + 1) or start_col + 1
 
         cell_bbox = getattr(cell, "bbox", None)
-        converted = _bbox_from_docling(cell_bbox) if cell_bbox is not None else None
+        converted = (
+            _bbox_from_docling(cell_bbox, page_height) if cell_bbox is not None else None
+        )
 
         cells.append(
             TableCell(
