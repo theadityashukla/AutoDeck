@@ -1,0 +1,38 @@
+{
+  "name": "AutoDeck Aptos",
+  "palette": {
+    "dk1": "15202B",
+    "lt1": "FFFFFF",
+    "dk2": "2C3E50",
+    "lt2": "F4F6F8",
+    "accent1": "1B4965",
+    "accent2": "1E8E7E",
+    "accent3": "D98324",
+    "accent4": "A4303F",
+    "accent5": "5E5A80",
+    "accent6": "7A8B99",
+    "hyperlink": "1B4965",
+    "followed_hyperlink": "5E5A80"
+  },
+  "typography": {
+    "major": "Aptos Display",
+    "minor": "Aptos",
+    "display": 54.0,
+    "title": 32.0,
+    "heading": 22.0,
+    "body": 16.0,
+    "caption": 12.0,
+    "minimum": 10.0,
+    "line_height": 1.25
+  },
+  "spacing": {
+    "baseline": 6.0,
+    "gutter": 24.0,
+    "margin_x": 54.0,
+    "margin_y": 42.0,
+    "safe_area": 24.0
+  },
+  "corner_radius": 0.0,
+  "slide_width_emu": 12192000,
+  "slide_height_emu": 6858000
+}

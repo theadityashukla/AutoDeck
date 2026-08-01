@@ -1,5 +1,8 @@
 # Data
-*.pdf
+# Anchored to the repo root: v1 dumped scratch PDFs there. Unanchored, this pattern would
+# also swallow knowledge/projects/*/papers/*.pdf — the seed corpus Phase 1 commits on
+# purpose (task 1.9) — since a gitignore pattern with no leading slash matches at any depth.
+/*.pdf
 extracted_images/
 chroma_db/
 
@@ -8,9 +11,13 @@ gemma-3-12b-mlx/
 gemma3-12b-int4/
 
 # Secrets
-# NOTE: this is v1's API-token directory, not v2's design tokens — those live in
-# config/tokens/ precisely so this rule cannot swallow them (see PHASE-0 handover).
-tokens/
+# Anchored to the repo root: this is v1's API-token directory. B18 moved v2's design
+# tokens to config/tokens/ believing an unanchored `tokens/` couldn't reach them — it was
+# wrong. A gitignore pattern with no leading slash matches a directory of that name at ANY
+# depth, so config/tokens/ was silently excluded from every commit since Phase 0's first
+# push, and every CI run since has been missing it (7 failing tests, `config/tokens/*.json
+# not found`). Anchoring is what B18 should have done originally.
+/tokens/
 .env
 
 # Python
