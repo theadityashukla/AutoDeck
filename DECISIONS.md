@@ -379,6 +379,37 @@ the owner with options.
 - **Consequences:** `--tokens config/tokens/<name>.json` throughout. Phase 4 onboarding
   writes per-client tokens to the knowledge folder, not here.
 
+### B19 — `.gitignore` patterns anchored to the repo root; corrects a false claim in B18
+- **Date:** 2026-08-01
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`, hotfixed directly onto `v2/integration`
+- **Status:** active — corrects B18's rationale; does not reverse B18's placement decision
+- **Context:** the owner reported both open PRs failing CI. Investigation showed **every
+  CI run since the first Phase 0 push** — seven consecutive runs across
+  `v2/phase-0-foundations`, `v2/integration`, and `v2/phase-1-ingest-knowledge` — had
+  failed the same way: `config/tokens/{dev,aptos}.json` not found. B18 asserted that
+  moving design tokens to `config/tokens/` let "the `.gitignore` rule keep its v1
+  meaning" without colliding. That was never checked against an actual `git status`, and
+  it was false: a gitignore pattern with **no leading slash** (`tokens/`) matches a
+  directory of that name at **any depth**, not only at the repo root, so it silently
+  matched `config/tokens/` too. The files were never committed. Local development never
+  noticed because every local test run read them straight off disk — the bug was only
+  visible from a fresh checkout, which is what CI always does and what Phase 0's
+  verification never did (§10 of the Phase 0 handover runs commands in the working tree,
+  not a clone).
+- **Decision:** anchor the pattern to the repo root (`/tokens/`), and pre-emptively fix
+  the same class of bug in `*.pdf` (→ `/*.pdf`), which would otherwise have swallowed the
+  task 1.9 seed corpus under `knowledge/projects/*/papers/*.pdf` the moment it was added.
+- **Rationale:** anchoring is what B18 should have specified originally; B18's chosen
+  *location* for design tokens (`config/tokens/`, separate from per-client
+  `knowledge/clients/<c>/theme/tokens.json`) remains correct and is not reversed.
+- **Consequences:** verification of a `.gitignore` change, or of any claim that a path
+  "is/isn't tracked," must check a fresh clone or `git ls-files`/`git check-ignore -v` —
+  never the working tree alone, since an untracked-but-present file is invisible to every
+  local check except those two. Both `v2/integration` and
+  `v2/phase-1-ingest-knowledge` were hotfixed with the identical commit
+  (cherry-picked) and both re-verified green on GitHub's own runners before being
+  reported fixed.
+
 ### G0 — GATE 0 approved: the rendering strategy proceeds
 - **Date:** 2026-08-01
 - **Phase / branch:** Phase 0 / `v2/phase-0-foundations`

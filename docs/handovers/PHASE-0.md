@@ -52,7 +52,14 @@ implementing agent self-approving a criterion nobody exercised.
 | `config/tokens/{aptos,dev}.json` | The deliverable token set and the container one | `tests/test_design.py` |
 | `spikes/gate0/` | The three GATE 0 artifacts, their previews, and `provenance.json` | owner review |
 
-**192 tests pass; ruff and pyright are clean.**
+**192 tests pass; ruff and pyright are clean — in the working tree this was verified in.**
+**Correction (2026-08-01, see DECISIONS.md B19):** that verification never checked a
+fresh clone, and CI was red on every push from the first Phase 0 commit onward —
+`config/tokens/{dev,aptos}.json` were silently excluded by an unanchored `.gitignore`
+pattern (B18's fix didn't work) and were never actually committed until the Phase 1
+hotfix. Fixed and confirmed green on GitHub's own runners; the lesson is generalised in
+B19. Nothing else in this handover's content is affected — the code these tests exercise
+was correct throughout, only the token *files* were missing from git.
 
 ## 3. What did not ship
 
