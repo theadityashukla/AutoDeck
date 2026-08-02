@@ -7,6 +7,57 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Phase 1: ingestion & knowledge
+
+All ten Phase 1 tasks. **GATE 1a is not closed** — it requires the owner to spot-check ten
+citations against the source PDFs. Materials are generated and delivered; the checkboxes are
+unticked. See `docs/handovers/PHASE-1.md`.
+
+### Added
+- `autodeck/ingest/` — the provenance chain (A1). `document_store.py` is the chokepoint:
+  verbatim `text` and generated `description` are separate fields because a single
+  `content` field would eventually be searched by something that did not know the
+  difference. `provenance.py` matches tolerantly (ligatures, curly quotes, line-break
+  hyphens) but never approximately, returning offsets into the verbatim string.
+  `docling_runner.py` splits at the ML seam so every provenance decision sits in a pure
+  function testable without model weights.
+- `autodeck/ingest/figure_describer.py` — VLM figure descriptions via the `ingest_vlm`
+  role. Descriptions are retrievable and **structurally cannot be cited**: they are written
+  to `description` only, and the invariant is re-asserted after each write rather than
+  assumed.
+- `autodeck/ingest/grobid.py` — a deliberate stub that raises, documenting the three
+  triggers that would justify implementing it (plan §6.3).
+- `autodeck/knowledge/` — two-tier folders (D8) and **A4 client isolation**. One namespace
+  per build, bound at construction; every read goes through it, including the non-obvious
+  leak paths — reference decks and cached retrieval indices.
+- `autodeck/retrieval/hybrid.py` — BM25 + optional embeddings fused by reciprocal rank.
+  **There is no chunker**: elements are the chunks, so a hit cannot exist without
+  resolvable provenance.
+- `autodeck/audit/spotcheck.py` — renders a citation's bbox onto its source page for
+  GATE 1a. Emits no verdict, and says in as many words that a passing hash is not evidence
+  the box is right.
+- `autodeck knowledge validate | ingest | ask | spotcheck`, plus the first CLI tests.
+- `knowledge/` — the seed corpus: five CC BY 4.0 papers on LLM inference efficiency, 16
+  curated claims all hash-verified, and two fictional clients (two, because A4 is not
+  demonstrable with one). See B20, B21.
+
+### Fixed
+- **Docling bboxes were vertically mirrored.** The conversion swapped `t` and `b` instead of
+  computing `page_height - y`, producing well-formed rectangles still in bottom-left space.
+  Nothing crashed and a mirrored bbox hash-verifies perfectly; it was caught only by
+  rendering a real page and looking at the box.
+- **A cross-client reference in the seed corpus**, caught by `check_text` on its author:
+  `contoso-health/client.md` named the other client while explaining its own purpose, in a
+  file loaded into prompts.
+- **`knowledge ask --client` accepted a client that did not exist.** `use_index` checks the
+  index's namespace, not the client's existence, so a typo passed silently.
+
+### Changed
+- `run_docling` takes `generate_picture_images`; `ingest_pdf` takes a `vision_provider`.
+- `corpus/` and `spikes/gate1a/` are gitignored as derived data (B22).
+
+---
+
 ## [Unreleased] — Phase 0: foundations & de-risking
 
 All seven Phase 0 tasks. **GATE 0 is not closed** — its criteria require the owner to open
