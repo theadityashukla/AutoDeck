@@ -463,7 +463,13 @@ def knowledge_ask(
     index = build_index(documents, project=project)
     if client is not None:
         try:
-            ContextAssembler(knowledge_root, client=client, project=project).use_index(index)
+            assembler = ContextAssembler(knowledge_root, client=client, project=project)
+            # Load the client before binding the index. `use_index` checks the index's
+            # namespace, not the client's existence, so a typo'd `--client` would otherwise
+            # pass silently — and a search that looks namespace-bound but is not is worse
+            # than one that never claimed to be.
+            assembler.loader.load_client(client)
+            assembler.use_index(index)
         except KnowledgeError as exc:
             _echo_error(str(exc))
             raise typer.Exit(code=1) from None
@@ -500,6 +506,129 @@ def knowledge_ask(
 def _shorten(text: str, width: int = 300) -> str:
     collapsed = " ".join(text.split())
     return collapsed if len(collapsed) <= width else collapsed[: width - 1] + "…"
+
+
+@knowledge_app.command("spotcheck")
+def knowledge_spotcheck(
+    project: Annotated[str, typer.Argument(help="Project to spot-check.")],
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    output: Annotated[Path, typer.Option("--out")] = Path("spikes/gate1a"),
+    count: Annotated[int, typer.Option("--count", help="How many citations to render.")] = 10,
+) -> None:
+    """Render citations onto their source pages for the GATE 1a review.
+
+    Produces a folder of page images with each citation's bbox drawn on it, plus an
+    `index.md` worksheet with an unticked checkbox per citation. **Nothing here decides
+    whether the gate passes** — it makes the owner's judgement cheap to form (A7).
+
+    Citations come from `claims.md` first, since those are the curated library and the ones
+    most worth being sure about; the remainder are drawn from retrieval so the long-tail
+    path is checked too, not just the hand-written entries.
+    """
+    from autodeck.audit.spotcheck import SpotCheckError, build_spot_checks, write_index
+    from autodeck.ingest.document_store import DocumentStore, IngestError
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+    from autodeck.retrieval.hybrid import build_index, search
+
+    try:
+        knowledge = KnowledgeLoader(knowledge_root).load_project(project)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    store = DocumentStore(corpus_root / project)
+    documents = list(store.documents())
+    if not documents:
+        _echo_error(
+            f"no ingested documents under {corpus_root / project}. "
+            f"Run `autodeck knowledge ingest {project}` first."
+        )
+        raise typer.Exit(code=2)
+
+    selected: list[tuple[Citation, str]] = []
+    seen: set[str] = set()
+
+    for claim in knowledge.claims:
+        if len(selected) >= count:
+            break
+        try:
+            citation = claim.to_citation(store=store)
+        except IngestError as exc:
+            # A stale cached claim is a real finding, not a reason to skip quietly: it
+            # means claims.md and the corpus have drifted apart.
+            typer.secho(f"  stale claim ({claim.doc_id}): {exc}", fg=typer.colors.YELLOW)
+            continue
+        selected.append((citation, claim.claim.strip()))
+        seen.add(citation.quote_sha256)
+
+    if len(selected) < count:
+        index = build_index(documents, project=project)
+        for probe in _spotcheck_probes(knowledge.project_md):
+            for hit in search(index, probe, limit=3, citable_only=True):
+                if len(selected) >= count:
+                    break
+                try:
+                    citation = hit.to_citation(store)
+                except IngestError:
+                    continue
+                if citation.quote_sha256 in seen:
+                    continue
+                seen.add(citation.quote_sha256)
+                selected.append((citation, f"(retrieved for “{probe}”)"))
+            if len(selected) >= count:
+                break
+
+    if not selected:
+        _echo_error("no citations could be resolved; nothing to spot-check")
+        raise typer.Exit(code=1)
+
+    papers = {pdf.stem: pdf for pdf in knowledge.papers}
+    try:
+        checks = build_spot_checks(selected, store, papers, output)
+    except SpotCheckError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    index_path = write_index(checks, output / "index.md")
+    unrenderable = [check for check in checks if check.source_pdf is None]
+
+    for check in checks:
+        typer.echo(
+            f"  {check.citation.doc_id:<52} p.{check.citation.page:<3} "
+            f"{'hash ok' if check.hash_verified else 'HASH FAILED'}"
+        )
+    typer.secho(f"\nwrote {index_path}", fg=typer.colors.GREEN)
+    if unrenderable:
+        typer.secho(
+            f"{len(unrenderable)} citation(s) had no source PDF and could not be rendered.",
+            fg=typer.colors.YELLOW,
+        )
+    if len(checks) < count:
+        typer.secho(
+            f"only {len(checks)} of the {count} requested citations resolved. GATE 1a asks "
+            "for ten; a short sheet is a smaller sample, not a passed gate.",
+            fg=typer.colors.YELLOW,
+        )
+    typer.secho(
+        "\nGATE 1a is the owner's call. Open index.md, judge each image, tick the boxes. "
+        "Nothing in this repository ticks them (A7).",
+        fg=typer.colors.YELLOW,
+    )
+
+
+def _spotcheck_probes(project_md: str) -> list[str]:
+    """Queries to pull retrieval citations from, when claims.md is short.
+
+    Drawn from the project's own headings so the probes track whatever corpus the project
+    holds, rather than a hardcoded list that silently stops matching when the seed changes.
+    """
+    headings = [
+        line.lstrip("#").strip()
+        for line in project_md.splitlines()
+        if line.startswith("#") and len(line.lstrip("#").strip()) > 3
+    ]
+    return headings or ["method", "results", "evaluation"]
 
 
 # ---------------------------------------------------------------------------
