@@ -37,6 +37,11 @@ test_*.png
 # --- v2 ---
 # Per-build artifacts (IR versions, verdicts, renders) — plan §4
 runs/
+# Ingested documents. Derived from knowledge/projects/*/papers/, which IS tracked, so a
+# clone rebuilds this with `autodeck knowledge ingest`. Committing it would put a large,
+# model-version-dependent artifact in the repo and — worse — let a stale store outlive the
+# PDF it was derived from, which is exactly the drift the hash check exists to catch.
+corpus/
 # Eval outputs; the harness and fixtures under evals/ ARE tracked
 evals/out/
 # Environments

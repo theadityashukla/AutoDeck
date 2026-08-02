@@ -88,6 +88,7 @@ def run_docling(
     *,
     do_ocr: bool = False,
     do_table_structure: bool = True,
+    generate_picture_images: bool = False,
 ) -> DoclingDocument:
     """Convert a PDF with Docling.
 
@@ -98,6 +99,11 @@ def run_docling(
             scanned sources.
         do_table_structure: recover table cell structure. Required for cell-level citations
             (task 1.4, D10).
+        generate_picture_images: keep a rendered crop of each figure, which
+            `figure_describer.extract_figure_images` needs to send to the VLM. Off by
+            default because it holds every figure's pixels in memory for the duration of
+            the conversion, and a corpus being ingested without descriptions has no use
+            for them.
 
     Raises:
         ModelsUnavailableError: model weights could not be fetched.
@@ -107,6 +113,8 @@ def run_docling(
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
+    from autodeck.ingest.figure_describer import FIGURE_IMAGE_SCALE
+
     pdf = Path(pdf)
     if not pdf.exists():
         raise IngestError(f"PDF not found: {pdf}")
@@ -114,6 +122,12 @@ def run_docling(
     options = PdfPipelineOptions()
     options.do_ocr = do_ocr
     options.do_table_structure = do_table_structure
+    options.generate_picture_images = generate_picture_images
+    if generate_picture_images:
+        # Docling's default raster is too coarse for a VLM to read tick labels, and an
+        # illegible crop produces a confidently wrong transcription rather than a missing
+        # one — the failure mode the `legible` field exists to surface.
+        options.images_scale = FIGURE_IMAGE_SCALE
 
     try:
         converter = DocumentConverter(
@@ -402,12 +416,36 @@ def ingest_pdf(
     *,
     doc_id: str,
     do_ocr: bool = False,
+    vision_provider: object | None = None,
+    strict_descriptions: bool = False,
 ) -> Document:
     """Convenience wrapper: convert a PDF and map it in one call.
 
     Needs model weights. The pure mapping is `document_from_docling`, which does not.
+
+    Args:
+        vision_provider: when supplied, each figure is rendered and described through the
+            `ingest_vlm` role (task 1.3). Descriptions land in `element.description` and
+            never in `element.text`, so a described figure stays uncitable — see
+            `figure_describer` for why that separation is the whole point.
+        strict_descriptions: abort the ingestion if a figure cannot be described, rather
+            than logging and carrying on with that figure undescribed.
     """
+    from autodeck.ingest.figure_describer import attach_descriptions, extract_figure_images
+
     pdf = Path(pdf)
-    return document_from_docling(
-        run_docling(pdf, do_ocr=do_ocr), doc_id=doc_id, source_path=str(pdf)
-    )
+    describe = vision_provider is not None
+    docling_document = run_docling(pdf, do_ocr=do_ocr, generate_picture_images=describe)
+    document = document_from_docling(docling_document, doc_id=doc_id, source_path=str(pdf))
+
+    if describe:
+        images = extract_figure_images(docling_document, doc_id=doc_id)
+        attached = attach_descriptions(
+            document,
+            images,
+            vision_provider,  # type: ignore[arg-type]
+            strict=strict_descriptions,
+        )
+        logger.info("%s: described %d of %d figure(s)", doc_id, attached, len(images))
+
+    return document
