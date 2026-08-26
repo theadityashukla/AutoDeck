@@ -22,11 +22,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel
 
 from autodeck.ir.models import Deck, DeckBrief
 
 _VERSION_FILE = re.compile(r"^v(\d+)\.json$")
+_BRIEF_FILE = re.compile(r"^v(\d+)\.yaml$")
 
 #: Written with a trailing newline and stable key order so a git diff of two IR versions is
 #: readable and so A6's byte-comparability has a fixed target.
@@ -170,22 +172,109 @@ class IRStore:
             raise IRStoreError(f"IR v{version} not found for run {self.run_id!r}: {path}")
         return Deck.model_validate_json(path.read_text(encoding="utf-8"))
 
-    # -- brief ------------------------------------------------------------
+    # -- brief (§6.13, first A7 approval) ---------------------------------
+    #
+    # Versioned exactly like the IR, and for the same reason: a brief that changed after
+    # sign-off would silently invalidate the approval. GATE 1 reviews the outline against
+    # a specific brief version, so that version has to still exist afterwards.
+    #
+    # Stored as YAML rather than JSON because a human reads, edits and signs this one.
+    # It is the only artifact in a run with that property — the IR is machine-authored and
+    # machine-diffed, the brief is a document two people argue over.
+
+    def brief_version_path(self, version: int) -> Path:
+        if version < 1:
+            raise IRStoreError(f"brief versions start at 1, got {version}")
+        return self.paths.brief / f"v{version}.yaml"
+
+    def brief_versions(self) -> list[int]:
+        if not self.paths.brief.is_dir():
+            return []
+        found = [
+            int(match.group(1))
+            for path in self.paths.brief.iterdir()
+            if (match := _BRIEF_FILE.match(path.name))
+        ]
+        return sorted(found)
+
+    def latest_brief_version(self) -> int | None:
+        versions = self.brief_versions()
+        return versions[-1] if versions else None
+
+    def next_brief_version(self) -> int:
+        latest = self.latest_brief_version()
+        return 1 if latest is None else latest + 1
 
     def save_brief(self, brief: DeckBrief, *, overwrite: bool = False) -> Path:
-        """Write the signed-off DeckBrief for this run (§6.13, first A7 approval)."""
-        path = self.paths.brief / "brief.json"
+        """Write `brief` at its own `version` as YAML. Returns the path written.
+
+        Raises:
+            IRStoreError: the run_id does not match, or the version exists and `overwrite`
+                is not set.
+        """
+        if brief.run_id != self.run_id:
+            raise IRStoreError(
+                f"brief.run_id {brief.run_id!r} does not match store run {self.run_id!r}"
+            )
+        path = self.brief_version_path(brief.version)
         if path.exists() and not overwrite:
-            raise IRStoreError(f"brief already exists for run {self.run_id!r}")
+            raise IRStoreError(
+                f"brief v{brief.version} already exists for run {self.run_id!r}. "
+                "Brief versions are immutable — write the next version instead."
+            )
         self.paths.ensure()
-        path.write_text(_dump(brief), encoding="utf-8")
+        path.write_text(dump_brief_yaml(brief), encoding="utf-8")
         return path
 
-    def load_brief(self) -> DeckBrief:
-        path = self.paths.brief / "brief.json"
+    def load_brief(self, version: int | None = None) -> DeckBrief:
+        """Load a brief version, defaulting to the latest."""
+        if version is None:
+            version = self.latest_brief_version()
+            if version is None:
+                raise IRStoreError(f"run {self.run_id!r} has no brief")
+        path = self.brief_version_path(version)
         if not path.exists():
-            raise IRStoreError(f"run {self.run_id!r} has no brief")
-        return DeckBrief.model_validate_json(path.read_text(encoding="utf-8"))
+            raise IRStoreError(f"brief v{version} not found for run {self.run_id!r}: {path}")
+        return load_brief_yaml(path.read_text(encoding="utf-8"))
+
+
+def dump_brief_yaml(brief: DeckBrief) -> str:
+    """Serialise a brief to YAML a human can read and edit.
+
+    `sort_keys=False` deliberately: pydantic emits fields in declaration order, which runs
+    objective → audience → key messages → constraints, and that is the order someone reads
+    a brief in. Alphabetising it would put `approved_by` first and bury the objective.
+    """
+    return yaml.safe_dump(
+        brief.model_dump(mode="json"),
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+        width=88,
+    )
+
+
+def load_brief_yaml(text: str) -> DeckBrief:
+    """Parse a brief from YAML, validating it.
+
+    Hand-edited briefs are expected — a planning session ends with the owner editing this
+    file — so a malformed one must fail with pydantic's message rather than half-load.
+
+    Raises:
+        IRStoreError: the YAML is invalid or is not a mapping.
+        ValidationError: the mapping is not a valid brief, including the A8 rule that an
+            unsupported key message needs a matching open risk.
+    """
+    try:
+        payload = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise IRStoreError(f"brief is not valid YAML: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise IRStoreError(
+            f"brief must be a YAML mapping, got {type(payload).__name__}. An empty or "
+            "list-shaped file usually means an editor mangled it."
+        )
+    return DeckBrief.model_validate(payload)
 
 
 def _dump(model: BaseModel) -> str:

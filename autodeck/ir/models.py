@@ -494,24 +494,189 @@ class Deck(IRModel):
 # ---------------------------------------------------------------------------
 
 
+EvidenceStatus = Literal["unprobed", "supported", "thin", "unsupported"]
+"""How a key message stands against the corpus after the planner's evidence-gap check
+(task 2a.4).
+
+`unprobed` is the honest default — it means nobody looked, which is different from
+`unsupported` (somebody looked and found nothing). Collapsing the two would let a brief
+that skipped the check read exactly like one that passed it.
+"""
+
+PinTarget = Literal["component", "communication_mode", "diagram_kind"]
+"""What a layout pin fixes. A human pinning "make this a two-by-two" is pinning a
+`diagram_kind`; pinning "this must be the big number slide" is pinning a `component`."""
+
+
+class KeyMessage(IRModel):
+    """One thing the deck must land, and how it stands against the evidence.
+
+    Carries an id because everything downstream refers back to it: layout pins target a
+    message, open risks excuse a message, and GATE 1 checks that every message maps to at
+    least one slide. Matching on prose would break the moment someone rewords one.
+    """
+
+    id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    evidence_status: EvidenceStatus = "unprobed"
+    supporting_claims: list[str] = Field(
+        default_factory=list,
+        description=(
+            "doc_ids or claims.md quotes the planner found while probing. Leads for the "
+            "writer, not citations — a real Citation is resolved through the document "
+            "store at write time (A1), never carried from planning."
+        ),
+    )
+    probe_notes: str | None = Field(
+        default=None, description="What the evidence-gap check actually found."
+    )
+
+    def needs_a_risk(self) -> bool:
+        """Whether carrying this message requires an accepted, recorded gap.
+
+        `thin` counts. A message resting on one weak source is exactly the kind that reads
+        as supported in a deck and collapses under a client's question, and the planner
+        brief (§6.13) exists to surface it while it still costs one conversational turn.
+        """
+        return self.evidence_status in ("unsupported", "thin")
+
+
+class OpenRisk(IRModel):
+    """An evidence gap the owner chose to carry, recorded rather than resolved.
+
+    Plan §7 Phase 2a is explicit that proceeding without support is *allowed* — and that
+    the gap **is not allowed to disappear**. So this is the receipt: it names the message,
+    says who accepted it, and resurfaces in the audit report (A8).
+
+    `accepted_by` has no default. A gap with nobody's name on it is not an accepted risk,
+    it is an unaccounted one, and defaulting the field to "owner" would manufacture consent
+    from a missing value.
+    """
+
+    message_id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    accepted_by: str = Field(
+        min_length=1, description="Who decided to carry it. A7 — never defaulted."
+    )
+    mitigation: str | None = Field(
+        default=None,
+        description="How the deck will hedge it — softer wording, an explicit assumption.",
+    )
+
+
+class LayoutPin(IRModel):
+    """A human decision to fix how a message is presented (task 2a.5).
+
+    Pins are honoured by the outline agent or their deviation is **flagged**, never
+    silently overridden: a pin is the one place in planning where the owner's judgement
+    outranks the system's, and quietly ignoring it teaches them not to bother.
+    """
+
+    message_id: str = Field(min_length=1)
+    target: PinTarget
+    value: str = Field(min_length=1, description="Component name, mode, or diagram kind.")
+    rationale: str | None = None
+
+
 class DeckBrief(IRModel):
     """The signed-off output of the planning session — the first of the four A7 approvals.
 
     Versioned into the run alongside the IR so GATE 1 can review the outline *against the
-    brief* rather than against taste. `open_risks` carries accepted evidence gaps forward
-    into the audit report, so a gap acknowledged at planning time cannot quietly disappear.
+    brief* rather than against taste.
+
+    **The load-bearing rule is `_gaps_are_accounted_for`.** A key message the planner found
+    unsupported or thin can still go in the deck — plan §7 says so — but only with a
+    matching `OpenRisk` naming who accepted it. That makes "carry it anyway" a recorded
+    decision instead of a silent one, and it is a schema constraint for the same reason A1
+    is: a rule enforced by the type cannot be skipped by a pass that forgot to call the
+    checker.
+
+    Note what this does *not* do: it never blocks an unsupported message. Blocking would
+    push the planner toward marking things `supported` to get past the validator, which is
+    the failure A8 is about. Carrying it is free; carrying it silently is impossible.
     """
 
     run_id: str = Field(min_length=1)
+    version: int = Field(default=1, ge=1)
     objective: str = Field(
         min_length=1, description="The decision or action this deck should produce."
     )
     audience: str = Field(min_length=1)
-    key_messages: list[str] = Field(min_length=1)
+    key_messages: list[KeyMessage] = Field(min_length=1)
     must_include: list[str] = Field(default_factory=list)
     must_avoid: list[str] = Field(default_factory=list)
     length_target: int | None = Field(default=None, ge=1)
     header_style: str | None = None
-    layout_pins: list[str] = Field(default_factory=list)
+    layout_pins: list[LayoutPin] = Field(default_factory=list)
     reference_deck: str | None = None
-    open_risks: list[str] = Field(default_factory=list)
+    open_risks: list[OpenRisk] = Field(default_factory=list)
+    approved_by: str | None = Field(
+        default=None,
+        description=(
+            "A7: set only by an explicit human sign-off. The planner session may not set "
+            "it, and no CLI flag approves a brief — see `orchestrator.approve`."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _message_ids_unique(self) -> DeckBrief:
+        ids = [message.id for message in self.key_messages]
+        duplicates = sorted({i for i in ids if ids.count(i) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate key message ids: {', '.join(duplicates)}")
+        return self
+
+    @model_validator(mode="after")
+    def _references_resolve(self) -> DeckBrief:
+        """Pins and risks must point at messages that exist.
+
+        A pin on a deleted message is a decision the outline will never honour and nobody
+        will ever see fail. Cheaper to reject here than to debug at GATE 1.
+        """
+        known = {message.id for message in self.key_messages}
+        dangling = sorted(
+            {pin.message_id for pin in self.layout_pins if pin.message_id not in known}
+            | {risk.message_id for risk in self.open_risks if risk.message_id not in known}
+        )
+        if dangling:
+            raise ValueError(
+                f"layout pins or open risks reference unknown key messages: "
+                f"{', '.join(dangling)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _gaps_are_accounted_for(self) -> DeckBrief:
+        """Every unsupported or thin key message carries a recorded, accepted risk (A8).
+
+        This is the structural half of the evidence-gap check. The planner surfaces the gap
+        in conversation; this makes it impossible for the resulting brief to forget.
+        """
+        excused = {risk.message_id for risk in self.open_risks}
+        unaccounted = sorted(
+            message.id
+            for message in self.key_messages
+            if message.needs_a_risk() and message.id not in excused
+        )
+        if unaccounted:
+            raise ValueError(
+                f"key message(s) {', '.join(unaccounted)} have weak or absent evidence but "
+                "no matching entry in open_risks. Carrying an unsupported message is "
+                "allowed (plan §7); carrying it without recording who accepted the gap is "
+                "not — it would vanish before the audit report (A8)."
+            )
+        return self
+
+    def message(self, message_id: str) -> KeyMessage | None:
+        return next((m for m in self.key_messages if m.id == message_id), None)
+
+    def pins_for(self, message_id: str) -> list[LayoutPin]:
+        return [pin for pin in self.layout_pins if pin.message_id == message_id]
+
+    def unprobed_messages(self) -> list[KeyMessage]:
+        """Messages the evidence-gap check never ran against.
+
+        Not an error — a brief can legitimately be drafted before probing — but GATE 1
+        should see them, because "nobody looked" reads far too much like "it's fine".
+        """
+        return [m for m in self.key_messages if m.evidence_status == "unprobed"]
