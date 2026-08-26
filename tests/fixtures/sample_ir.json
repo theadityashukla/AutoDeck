@@ -126,7 +126,12 @@
           "diagram": null,
           "icon": null
         }
-      ]
+      ],
+      "intent": "Establish that serving cost is bounded by memory, not compute.",
+      "message_ids": [
+        "km1"
+      ],
+      "pin_deviation": null
     },
     {
       "id": "s2",
@@ -237,7 +242,12 @@
           "icon": null
         }
       ],
-      "speaker_notes": []
+      "speaker_notes": [],
+      "intent": "Show the throughput gain quantisation actually delivers.",
+      "message_ids": [
+        "km2"
+      ],
+      "pin_deviation": null
     }
   ],
   "theme_ref": "themes/acme-health@1",

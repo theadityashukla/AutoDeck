@@ -632,6 +632,226 @@ def _spotcheck_probes(project_md: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# plan / outline (Phase 2a)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def plan(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    client: Annotated[str, typer.Option("--client", help="Client namespace (A4).")],
+    project: Annotated[str, typer.Option("--project", help="Project whose corpus to probe.")],
+    env: EnvOption = "dev",
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Run the planning conversation and sign off a brief (A7 approval 1 of 4).
+
+    Conversational, per D7. Type to talk; the planner probes each key message against the
+    corpus as it goes. The session ends **only** when you type `/sign <your name>` — there
+    is no flag that approves a brief and the planner cannot approve its own.
+
+    Commands during a session: `/brief` shows the draft, `/sign <name>` signs it off,
+    `/quit` leaves without signing (the transcript is kept and the draft is not).
+    """
+    from autodeck.agents.evidence_gap import CLASSIFIER_ROLE, EvidenceProbe
+    from autodeck.agents.planner import (
+        BriefIncomplete,
+        PlannerError,
+        PlannerSession,
+        render_draft,
+    )
+    from autodeck.ingest.document_store import DocumentStore
+    from autodeck.knowledge.context_assembler import ContextAssembler
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+    from autodeck.pipeline.orchestrator import Orchestrator
+    from autodeck.providers.registry import ModelRegistry
+    from autodeck.retrieval.hybrid import build_index
+
+    try:
+        assembler = ContextAssembler(knowledge_root, client=client, project=project)
+        context = assembler.assemble()
+        knowledge = KnowledgeLoader(knowledge_root).load_project(project)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    store = DocumentStore(corpus_root / project)
+    documents = list(store.documents())
+    if not documents:
+        _echo_error(
+            f"no ingested documents under {corpus_root / project}. The evidence-gap check "
+            f"is the point of this session — run `autodeck knowledge ingest {project}` first."
+        )
+        raise typer.Exit(code=2)
+
+    registry = ModelRegistry.load(env)
+    index = assembler.use_index(build_index(documents, project=project))
+    session = PlannerSession(
+        Orchestrator(run_id, runs_root=runs_root, env=env),
+        model=registry.provider_for("planner"),  # type: ignore[arg-type]
+        probe=EvidenceProbe(
+            index=index,  # type: ignore[arg-type]
+            store=store,
+            claims=knowledge.claims,
+            classifier=registry.provider_for(CLASSIFIER_ROLE),  # type: ignore[arg-type]
+        ),
+        context=context,
+    )
+
+    typer.secho(f"Planning {run_id} for {client} / {project} (env={env})", bold=True)
+    typer.echo(
+        "Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.\n"
+    )
+
+    while True:
+        try:
+            said = typer.prompt("you", prompt_suffix=" > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("\nleft without signing; transcript kept")
+            raise typer.Exit(code=1) from None
+
+        if said in ("/quit", "/exit"):
+            typer.secho("left without signing; transcript kept", fg=typer.colors.YELLOW)
+            raise typer.Exit(code=1)
+
+        if said == "/brief":
+            typer.echo(render_draft(session.draft))
+            continue
+
+        if said.startswith("/sign"):
+            approver = said[len("/sign") :].strip()
+            try:
+                brief = session.sign_off(approver=approver)
+            except BriefIncomplete as exc:
+                typer.secho(str(exc), fg=typer.colors.RED)
+                typer.secho(
+                    "\nCarrying a weak message is allowed — it needs a recorded risk with "
+                    "someone's name on it. Ask the planner to add one (A8).",
+                    fg=typer.colors.YELLOW,
+                )
+                continue
+            except PlannerError as exc:
+                typer.secho(str(exc), fg=typer.colors.RED)
+                continue
+            typer.secho(
+                f"\nbrief v{brief.version} signed off by {brief.approved_by}",
+                fg=typer.colors.GREEN,
+            )
+            unprobed = brief.unprobed_messages()
+            if unprobed:
+                typer.secho(
+                    f"note: {', '.join(m.id for m in unprobed)} were never probed against "
+                    "the corpus. Not a failure — but nobody looked.",
+                    fg=typer.colors.YELLOW,
+                )
+            typer.echo(
+                f"\nNext: autodeck outline {run_id} --client {client} --project {project}"
+            )
+            return
+
+        if not said:
+            continue
+
+        try:
+            reply = session.turn(said)
+        except PlannerError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from None
+
+        typer.secho(f"\nplanner > {reply.text}\n", fg=typer.colors.CYAN)
+        for probe in reply.probes:
+            colour = {
+                "supported": typer.colors.GREEN,
+                "thin": typer.colors.YELLOW,
+                "unsupported": typer.colors.RED,
+            }.get(probe.status, typer.colors.WHITE)
+            typer.secho(
+                f"  evidence · {probe.message_id}: {probe.status.upper()}"
+                + (" (capped)" if probe.capped else ""),
+                fg=colour,
+            )
+            if probe.reasoning:
+                typer.echo(f"      {_shorten(probe.reasoning, 200)}")
+        if reply.probes:
+            typer.echo("")
+
+
+@app.command()
+def outline(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    client: Annotated[str, typer.Option("--client")],
+    project: Annotated[str, typer.Option("--project")],
+    env: EnvOption = "dev",
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    tokens: TokensOption = Path("config/tokens/dev.json"),
+) -> None:
+    """Build the outline skeleton from the signed brief, then review it against that brief.
+
+    Blocks unless the brief gate is approved (A7). The GATE 1 report that follows checks
+    only what a machine can check — whether the outline *makes the argument* is yours.
+    """
+    from autodeck.agents.outline import OutlineError, build_outline
+    from autodeck.audit.gate1 import review_outline
+    from autodeck.ir.store import IRStoreError
+    from autodeck.knowledge.context_assembler import ContextAssembler
+    from autodeck.knowledge.loader import KnowledgeError
+    from autodeck.pipeline.orchestrator import Gate, GateBlocked, Orchestrator
+    from autodeck.providers.registry import ModelRegistry
+
+    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    try:
+        orchestrator.require_gate(Gate.BRIEF)
+    except GateBlocked as blocked:
+        _echo_error(str(blocked))
+        raise typer.Exit(code=3) from None
+
+    try:
+        brief_doc = orchestrator.ir.load_brief()
+        context = ContextAssembler(knowledge_root, client=client, project=project).assemble()
+    except (IRStoreError, KnowledgeError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    try:
+        result = build_outline(
+            brief_doc,
+            ModelRegistry.load(env).provider_for("outline"),  # type: ignore[arg-type]
+            client=client,
+            project=project,
+            theme_ref=str(tokens),
+            component_lib_version="0.1.0",
+            context=context.to_prompt_context(),
+        )
+    except OutlineError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    path = orchestrator.ir.save(result.deck, overwrite=True)
+    typer.secho(f"wrote {path}", fg=typer.colors.GREEN)
+
+    for slide in result.deck.slides:
+        served = ", ".join(slide.message_ids) or "-"
+        typer.echo(
+            f"  {slide.id:<8} {slide.narrative_role:<14} {slide.component:<20} [{served}]"
+        )
+        typer.echo(f"           {_shorten(slide.intent or '', 90)}")
+
+    if result.notes:
+        typer.secho(f"\noutline notes: {result.notes}", fg=typer.colors.YELLOW)
+    for correction in result.corrections:
+        typer.secho(f"corrected: {correction}", fg=typer.colors.YELLOW)
+
+    typer.echo("")
+    report = review_outline(result.deck, brief_doc)
+    typer.echo(report.render())
+    if not report.mechanical_checks_pass:
+        raise typer.Exit(code=4)
+
+
+# ---------------------------------------------------------------------------
 # spike
 # ---------------------------------------------------------------------------
 

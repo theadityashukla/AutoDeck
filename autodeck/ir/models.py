@@ -436,6 +436,38 @@ class Slide(IRModel):
     blocks: list[Block] = Field(default_factory=list)
     speaker_notes: list[Block] = Field(default_factory=list)
 
+    # -- planning provenance (Phase 2a) ------------------------------------
+    #
+    # Written by the outline agent, read by GATE 1 and by the content agent. They are on
+    # the slide rather than in a side-car because a slide that has drifted from the brief
+    # should be visible in the artifact everyone already reads, not in a second file that
+    # has to be remembered.
+
+    intent: str | None = Field(
+        default=None,
+        description=(
+            "What this slide must accomplish, in one line — 'establish that the constraint "
+            "is memory, not compute', never 'KV cache slide'. The content agent writes to "
+            "this; a topic label tells it nothing the component does not already say."
+        ),
+    )
+    message_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Which DeckBrief key messages this slide serves. GATE 1's first mechanical "
+            "check is that every key message maps to at least one slide, and matching on "
+            "prose would break the moment somebody rewords one."
+        ),
+    )
+    pin_deviation: str | None = Field(
+        default=None,
+        description=(
+            "Set when a layout pin could not be honoured, naming what was pinned, what was "
+            "used, and why. A pin silently dropped teaches the consultant that pinning "
+            "does nothing — so deviation is recorded, never merely allowed."
+        ),
+    )
+
     @model_validator(mode="after")
     def _block_ids_unique_within_slide(self) -> Slide:
         ids = [b.id for b in (*self.blocks, *self.speaker_notes)]

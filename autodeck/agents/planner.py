@@ -339,7 +339,7 @@ class PlannerSession:
     def _prompt(self) -> str:
         parts = [
             "# Curated knowledge for this build\n\n" + self.context.to_prompt_context(),
-            "# Brief so far\n\n" + _render_draft(self.draft),
+            "# Brief so far\n\n" + render_draft(self.draft),
             "# Conversation\n\n" + self.transcript.render(),
         ]
         gaps = self.draft.unaccounted_gaps()
@@ -481,7 +481,12 @@ def _read_prompt(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _render_draft(draft: Draft) -> str:
+def render_draft(draft: Draft) -> str:
+    """The draft as a human reads it mid-conversation.
+
+    Public because the CLI shows it on `/brief` and the session feeds it to the model —
+    two callers, so it is API rather than an internal helper.
+    """
     lines = [
         f"objective: {draft.objective or '(not yet set)'}",
         f"audience: {draft.audience or '(not yet set)'}",
