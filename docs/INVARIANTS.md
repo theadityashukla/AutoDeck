@@ -163,14 +163,14 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | **tested** | | | | | | |
-| A2 numbers | partial | partial | | | | | | |
-| A3 validation | partial | partial | | | | | | |
-| A4 isolation | not-started | **tested** | | | | | | |
-| A5 framing | not-started | partial | | | | | | |
-| A6 reproducibility | partial | partial | | | | | | |
-| A7 gates | **enforced** | **enforced** | | | | | | |
-| A8 uncertainty | not-started | partial | | | | | | |
+| A1 citation | **tested** | **tested** | tested | | | | | |
+| A2 numbers | partial | partial | partial | | | | | |
+| A3 validation | partial | partial | partial | | | | | |
+| A4 isolation | not-started | **tested** | tested | | | | | |
+| A5 framing | not-started | partial | partial | | | | | |
+| A6 reproducibility | partial | partial | partial | | | | | |
+| A7 gates | **enforced** | **enforced** | **tested** | | | | | |
+| A8 uncertainty | not-started | partial | **enforced** | | | | | |
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
@@ -191,6 +191,20 @@ A5 is `partial` and the gap is worth naming: `value_prop.md` is *typed* as frami
 loaded separately, but nothing yet prevents a claim tracing to it — that enforcement is the
 Phase 2b validator. A8 is `partial` for a similar reason: `FigureDescription.legible` and
 `low_provenance` flagging exist, but nothing checks deck copy for unearned confidence.
+
+**Phase 2a notes.** A8 becomes `enforced`: a key message the evidence-gap check calls
+`thin` or `unsupported` cannot reach a signed brief without a matching `OpenRisk` naming who
+accepted it. That is a schema constraint on `DeckBrief`, not a checker a pass can forget to
+call — and it deliberately does not *block* an unsupported message, because blocking would
+push the planner toward marking things `supported` to get past the validator, which is the
+failure A8 is about. Carrying a gap is free; carrying it silently is impossible.
+
+A7 moves to `tested` on a real gate rather than the stub: the planning session's sign-off is
+approval 1 of 4, `PlannerAction.ready_for_signoff` is never consulted by `sign_off`, and the
+outline agent refuses an unsigned brief outright.
+
+A3 stays `partial` — the validator is Phase 2b — but B25 now binds `validation` to a
+different model from the writer, which is the cheap version of the independence A3 wants.
 
 Fill each cell as its phase completes. A phase whose brief claims an invariant cannot
 close its gate with that cell below `enforced`.

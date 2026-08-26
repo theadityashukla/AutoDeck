@@ -7,6 +7,47 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Phase 2a: planning agent & outline
+
+All nine Phase 2a tasks. **GATE 1 is not closed** — it asks the owner whether an outline
+delivers the brief's argument, and no outline has been put to them. See
+`docs/handovers/PHASE-2A.md`.
+
+### Added
+- `DeckBrief` with `KeyMessage`, `OpenRisk` and `LayoutPin`. **A8 lands structurally**: a
+  key message the evidence check calls `thin` or `unsupported` cannot reach a signed brief
+  without a matching `OpenRisk` naming who accepted it. Deliberately not a block on weak
+  messages — blocking would push the planner toward marking things `supported` to get past
+  the validator, which is the failure A8 is about.
+- `autodeck/agents/evidence_gap.py` — the phase's reason for existing (§6.13). Deterministic
+  retrieval, model judgement, and a **ceiling on the judgement**: zero citable spans is
+  `unsupported` with the classifier never called; a single non-curated hit is capped to
+  `thin`. Applied to the model's answer rather than requested in the prompt.
+- `autodeck/agents/planner.py` — the planning session. Ends only on human sign-off, which is
+  A7 approval 1 of 4. `ready_for_signoff` is a suggestion the code never reads.
+- `autodeck/agents/outline.py` — signed brief → IR skeleton, with nowhere to put prose.
+- `autodeck/audit/gate1.py` — GATE 1's mechanical checks. Reports; decides and fixes nothing.
+- `prompts/planner.md`, `prompts/outline.md`; `autodeck plan` and `autodeck outline`.
+- `Slide.intent`, `.message_ids`, `.pin_deviation`; briefs versioned as YAML.
+
+### Fixed
+- **Gemini silently dropped every nullable nested array** (B26). Live sessions produced good
+  briefs in prose and recorded nothing — no error, and non-deterministic. The `gemini` schema
+  flavor now emits `nullable: true` rather than `anyOf: [X, null]`, and the planner's core
+  fields are required.
+- `ModelRegistry.provider_for(role, model=...)` raised `TypeError` — `model` was pinned
+  ahead of `**overrides`, so the only useful override could not be used.
+- Dev bindings pointed at the retired `gemini-2.5-pro` (B23).
+- GATE 1 blocked on a missing `must_include`, which is weak evidence at outline stage. Now
+  advisory; `must_avoid` appearing stays blocking.
+
+### Changed
+- Dev roles spread across five Gemini models (B25) — daily quota is per model, and a
+  validator on a different model from the writer is better for A3.
+- Evidence spans truncated to 500 chars for classification (B24).
+
+---
+
 ## [Unreleased] — Phase 1: ingestion & knowledge
 
 All ten Phase 1 tasks. **GATE 1a approved** 2026-08-02 (DECISIONS.md G1a) — the owner

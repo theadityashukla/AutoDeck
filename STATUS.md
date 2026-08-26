@@ -11,24 +11,28 @@ every phase handover. If this file disagrees with your memory, this file is righ
 | **Integration branch** | `v2/integration` |
 | **Active phase branch** | `v2/phase-2a-plan-outline` |
 | **Last gate passed** | **GATE 1a** — approved 2026-08-02 (DECISIONS.md G1a) |
-| **Next gate** | GATE 1 — owner approves the outline skeleton *against the brief* |
-| **Latest handover** | `docs/handovers/PHASE-1.md` |
+| **Next gate** | **GATE 1 — open, waiting on the owner** |
+| **Latest handover** | `docs/handovers/PHASE-2A.md` |
 | **Updated** | 2026-08-02 |
 
 ## Next action
 
-**Phase 2a — planning agent & outline** (`docs/phases/PHASE-2A.md`). The point of the phase,
-in its own words: *evidence gaps surface in conversation, before a single slide is written.*
+**Judge GATE 1.** Phase 2a is code complete — all nine tasks, 432 tests. Run a planning
+session, build the outline, and answer the gate's question:
 
-Task 2a.4 is why it exists. Each key message the planner proposes is probed against
-`claims.md` and the corpus during the session, so an unsupported message triggers an
-in-conversation challenge — *"no source currently supports X: soften it, add a source, or
-drop it?"* — and an accepted gap lands in `open_risks` rather than disappearing. A gap
-caught here costs one conversational turn; the same gap caught at GATE 2 costs a rewrite of
-every slide built on it.
+```bash
+uv run autodeck plan <run> --client northwind-retail --project llm-inference-efficiency
+uv run autodeck outline <run> --client northwind-retail --project llm-inference-efficiency
+```
 
-GATE 1 then asks a deliberately objective question: not "is this a good outline" but "does
-this outline deliver the brief's key messages, in the brief's order, honouring its pins?"
+The gate does **not** ask "is this a good outline". It asks whether the outline delivers the
+brief's key messages, in the brief's order, honouring its pins. `autodeck outline` prints the
+mechanical half of that; the half no machine can answer — does the sequence of intents make
+the argument — is yours.
+
+What the phase actually delivers is A8: a key message the evidence check calls `thin` or
+`unsupported` cannot reach a signed brief without a recorded risk naming who accepted it.
+Carrying a gap is free; carrying it silently is impossible.
 
 ### Carried from GATE 0 — verification debt, not blockers
 
@@ -40,7 +44,16 @@ this outline deliver the brief's key messages, in the brief's order, honouring i
 - **The Claude adapter has never been called live.** The first `sit` run will be its first
   real request.
 
-### New debt from Phase 1
+### New debt from Phase 2a
+
+- **Nobody has typed into `autodeck plan`.** The session is exercised end to end against
+  live models programmatically, but the REPL's ergonomics are unknown.
+- **Dev capacity is ~20 planner turns a day.** The free tier allows 20 requests per model
+  per day; roles are spread across five models (B25) but a long session will still hit it.
+- **Model IDs go stale fast.** `gemini-2.5-pro` was retired inside a week (B23). Re-resolve
+  before any phase that calls a provider.
+
+### Debt from Phase 1
 
 - **The seed is synthetic.** Public papers, fictional clients — per the Q2 answer. Fine for
   building; the first real deliverable needs real folders. The structure does not change.
@@ -71,7 +84,7 @@ See the tracker in `docs/INVARIANTS.md`.
 |---|---|---|---|
 | 0 — Foundations | `v2/phase-0-foundations` | GATE 0 | **merged — gate approved** |
 | 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | **merged — gate approved** |
-| 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | **in progress** |
+| 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | **code complete — gate open** |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | GATE 2 | not started |
 | 3a — Design system | `v2/phase-3a-design-system` | internal | not started |
 | 3b — Renderer & QA | `v2/phase-3b-render-qa` | GATE 3 | not started |
