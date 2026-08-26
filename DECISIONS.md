@@ -516,3 +516,34 @@ the owner with options.
   - A fresh clone must run `autodeck knowledge ingest` (~16 min) before `ask` or
     `spotcheck` work. Documented in the Phase 1 handover §10.
   - GATE 1a materials are delivered to the owner directly rather than through the repo.
+
+### G1a — GATE 1a approved; the provenance chain is signed off
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`
+- **Status:** active
+- **Context:** GATE 1a asks the owner to spot-check ten citations against the source PDFs —
+  correct page, bbox on the right region, quote verbatim, all ten resolving exactly. The
+  gate is deliberately manual because **a wrong bbox hash-verifies perfectly**: the quote is
+  unchanged and only its location is wrong, so no automated check can close it.
+- **Decision:** **approved.** The owner reviewed the delivered spot-check materials and
+  answered "Looks good. Let's proceed."
+- **What the owner actually reviewed:** `spikes/gate1a/index.md` — the worksheet listing all
+  ten citations with claim, verbatim quote, bbox, sha256 prefix and hash status — together
+  with four of the ten rendered pages (`01` dettmers p1, `04` kwon p2, `09` and `10` frantar
+  p2). The remaining six renders were generated and referenced but not sent inline.
+  Recorded at this precision rather than as "reviewed all ten", because plan §0.3 forbids
+  the implementing agent self-approving a criterion nobody exercised, and G0 set the
+  precedent of writing down what was actually looked at.
+- **Rationale:** the examined sample covers three of the five papers, both single- and
+  two-column layouts, and the two failure modes the gate exists to catch (mirrored vertical
+  origin, wrong page). All ten reported `hash ok`. Two were additionally verified during
+  implementation by rendering the page and inspecting the box directly.
+- **Consequences:**
+  - A1 is `tested` end to end rather than on mechanism alone. Phase 2a may build on the
+    assumption that a resolved citation points where it says it does.
+  - **The six unexamined renders remain the thinnest part of this gate.**
+    `leviathan-2023-speculative-decoding` and
+    `pope-2022-efficiently-scaling-transformer-inference` are the least-inspected papers in
+    the sample — if a citation later looks wrong, check those first rather than assuming the
+    gate covered all five evenly.
+  - Phase 1 merges to `v2/integration`; `v2/phase-2a-plan-outline` is cut from the result.

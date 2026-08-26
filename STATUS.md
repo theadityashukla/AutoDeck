@@ -7,33 +7,28 @@ every phase handover. If this file disagrees with your memory, this file is righ
 
 | | |
 |---|---|
-| **Current phase** | Phase 1 — ingestion & knowledge |
+| **Current phase** | Phase 2a — planning agent & outline |
 | **Integration branch** | `v2/integration` |
-| **Active phase branch** | `v2/phase-1-ingest-knowledge` |
-| **Last gate passed** | **GATE 0** — approved with conditions (DECISIONS.md G0) |
-| **Next gate** | **GATE 1a — open, waiting on the owner** |
+| **Active phase branch** | `v2/phase-2a-plan-outline` |
+| **Last gate passed** | **GATE 1a** — approved 2026-08-02 (DECISIONS.md G1a) |
+| **Next gate** | GATE 1 — owner approves the outline skeleton *against the brief* |
 | **Latest handover** | `docs/handovers/PHASE-1.md` |
 | **Updated** | 2026-08-02 |
 
 ## Next action
 
-**Judge GATE 1a.** Phase 1 is code complete — all ten tasks, 342 tests. The gate asks the
-owner to spot-check **10 citations against the source PDFs**: correct page, bbox on the
-right region, quote verbatim. All ten must resolve exactly.
+**Phase 2a — planning agent & outline** (`docs/phases/PHASE-2A.md`). The point of the phase,
+in its own words: *evidence gaps surface in conversation, before a single slide is written.*
 
-The materials are generated rather than described. `autodeck knowledge spotcheck
-llm-inference-efficiency` writes `spikes/gate1a/` — ten source pages with each citation's
-bbox drawn on it, plus `index.md` with an unticked checkbox per citation. **Nothing in this
-repository ticks them.** The renders are gitignored (B22) and were sent to the owner
-directly; regenerating needs `autodeck knowledge ingest` first (~16 min).
+Task 2a.4 is why it exists. Each key message the planner proposes is probed against
+`claims.md` and the corpus during the session, so an unsupported message triggers an
+in-conversation challenge — *"no source currently supports X: soften it, add a source, or
+drop it?"* — and an accepted gap lands in `open_risks` rather than disappearing. A gap
+caught here costs one conversational turn; the same gap caught at GATE 2 costs a rewrite of
+every slide built on it.
 
-Why this gate is worth the manual effort: **a wrong bbox hash-verifies perfectly.** Phase 1
-shipped with exactly that bug for a while — Docling's bottom-left origin converted by
-swapping edges, producing well-formed rectangles that were vertically mirrored. No test
-caught it; rendering the page and looking at the box did.
-
-If all ten pass, cut `v2/phase-2a-plan-outline`. If any fail, that is an A1 hole and Phase
-2a must not start.
+GATE 1 then asks a deliberately objective question: not "is this a good outline" but "does
+this outline deliver the brief's key messages, in the brief's order, honouring its pins?"
 
 ### Carried from GATE 0 — verification debt, not blockers
 
@@ -75,8 +70,8 @@ See the tracker in `docs/INVARIANTS.md`.
 | Phase | Branch | Gate | Status |
 |---|---|---|---|
 | 0 — Foundations | `v2/phase-0-foundations` | GATE 0 | **merged — gate approved** |
-| 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | **code complete — gate open** |
-| 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | not started |
+| 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | **merged — gate approved** |
+| 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | **in progress** |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | GATE 2 | not started |
 | 3a — Design system | `v2/phase-3a-design-system` | internal | not started |
 | 3b — Renderer & QA | `v2/phase-3b-render-qa` | GATE 3 | not started |

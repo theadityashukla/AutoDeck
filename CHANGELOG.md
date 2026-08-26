@@ -9,9 +9,9 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ## [Unreleased] — Phase 1: ingestion & knowledge
 
-All ten Phase 1 tasks. **GATE 1a is not closed** — it requires the owner to spot-check ten
-citations against the source PDFs. Materials are generated and delivered; the checkboxes are
-unticked. See `docs/handovers/PHASE-1.md`.
+All ten Phase 1 tasks. **GATE 1a approved** 2026-08-02 (DECISIONS.md G1a) — the owner
+reviewed the spot-check worksheet and four of the ten rendered pages. See
+`docs/handovers/PHASE-1.md`.
 
 ### Added
 - `autodeck/ingest/` — the provenance chain (A1). `document_store.py` is the chokepoint:

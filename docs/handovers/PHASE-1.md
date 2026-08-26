@@ -14,9 +14,9 @@
 | **PR** | not yet opened |
 | **Started / completed** | 2026-08-01 → 2026-08-02 |
 | **Gate** | GATE 1a |
-| **Gate status** | **pending** — materials delivered, owner has not judged them |
-| **Approved by / when** | — |
-| **What the owner actually checked** | Nothing yet. The spot-check sheet (`spikes/gate1a/index.md` plus ten rendered pages) was generated and sent; the ten checkboxes are unticked. **Nothing in this repository ticks them, and this handover does not claim the gate passed.** |
+| **Gate status** | **approved** (DECISIONS.md G1a) |
+| **Approved by / when** | Owner, 2026-08-02 |
+| **What the owner actually checked** | `spikes/gate1a/index.md` — the worksheet listing all ten citations with claim, verbatim quote, bbox, sha256 prefix and hash status — plus **four of the ten** rendered pages (dettmers p1, kwon p2, frantar p2 ×2). The other six were generated and referenced but not sent inline. All ten reported `hash ok`. Recorded at this precision deliberately: the sample skews toward three of the five papers, and G1a names which two are least inspected. |
 
 ## 2. What shipped
 
@@ -115,7 +115,7 @@ mentions HuggingFace. Ingestion runs ~190s per 16–20 page paper on this contai
 
 | Item | Impact if ignored | Owned by |
 |---|---|---|
-| **GATE 1a is unjudged** | The provenance chain is unverified by a human. Everything downstream assumes it | **Owner, now** |
+| Six of ten spot-check renders unexamined | The gate's sample covers 3 of 5 papers. `leviathan-*` and `pope-*` are least inspected — check those first if a citation later looks wrong | Phase 2a, on first suspicion |
 | VLM descriptions never run live | The prompt is untested against a real model; the structured-output schema may need repair-retry in practice | Phase 2b |
 | A5 is not enforced, only structured | A claim could trace to `value_prop.md` and nothing would stop it | Phase 2b (validator) |
 | Retrieval has no embedder | BM25 alone on a 5-paper corpus is fine; on a 50-paper one it will miss paraphrases | Phase 2b |
@@ -140,8 +140,7 @@ Anything writing `claims.md` is writing citations.
 
 ## 9. Preconditions for the next phase
 
-1. **GATE 1a judged.** Open `spikes/gate1a/index.md`, judge ten images, tick or reject. If
-   any fail, that is an A1 hole and Phase 2a must not start.
+1. ~~**GATE 1a judged.**~~ **Done** — approved 2026-08-02, DECISIONS.md G1a.
 2. **Decide whether the seed stays synthetic.** Phase 2a writes decks *for* a client; a
    fictional one is fine for building, but the first real deliverable needs real folders.
 3. `ANTHROPIC_API_KEY` for the `sit` environment — still outstanding from Phase 0.
