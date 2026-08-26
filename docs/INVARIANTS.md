@@ -163,14 +163,14 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | | | | | | | |
-| A2 numbers | partial | | | | | | | |
-| A3 validation | partial | | | | | | | |
-| A4 isolation | not-started | | | | | | | |
-| A5 framing | not-started | | | | | | | |
-| A6 reproducibility | partial | | | | | | | |
-| A7 gates | **enforced** | | | | | | | |
-| A8 uncertainty | not-started | | | | | | | |
+| A1 citation | **tested** | **tested** | | | | | | |
+| A2 numbers | partial | partial | | | | | | |
+| A3 validation | partial | partial | | | | | | |
+| A4 isolation | not-started | **tested** | | | | | | |
+| A5 framing | not-started | partial | | | | | | |
+| A6 reproducibility | partial | partial | | | | | | |
+| A7 gates | **enforced** | **enforced** | | | | | | |
+| A8 uncertainty | not-started | partial | | | | | | |
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
@@ -178,6 +178,19 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 real gates are wired in Phases 2a, 2b and 4. A2's IR can express a re-executable derivation
 (B13) and A6's manifest compares correctly excluding timestamps, but both linters and the
 validator are Phase 2b — hence `partial` rather than `enforced`.
+
+**Phase 1 notes.** A1 moves from `tested` (schema) to `tested` end to end: a real PDF now
+produces elements whose quotes hash-verify, and the paths that could produce a citable fact
+without provenance are closed and asserted rather than documented — figure descriptions,
+low-provenance documents, and retrieval hits all fail closed. **A1's cell is `tested` on
+mechanism, but GATE 1a has not been judged**; a human has not yet confirmed that the boxes
+point at the right part of a page, and no test can. A4 becomes `tested` against the real
+seed folders rather than only a fixture, which is why the seed ships two clients.
+
+A5 is `partial` and the gap is worth naming: `value_prop.md` is *typed* as framing and
+loaded separately, but nothing yet prevents a claim tracing to it — that enforcement is the
+Phase 2b validator. A8 is `partial` for a similar reason: `FigureDescription.legible` and
+`low_provenance` flagging exist, but nothing checks deck copy for unearned confidence.
 
 Fill each cell as its phase completes. A phase whose brief claims an invariant cannot
 close its gate with that cell below `enforced`.

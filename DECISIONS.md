@@ -379,6 +379,37 @@ the owner with options.
 - **Consequences:** `--tokens config/tokens/<name>.json` throughout. Phase 4 onboarding
   writes per-client tokens to the knowledge folder, not here.
 
+### B19 — `.gitignore` patterns anchored to the repo root; corrects a false claim in B18
+- **Date:** 2026-08-01
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`, hotfixed directly onto `v2/integration`
+- **Status:** active — corrects B18's rationale; does not reverse B18's placement decision
+- **Context:** the owner reported both open PRs failing CI. Investigation showed **every
+  CI run since the first Phase 0 push** — seven consecutive runs across
+  `v2/phase-0-foundations`, `v2/integration`, and `v2/phase-1-ingest-knowledge` — had
+  failed the same way: `config/tokens/{dev,aptos}.json` not found. B18 asserted that
+  moving design tokens to `config/tokens/` let "the `.gitignore` rule keep its v1
+  meaning" without colliding. That was never checked against an actual `git status`, and
+  it was false: a gitignore pattern with **no leading slash** (`tokens/`) matches a
+  directory of that name at **any depth**, not only at the repo root, so it silently
+  matched `config/tokens/` too. The files were never committed. Local development never
+  noticed because every local test run read them straight off disk — the bug was only
+  visible from a fresh checkout, which is what CI always does and what Phase 0's
+  verification never did (§10 of the Phase 0 handover runs commands in the working tree,
+  not a clone).
+- **Decision:** anchor the pattern to the repo root (`/tokens/`), and pre-emptively fix
+  the same class of bug in `*.pdf` (→ `/*.pdf`), which would otherwise have swallowed the
+  task 1.9 seed corpus under `knowledge/projects/*/papers/*.pdf` the moment it was added.
+- **Rationale:** anchoring is what B18 should have specified originally; B18's chosen
+  *location* for design tokens (`config/tokens/`, separate from per-client
+  `knowledge/clients/<c>/theme/tokens.json`) remains correct and is not reversed.
+- **Consequences:** verification of a `.gitignore` change, or of any claim that a path
+  "is/isn't tracked," must check a fresh clone or `git ls-files`/`git check-ignore -v` —
+  never the working tree alone, since an untracked-but-present file is invisible to every
+  local check except those two. Both `v2/integration` and
+  `v2/phase-1-ingest-knowledge` were hotfixed with the identical commit
+  (cherry-picked) and both re-verified green on GitHub's own runners before being
+  reported fixed.
+
 ### G0 — GATE 0 approved: the rendering strategy proceeds
 - **Date:** 2026-08-01
 - **Phase / branch:** Phase 0 / `v2/phase-0-foundations`
@@ -425,3 +456,94 @@ the owner with options.
   real consequences (font licensing, client confidentiality).
 - **Consequences:** Phase 0 cannot close its gate without at least Q1 and Q3 answered —
   they determine CI packaging and what the font spike measures.
+
+### B20 — Seed corpus selects on licence first, topic second
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`
+- **Status:** active
+- **Context:** task 1.9 needed public papers committable to a public repository. The
+  obvious candidates for an inference-efficiency corpus — *Attention Is All You Need*
+  (1706.03762), *Scaling Laws* (2001.08361), *FlashAttention* (2205.14135), *Chinchilla*
+  (2203.15556) — all carry arXiv's default **perpetual non-exclusive licence**, which
+  grants *arXiv* the right to distribute, not third parties. Committing them would be a
+  redistribution nobody licensed.
+- **Decision:** filter candidates on licence **before** choosing the corpus topic, and
+  accept only CC BY 4.0 (or equally redistributable). The topic — LLM inference efficiency
+  — is what the CC BY papers happened to support coherently, not what was wanted first.
+  Recorded in `knowledge/projects/*/papers/SOURCES.md` with the licence checked per arXiv
+  ID and the date it was checked.
+- **Rationale:** the alternative orderings both fail. Pick the topic first and the corpus
+  is either unlicensed or full of gaps; check licences at review time and the PDFs are
+  already in git history, where removing them is a rewrite.
+- **Consequences:**
+  - Adding a paper means checking its licence first. `SOURCES.md` says so.
+  - A non-redistributable paper can still be used: keep the PDF out of the repo, point
+    `claims.md` at a local path. An uningestable corpus is a smaller problem than an
+    unlicensed redistribution.
+  - `export.arxiv.org` is not reachable from this environment; licences were read from
+    `arxiv.org/abs/<id>` pages instead.
+
+### B21 — `doc_id` is a readable slug, not the source identifier
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`
+- **Status:** active
+- **Context:** `doc_id` is the PDF's filename stem, and it appears in every citation a
+  human reads — including the ten a reviewer works through at GATE 1a.
+- **Decision:** name paper files `kwon-2023-pagedattention-vllm.pdf`, not
+  `2309.06180.pdf`. The canonical identifier lives in `SOURCES.md`.
+- **Rationale:** `kwon-2023-pagedattention-vllm, p. 7` can be checked against the right
+  paper without a lookup; `2309.06180, p. 7` cannot. GATE 1a is deliberately manual, and
+  anything that adds friction per citation gets skimmed — which is the failure the gate
+  exists to prevent.
+- **Consequences:** renaming a paper changes its `doc_id` and orphans any cached claim
+  citing it. `tests/test_cli_knowledge.py::test_every_seed_claim_points_at_a_paper_that_exists`
+  catches this at test time rather than at build time.
+
+### B22 — Derived artifacts stay out of git; `spikes/gate0/` is the exception
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`
+- **Status:** active
+- **Context:** Phase 1 produces two large derived artifacts — the ingested document store
+  (`corpus/`, ~1.2 MB of JSON) and the GATE 1a spot-check renders (`spikes/gate1a/`,
+  ~4.7 MB of page images). Both are regenerable from tracked inputs.
+- **Decision:** gitignore both. Keep `spikes/gate0/` tracked.
+- **Rationale:** size is the smaller reason. The real one is staleness: a committed
+  spot-check sheet keeps showing boxes drawn from a previous ingestion, so after any
+  re-ingest it displays citations that no longer match while looking authoritative. That
+  is worse than no sheet. `spikes/gate0/` is different in kind — those artifacts need
+  PowerPoint to judge and cannot be regenerated by a reader who does not run the code.
+- **Consequences:**
+  - A fresh clone must run `autodeck knowledge ingest` (~16 min) before `ask` or
+    `spotcheck` work. Documented in the Phase 1 handover §10.
+  - GATE 1a materials are delivered to the owner directly rather than through the repo.
+
+### G1a — GATE 1a approved; the provenance chain is signed off
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 1 / `v2/phase-1-ingest-knowledge`
+- **Status:** active
+- **Context:** GATE 1a asks the owner to spot-check ten citations against the source PDFs —
+  correct page, bbox on the right region, quote verbatim, all ten resolving exactly. The
+  gate is deliberately manual because **a wrong bbox hash-verifies perfectly**: the quote is
+  unchanged and only its location is wrong, so no automated check can close it.
+- **Decision:** **approved.** The owner reviewed the delivered spot-check materials and
+  answered "Looks good. Let's proceed."
+- **What the owner actually reviewed:** `spikes/gate1a/index.md` — the worksheet listing all
+  ten citations with claim, verbatim quote, bbox, sha256 prefix and hash status — together
+  with four of the ten rendered pages (`01` dettmers p1, `04` kwon p2, `09` and `10` frantar
+  p2). The remaining six renders were generated and referenced but not sent inline.
+  Recorded at this precision rather than as "reviewed all ten", because plan §0.3 forbids
+  the implementing agent self-approving a criterion nobody exercised, and G0 set the
+  precedent of writing down what was actually looked at.
+- **Rationale:** the examined sample covers three of the five papers, both single- and
+  two-column layouts, and the two failure modes the gate exists to catch (mirrored vertical
+  origin, wrong page). All ten reported `hash ok`. Two were additionally verified during
+  implementation by rendering the page and inspecting the box directly.
+- **Consequences:**
+  - A1 is `tested` end to end rather than on mechanism alone. Phase 2a may build on the
+    assumption that a resolved citation points where it says it does.
+  - **The six unexamined renders remain the thinnest part of this gate.**
+    `leviathan-2023-speculative-decoding` and
+    `pope-2022-efficiently-scaling-transformer-inference` are the least-inspected papers in
+    the sample — if a citation later looks wrong, check those first rather than assuming the
+    gate covered all five evenly.
+  - Phase 1 merges to `v2/integration`; `v2/phase-2a-plan-outline` is cut from the result.
