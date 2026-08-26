@@ -595,3 +595,58 @@ the owner with options.
     verbatim through the document store, so A1 is untouched.
   - `claims.md` spans are already human-selected quotes and are short by construction, so
     this rarely affects the curated path.
+
+### B25 — Dev roles are spread across different Gemini models
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** the free tier allows **20 requests per day, per model**. A single planning
+  session — two turns, four key messages probed each turn — spent one model's entire daily
+  allowance on the first run, and every subsequent call that day returned 429.
+- **Decision:** bind each dev role to a different Gemini model (`planner` 3.7-flash,
+  `outline` 3.6-flash, `validation` 3.5-flash, `aesthetic` 3.1-flash-lite, `ingest_vlm`
+  2.5-flash) so each has its own daily bucket.
+- **Rationale:** quota is the immediate reason, but the split is independently right for
+  A3. The validator re-retrieves independently and hunts for contradicting spans, and a
+  validator on the same model as the writer is likelier to share its blind spots. This is
+  the cheap version of that independence and it costs nothing.
+- **Consequences:**
+  - Dev capacity is roughly 20 planner turns per day. A long session will hit it; the
+    Phase 0 response cache is what makes a resumed run not re-pay for completed calls.
+  - `ModelRegistry.provider_for(role, model=...)` now works (it raised `TypeError` before —
+    `model` was pinned ahead of `**overrides`), so a role whose quota is spent can be
+    pointed elsewhere without editing config.
+
+### B26 — Gemini structured output: nullable nested arrays are unreliable
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** the first live planning sessions produced excellent briefs *in prose* and
+  recorded nothing. Investigation, not inference:
+  1. The raw HTTP response was inspected. Scalar fields (`objective`, `probe_messages`)
+     were present; `key_messages`, `layout_pins` and `open_risks` — all typed
+     `list[Model] | None` — were **absent from the JSON entirely**. No error, no warning.
+  2. Two prompt rewrites (hoisting the instruction to the top of `planner.md`, then adding
+     a positional reminder after the context) improved the prose and changed nothing about
+     the fields.
+  3. It is **non-deterministic**: the same model on the same prompt populated the arrays
+     once and omitted them on the next call.
+- **Decision:** two changes, at different layers.
+  - **Schema (all agents):** the `gemini` flavor now collapses `anyOf: [X, {"type":
+    "null"}]` into X with `nullable: true` — Gemini's own representation. Carries
+    annotations across, and leaves genuine two-type unions alone.
+  - **Planner model:** `objective`, `audience` and `key_messages` are **required and
+    non-nullable**. Required fields arrive; nullable nested arrays do not. Empty now means
+    "unchanged" rather than "cleared" — a brief cannot legitimately fall to zero key
+    messages, so an empty list is far likelier to be an omission than an intent to wipe
+    ten minutes of work.
+- **Rationale:** the failure mode is the worst available — nothing raises, the conversation
+  reads perfectly, and the artifact is blank. It cannot be left to prompt discipline, and
+  the schema-level half fixes it for every agent rather than only this one.
+- **Consequences:**
+  - A list cannot be *cleared* through the planner; that is done by editing the signed
+    YAML, which is a deliberate act with a diff.
+  - The model restates the whole brief each turn. That was already the documented contract
+    ("the complete current set, not a delta"), so only the reliability changed.
+  - **Expect this class of bug on other providers.** When an agent's output looks right in
+    prose and empty in the artifact, read the raw response before touching the prompt.

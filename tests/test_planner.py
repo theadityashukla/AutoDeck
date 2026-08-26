@@ -57,7 +57,12 @@ class ScriptedModel:
 
     def complete_structured(self, prompt, response_model, *, system=None):  # type: ignore[no-untyped-def]
         self.prompts.append(prompt)
-        return self.actions.pop(0) if self.actions else PlannerAction(reply="...")
+        return self.actions.pop(0) if self.actions else _idle_action()
+
+
+def _idle_action() -> PlannerAction:
+    """A turn that changes nothing. Empty means unchanged, so this is the no-op."""
+    return PlannerAction(reply="...", objective="", audience="", key_messages=[])
 
 
 class AlwaysSupported:
@@ -462,3 +467,53 @@ def test_a_draft_may_be_invalid_while_the_conversation_runs() -> None:
     assert draft.key_messages == []
     with pytest.raises(ValidationError):
         draft.to_brief("r")
+
+
+def test_the_field_reminder_arrives_after_the_context(tmp_path: Path) -> None:
+    """Positional, and that is the whole point.
+
+    The same instruction is in prompts/planner.md, but the turn prompt puts thousands of
+    words of curated knowledge in front of it. Two live runs on two different models
+    produced a good brief entirely as prose with every structured field null; restating it
+    last, closest to generation, is what stopped that.
+    """
+    planning = session(tmp_path, complete_action())
+    planning.turn("Draft it.")
+
+    prompt = planning.model.prompts[0]  # type: ignore[attr-defined]
+    assert "Before you answer" in prompt
+    assert prompt.index("Before you answer") > prompt.index("Curated knowledge")
+    assert prompt.rstrip().endswith("does not check it.")
+
+
+def test_the_brief_fields_are_required_in_the_schema() -> None:
+    """Load-bearing, and the reason is empirical rather than stylistic.
+
+    Gemini populates a nullable nested array only sometimes: `key_messages`, `layout_pins`
+    and `open_risks` were omitted from most responses across three models while plain
+    scalars in the same object arrived every time — with no error, so the session read
+    perfectly and recorded nothing. Required fields arrive.
+    """
+    required = {name for name, f in PlannerAction.model_fields.items() if f.is_required()}
+    assert {"reply", "objective", "audience", "key_messages"} <= required
+
+
+def test_an_empty_turn_does_not_wipe_the_brief(tmp_path: Path) -> None:
+    """Empty means unchanged, not cleared.
+
+    A brief cannot legitimately drop to zero key messages, so an empty list is far likelier
+    to be a model that omitted them than an intent to wipe ten minutes of work.
+    """
+    planning = session(
+        tmp_path,
+        complete_action(),
+        PlannerAction(reply="Good question — yes.", objective="", audience="", key_messages=[]),
+    )
+    planning.turn("Draft it.")
+    before = list(planning.draft.key_messages)
+
+    planning.turn("Quick question, does this need an appendix?")
+
+    assert planning.draft.key_messages == before
+    assert planning.draft.objective == OBJECTIVE
+    assert planning.draft.audience == AUDIENCE

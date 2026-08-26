@@ -161,11 +161,20 @@ def _check_message_coverage(deck: Deck, brief: DeckBrief) -> list[Finding]:
 def _check_must_include_avoid(deck: Deck, brief: DeckBrief) -> list[Finding]:
     """Criterion 2: must_include appears, must_avoid does not.
 
-    Matched against slide intents and roles, since an outline has no prose yet. That makes
-    this check weaker than it will be at GATE 2 — a topic can be intended and then not
-    written — so a *missing* must_include is blocking, while a must_avoid appearing is
-    reported as blocking too: an outline that plans to say a forbidden thing is a problem
-    now, not later.
+    **The two directions are not symmetric, and treating them the same makes the gate
+    useless.** An outline has no prose, so this matches against slide intents — and a
+    substring *found* is strong evidence while a substring *missing* is weak. A
+    `must_include` of "hardware and setup configuration alongside all cited benchmark
+    figures" is a real requirement that no intent will ever contain verbatim, and on the
+    first live run two such entries blocked an outline that in fact covered both.
+
+    A gate that blocks on almost every real run trains its reviewer to click past blocking
+    findings, which costs more than the check is worth. So:
+
+    - `must_avoid` present → **blocking**. A positive match is reliable, and an outline
+      planning to say a forbidden thing is a problem now rather than at GATE 2.
+    - `must_include` absent → **advisory**, and the finding says what to look for. The
+      binding check happens at GATE 2, when there are words to check.
     """
     haystack = " \n ".join(
         f"{slide.narrative_role} {slide.intent or ''}" for slide in deck.slides
@@ -174,11 +183,11 @@ def _check_must_include_avoid(deck: Deck, brief: DeckBrief) -> list[Finding]:
     findings = [
         Finding(
             check="must_include",
-            severity="blocking",
+            severity="advisory",
             detail=(
-                f"{item!r} is required by the brief but appears in no slide intent. The "
-                "outline has no prose yet, so this is matched against intents — if the "
-                "outline covers it under different words, say so and approve."
+                f"{item!r} is required by the brief and no slide intent mentions it. An "
+                "outline has no prose, so this is a weak signal — check whether a slide "
+                "covers it in different words. GATE 2 is where this becomes binding."
             ),
         )
         for item in brief.must_include

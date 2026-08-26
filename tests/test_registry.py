@@ -193,3 +193,26 @@ def test_a_binding_without_a_model_is_rejected(tmp_path: Path) -> None:
     bad = MINIMAL.replace("{provider: groq,   model: m-fast}", "{provider: groq}")
     with pytest.raises(RegistryError, match="must specify both"):
         ModelRegistry.load("dev", write_config(tmp_path, bad))
+
+
+def test_a_role_can_be_pointed_at_another_model(monkeypatch) -> None:
+    """The override that matters: a role whose daily quota is spent, or a one-off
+    comparison, without editing config.
+
+    Regression — `model` used to be pinned before `**overrides` was expanded, so passing it
+    raised TypeError. The only override anyone would reach for was the one that could not
+    be used.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    registry = ModelRegistry.load("dev")
+    default = registry.provider_for("planner")
+    swapped = registry.provider_for("planner", model="gemini-2.5-flash")
+
+    assert swapped.config.model == "gemini-2.5-flash"
+    assert default.config.model != "gemini-2.5-flash", "the binding itself must not change"
+
+
+def test_other_config_fields_are_still_overridable(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    provider = ModelRegistry.load("dev").provider_for("planner", temperature=0.7)
+    assert provider.config.temperature == 0.7

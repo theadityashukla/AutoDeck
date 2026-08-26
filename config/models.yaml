@@ -36,14 +36,23 @@
 default_env: dev
 
 environments:
+  # Each dev role gets a DIFFERENT Gemini model on purpose (B25). The free tier allows
+  # 20 requests per day *per model*, and a single planning session — two turns, four
+  # messages probed each time — exhausted one model's whole day on the first run. Separate
+  # models mean separate daily buckets.
+  #
+  # It also happens to be better for A3: `validation` re-retrieves independently and looks
+  # for contradicting spans, and a validator running on the same model as the writer is
+  # likelier to share its blind spots. Splitting them is the cheap version of that
+  # independence, and it costs nothing here.
   dev:
     planner:    {provider: gemini, model: gemini-3.7-flash}
-    outline:    {provider: gemini, model: gemini-3.7-flash}
+    outline:    {provider: gemini, model: gemini-3.6-flash}
     # Groq's free tier caps at 8000 tokens per minute, which a six-span evidence payload
     # exceeded before SPAN_CHARS truncation. Keep prompts on this binding compact.
     content:    {provider: groq,   model: openai/gpt-oss-120b}
-    validation: {provider: gemini, model: gemini-3.7-flash}
-    aesthetic:  {provider: gemini, model: gemini-3.7-flash}
+    validation: {provider: gemini, model: gemini-3.5-flash}
+    aesthetic:  {provider: gemini, model: gemini-3.1-flash-lite}
     ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
 
   # Claude bindings are unverified against a live API — this environment has no

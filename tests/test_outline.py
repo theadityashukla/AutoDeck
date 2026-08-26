@@ -312,13 +312,23 @@ def test_an_uncovered_key_message_blocks() -> None:
     assert any("km2" in f.detail for f in report.blocking)
 
 
-def test_a_missing_must_include_blocks() -> None:
+def test_a_missing_must_include_is_advisory_not_blocking() -> None:
+    """Asymmetry with must_avoid, and it is the point.
+
+    An outline has no prose, so a substring *missing* from slide intents is weak evidence.
+    On the first live run two legitimate must_include entries — long requirement sentences
+    no intent would ever contain verbatim — blocked an outline that covered both. A gate
+    that blocks on almost every real run trains its reviewer to click past blocking
+    findings, which costs more than the check is worth.
+    """
     report = reviewed(
         brief(must_include=["cost per conversation"]),
         slide("s1", messages=["km1"]),
         slide("s2", messages=["km2"]),
     )
-    assert any(f.check == "must_include" for f in report.blocking)
+    findings = [f for f in report.findings if f.check == "must_include"]
+    assert findings and all(f.severity == "advisory" for f in findings)
+    assert report.mechanical_checks_pass
 
 
 def test_a_present_must_include_passes() -> None:
@@ -331,6 +341,7 @@ def test_a_present_must_include_passes() -> None:
 
 
 def test_a_must_avoid_appearing_blocks() -> None:
+    """A substring *found* is reliable evidence, unlike a substring missing."""
     report = reviewed(
         brief(must_avoid=["10x"]),
         slide("s1", messages=["km1"], intent="Lead with the 10x headline."),

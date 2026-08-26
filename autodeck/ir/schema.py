@@ -134,6 +134,35 @@ def _strip_gemini_unsupported(schema: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in schema.items() if k not in _GEMINI_UNSUPPORTED}
 
 
+def _collapse_nullable_unions(schema: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite `anyOf: [X, {"type": "null"}]` as X with `nullable: true`.
+
+    Pydantic emits `X | None` as a two-branch `anyOf`. Gemini's native `response_schema`
+    accepts that shape without complaint and then **silently omits the field** when X is an
+    array of objects — no error, no warning, just a response missing the key.
+
+    That was not a theoretical concern. The Phase 2a planner returned briefs where
+    `objective` and `probe_messages` (plain scalars) came through while `key_messages`,
+    `layout_pins` and `open_risks` (all `list[Model] | None`) were absent on every call,
+    across three models and two prompt rewrites. The conversation read perfectly and the
+    artifact was empty, which is the worst failure shape available: nothing errors.
+
+    `nullable: true` is Gemini's own way of saying the same thing, and it survives.
+    """
+    branches = schema.get("anyOf")
+    if not isinstance(branches, list) or len(branches) != 2:
+        return schema
+
+    non_null = [b for b in branches if not (isinstance(b, dict) and b.get("type") == "null")]
+    if len(non_null) != 1 or not isinstance(non_null[0], dict):
+        return schema
+
+    # Annotations sit on the union, not the branch, so they must be carried across or the
+    # field arrives with no description telling the model what it is for.
+    annotations = {k: v for k, v in schema.items() if k != "anyOf"}
+    return {**non_null[0], **annotations, "nullable": True}
+
+
 def export_schema(model: type[BaseModel], flavor: SchemaFlavor = "standard") -> dict[str, Any]:
     """Return the JSON Schema for `model` in the requested provider dialect.
 
@@ -154,7 +183,8 @@ def export_schema(model: type[BaseModel], flavor: SchemaFlavor = "standard") -> 
 
     defs = schema.pop("$defs", {})
     inlined = _inline_refs(schema, defs)
-    return _map_schema_objects(inlined, _strip_gemini_unsupported)
+    stripped = _map_schema_objects(inlined, _strip_gemini_unsupported)
+    return _map_schema_objects(stripped, _collapse_nullable_unions)
 
 
 def schema_digest(schema: dict[str, Any]) -> str:

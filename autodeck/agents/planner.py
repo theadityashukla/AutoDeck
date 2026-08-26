@@ -57,6 +57,27 @@ logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path("prompts/planner.md")
 
+#: Appended to the end of every turn prompt.
+#:
+#: The same instruction is in `prompts/planner.md`, which is where it belongs — but the
+#: system prompt is long, and the turn prompt puts several thousand words of curated
+#: knowledge in front of it. In the first live run the model produced a genuinely good brief
+#: entirely as prose in `reply` and left every structured field null, twice, on two
+#: different models. Restating it last, closest to generation, is what stopped that.
+#:
+#: It lives here rather than in the prompt file because it is *positional*: the point is
+#: that it arrives after the context, and a prompt file cannot express that.
+_FIELD_REMINDER = """\
+# Before you answer
+
+`reply` is what the consultant reads. The other fields ARE the brief — they are what gets
+recorded and signed off, and anything you write only in `reply` does not exist.
+
+If this turn changes the brief, set the fields: `objective`, `audience`, `key_messages`
+(the complete current set, with stable ids), `must_include`, `must_avoid`, `length_target`,
+`layout_pins`, `open_risks`. To have the evidence checked, set `probe_messages: true` —
+saying you checked it in prose does not check it."""
+
 
 class PlannerError(RuntimeError):
     """The planning session cannot proceed."""
@@ -121,22 +142,40 @@ class RiskDraft(BaseModel):
 
 
 class PlannerAction(BaseModel):
-    """One turn of the planner's output."""
+    """One turn of the planner's output — the whole brief state, not a delta.
+
+    **Every brief field is required and non-nullable, and that is load-bearing.** Gemini
+    populates a nullable nested array (`list[Model] | None`) only sometimes: across three
+    models and several attempts, `key_messages`, `layout_pins` and `open_risks` were
+    omitted from most responses while plain scalars in the same object arrived every time.
+    No error is raised — the field is simply absent — so the session read perfectly and
+    recorded nothing. Making the fields required is what makes them arrive.
+
+    The cost is that the model restates the full brief each turn. That was already the
+    documented contract ("the complete current set, not a delta"), so it changes the
+    reliability rather than the protocol.
+
+    **Empty means "unchanged", not "cleared".** A brief cannot legitimately drop to zero key
+    messages, so an empty list is far more likely to be a model that omitted them than an
+    intention to wipe them — and treating it as a wipe would silently destroy a brief the
+    consultant had been building for ten minutes. Clearing a list is done by editing the
+    signed YAML, which is a deliberate act with a diff.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     reply: str = Field(min_length=1, description="What to say to the consultant.")
-    objective: str | None = None
-    audience: str | None = None
-    key_messages: list[MessageDraft] | None = Field(
-        default=None, description="The full current set when it changes, not a delta."
+    objective: str = Field(description="The decision this deck should produce. '' = unchanged.")
+    audience: str = Field(description="Who it is for. '' = unchanged.")
+    key_messages: list[MessageDraft] = Field(
+        description="The COMPLETE current set every turn, not a delta. [] = unchanged."
     )
-    must_include: list[str] | None = None
-    must_avoid: list[str] | None = None
+    must_include: list[str] = Field(default_factory=list, description="[] = unchanged.")
+    must_avoid: list[str] = Field(default_factory=list, description="[] = unchanged.")
     length_target: int | None = Field(default=None, ge=1)
     header_style: str | None = None
-    layout_pins: list[PinDraft] | None = None
-    open_risks: list[RiskDraft] | None = None
+    layout_pins: list[PinDraft] = Field(default_factory=list, description="[] = unchanged.")
+    open_risks: list[RiskDraft] = Field(default_factory=list, description="[] = unchanged.")
     probe_messages: bool = Field(
         default=False,
         description="Run the evidence-gap check over the current key messages this turn.",
@@ -350,29 +389,34 @@ class PlannerSession:
                 "sourced, or carried with somebody's name on it:\n"
                 + "\n".join(f"- {m.id}: {m.text} ({m.evidence_status})" for m in gaps)
             )
+        parts.append(_FIELD_REMINDER)
         return "\n\n---\n\n".join(parts)
 
     def _apply(self, action: PlannerAction) -> None:
         """Fold the model's proposals into the draft.
 
-        Key messages keep the evidence status they already had — a re-proposal of the same
+        Empty means "unchanged" throughout — see `PlannerAction` for why. Every field is
+        required in the schema so that it actually arrives; the emptiness check is what
+        stops a turn that only answers a question from wiping the brief.
+
+        Key messages keep the evidence status they already had. A re-proposal of the same
         message must not quietly reset a `thin` verdict to `unprobed` and thereby shed the
         risk attached to it.
         """
-        if action.objective:
-            self.draft.objective = action.objective
-        if action.audience:
-            self.draft.audience = action.audience
-        if action.must_include is not None:
+        if action.objective.strip():
+            self.draft.objective = action.objective.strip()
+        if action.audience.strip():
+            self.draft.audience = action.audience.strip()
+        if action.must_include:
             self.draft.must_include = action.must_include
-        if action.must_avoid is not None:
+        if action.must_avoid:
             self.draft.must_avoid = action.must_avoid
         if action.length_target is not None:
             self.draft.length_target = action.length_target
         if action.header_style is not None:
             self.draft.header_style = action.header_style
 
-        if action.key_messages is not None:
+        if action.key_messages:
             existing = {m.id: m for m in self.draft.key_messages}
             self.draft.key_messages = [
                 existing[draft.id].model_copy(update={"text": draft.text})
@@ -382,7 +426,7 @@ class PlannerSession:
             ]
 
         known = {m.id for m in self.draft.key_messages}
-        if action.layout_pins is not None:
+        if action.layout_pins:
             self.draft.layout_pins = [
                 LayoutPin(
                     message_id=pin.message_id,
@@ -393,7 +437,7 @@ class PlannerSession:
                 for pin in action.layout_pins
                 if pin.message_id in known and pin.target in _PIN_TARGETS
             ]
-        if action.open_risks is not None:
+        if action.open_risks:
             self.draft.open_risks = [
                 OpenRisk(
                     message_id=risk.message_id,
