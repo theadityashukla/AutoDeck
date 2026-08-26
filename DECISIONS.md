@@ -547,3 +547,51 @@ the owner with options.
     the sample — if a citation later looks wrong, check those first rather than assuming the
     gate covered all five evenly.
   - Phase 1 merges to `v2/integration`; `v2/phase-2a-plan-outline` is cut from the result.
+
+### B23 — Dev-tier model IDs re-resolved; there is no pro model on the free tier
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active — supersedes the dev bindings recorded under B15
+- **Context:** the first live run of the evidence-gap check (task 2a.4) failed every probe.
+  Two separate causes, both found by running it rather than by reading anything:
+  1. **`gemini-2.5-pro` is retired.** It still appears in the `v1beta/models` listing but
+     every `generateContent` call returns 404 *"no longer available to new users"*. Four dev
+     roles were bound to it (planner, outline, validation, aesthetic), so all four were dead.
+  2. **No pro model is reachable at all on this tier.** `gemini-3.1-pro-preview` and
+     `gemini-pro-latest` both return 429 with no free-tier quota. Only flash models respond.
+- **Decision:** bind the four reasoning roles to `gemini-3.7-flash` in dev, verified by an
+  actual completion rather than by appearing in a listing. Keep `ingest_vlm` on
+  `gemini-2.5-flash`, which still answers.
+- **Rationale:** a listing is not availability — that is the specific trap here, and it is
+  why B15's "resolve, never recall" needs to mean *call it*, not *look it up*. Aliases
+  (`gemini-flash-latest`) were rejected: an alias moves underneath a build, so the same
+  manifest could resolve to a different model on a re-run and A6's byte-comparability claim
+  would be false in a way nothing detects.
+- **Consequences:**
+  - **B8's warning gets stronger.** Dev now runs the reasoning roles on a *flash* model,
+    weaker than this file assumed when it was written. A dev pass on A3 or A8 was already a
+    smoke test; it is now a smoke test on a smaller model. Headline accuracy must be
+    measured on `sit`.
+  - Model IDs go stale mid-project. Re-resolve at the start of any phase that calls a
+    provider, not once per project.
+  - The `sit`/`prod` Claude IDs remain unverified — still no `ANTHROPIC_API_KEY`.
+
+### B24 — Evidence spans are truncated before classification
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** the evidence-gap check shows the classifier up to six retrieved spans. A
+  Docling element is a whole paragraph, and six research-paper paragraphs measured ~9.8k
+  tokens against the real seed corpus — over the Groq free tier's 8000 TPM limit, which
+  returned HTTP 413 and failed the probe rather than returning a verdict.
+- **Decision:** truncate each span to `SPAN_CHARS` (500) for classification, and mark the
+  truncation visibly with `…[truncated]`.
+- **Rationale:** the judgement needs the sentence that does or does not support the message,
+  not the rest of the paragraph. Marking rather than silently cutting matters for A8: a
+  classifier that cannot see the end of a paragraph should not read an absent qualifier as
+  an absent caveat.
+- **Consequences:**
+  - Truncation applies only to what the *classifier* sees. Citations are still resolved
+    verbatim through the document store, so A1 is untouched.
+  - `claims.md` spans are already human-selected quotes and are short by construction, so
+    this rarely affects the curated path.

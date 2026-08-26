@@ -17,18 +17,33 @@
 # deterministic invariants — A1, A2, A4, A5, A6 — are code and transfer unchanged.
 #
 # Model IDs are resolved by querying each provider at implementation time, never recalled
-# from memory (plan §6.2, §9). The dev IDs below were listed from the live APIs on
-# 2026-07-26; see DECISIONS.md B15.
+# from memory (plan §6.2, §9). See DECISIONS.md B15, and B23 for what re-resolving them on
+# 2026-08-02 found.
+#
+# THE DEV TIER HAS NO PRO MODEL (checked 2026-08-02, decision B23). `gemini-2.5-pro` was
+# retired for new users mid-flight — it still appears in the models listing and returns 404
+# on every call — and `gemini-3.1-pro-preview` / `gemini-pro-latest` return 429 with no
+# free-tier quota. Only flash models actually respond. So the four reasoning roles below
+# run on flash in dev, which is *weaker* than this file originally assumed.
+#
+# That makes the warning above stronger, not weaker: a dev pass on A3 or A8 is now a smoke
+# test on a flash model. Measure headline accuracy on `sit`.
+#
+# Aliases (`gemini-flash-latest`) are deliberately NOT used. An alias moves under you, so
+# the same build manifest could resolve to a different model on a re-run — which would make
+# A6's "same manifest re-renders comparable output" untrue in a way nothing would detect.
 
 default_env: dev
 
 environments:
   dev:
-    planner:    {provider: gemini, model: gemini-2.5-pro}
-    outline:    {provider: gemini, model: gemini-2.5-pro}
+    planner:    {provider: gemini, model: gemini-3.7-flash}
+    outline:    {provider: gemini, model: gemini-3.7-flash}
+    # Groq's free tier caps at 8000 tokens per minute, which a six-span evidence payload
+    # exceeded before SPAN_CHARS truncation. Keep prompts on this binding compact.
     content:    {provider: groq,   model: openai/gpt-oss-120b}
-    validation: {provider: gemini, model: gemini-2.5-pro}
-    aesthetic:  {provider: gemini, model: gemini-2.5-pro}
+    validation: {provider: gemini, model: gemini-3.7-flash}
+    aesthetic:  {provider: gemini, model: gemini-3.7-flash}
     ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
 
   # Claude bindings are unverified against a live API — this environment has no

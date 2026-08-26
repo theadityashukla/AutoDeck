@@ -61,6 +61,20 @@ logger = logging.getLogger(__name__)
 #: what exists; small enough that a weak signal is not buried under topical noise.
 EVIDENCE_LIMIT = 6
 
+#: Characters of each span shown to the classifier.
+#:
+#: Docling elements are whole paragraphs, and a research-paper paragraph runs long. Six of
+#: them untruncated measured ~9.8k tokens on the real seed corpus — over the dev
+#: `validation` binding's per-minute budget, which failed every probe with HTTP 413 rather
+#: than returning a verdict. The judgement needs the sentence that does or does not support
+#: the message, not the rest of the paragraph around it.
+SPAN_CHARS = 500
+
+#: The role this check runs on. `validation` rather than `content` because it is an accuracy
+#: judgement, and B8 classes exactly those as model-sensitive: a dev-binding pass here is a
+#: smoke test, and the real measurement belongs on `sit`.
+CLASSIFIER_ROLE = "validation"
+
 CLASSIFY_SYSTEM_PROMPT = """\
 You judge whether retrieved evidence supports a proposed key message for a consulting deck.
 
@@ -123,8 +137,18 @@ class EvidenceSpan:
     """`claims.md` or `corpus` — a curated claim is a stronger starting point than a raw
     retrieval hit, and the classifier is told which it is looking at."""
 
-    def render(self) -> str:
-        return f"[{self.source} · {self.doc_id} p.{self.page}] {self.text.strip()}"
+    def render(self, *, chars: int = SPAN_CHARS) -> str:
+        """The span as the classifier sees it, truncated.
+
+        Truncation is marked rather than silent: a classifier that cannot see the end of a
+        paragraph should know that, so it does not read an absent qualifier as an absent
+        caveat. `claims.md` spans are already the verbatim quote a human selected and are
+        short by construction, so this rarely bites them.
+        """
+        text = " ".join(self.text.split())
+        if len(text) > chars:
+            text = text[: chars - 1] + "…[truncated]"
+        return f"[{self.source} · {self.doc_id} p.{self.page}] {text}"
 
 
 @dataclass
