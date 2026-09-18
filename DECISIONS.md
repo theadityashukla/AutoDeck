@@ -650,3 +650,83 @@ the owner with options.
     ("the complete current set, not a delta"), so only the reliability changed.
   - **Expect this class of bug on other providers.** When an agent's output looks right in
     prose and empty in the artifact, read the raw response before touching the prompt.
+
+### G1 — GATE 1 approved
+- **Date:** 2026-09-18
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** GATE 1 asks whether an outline delivers the brief's key messages, in the
+  brief's order, honouring its pins — deliberately not "is this a good outline" (§6.13).
+- **Decision:** **approved.** The owner reviewed the delivered materials and answered "This
+  looks good. Lets go ahead and implement the other phases as well."
+- **What the owner actually reviewed:** `GATE-1-review.md` — the signed brief v1 (objective,
+  audience, four key messages with evidence status, two accepted risks with `accepted_by`,
+  one layout pin), the ten-slide outline with each slide's role, component, served messages
+  and intent, and the mechanical report (0 blocking, 3 advisory) — together with
+  `brief/v1.yaml`. Recorded at this precision rather than as blanket sign-off, per plan
+  §0.3 and the precedent set by G0 and G1a.
+- **Rationale:** the mechanical half was clean. The judgement half — whether the sequence of
+  intents makes the argument — is what the owner answered, and the approval arrived in the
+  same message as the instruction to proceed through the remaining phases.
+- **Consequences:**
+  - A7 approval 1 of 4 is proven end to end on a real run.
+  - Phase 2b may start. Phase 2a merges at the review session (B27), not now.
+  - The outline's messages were all `unprobed` because the classifier hit the daily quota
+    mid-run (B25). The brief was signed anyway, which is legitimate — `unprobed` is honest
+    and GATE 1 surfaced it as advisory — but the evidence-gap check has still not run to
+    completion on a full brief. Phase 2b's validator is the next chance to catch anything it
+    would have found.
+
+### B27 — Phases 2b–3b stack without merging; gates are reviewed as a batch
+- **Date:** 2026-09-18
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** active — deviates from `docs/BRANCHING.md` rule 1 for this batch only
+- **Context:** the owner asked for Phases 2b, 3a and 3b to be built in one pass, stating
+  they cannot take time to review each step. Two BRANCHING rules collide under that
+  instruction: rule 1 (a phase branch is cut from the integration tip) and rule 3 (nothing
+  merges until its gate is approved by the owner in writing; the implementing agent does
+  not self-approve). Honouring rule 1 requires merging 2b before cutting 3a, which requires
+  approving GATE 2 without the owner — exactly what rule 3 and A7 forbid.
+- **Decision:** cut each phase branch from the **previous phase's tip** rather than from
+  `v2/integration`, and **merge nothing**. Every gate stays `pending` in its handover with
+  "what the owner actually checked: nothing yet". At the review session the owner works
+  GATE 2 then GATE 3; each approval is recorded, the branch is re-cut onto the integration
+  tip, and the PR merges `--no-ff` in phase order.
+- **Rationale:** rule 3 is derived from an accuracy invariant (A7) and rule 1 is a
+  topology convention, so the convention yields. Stacking is safe here because nothing else
+  advances `v2/integration` during the batch, making the eventual re-cut a clean replay.
+- **Consequences:**
+  - Three unmerged branches exist at review time, each building on the last. A rejection at
+    GATE 2 invalidates work in 3a and 3b that was built on it — an accepted cost of the
+    owner's instruction, and the reason the accuracy core is built first and each phase
+    boundary is a clean stopping point.
+  - `docs/BRANCHING.md` is not edited. This is a recorded deviation for one batch, not a
+    change to the protocol.
+
+### B28 — Guardrail paths hold their tier; budget de-escalation is recorded per task
+- **Date:** 2026-09-18
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** active
+- **Context:** the owner set a $50 ceiling on delegated implementation and asked that the
+  code be written by Sonnet and Haiku rather than by the orchestrating model.
+  `docs/MODEL_ROUTING.md` makes `autodeck/ir/`, `autodeck/audit/`, `prompts/`,
+  `DECISIONS.md` and `docs/handovers/` top-tier regardless of a task's tag, and states that
+  a tag-versus-guardrail conflict is won by the guardrail.
+- **Decision:** the **guardrail paths keep their tier** and are implemented by Opus
+  subagents. Tasks *tagged* Opus in a phase brief but living outside a guardrail path —
+  `design/budgets.py`, `layout_kit.py`, `components/catalog.py`, `design/grammar.py` — are
+  de-escalated to Sonnet, and each de-escalation is named in the owning handover §8.
+- **Rationale:** the routing doc's own tie-breaker is "the cost of over-tiering is money,
+  the cost of under-tiering is a defect in an accuracy-critical path." A budget makes that
+  trade explicit rather than hypothetical, so the money is spent where a defect would land
+  on an invariant and saved where it would land on a layout.
+- **Consequences:**
+  - Two accuracy-critical modules are **split** so their invariant logic sits inside a
+    guardrail path: A3's verdict assignment and contradiction rule go to
+    `autodeck/audit/verdicts.py` (Opus) with `agents/validation.py` as a Sonnet wrapper; the
+    aesthetic loop's closed action set goes to `autodeck/ir/actions.py` (Opus) with
+    `render/qa/aesthetic.py` as a Sonnet loop. The type system is the invariant in both.
+  - Every task is independently reviewed by a second Sonnet agent against its spec, standing
+    in for the step-by-step human review the owner cannot give.
+  - Spend is tracked per dispatch. At ~$40 the current task is finished, committed and
+    pushed, and the batch stops and reports rather than starting the next one.
