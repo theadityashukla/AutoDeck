@@ -13,12 +13,17 @@ from pathlib import Path
 
 import pytest
 
+from autodeck.audit.framing_linter import lint_framing
 from autodeck.audit.manifest import Manifest, build_manifest, hash_prompts
+from autodeck.audit.numeric_linter import lint_deck
+from autodeck.ir.models import Block, Citation, Claim, Deck, Slide, Verdict
 from autodeck.pipeline.orchestrator import (
     Gate,
     GateBlocked,
     Orchestrator,
+    RenderBlocked,
     StageStatus,
+    require_safe_to_render,
 )
 
 
@@ -221,3 +226,166 @@ def test_manifest_forbids_unknown_fields() -> None:
         Manifest.model_validate(
             {"run_id": "r", "env": "dev", "created_at": "now", "surprise": True}
         )
+
+
+# ---------------------------------------------------------------------------
+# The render guard — A3 and A5
+# ---------------------------------------------------------------------------
+#
+# The regression these exist for is `test_a_demotion_blocks_while_the_deck_validates_clean`.
+# A demoted framing block is one the IR cannot hold, so it stays in the deck typed
+# `framing` and `Deck.blocking_blocks()` comes back empty — a guard reading only the deck
+# ships it. A test written against a deck that already fails would prove nothing here, so
+# every fixture below starts from a deck that validates.
+
+
+def citation(quote: str) -> Citation:
+    return Citation.for_quote(
+        doc_id="llm-int8",
+        page=4,
+        bbox=(72.0, 100.0, 523.0, 200.0),
+        quote=quote,
+        retrieved_by="writer",
+    )
+
+
+def claim_block(
+    block_id: str,
+    *,
+    text: str = "Quantisation halves inference memory.",
+    verdict: Verdict = "supported",
+    quote: str = "cut the memory needed for inference by half",
+) -> Block:
+    return Block(
+        id=block_id,
+        kind="claim",
+        slot="body",
+        claim=Claim(text=text, citations=[citation(quote)], verdict=verdict),
+    )
+
+
+def framing_block(text: str, *, block_id: str = "f1") -> Block:
+    return Block(id=block_id, kind="framing", slot="kicker", text=text)
+
+
+def deck_with(*blocks: Block) -> Deck:
+    return Deck(
+        run_id="r1",
+        project="llm-inference-efficiency",
+        client="northwind-retail",
+        audience="CTO",
+        version=1,
+        theme_ref="t",
+        component_lib_version="1",
+        slides=[
+            Slide(
+                id="s1", narrative_role="evidence", component="text_block", blocks=list(blocks)
+            )
+        ],
+    )
+
+
+def guard(deck: Deck) -> None:
+    """The guard as a caller must use it: the deck plus both linter reports."""
+    require_safe_to_render(
+        deck, framing=lint_framing(deck), numeric=lint_deck(deck), run_id="r1"
+    )
+
+
+def test_a_clean_deck_renders(tmp_path: Path) -> None:
+    """The guard must let a correct deck through, or it teaches people to route around it."""
+    deck = deck_with(claim_block("b1"), framing_block("Serve better before you buy more."))
+
+    guard(deck)  # must not raise
+
+
+def test_a_demotion_blocks_while_the_deck_validates_clean() -> None:
+    """The trap the guard closes, asserted as the deck's own cleanliness.
+
+    A5 demotes this framing block to `claim`, which A1 then refuses — but the IR cannot
+    hold the demoted block, so the deck still validates and `blocking_blocks()` is empty. A
+    guard consulting only the deck renders a fabricated fact.
+    """
+    deck = deck_with(
+        claim_block("b1"), framing_block("Our approach is clinically shown to cut costs.")
+    )
+
+    assert deck.blocking_blocks() == [], "the deck alone looks clean — that is the trap"
+    assert lint_framing(deck).blocks_build, "A5 is the only thing that knows"
+
+    with pytest.raises(RenderBlocked) as blocked:
+        guard(deck)
+
+    assert {reason.split()[0] for reason in blocked.value.reasons} == {"A5"}, (
+        "the demotion is the only thing blocking — nothing else in this deck fails"
+    )
+
+
+def test_a_contradicted_block_blocks() -> None:
+    """A3's second clause, through `Deck.blocking_blocks()`."""
+    deck = deck_with(claim_block("b1", verdict="contradicted"))
+
+    with pytest.raises(RenderBlocked, match="A3"):
+        guard(deck)
+
+
+def test_an_unjudged_claim_blocks() -> None:
+    """A3's first clause: every claim gets a verdict.
+
+    `unverified` blocks nothing under `Claim.blocks_render`, so a validation pass that
+    failed outright leaves a deck that looks exactly like a validated one.
+    """
+    deck = deck_with(claim_block("b1", verdict="unverified"))
+
+    assert deck.blocking_blocks() == []
+
+    with pytest.raises(RenderBlocked) as blocked:
+        guard(deck)
+
+    assert "never reached this claim" in str(blocked.value)
+
+
+def test_an_untraceable_numeral_blocks() -> None:
+    """A2, via the numeric report — the third thing the deck cannot tell you."""
+    deck = deck_with(claim_block("b1", text="Serving costs fell 40% in the pilot."))
+
+    assert deck.blocking_blocks() == []
+
+    with pytest.raises(RenderBlocked, match="A2"):
+        guard(deck)
+
+
+def test_every_reason_is_reported_at_once() -> None:
+    """One blocked build, not a queue of surprises: a guard that reports the first failure
+    only makes the writer fix three things in three runs."""
+    deck = deck_with(
+        claim_block("b1", verdict="contradicted"),
+        claim_block("b2", text="Serving costs fell 40% in the pilot."),
+        framing_block("Our approach is clinically shown to cut costs."),
+    )
+
+    with pytest.raises(RenderBlocked) as blocked:
+        guard(deck)
+
+    prefixes = {reason.split()[0] for reason in blocked.value.reasons}
+    assert prefixes == {"A2", "A3", "A5"}
+
+
+def test_the_guard_cannot_be_called_without_both_reports() -> None:
+    """The invariant, in the shape `test_no_command_can_bypass_a_gate` uses it.
+
+    A default on either report would restore the trap silently, and a build that skipped a
+    linter would look exactly like a build that passed one.
+    """
+    parameters = inspect.signature(require_safe_to_render).parameters
+    for name in ("framing", "numeric"):
+        assert parameters[name].default is inspect.Parameter.empty
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_there_is_one_guard_and_not_three() -> None:
+    """One function knows what 'safe to render' means. Three checks at three call sites is
+    how one of them gets forgotten."""
+    source = inspect.getsource(require_safe_to_render)
+    for consulted in ("blocking_blocks", "unverified_claims", "framing.", "numeric."):
+        assert consulted in source

@@ -1,6 +1,7 @@
-"""Pipeline orchestration: run directories, resumability, and the human gates (A7).
+"""Pipeline orchestration: run directories, resumability, the human gates (A7), and the
+one guard that decides whether a deck is safe to render (A3, A5).
 
-Two responsibilities, and the second is an accuracy invariant.
+Three responsibilities, and two of them are accuracy invariants.
 
 **Resumability.** Every stage records completion in `runs/<run_id>/state.json`, so a run
 interrupted by a rate limit, a crash, or a gate resumes from where it stopped rather than
@@ -14,7 +15,13 @@ continue, and there is **no flag that skips it**: `tests/test_orchestrator.py` a
 no such flag exists, because the obvious way this invariant dies is someone adding `--yes`
 for a demo.
 
-Owning phase: 0 (task 0.7); the four real gates are wired in Phases 2a, 2b and 4.
+**The render guard is the enforcement point for A3 and A5.** `require_safe_to_render` is
+the single place that knows what "safe to render" means, and it exists because a deck that
+validates clean is no longer evidence that the invariants hold — see its docstring for the
+trap it closes. Three checks at three call sites is how one of them gets forgotten.
+
+Owning phase: 0 (task 0.7); the four real gates are wired in Phases 2a, 2b and 4, and the
+render guard in Phase 2b (task 2b.8).
 """
 
 from __future__ import annotations
@@ -27,6 +34,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from autodeck.audit.framing_linter import FramingReport
+from autodeck.audit.numeric_linter import NumericReport
+from autodeck.audit.verdicts import blocking_blocks, unverified_claims
+from autodeck.ir.models import Deck
 from autodeck.ir.store import IRStore, RunPaths, run_paths
 
 DEFAULT_RUNS_ROOT = Path("runs")
@@ -224,6 +235,102 @@ class Orchestrator:
     def pending_gates(self) -> list[Gate]:
         """Gates still awaiting approval, in order."""
         return [gate for gate in Gate if not self.state.is_approved(gate)]
+
+
+# ---------------------------------------------------------------------------
+# The render guard — A3 and A5's enforcement point
+# ---------------------------------------------------------------------------
+
+
+class RenderBlocked(RuntimeError):
+    """The deck is not safe to render, and every reason it is not.
+
+    Raised rather than returned so that the render stage cannot proceed by ignoring a
+    boolean, and carrying **all** the reasons rather than the first: a guard that reports
+    one failure at a time turns a blocked build into a queue of surprises, and the writer
+    fixes three things in three runs instead of three things in one.
+    """
+
+    def __init__(self, run_id: str | None, reasons: list[str]) -> None:
+        where = f" for run {run_id!r}" if run_id else ""
+        super().__init__(
+            f"Final render is blocked{where} by {len(reasons)} finding(s):\n"
+            + "\n".join(f"  - {reason}" for reason in reasons)
+            + "\n\nA3 forbids rendering an unsupported or contradicted claim; A5's "
+            "demotions are claims with no citation, which A1 forbids outright. Fix the "
+            "content or re-validate — no flag skips this, for the same reason no flag "
+            "skips a gate."
+        )
+        self.run_id = run_id
+        self.reasons = reasons
+
+
+def require_safe_to_render(
+    deck: Deck,
+    *,
+    framing: FramingReport,
+    numeric: NumericReport,
+    run_id: str | None = None,
+) -> None:
+    """Refuse to enter the render stage unless A1, A2, A3 and A5 all hold over this deck.
+
+    **A clean `Deck` is not sufficient evidence that the invariants hold, and that is the
+    trap this function exists to close.** The framing linter (A5) demotes a `framing` block
+    carrying a fabricated fact to `claim` — a real state change, whose `materialise()`
+    raises pydantic's `ValidationError` from `Claim.citations` exactly as A1 requires. But
+    the IR cannot *hold* that demoted block, so the block stays in the deck typed `framing`,
+    validating perfectly, and `Deck.blocking_blocks()` comes back empty. Measured on a deck
+    with one demotion:
+
+        framing findings: 2 | blocks_build: True
+        demoted kind: claim | verdict: unsupported | blocks_render: True
+        Deck.blocking_blocks(): []          <- empty. The deck alone looks clean.
+
+    A guard reading only the deck ships that block. So this function reads the deck **and**
+    the two linter reports, and it is one function on purpose: the next check to be added
+    goes inside it, not at a call site. Three checks at three call sites is how one of them
+    gets forgotten, and the one that gets forgotten is the one that would have fired.
+
+    `framing` and `numeric` have no defaults for the same reason. A caller who omits a
+    report would get the trap straight back, silently, and a passing build is exactly what
+    that failure looks like.
+
+    Args:
+        deck: the deck about to be rendered, verdicts already assigned.
+        framing: `lint_framing(deck)` — A5. Its demotions are invisible in the deck.
+        numeric: `lint_deck(deck)` — A2. Blocking findings are unmatched numerals and
+            derivations that do not re-execute.
+        run_id: named in the error when there is one; the guard works without a run.
+
+    Raises:
+        RenderBlocked: listing every reason, when any of the four conditions fails.
+    """
+    reasons: list[str] = []
+
+    # A3, second clause: no final render while any block is unsupported or contradicted.
+    reasons.extend(f"A3 {block}" for block in blocking_blocks(deck))
+
+    # A3, first clause: *every* claim gets a verdict. `unverified` is not one of the four
+    # and does not block under `Claim.blocks_render` — correctly, since that method answers
+    # the second clause — so a validation pass that failed outright leaves a deck whose
+    # `blocking_blocks()` is empty because nothing was ever judged. Same trap, different
+    # linter: absence of a bad verdict is not the presence of a good one.
+    reasons.extend(
+        f"A3 {block} — no verdict; the validator never reached this claim"
+        for block in unverified_claims(deck)
+    )
+
+    # A5, and through it A1: the blocks the deck could not be made to carry. The report's
+    # own `blocks_build` is the condition; the demotions are the detail a writer needs.
+    if framing.blocks_build:
+        reasons.extend(f"A5 {demotion.summary()}" for demotion in framing.demotions)
+
+    # A2: an unmatched numeral or a derivation that does not re-execute.
+    if not numeric.passes:
+        reasons.extend(f"A2 {finding}" for finding in numeric.blocking)
+
+    if reasons:
+        raise RenderBlocked(run_id, reasons)
 
 
 # ---------------------------------------------------------------------------
