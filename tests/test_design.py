@@ -125,6 +125,29 @@ def test_budget_describes_itself_for_a_prompt() -> None:
     assert str(budget.max_lines) in budget.describe()
 
 
+@requires_test_font
+def test_equal_character_counts_can_need_very_different_widths() -> None:
+    """v1's `chars_per_line` heuristic assumed a character count predicts a line's width;
+    this is the property that assumption gets wrong, and the property `wrap_text` has to
+    get right instead. Ten narrow glyphs and ten wide ones are the same length by
+    `len()` and nothing alike by advance width — a heuristic keyed on the former cannot
+    represent the latter, which is why none exists anywhere in this module (PHASE-2B.md
+    2b.1: "v1's `chars_per_line` heuristic is not reproduced")."""
+    narrow = wrap_text("l" * 10, TEST_FAMILY, 24, 2000)
+    wide = wrap_text("W" * 10, TEST_FAMILY, 24, 2000)
+    assert wide.width_pt > narrow.width_pt * 2
+
+
+def test_no_character_count_heuristic_is_exposed() -> None:
+    """Static companion to the property test above, and the one part of it that needs no
+    font at all: `chars_per_line` (or any spelling of it) must not exist as an importable
+    name, so nothing downstream can reach for the shortcut budgets.py exists to replace."""
+    import autodeck.design.budgets as budgets_module
+
+    names = " ".join(dir(budgets_module)).lower()
+    assert "charsperline" not in names.replace("_", "")
+
+
 # ---------------------------------------------------------------------------
 # Layout kit
 # ---------------------------------------------------------------------------
