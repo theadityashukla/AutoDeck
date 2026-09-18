@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from autodeck.design.budgets import compute_budget, load_metrics, wrap_text
+from autodeck.design.budgets import compute_budget, load_metrics, measure_height, wrap_text
 from autodeck.design.fonts import FontNotFoundError, is_available, resolve_family
 from autodeck.design.icons.custgeom import custgeom_xml
 from autodeck.design.icons.library import IconNotFoundError, icon_names, load_icon, parse_svg
@@ -146,6 +146,38 @@ def test_no_character_count_heuristic_is_exposed() -> None:
 
     names = " ".join(dir(budgets_module)).lower()
     assert "charsperline" not in names.replace("_", "")
+
+
+@requires_test_font
+def test_measure_height_never_undershoots_the_calibrated_line_height() -> None:
+    """2b.1's bias-direction guard, and the one budgets test that needs no LibreOffice.
+
+    `budgets.py`'s own module docstring says why under-prediction is the dangerous
+    direction: a budget that under-predicts height passes text that then overflows at
+    render. `_line_height_factor` used to under-predict by ~7.4% (hhea ascent+descent,
+    ~1.117x, against LibreOffice's real ~1.2x single-spaced pitch — see
+    `budgets.LINE_HEIGHT_FACTOR`'s docstring for the full derivation).
+
+    `1.20` here is written as a literal, not imported as `LINE_HEIGHT_FACTOR`: importing it
+    would make this test check `measure_height` against whatever the constant currently
+    says, which passes trivially no matter how that constant later changes — including a
+    change back in the under-predicting direction. The literal is what was actually
+    calibrated against a real render (`test_budget_check.py`'s render-marked pitch tests);
+    a future edit that quietly shrinks `LINE_HEIGHT_FACTOR` should fail *this* test, not
+    sail through because the test moved with it. Over-predicting by a little is fine — see
+    `budget_check.py`'s `RENDER_TOLERANCE` for how much — so this only guards the floor.
+    """
+    calibrated_factor = 1.20
+    for size_pt, line_spacing in [(16, 1.0), (22, 1.15), (40, 1.25)]:
+        # A single short line in a very wide box: exactly one line, so the floor below is
+        # exactly the quantity `measure_height` must not fall under, not an approximation
+        # of it diluted by however many lines the text happens to wrap to.
+        height = measure_height("Single line.", TEST_FAMILY, size_pt, 5000, line_spacing)
+        floor = size_pt * line_spacing * calibrated_factor
+        assert height >= floor - 1e-6, (
+            f"measure_height({size_pt=}, {line_spacing=}) = {height:.3f}pt under-predicts "
+            f"the calibrated floor of {floor:.3f}pt — the dangerous direction."
+        )
 
 
 # ---------------------------------------------------------------------------
