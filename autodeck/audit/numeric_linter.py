@@ -1178,6 +1178,160 @@ def check_derivation_inputs(
     return findings
 
 
+#: Below this relative distance two figures are the same measurement written twice, not a
+#: disagreement — deliberately the same number as `ROUNDING_REL_LIMIT`, because this module
+#: already calls that distance "one figure rounded" and it would be incoherent for two
+#: values to be a rounding of each other at one call site and a conflict at another.
+CONFLICT_REL_LIMIT = ROUNDING_REL_LIMIT
+
+
+def check_derivation_reconciles_sources(
+    derivation: Derivation, *, location: str = ""
+) -> list[NumericFinding]:
+    """Refuse a derivation that averages away a disagreement between two sources (A8).
+
+    `prompts/content.md`: *"Show both, never the average… Do not average them"*, and
+    *"Never round to hedge, never average to reconcile"*. A8 says the same and is enforced
+    by *"`prompts/content.md` behaviour + a conflicts section in the audit report"* — that
+    is, by asking the model nicely. The derivation machinery then supplied the mechanism
+    that makes breaking the promise look audited: two corpus sources reporting 412 and 671
+    tokens per second for one workload, reconciled with `(a + b) / 2`, both inputs cited,
+    both present in their spans, the arithmetic exact. `A2 passes: True`, zero findings,
+    `require_safe_to_render` PASSED, the conflicts section reading *"no contradicting span"*
+    — and the averaged figure printed under **"Working (A2 — derived figure)"** with a green
+    tick against each source. A 63% disagreement between two papers, presented to a GATE 2
+    reviewer as verified arithmetic.
+
+    This is `PHASE-2B.md` §6.3's shape one level up. §6.3 closed *"the inputs trace to
+    nothing"*; this is *"the inputs trace perfectly and the operation over them is the thing
+    A8 forbids"*.
+
+    ## Where the line is
+
+    **Combining two sources is not the offence.** A rate built from one paper's numerator
+    and another's denominator is honest arithmetic, and so is a percentage delta between a
+    figure in one paper and a figure in another. Blocking those would push writers away from
+    declaring their working at all, which is a worse outcome than the hole. **The offence is
+    reconciling a disagreement about the same quantity into a single figure nobody
+    measured.**
+
+    So the blocking case is the narrow, certain one, and it is three conditions at once:
+
+    1. the formula, re-executed over the real inputs, returns **exactly their arithmetic
+       mean** — which is what `(a + b) / 2`, `a/2 + b/2`, `(a + b) * 0.5` and the midpoint
+       `a + (b - a) / 2` all are, without this function having to pattern-match on formula
+       text that a writer can spell a dozen ways;
+    2. two of the inputs cite **different `doc_id`s** — one paper averaging two of its own
+       measurements is a different argument, and not one A8 makes;
+    3. those two values differ by more than `CONFLICT_REL_LIMIT`, so there is a
+       disagreement to reconcile rather than one figure written twice.
+
+    A percentage delta survives all of this — `(b - a) / b * 100` over 412 and 671 computes
+    38.6, nowhere near their mean of 541.5 — and so does a cross-source rate, and that is
+    the test of the boundary rather than an argument about it.
+
+    **The residue is reported, not blocked.** A weighted average, or any other formula
+    landing strictly between two materially different figures from two documents, is the
+    same manoeuvre with a thumb on the scale, and so is a mean drawn from one document.
+    Neither is certain enough to block on, so each raises an advisory naming the two
+    figures. Better a reviewer reads one line about honest arithmetic than a writer learns
+    that declaring a derivation is how a deck gets stopped.
+    """
+    values = {name: item.value for name, item in derivation.inputs.items()}
+    if len(values) < 2:
+        return []
+    try:
+        computed = evaluate_formula(derivation.formula, values)
+    except FormulaError:
+        return []  # already a blocking finding from `re_execute_derivation`
+    if not math.isfinite(computed):
+        return []
+
+    mean = sum(values.values()) / len(values)
+    is_mean = math.isclose(computed, mean, rel_tol=DERIVATION_REL_TOL, abs_tol=1e-12)
+    low, high = min(values.values()), max(values.values())
+    between = low < computed < high
+
+    if not is_mean and not between:
+        return []
+
+    pair = _widest_disagreeing_pair(derivation)
+    if pair is None:
+        # Nothing here disagrees with anything, or it all came from one document.
+        same_document = _widest_disagreeing_pair(derivation, across_documents=False)
+        if is_mean and same_document is not None:
+            return [_reconciliation_finding(derivation, same_document, computed, location)]
+        return []
+
+    if is_mean:
+        return [_reconciliation_finding(derivation, pair, computed, location, blocking=True)]
+    return [_reconciliation_finding(derivation, pair, computed, location)]
+
+
+InputPair = tuple[tuple[str, DerivationInput], tuple[str, DerivationInput]]
+
+
+def _widest_disagreeing_pair(
+    derivation: Derivation, *, across_documents: bool = True
+) -> InputPair | None:
+    """The two inputs furthest apart that are far enough apart to be a disagreement.
+
+    Widest rather than first, so the finding quotes the two figures a reader would argue
+    about. Deterministic on ties by input name, because a finding whose text changed between
+    runs is one nobody trusts.
+    """
+    items = sorted(derivation.inputs.items())
+    best: InputPair | None = None
+    best_distance = CONFLICT_REL_LIMIT
+    for index, left in enumerate(items):
+        for right in items[index + 1 :]:
+            if across_documents and left[1].citation.doc_id == right[1].citation.doc_id:
+                continue
+            if not across_documents and left[1].citation.doc_id != right[1].citation.doc_id:
+                continue
+            distance = _relative_difference(left[1].value, right[1].value)
+            if distance > best_distance:
+                best, best_distance = (left, right), distance
+    return best
+
+
+def _reconciliation_finding(
+    derivation: Derivation,
+    pair: InputPair,
+    computed: float,
+    location: str,
+    *,
+    blocking: bool = False,
+) -> NumericFinding:
+    """One finding naming both figures, both sources, and where the disagreement belongs."""
+    (left_name, left), (right_name, right) = pair
+    distance = _relative_difference(left.value, right.value)
+    verb = "averages" if blocking else "reconciles"
+    consequence = (
+        "The average is a figure neither source measured and no reader can check, and "
+        "declaring it as a derivation is what makes it look audited: the report prints it "
+        "under 'Working (A2 — derived figure)' with a green tick against each source."
+        if blocking
+        else "It may be honest arithmetic — a rate or a delta across two papers is fine — "
+        "but a formula landing between two figures that disagree is how an average gets "
+        "spelled when it is not spelled '/ 2'."
+    )
+    return NumericFinding(
+        check="derivation reconciles disagreeing sources",
+        severity="blocking" if blocking else "advisory",
+        detail=(
+            f"{derivation.formula!r} {verb} {left_name}={left.value!r} "
+            f"({_citation_label(left.citation)}: {left.citation.quote!r}) and "
+            f"{right_name}={right.value!r} "
+            f"({_citation_label(right.citation)}: {right.citation.quote!r}) to "
+            f"{computed!r}. Those figures differ by {distance:.0%}. {consequence} A8: show "
+            "both, each with its source and its workload, and put the disagreement in the "
+            "audit report's conflicts section — never average to reconcile."
+        ),
+        location=location,
+    )
+
+
 def _decimal_places(value: float) -> int:
     """How many decimal places `value` is written to, as a rounding target.
 
@@ -1533,6 +1687,9 @@ def lint_scope(
     for derivation in scope.derivations:
         report.derivations_checked += 1
         report.findings.extend(check_derivation_inputs(derivation, location=scope.location))
+        report.findings.extend(
+            check_derivation_reconciles_sources(derivation, location=scope.location)
+        )
         report.findings.extend(re_execute_derivation(derivation, location=scope.location))
 
     numerals = extract_numerals(scope.text)

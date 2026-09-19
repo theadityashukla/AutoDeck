@@ -33,6 +33,7 @@ from autodeck.audit.numeric_linter import (
     LintScope,
     _canonical_unit,
     check_derivation_inputs,
+    check_derivation_reconciles_sources,
     evaluate_formula,
     extract_numerals,
     input_keys,
@@ -1015,6 +1016,184 @@ class TestDerivationReExecution:
         findings = re_execute_derivation(derivation)
         assert [f.check for f in findings] == ["derivation formula"]
         assert "zero" in findings[0].detail
+
+
+# ---------------------------------------------------------------------------
+# A8 — averaging a disagreement away through a derivation
+# ---------------------------------------------------------------------------
+
+
+VLLM = "vLLM sustains 412 tokens per second on the ShareGPT trace"
+ORCA = "the same workload is reported at 671 tokens per second"
+
+
+def disagreeing(formula: str, result: float, *, one_document: bool = False) -> Derivation:
+    """The reproduction script's two corpus sources, under whatever formula is being tested."""
+    return Derivation(
+        formula=formula,
+        inputs={
+            "a": DerivationInput(value=412.0, citation=cite(VLLM, doc_id="kwon-2023-vllm")),
+            "b": DerivationInput(
+                value=671.0,
+                citation=cite(
+                    ORCA,
+                    doc_id="kwon-2023-vllm" if one_document else "yu-2022-orca",
+                    page=5,
+                ),
+            ),
+        },
+        result=result,
+        unit="tok/s",
+    )
+
+
+class TestAveragingAwayAConflict:
+    """Catches: A2's derivation machinery legitimising the averaging A8 forbids.
+
+    A8 is enforced by "`prompts/content.md` behaviour + a conflicts section" — by asking
+    the model nicely — and the derivation machinery supplied the mechanism that makes
+    breaking the promise look audited. `PHASE-2B.md` §6.3 one level up: §6.3 closed "the
+    inputs trace to nothing", this closes "the inputs trace perfectly and the operation
+    over them is the thing A8 forbids".
+    """
+
+    def test_averaging_two_sources_that_disagree_blocks(self) -> None:
+        """The reproduction script end to end: 412 and 671 reconciled to 541.5.
+
+        Both inputs cited, both present in their spans, the arithmetic exact. Before this
+        check the whole thing was `A2 passes: True` with zero findings, and the averaged
+        figure printed under "Working (A2 — derived figure)" with a green tick against each
+        source — a 63% disagreement between two papers shown to a GATE 2 reviewer as
+        verified arithmetic.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1 / block b1",
+                text="Published throughput for this workload is 541.5 tok/s.",
+                citations=(
+                    cite(VLLM, doc_id="kwon-2023-vllm"),
+                    cite(ORCA, doc_id="yu-2022-orca", page=5),
+                ),
+                derivations=(disagreeing("(a + b) / 2", 541.5),),
+            )
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == [
+            "derivation reconciles disagreeing sources"
+        ]
+        detail = report.blocking[0].detail
+        assert "412.0" in detail and "671.0" in detail
+        assert "kwon-2023-vllm" in detail and "yu-2022-orca" in detail
+        assert VLLM in detail and ORCA in detail
+        assert "conflicts section" in detail
+
+    @pytest.mark.parametrize(
+        "formula", ["(a + b) / 2", "a / 2 + b / 2", "(a + b) * 0.5", "a + (b - a) / 2"]
+    )
+    def test_an_average_is_caught_however_it_is_spelled(self, formula: str) -> None:
+        """Catches: the detector being a pattern match on formula text.
+
+        A writer can spell a mean four ways without trying, so the check re-executes the
+        formula over the real inputs and asks whether the answer *is* their mean. That is
+        the same reason `evaluate_formula` exists rather than a regex over the string.
+        """
+        findings = check_derivation_reconciles_sources(
+            disagreeing(formula, 541.5), location="s1"
+        )
+        assert [f.severity for f in findings] == ["blocking"]
+
+    @pytest.mark.parametrize(
+        ("formula", "why"),
+        [
+            ("(b - a) / b * 100", "a percentage delta between two papers"),
+            ("a / b", "a rate from one paper's numerator and another's denominator"),
+            ("a + b", "a total across two papers"),
+            ("a * b", "a product"),
+        ],
+    )
+    def test_honest_arithmetic_across_two_sources_is_not_blocked(
+        self, formula: str, why: str
+    ) -> None:
+        """Catches: the false block that would be worse than the hole.
+
+        A derivation legitimately combining two sources is not automatically wrong, and
+        blocking one would teach writers that declaring their working is how a deck gets
+        stopped. The offence is reconciling a disagreement about the *same quantity* into a
+        figure nobody measured — not touching two documents in one formula.
+        """
+        assert check_derivation_reconciles_sources(disagreeing(formula, 0.0)) == [], why
+
+    def test_sources_that_agree_are_not_a_conflict_to_reconcile(self) -> None:
+        """Catches: the detector firing on one figure written twice.
+
+        Two papers reporting 412 and 420 for the same workload have not disagreed about
+        anything a reader would argue over, and `CONFLICT_REL_LIMIT` is deliberately the
+        same distance this module already calls "one figure rounded".
+        """
+        agreeing = Derivation(
+            formula="(a + b) / 2",
+            inputs={
+                "a": DerivationInput(value=412.0, citation=cite(VLLM, doc_id="kwon-2023-vllm")),
+                "b": DerivationInput(
+                    value=420.0,
+                    citation=cite("measured at 420 tokens per second", doc_id="yu-2022-orca"),
+                ),
+            },
+            result=416.0,
+            unit="tok/s",
+        )
+        assert check_derivation_reconciles_sources(agreeing) == []
+
+    @pytest.mark.parametrize(
+        ("derivation", "why"),
+        [
+            (
+                disagreeing("a * 0.3 + b * 0.7", 593.3),
+                "a weighted average is the same manoeuvre with a thumb on the scale",
+            ),
+            (
+                disagreeing("(a + b) / 2", 541.5, one_document=True),
+                "a mean of two figures from one paper is not A8's argument, but it is "
+                "still a figure nobody measured",
+            ),
+        ],
+    )
+    def test_the_residue_is_reported_rather_than_blocked(
+        self, derivation: Derivation, why: str
+    ) -> None:
+        """Catches: the residue being silently dropped, or blocked on a guess.
+
+        The spec's own instruction: implement the narrow certain case and report the rest,
+        because a false block here pushes writers away from showing their working.
+        """
+        findings = check_derivation_reconciles_sources(derivation, location="s1")
+        assert [f.severity for f in findings] == ["advisory"], why
+
+    def test_disable_the_defence_and_the_average_goes_green(self) -> None:
+        """Disable the defence, confirm red.
+
+        Everything else about the offending derivation is immaculate — that is what made it
+        dangerous — so with this one check removed the deck is A2-clean again. Proves the
+        block comes from the new check rather than from something else noticing.
+        """
+        derivation = disagreeing("(a + b) / 2", 541.5)
+        scope = LintScope(
+            location="slide s1 / block b1",
+            text="Published throughput for this workload is 541.5 tok/s.",
+            citations=(
+                cite(VLLM, doc_id="kwon-2023-vllm"),
+                cite(ORCA, doc_id="yu-2022-orca", page=5),
+            ),
+            derivations=(derivation,),
+        )
+        assert not lint_scope(scope).passes
+        assert check_derivation_inputs(derivation) == []
+        assert re_execute_derivation(derivation) == []
+        report = lint_scope(scope)
+        without_the_check = [
+            f for f in report.findings if f.check != "derivation reconciles disagreeing sources"
+        ]
+        assert without_the_check == []
 
 
 # ---------------------------------------------------------------------------
