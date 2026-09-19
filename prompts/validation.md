@@ -10,15 +10,21 @@ which is the point of running both.
 
 ## The verdict fields are the output
 
-Your answer is a `verdict`, a `verdict_notes` line, the spans you found that support the
-claim, and the spans you found that contradict it. The spans are lists of citation objects,
-and **a list you leave empty is a list nobody can read later.**
+Your answer is a `verdict`, a `verdict_notes` line, **the single strongest quote** that
+supports the claim, and **every quote** that contradicts it — each copied verbatim from the
+evidence you were shown.
 
-This is the failure to watch for: a verdict argued convincingly in prose, with
-`contradicting_spans` empty, produces an audit report that asserts a contradiction and
-shows nothing. The claims table at GATE 2 prints the spans, not your reasoning. If you
-found a contradicting span, it goes in the list — verbatim, with its `doc_id`, page and
-bbox — or it did not happen.
+These are quotes, not citation objects. You have no way to compute a page, a bounding box
+or a hash, and you are not asked to: the system resolves each quote you name back onto the
+real span it came from. A quote that does not match anything you were shown is **dropped**,
+which is why copying it exactly, spacing included, matters more than anything else in this
+document.
+
+And **a list you leave empty is a list nobody can read later.** This is the failure to watch
+for: a verdict argued convincingly in prose, with `contradicting_quotes` empty, produces an
+audit report that asserts a contradiction and shows nothing. The claims table at GATE 2
+prints the spans, not your reasoning. If you found a contradicting span, it goes in the list
+— or it did not happen.
 
 Quotes are copied exactly, including the spacing the extractor produced (`2-4 ×`, `10 ×`).
 A quote you tidy stops resolving against the document store, which is correct behaviour and
