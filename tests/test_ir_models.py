@@ -370,10 +370,15 @@ def deck_with_a_claim_at_every_site() -> Deck:
     and `test_the_claim_walk_visits_every_place_a_claim_can_live` says so by name.
     """
 
-    def diagram() -> DiagramSpec:
+    def distinct(where: str) -> Claim:
+        """A claim whose citation is unique to its site, so a test can tell which site a
+        downstream walk missed."""
+        return make_claim(citations=[make_citation(f"{QUOTE} ({where})")])
+
+    def diagram(where: str) -> DiagramSpec:
         return DiagramSpec(
             kind="process_flow",
-            nodes=[DiagramNode(id="n1", label="Throughput improved.", claim=make_claim())],
+            nodes=[DiagramNode(id="n1", label="Throughput improved.", claim=distinct(where))],
         )
 
     return Deck(
@@ -390,12 +395,12 @@ def deck_with_a_claim_at_every_site() -> Deck:
                 narrative_role="evidence",
                 component="text_block",
                 blocks=[
-                    Block(id="b1", kind="claim", slot="body", claim=make_claim()),
-                    Block(id="b2", kind="diagram", slot="body", diagram=diagram()),
+                    Block(id="b1", kind="claim", slot="body", claim=distinct("face")),
+                    Block(id="b2", kind="diagram", slot="body", diagram=diagram("face node")),
                 ],
                 speaker_notes=[
-                    Block(id="n1", kind="claim", slot="notes", claim=make_claim()),
-                    Block(id="n2", kind="diagram", slot="notes", diagram=diagram()),
+                    Block(id="n1", kind="claim", slot="notes", claim=distinct("note")),
+                    Block(id="n2", kind="diagram", slot="notes", diagram=diagram("note node")),
                 ],
             )
         ],

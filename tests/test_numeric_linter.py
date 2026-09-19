@@ -1424,3 +1424,39 @@ class TestEntryPoints:
         )
         report = lint_deck(deck_with(chart))
         assert not report.passes
+
+
+# ---------------------------------------------------------------------------
+# A2 keeps its own walk of the deck — this is what stops it falling behind the IR
+# ---------------------------------------------------------------------------
+
+
+def test_every_claim_site_in_the_ir_is_scoped_by_a2_too() -> None:
+    """**If this fails, a claim's evidence is invisible to A2.**
+
+    `_deck_scopes` enumerates the claim-bearing places for itself — it has to, because A2
+    lints text against the citations in force over it, which is a different question from
+    "where are the claims". That makes it the fourth enforcement point reading the deck
+    directly rather than through `Deck.claim_sites()`, and the one place a new claim site
+    can still be missed after the A3 walk was made single.
+
+    The IR's tests pin the A3 walk to the model graph; this pins A2's walk to the A3 walk.
+    Every site's citation is unique in the fixture, so the failure names the site.
+    """
+    from autodeck.audit.numeric_linter import _deck_scopes
+    from tests.test_ir_models import deck_with_a_claim_at_every_site
+
+    deck = deck_with_a_claim_at_every_site()
+    in_force = {c.identity() for scope in _deck_scopes(deck) for c in scope.citations}
+
+    missing = [
+        (site.path, c.quote)
+        for site in deck.claim_sites()
+        for c in site.claim.citations
+        if c.identity() not in in_force
+    ]
+
+    assert not missing, (
+        "A2 scopes no text against the evidence at these claim sites, so a numeral there "
+        f"can neither match nor be traced: {missing}"
+    )
