@@ -22,6 +22,24 @@ are declarative, carry their own justification, self-check for collisions at imp
 are tested directly rather than only through a lint run. A regex that happens to pass is
 untestable in exactly the cases that matter.
 
+**Matching has a floor, and the floor is the `(value, unit)` key.** A numeral matches a
+citation when the numeral and the cited span share a normalised key, and nothing else
+counts. That sentence exists because the three defects found in this module by an
+adversarial review were all in *fallback* paths, and every one had been added to prevent a
+false block: a verbatim substring search that let `40%` match `140%`, an unbounded rounding
+match that let `0.51` be printed as `1x`, and an input match that threw the unit away so a
+millisecond figure could be printed as a percentage. Each fallback was looser than the
+thing it backed up, and the ladder had no floor.
+
+So the floor is stated as a rule with a hole in it, because a rule with no hole gets
+quietly ignored the first time it causes a false block: **a fallback may be wider than the
+key intersection only if every match it makes is reported as a finding.** The
+minority-reading branch already obeyed it. The three defects did not, and that — not the
+individual rules — is what made them dangerous, because A2's green is the one result a
+GATE 2 reviewer is invited to treat as settled. Every `NumeralMatch` records the
+`matched_on` key it was made on, and `tests/test_numeric_linter.py` walks them, so the next
+fallback either names a key its source carries or shows up in the report.
+
 **A derivation is checked from both ends.** Re-executing the formula proves the
 arithmetic; `check_derivation_inputs` proves the inputs were copied rather than invented.
 Only the pair closes the loop — a derivation with real spans, correct arithmetic and made-up
@@ -70,7 +88,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from autodeck.ingest.provenance import find_span, normalise_text
+from autodeck.ingest.provenance import normalise_text
 from autodeck.ir.models import Citation, Deck, Derivation, DerivationInput, DiagramSpec
 
 # ---------------------------------------------------------------------------
@@ -129,6 +147,22 @@ class NumeralMatch:
     """True when the match needed the minority reading of a locale-ambiguous separator."""
     other_sources: tuple[str, ...] = ()
     """Further citations carrying the same numeral. A2 ambiguity, surfaced not resolved."""
+    via_unqualified_form: bool = False
+    """True when the text carried a bare number and the cited span qualifies it with a unit.
+
+    The one place matching is allowed to be *wider* than the key intersection, and it pays
+    for that by being reported — see `_match_against_citations`.
+    """
+    matched_on: NormalKey | None = None
+    """The normalised `(value, unit)` key this match was made on, from the numeral's side.
+
+    Recorded so **the floor rule can be checked rather than merely written down**. A match
+    against a citation has to name a key the cited span itself carries; a match against a
+    derivation has to name a key whose unit is the derivation's declared unit. The test
+    `test_every_match_names_a_key_its_source_actually_carries` walks every match a lint run
+    produces and confirms exactly that, so a future fallback matching on something looser
+    than a shared key has nothing truthful to put here and the suite goes red.
+    """
 
 
 @dataclass
@@ -1201,7 +1235,7 @@ def match_numerals(
     for numeral in numerals:
         if numeral.text in allowed:
             continue
-        match = _match_against_citations(numeral, citations, citation_forms, location)
+        match = _match_against_citations(numeral, citation_forms, location)
         if match is None:
             match = _match_against_derivations(numeral, derivations, location)
         if match is None:
@@ -1233,54 +1267,108 @@ def _citation_forms(citations: Sequence[Citation]) -> list[CitationForms]:
 
 def _match_against_citations(
     numeral: Numeral,
-    citations: Sequence[Citation],
     citation_forms: Sequence[CitationForms],
     location: str,
 ) -> NumeralMatch | None:
-    """Match a numeral to a span that contains it.
+    """Match a numeral to a span that contains it — on normalised `(value, unit)` keys only.
 
-    Two strategies, in order. First the verbatim one: `provenance.find_span` looks for the
-    surface form itself in the quote, which is the same search the citation resolver does,
-    so a numeral that is literally in the source matches for the same reason the quote does.
-    Then the normalised one, over `(value, unit)` keys.
+    **One strategy, and that is the floor.** There used to be a verbatim branch ahead of
+    this one: `provenance.find_span` looking for the numeral's surface form inside the
+    quote, on the reasoning that a numeral literally present in the source matches for the
+    same reason the quote itself does. `find_span` is a *quote* locator. Its needle is
+    normally a whole sentence, where substring semantics are right; here the needle was one
+    to four characters, where they are catastrophically wrong. It matched `40%` against a
+    span reading `140%`, `12` against `3,120`, `29 ms` against `1029 ms` and `3x` against
+    `13x` — every one of them A2-green with no finding of any severity, and the audit
+    report then printed the `140%` sentence underneath the `40%` claim as its evidence.
+
+    The branch was **dropped rather than fenced**. A digit fence — requiring a non-numeral
+    character on both sides of the hit — closes the four cases above and leaves two more
+    open, because the fence can only see the *digits*: a bare `100` on a slide still passes
+    a fence against a span reading `$100 million`, and a bare `29` still passes one against
+    `29 ms`. Both are the unit-and-scale blindness that `UNIT_TABLE` exists to prevent, so
+    any honest repair of the branch converges on re-implementing the key intersection that
+    is already here. Removing it changed no legitimate match anywhere in the suite or in the
+    A2 negative controls, which is the evidence that it backed up nothing.
 
     There is **no rounding tolerance here**, unlike the derivation path. `prompts/content.md`
     is explicit: if the span says `29ms` and the slide says `about 30ms`, a numeral has been
     introduced that appears in no source. Allowing 30 to match 29 would make that
     instruction unenforceable.
     """
-    verbatim = [c for c in citations if find_span(c.quote, numeral.text) is not None]
-    if verbatim:
-        return NumeralMatch(
-            numeral=numeral,
-            source="citation",
-            detail=f"verbatim in {_citation_label(verbatim[0])}",
-            location=location,
-            other_sources=tuple(_citation_label(c) for c in verbatim[1:]),
-        )
-
-    strict = [c for c, forms, _ in citation_forms if forms & numeral.forms]
+    strict = [
+        (c, shared) for c, forms, _ in citation_forms if (shared := forms & numeral.forms)
+    ]
     if strict:
         return NumeralMatch(
             numeral=numeral,
             source="citation",
-            detail=f"normalises onto a numeral in {_citation_label(strict[0])}",
+            detail=f"normalises onto a numeral in {_citation_label(strict[0][0])}",
             location=location,
-            other_sources=tuple(_citation_label(c) for c in strict[1:]),
+            other_sources=tuple(_citation_label(c) for c, _ in strict[1:]),
+            matched_on=_preferred_key(strict[0][1]),
         )
 
     everything = numeral.forms | numeral.ambiguous_forms
-    loose = [c for c, forms, alt in citation_forms if (forms | alt) & everything]
+    loose = [
+        (c, shared)
+        for c, forms, alt in citation_forms
+        if (shared := (forms | alt) & everything)
+    ]
     if loose:
         return NumeralMatch(
             numeral=numeral,
             source="citation",
-            detail=f"matches {_citation_label(loose[0])} only under the minority reading",
+            detail=f"matches {_citation_label(loose[0][0])} only under the minority reading",
             location=location,
             via_ambiguous_form=True,
-            other_sources=tuple(_citation_label(c) for c in loose[1:]),
+            other_sources=tuple(_citation_label(c) for c, _ in loose[1:]),
+            matched_on=_preferred_key(loose[0][1]),
         )
+
+    # Last tier: the text wrote a bare number where the span qualifies it — a chart series
+    # value of `4.0` against a span reading `4.0x`, a table cell of `29` against `29 ms`.
+    # Prevents: blocking a correct deck whose units live in the axis label rather than in
+    # the cell, which is how charts and tables are actually written and which the dropped
+    # verbatim branch used to carry by accident.
+    #
+    # It runs **only from bare to qualified, never the other way and never between two
+    # different units**: `40%` against a span saying `40 ms` stays blocked, because a slide
+    # that supplies a unit the source does not is asserting something the source does not
+    # say. And it is advisory-reported on every hit, which is the whole licence it has to
+    # be wider than the key intersection at all.
+    bare_values = {value for value, unit in numeral.forms if not unit}
+    if bare_values:
+        unqualified = [
+            (c, shared)
+            for c, forms, alt in citation_forms
+            if (shared := {key for key in (forms | alt) if key[0] in bare_values})
+        ]
+        if unqualified:
+            span_key = _preferred_key(unqualified[0][1])
+            return NumeralMatch(
+                numeral=numeral,
+                source="citation",
+                detail=(
+                    f"matches {_citation_label(unqualified[0][0])} on value only — the span "
+                    f"qualifies it as {span_key[1]!r} and the text does not"
+                ),
+                location=location,
+                via_unqualified_form=True,
+                other_sources=tuple(_citation_label(c) for c, _ in unqualified[1:]),
+                matched_on=(span_key[0], ""),
+            )
     return None
+
+
+def _preferred_key(shared: frozenset[NormalKey] | set[NormalKey]) -> NormalKey:
+    """One key out of an intersection, chosen deterministically.
+
+    Which key is reported changes nothing about whether the match happened — the set is
+    non-empty either way — but a match that reported a different key run to run would make
+    the floor test flap, and a flapping invariant test is one somebody eventually deletes.
+    """
+    return min(shared, key=lambda key: (key[0], key[1]))
 
 
 def _match_against_derivations(
@@ -1295,15 +1383,16 @@ def _match_against_derivations(
     """
     for derivation in derivations:
         unit = _canonical_unit(derivation.unit)
-        for key in numeral.forms:
+        for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
             if key == (Decimal(str(derivation.result)), unit):
                 return NumeralMatch(
                     numeral=numeral,
                     source="derivation_result",
                     detail=f"the stated result of {derivation.formula!r}",
                     location=location,
+                    matched_on=key,
                 )
-        for key in numeral.forms:
+        for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
             value, key_unit = key
             if key_unit != unit:
                 continue
@@ -1318,15 +1407,18 @@ def _match_against_derivations(
                     ),
                     location=location,
                     via_rounding=True,
+                    matched_on=key,
                 )
         for name, item in sorted(derivation.inputs.items()):
-            if any(value == Decimal(str(item.value)) for value, _ in numeral.forms):
-                return NumeralMatch(
-                    numeral=numeral,
-                    source="derivation_input",
-                    detail=f"input {name!r} of {derivation.formula!r}",
-                    location=location,
-                )
+            for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
+                if key[0] == Decimal(str(item.value)):
+                    return NumeralMatch(
+                        numeral=numeral,
+                        source="derivation_input",
+                        detail=f"input {name!r} of {derivation.formula!r}",
+                        location=location,
+                        matched_on=key,
+                    )
     return None
 
 
@@ -1400,7 +1492,7 @@ def lint_scope(
 
 
 def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[NumericFinding]:
-    """Advisories for the two ways a match can be true without being decisive.
+    """Advisories for the three ways a match can be true without being decisive.
 
     Both are escalation triggers in the phase brief rather than failures, and both are
     aggregated into one finding each so that a long slide does not bury its blocking
@@ -1418,6 +1510,24 @@ def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[
                     f"{', '.join(m.numeral.describe() for m in ambiguous)} matched only under "
                     "the minority reading of a separator ('1,234' as 1.234, or a day/month "
                     "order). The figure may be right; nothing in the text says so."
+                ),
+                location=location,
+            )
+        )
+
+    unqualified = [m for m in matches if m.via_unqualified_form]
+    if unqualified:
+        findings.append(
+            NumericFinding(
+                check="numeral matched without its unit",
+                severity="advisory",
+                detail=(
+                    "; ".join(f"{m.numeral.describe()} → {m.detail}" for m in unqualified)
+                    + ". The value is in the span, so A2 holds — but the unit came from the "
+                    "source rather than from the text, and a bare figure on a slide is one "
+                    "axis label away from meaning something else. The only match in this "
+                    "module wider than a shared (value, unit) key, and it is reported every "
+                    "time precisely because it is wider."
                 ),
                 location=location,
             )

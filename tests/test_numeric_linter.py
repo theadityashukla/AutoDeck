@@ -31,6 +31,7 @@ from autodeck.audit.numeric_linter import (
     AllowedNumeral,
     FormulaError,
     LintScope,
+    _canonical_unit,
     check_derivation_inputs,
     evaluate_formula,
     extract_numerals,
@@ -454,6 +455,202 @@ class TestMatching:
             AllowedNumeral("20", "page chrome in a Phase 3b render fixture"),
         )
         assert lint_scope(scope, allow=allowed).passes
+
+
+# ---------------------------------------------------------------------------
+# The matching floor
+# ---------------------------------------------------------------------------
+
+
+#: The four pairs an adversarial review used to walk straight through A2, verbatim from
+#: the reproduction script. Every one was `passes=True` with zero findings of any severity,
+#: because the matcher's first branch was `str.find` and the slide's numeral is a substring
+#: of a *different, larger* numeral in the cited span.
+SUBSTRING_ATTACK: tuple[tuple[str, str, str], ...] = (
+    (
+        "A 40% reduction in serving cost.",
+        "the baseline configuration consumed 140% of the memory budget",
+        "40%",
+    ),
+    (
+        "Across 12 production deployments we saw the same pattern.",
+        "the system served 3,120 requests per second at steady state",
+        "12",
+    ),
+    (
+        "Latency fell to 29 ms.",
+        "generation proceeds at 1029 ms per token on the reference stack",
+        "29 ms",
+    ),
+    (
+        "We measured a 3x improvement.",
+        "throughput improved by 13x over the FasterTransformer baseline",
+        "3x",
+    ),
+)
+
+
+class TestTheMatchingFloor:
+    """Catches: a fallback path that is looser than the `(value, unit)` key intersection.
+
+    The module's three matcher defects were all in fallbacks, and each had been added to
+    stop a false block. Tests on the individual bugs would not have caught the *next* one,
+    so the floor itself is asserted here: a match names the key it was made on, and that
+    key has to be one the thing it matched against actually carries.
+    """
+
+    @pytest.mark.parametrize(("text", "quote", "numeral"), SUBSTRING_ATTACK)
+    def test_a_numeral_inside_a_larger_numeral_in_the_span_does_not_match(
+        self, text: str, quote: str, numeral: str
+    ) -> None:
+        """Catches: `40%` sourced to a span that only ever says `140%`.
+
+        The consequence was worse than a green tick. A6's report prints the matched span
+        underneath the claim as its evidence, so the owner read the `140%` sentence as the
+        source of the `40%` figure.
+        """
+        report = lint_scope(
+            LintScope(location="slide s1 / block b1", text=text, citations=(cite(quote),))
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+        assert repr(numeral) in report.blocking[0].detail
+
+    @pytest.mark.parametrize(("text", "quote", "numeral"), SUBSTRING_ATTACK)
+    def test_disable_the_defence_and_the_attack_goes_green(
+        self, text: str, quote: str, numeral: str
+    ) -> None:
+        """Disable the defence, confirm red — the digit-fence half of it.
+
+        The defence is that matching happens on normalised keys and nowhere else. This
+        reinstates what the dropped branch did — `provenance.find_span` over the numeral's
+        surface form — and confirms it still finds the needle in every one of these spans.
+        So the block above is the key intersection doing work, not an accident of
+        extraction: put substring semantics back and all four attacks pass again.
+        """
+        from autodeck.ingest.provenance import find_span
+
+        assert find_span(quote, numeral) is not None
+
+    def test_a_numeral_genuinely_in_the_span_still_matches(self) -> None:
+        """Catches: closing the substring hole by blocking honest copies too.
+
+        `29 ms` against a span that really says `29 ms` is the case the dropped branch was
+        there for, and the key intersection has always handled it. Kept as its own test so
+        a future tightening cannot quietly take it away.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="Latency fell to 29 ms.",
+                citations=(cite("generation proceeds at 29 ms per token"),),
+            )
+        )
+        assert report.passes
+        assert report.matches[0].matched_on == (Decimal(29), "ms")
+
+    def test_a_bare_number_matches_a_qualified_span_but_is_reported(self) -> None:
+        """Catches: closing the substring hole by blocking charts and tables.
+
+        A chart series value is a bare `4.0` and the span that sources it says `4.0x`; the
+        dropped verbatim branch carried that case by accident, and losing it silently would
+        have been a false block traded for a true one. It matches on value — the one place
+        this module is wider than a shared key — and pays for it with an advisory, so the
+        widening is visible in the audit report rather than in the source of this function.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1 / chart",
+                text="4.0",
+                citations=(cite("vLLM improves throughput by 4.0x"),),
+            )
+        )
+        assert report.passes
+        assert [f.check for f in report.advisory] == ["numeral matched without its unit"]
+        assert report.matches[0].via_unqualified_form
+
+    def test_a_unit_the_span_does_not_say_is_still_blocked(self) -> None:
+        """Catches: the value-only tier growing into "any unit matches any unit".
+
+        `40%` against a span reading `40 ms` shares a value and nothing else. The widening
+        runs one way only — from a bare figure to a qualified span — because a slide that
+        supplies a unit the source never wrote is asserting something the source does not
+        say, which is `UNIT_TABLE`'s `usd` row in different words.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="A 40% cut in cost.",
+                citations=(cite("latency fell by 40 ms"),),
+            )
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    def test_every_match_names_a_key_its_source_actually_carries(self) -> None:
+        """Catches: the *next* fallback, the one this review did not reach.
+
+        A match against a citation has to name a `(value, unit)` key the cited span itself
+        carries; a match against a derivation has to name one whose unit is the
+        derivation's declared unit. A fallback looser than that has nothing truthful to put
+        in `matched_on`, so it fails here rather than shipping as a fifth hole.
+        """
+        quote = cite("vLLM sustains 412 tokens per second on the ShareGPT trace")
+        other = cite("the baseline sustains 206 tokens per second", doc_id="yu2022", page=5)
+        derivation = Derivation(
+            formula="a / b",
+            inputs={
+                "a": DerivationInput(value=412.0, citation=quote),
+                "b": DerivationInput(value=206.0, citation=other),
+            },
+            result=2.0,
+            unit="x",
+        )
+        scopes = (
+            LintScope(
+                location="s1",
+                text="vLLM sustains 412 and the baseline 206 tokens per second.",
+                citations=(quote, other),
+            ),
+            LintScope(
+                location="s2",
+                text="That is a 2x gain.",
+                citations=(quote, other),
+                derivations=(derivation,),
+            ),
+            LintScope(
+                location="s3",
+                text="The estimate is 3.2M tokens per day.",
+                citations=(cite("the workload is 3,200,000 tokens per day"),),
+            ),
+        )
+        seen = 0
+        for scope in scopes:
+            report = lint_scope(scope)
+            assert report.passes, scope.location
+            citation_keys = {
+                key
+                for citation in scope.citations
+                for extracted in extract_numerals(citation.quote)
+                for key in extracted.forms | extracted.ambiguous_forms
+            }
+            reported = {
+                fragment
+                for finding in report.advisory
+                for fragment in finding.detail.split(" → ")
+            }
+            for match in report.matches:
+                seen += 1
+                assert match.matched_on is not None, match.detail
+                assert match.matched_on in match.numeral.forms | match.numeral.ambiguous_forms
+                if match.source != "citation":
+                    units = {_canonical_unit(d.unit) for d in scope.derivations}
+                    assert match.matched_on[1] in units, match.detail
+                elif match.matched_on not in citation_keys:
+                    # Wider than the key intersection is allowed only when reported.
+                    assert match.via_unqualified_form, match.detail
+                    assert any(match.numeral.describe() in r for r in reported), match.detail
+        assert seen >= 4
 
 
 # ---------------------------------------------------------------------------
