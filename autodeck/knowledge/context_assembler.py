@@ -152,6 +152,17 @@ class AssembledContext:
     header_profile: dict[str, object] | None = None
     sources: list[Path] = field(default_factory=list)
     """Every file read, in order. The audit trail for what entered the prompt."""
+    send_backs: tuple[str, ...] = ()
+    """GATE 2 send-backs (task 2b.11), one line per rejected claim, prepended by
+    `autodeck content` so the next content pass is told what the owner already rejected and
+    why — rather than the writer re-deriving the same sentence with nothing to warn it off.
+
+    Not part of any knowledge folder: `ContextAssembler.assemble()` never sets this, and it
+    carries no provenance path because it names nothing under `knowledge/`. It is appended
+    here rather than threaded through `agents/content.py` as a new parameter, because this
+    struct is that module's one full-text channel into the prompt and reusing it means the
+    content agent needs no change to see a send-back.
+    """
 
     def to_prompt_context(self) -> str:
         """Render the curated knowledge as one block, loaded fully (D8, OKF principle)."""
@@ -164,6 +175,11 @@ class AssembledContext:
             f"# Engagement note {index}\n\n{text}"
             for index, text in enumerate(self.engagements, start=1)
         )
+        if self.send_backs:
+            sections.append(
+                "# Claims sent back at GATE 2 — rejected by the owner, do not write these "
+                "again\n\n" + "\n\n".join(f"- {line}" for line in self.send_backs)
+            )
         return "\n\n---\n\n".join(sections)
 
 

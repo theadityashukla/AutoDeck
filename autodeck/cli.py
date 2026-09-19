@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 from autodeck.audit.manifest import build_manifest
 from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.ir.models import Block, Citation, Claim, Deck, Slide
+from autodeck.ir.models import Block, Citation, Claim, Deck, DeckBrief, Slide
 from autodeck.ir.store import IRStore, diff_decks
 from autodeck.pipeline.orchestrator import (
     DEFAULT_RUNS_ROOT,
@@ -29,6 +29,11 @@ from autodeck.pipeline.orchestrator import (
     Orchestrator,
 )
 from autodeck.providers.registry import ModelRegistry
+
+if TYPE_CHECKING:
+    from autodeck.audit.framing_linter import FramingReport
+    from autodeck.audit.numeric_linter import NumericReport
+    from autodeck.audit.report import AuditReport
 
 app = typer.Typer(
     name="autodeck",
@@ -850,6 +855,562 @@ def outline(
     typer.echo(report.render())
     if not report.mechanical_checks_pass:
         raise typer.Exit(code=4)
+
+
+# ---------------------------------------------------------------------------
+# content / validate / GATE 2 (Phase 2b, task 2b.11)
+# ---------------------------------------------------------------------------
+#
+# Three commands and a fourth that is the actual point of this section. `content` and
+# `validate` are plumbing — they call agents that already exist and are already tested
+# (`autodeck/agents/content.py`, `autodeck/agents/validation.py`) and write the result as
+# the next IR version, exactly as `outline` does for its own stage. `gate2` is the review
+# surface `gate1.py` already models: it reports the checkable criteria and never approves.
+#
+# `send-back` is the part nothing in the system could express before this task. GATE 2's
+# exit criterion is "approves, or sends specific claims back", and a send-back that a
+# writer could regenerate verbatim would make the gate decorative — see
+# `autodeck/pipeline/send_back.py`'s module docstring for the full design and its own
+# stated limits.
+
+
+def _iso_now() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+@app.command()
+def content(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    env: EnvOption = "dev",
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Write every slide's blocks from the approved outline, then lint the result (A2, A5).
+
+    Blocked unless the outline gate is approved (A7): there is no content without an
+    outline the owner has signed off. Any claim `autodeck send-back` rejected in an earlier
+    round is read from the run directory and shown to the writer; a new claim identical to
+    one already rejected is dropped rather than written again — see
+    `autodeck/pipeline/send_back.py` for what that check does and does not catch.
+    """
+    import dataclasses
+
+    from autodeck.agents.content import ContentError, write_slide
+    from autodeck.audit.framing_linter import lint_framing
+    from autodeck.audit.numeric_linter import lint_deck
+    from autodeck.design.theme.tokens import DesignTokens
+    from autodeck.ingest.document_store import DocumentStore
+    from autodeck.ingest.provenance import normalise_for_match
+    from autodeck.ir.store import IRStoreError
+    from autodeck.knowledge.context_assembler import ContextAssembler
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+    from autodeck.pipeline.orchestrator import Gate, GateBlocked, Orchestrator
+    from autodeck.pipeline.send_back import SendBackRecord, load_send_backs
+    from autodeck.providers.registry import ModelRegistry
+    from autodeck.retrieval.hybrid import build_index
+
+    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    try:
+        orchestrator.require_gate(Gate.OUTLINE)
+    except GateBlocked as blocked:
+        _echo_error(str(blocked))
+        raise typer.Exit(code=3) from None
+
+    try:
+        deck = orchestrator.ir.load()
+        brief_doc = orchestrator.ir.load_brief()
+    except IRStoreError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    try:
+        context = ContextAssembler(
+            knowledge_root, client=deck.client, project=deck.project
+        ).assemble()
+        knowledge = KnowledgeLoader(knowledge_root).load_project(deck.project)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    store = DocumentStore(corpus_root / deck.project)
+    documents = list(store.documents())
+    if not documents:
+        _echo_error(
+            f"no ingested documents under {corpus_root / deck.project}. Run "
+            f"`autodeck knowledge ingest {deck.project}` first."
+        )
+        raise typer.Exit(code=2)
+    index = build_index(documents, project=deck.project)
+
+    design_tokens = DesignTokens.load(Path(deck.theme_ref))
+    model = ModelRegistry.load(env).provider_for("content")
+
+    send_backs = load_send_backs(orchestrator.paths.root)
+    if send_backs:
+        context = dataclasses.replace(
+            context, send_backs=tuple(record.prompt_line() for record in send_backs)
+        )
+
+    def matches_a_send_back(record: SendBackRecord, claim: Claim) -> bool:
+        return normalise_for_match(claim.text) == normalise_for_match(record.claim_text)
+
+    def drop_repeats(blocks: list[Block], location: str) -> tuple[list[Block], list[str]]:
+        kept: list[Block] = []
+        dropped: list[str] = []
+        for block in blocks:
+            claim = block.claim
+            hit = next(
+                (r for r in send_backs if claim is not None and matches_a_send_back(r, claim)),
+                None,
+            )
+            if hit is None:
+                kept.append(block)
+                continue
+            dropped.append(
+                f"{location} block {block.id!r} dropped: identical to the claim sent back "
+                f"as {hit.claim_id!r} against IR v{hit.ir_version} by {hit.by} — {hit.reason}"
+            )
+        return kept, dropped
+
+    new_slides: list[Slide] = []
+    rejections: list[str] = []
+    send_back_drops: list[str] = []
+    new_deck: Deck | None = None
+
+    def do_content() -> str:
+        nonlocal new_deck
+        for slide in deck.slides:
+            result = write_slide(
+                slide,
+                brief_doc,
+                context,
+                store=store,
+                index=index,
+                claims=knowledge.claims,
+                tokens=design_tokens,
+                model=model,
+            )
+            kept_blocks, block_drops = drop_repeats(result.blocks, f"slide {slide.id} face")
+            kept_notes, note_drops = drop_repeats(
+                result.speaker_notes, f"slide {slide.id} notes"
+            )
+            send_back_drops.extend(block_drops + note_drops)
+            rejections.extend(f"slide {slide.id}: {reason}" for reason in result.rejections)
+
+            new_slides.append(
+                slide.model_copy(update={"blocks": kept_blocks, "speaker_notes": kept_notes})
+            )
+            typer.echo(
+                f"  {slide.id:<8} {len(kept_blocks)} block(s), {len(kept_notes)} note(s)"
+                + ("" if result.budgets_checked else "  (budgets not checked — no catalog)")
+            )
+
+        new_deck = deck.model_copy(
+            update={"version": orchestrator.ir.next_version(), "slides": new_slides}
+        )
+        path = orchestrator.ir.save(new_deck)
+        return f"wrote {path}"
+
+    try:
+        orchestrator.run_stage("content", do_content, force=True)
+    except ContentError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    assert new_deck is not None
+    typer.secho(f"\nwrote IR v{new_deck.version}", fg=typer.colors.GREEN)
+
+    if rejections:
+        typer.secho(
+            f"\n{len(rejections)} block(s) dropped during citation/budget resolution:",
+            fg=typer.colors.YELLOW,
+        )
+        for reason in rejections:
+            typer.echo(f"  {reason}")
+
+    if send_back_drops:
+        typer.secho(
+            f"\n{len(send_back_drops)} block(s) dropped as a verbatim repeat of a GATE 2 "
+            "send-back:",
+            fg=typer.colors.YELLOW,
+        )
+        for reason in send_back_drops:
+            typer.echo(f"  {reason}")
+    elif send_backs:
+        typer.echo(
+            f"\n{len(send_backs)} earlier send-back(s) were shown to the writer; none of "
+            "the new claims repeat one verbatim."
+        )
+
+    typer.echo("")
+    numeric = lint_deck(new_deck)
+    framing = lint_framing(new_deck)
+    typer.echo(numeric.render())
+    typer.echo("")
+    typer.echo(framing.render())
+    typer.echo(f"\nNext: autodeck validate {run_id}")
+
+
+@app.command()
+def validate(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    env: EnvOption = "dev",
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Validate every claim in the latest IR (A3) and write the verdicts as a new version.
+
+    Blocked unless `autodeck content` has run — there is nothing to independently verify
+    before it has. Prints the claims table `verdicts.VerdictReport.render()` produces;
+    `autodeck gate2` is the surface that turns this into a reviewable report.
+    """
+    from autodeck.agents.validation import ValidationAgentError, ValidationResult, validate_deck
+    from autodeck.ingest.document_store import DocumentStore
+    from autodeck.ir.store import IRStoreError
+    from autodeck.pipeline.orchestrator import Orchestrator
+    from autodeck.providers.registry import ModelRegistry
+    from autodeck.retrieval.hybrid import build_index
+
+    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    if not orchestrator.state.is_complete("content"):
+        _echo_error(
+            f"run {run_id!r} has no content yet. Run `autodeck content {run_id}` first."
+        )
+        raise typer.Exit(code=3)
+
+    try:
+        deck = orchestrator.ir.load()
+    except IRStoreError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    store = DocumentStore(corpus_root / deck.project)
+    documents = list(store.documents())
+    if not documents:
+        _echo_error(
+            f"no ingested documents under {corpus_root / deck.project}. Run "
+            f"`autodeck knowledge ingest {deck.project}` first."
+        )
+        raise typer.Exit(code=2)
+    index = build_index(documents, project=deck.project)
+    model = ModelRegistry.load(env).provider_for("validation")
+
+    next_version = orchestrator.ir.next_version()
+    result: ValidationResult | None = None
+
+    def do_validate() -> str:
+        nonlocal result
+        deck_to_validate = deck.model_copy(update={"version": next_version})
+        result = validate_deck(deck_to_validate, index=index, store=store, model=model)
+        path = orchestrator.ir.save(result.deck)
+        return f"wrote {path} · {result.provider_calls} provider call(s)"
+
+    try:
+        orchestrator.run_stage("validate", do_validate, force=True)
+    except ValidationAgentError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    assert result is not None
+    typer.secho(f"wrote v{next_version}", fg=typer.colors.GREEN)
+    typer.echo("")
+    typer.echo(result.report.render())
+    typer.echo(f"\nNext: autodeck gate2 {run_id}")
+
+
+@app.command()
+def gate2(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """The GATE 2 review surface: the audit report, a stable id per claim, and the phase
+    brief's checkable criteria.
+
+    Blocked unless `autodeck validate` has run. Exits non-zero when a checkable criterion
+    fails — but as with `gate1.py`, this reports and never decides. A clean run here is not
+    the gate: the owner reading the claims table is. Approve with `autodeck approve
+    <run> claims`, or reject named claims with `autodeck send-back`.
+    """
+    from autodeck.audit.framing_linter import lint_framing
+    from autodeck.audit.numeric_linter import lint_deck
+    from autodeck.audit.report import build_audit_report, render
+    from autodeck.ir.store import IRStoreError
+    from autodeck.pipeline.orchestrator import Orchestrator
+    from autodeck.pipeline.send_back import load_send_backs
+
+    orchestrator = Orchestrator(run_id, runs_root=runs_root)
+    if not orchestrator.state.is_complete("validate"):
+        _echo_error(
+            f"run {run_id!r} has not been validated yet. Run `autodeck validate {run_id}` "
+            "first."
+        )
+        raise typer.Exit(code=3)
+
+    try:
+        deck = orchestrator.ir.load()
+    except IRStoreError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    brief_doc: DeckBrief | None
+    try:
+        brief_doc = orchestrator.ir.load_brief()
+    except IRStoreError:
+        brief_doc = None
+
+    numeric = lint_deck(deck)
+    framing = lint_framing(deck)
+    report = build_audit_report(deck, brief=brief_doc, numeric=numeric, framing=framing)
+
+    typer.echo(render(report))
+    typer.echo("=" * 78)
+    typer.secho(
+        "GATE 2 checkable criteria (docs/phases/PHASE-2B.md)", bold=True, fg=typer.colors.CYAN
+    )
+    all_pass = True
+    for label, passed, detail in _gate2_checks(deck, brief_doc, numeric, framing, report):
+        all_pass = all_pass and passed
+        typer.secho(
+            f"  [{'PASS' if passed else 'FAIL'}] {label}",
+            fg=typer.colors.GREEN if passed else typer.colors.RED,
+        )
+        if detail:
+            typer.echo(f"         {detail}")
+
+    typer.echo("\nStable claim ids, for `autodeck send-back --claim`:")
+    for row in report.claim_rows():
+        typer.echo(
+            f"  {row.slide_id}:{row.block_id}  [{row.verdict}]  {_shorten(row.claim_text, 80)}"
+        )
+
+    send_backs = load_send_backs(orchestrator.paths.root)
+    if send_backs:
+        typer.secho(
+            f"\n{len(send_backs)} claim(s) already sent back in an earlier round:",
+            fg=typer.colors.YELLOW,
+        )
+        for record in send_backs:
+            typer.echo(
+                f"  {record.claim_id} (v{record.ir_version}, by {record.by}): {record.reason}"
+            )
+
+    typer.secho(
+        f"\nA clean run above is not the gate — {run_id} is ready for the owner to read the "
+        "claims table, not to ship. Approve with `autodeck approve "
+        f"{run_id} claims`, or send specific claims back with `autodeck send-back {run_id} "
+        '--claim <id> --reason "..."`.',
+        fg=typer.colors.YELLOW,
+    )
+
+    if not all_pass:
+        raise typer.Exit(code=4)
+
+
+def _gate2_checks(
+    deck: Deck,
+    brief_doc: DeckBrief | None,
+    numeric: NumericReport,
+    framing: FramingReport,
+    report: AuditReport,
+) -> list[tuple[str, bool, str]]:
+    """The six checkable criteria `docs/phases/PHASE-2B.md` names for GATE 2.
+
+    Every check calls an existing function or reads an existing report field — nothing here
+    re-derives a verdict, a numeral match or a demotion. The one deliberate broadening:
+    criterion 1 also fails on an `unverified` claim, not only `unsupported`/`contradicted`.
+    `require_safe_to_render`'s own docstring names the trap this closes — a validation pass
+    that never reached a claim leaves `blocking_blocks()` empty, which would otherwise let
+    an unvalidated deck read as passing every GATE 2 criterion.
+    """
+    from autodeck.audit.verdicts import blocking_blocks, unverified_claims
+
+    checks: list[tuple[str, bool, str]] = []
+
+    blocking = blocking_blocks(deck)
+    unverified = unverified_claims(deck)
+    checks.append(
+        (
+            "zero blocks verdict unsupported/contradicted (and none left unverified)",
+            not blocking and not unverified,
+            (
+                f"{len(blocking)} blocking block(s), {len(unverified)} unverified claim(s)"
+                if blocking or unverified
+                else ""
+            ),
+        )
+    )
+
+    checks.append(
+        (
+            "numeric linter: zero unmatched numerals, every derivation re-executes",
+            numeric.passes,
+            "" if numeric.passes else f"{len(numeric.blocking)} blocking A2 finding(s)",
+        )
+    )
+
+    checks.append(
+        (
+            "framing linter clean, no unresolved demotions",
+            not framing.blocks_build,
+            (
+                f"{len(framing.demotions)} block(s) demoted to claim"
+                if framing.blocks_build
+                else ""
+            ),
+        )
+    )
+
+    rows = report.claim_rows()
+    fully_cited = all(
+        row.citations
+        and all(c.quote.strip() and c.page >= 1 and c.doc_id for c in row.citations)
+        for row in rows
+    )
+    checks.append(
+        (
+            "every claim shows doc, page and a verbatim quote",
+            fully_cited,
+            "" if fully_cited else "a claim row is missing a citation with doc/page/quote",
+        )
+    )
+
+    conflicts_ok = all(
+        bool(row.contradicting_spans) for row in rows if row.verdict == "contradicted"
+    )
+    checks.append(
+        (
+            "conflicts section present where sources disagree (A8)",
+            conflicts_ok,
+            "" if conflicts_ok else "a contradicted claim has no contradicting span recorded",
+        )
+    )
+
+    if brief_doc is None:
+        checks.append(
+            (
+                "open_risks from the brief appear in the report",
+                False,
+                "no brief could be loaded for this run — risks cannot be resurfaced",
+            )
+        )
+    else:
+        risk_ids = {risk.message_id for risk in brief_doc.open_risks}
+        reported_ids = {row.risk.message_id for row in report.risks}
+        missing_ids = sorted(risk_ids - reported_ids)
+        checks.append(
+            (
+                "open_risks from the brief appear in the report",
+                risk_ids == reported_ids,
+                "" if risk_ids == reported_ids else f"missing: {missing_ids}",
+            )
+        )
+
+    return checks
+
+
+@app.command("send-back")
+def send_back(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    claim: Annotated[
+        list[str],
+        typer.Option(
+            "--claim",
+            help="Stable claim id from `autodeck gate2` (e.g. s3:b2). Repeatable.",
+        ),
+    ],
+    reason: Annotated[
+        list[str],
+        typer.Option(
+            "--reason",
+            help="Why this claim is rejected. Repeatable, paired by position with --claim.",
+        ),
+    ],
+    by: Annotated[str, typer.Option("--by", help="Who is sending it back.")] = "owner",
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Reject named claims from the latest IR, recorded so the next content pass sees them.
+
+    This command cannot approve anything — `autodeck approve` is the only command that can,
+    and there is no flag here that does what it does. A send-back is a rejection: it is
+    recorded beside the IR (`runs/<run>/send_backs.json`), not in it, and read back by
+    `autodeck content` on its next run. See `autodeck/pipeline/send_back.py` for the full
+    design and what it does not guarantee.
+    """
+    from autodeck.audit.report import build_audit_report
+    from autodeck.ir.store import IRStoreError
+    from autodeck.pipeline.orchestrator import Orchestrator
+    from autodeck.pipeline.send_back import SendBackRecord, append_send_backs
+
+    if len(claim) != len(reason):
+        _echo_error(
+            f"{len(claim)} --claim option(s) but {len(reason)} --reason option(s); pass "
+            "exactly one --reason for each --claim, in the same order."
+        )
+        raise typer.Exit(code=2)
+    if not claim:
+        _echo_error("at least one --claim is required.")
+        raise typer.Exit(code=2)
+
+    orchestrator = Orchestrator(run_id, runs_root=runs_root)
+    try:
+        deck = orchestrator.ir.load()
+    except IRStoreError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    report = build_audit_report(deck, brief=None)
+    by_claim_id = {f"{row.slide_id}:{row.block_id}": row for row in report.claim_rows()}
+
+    records: list[SendBackRecord] = []
+    unknown: list[str] = []
+    for claim_id, why in zip(claim, reason, strict=True):
+        if not why.strip():
+            _echo_error(
+                f"empty --reason for claim {claim_id!r}. A send-back with no reason teaches "
+                "the writer nothing."
+            )
+            raise typer.Exit(code=2)
+        row = by_claim_id.get(claim_id)
+        if row is None:
+            unknown.append(claim_id)
+            continue
+        records.append(
+            SendBackRecord(
+                claim_id=claim_id,
+                ir_version=deck.version,
+                slide_id=row.slide_id,
+                block_id=row.block_id,
+                claim_text=row.claim_text,
+                verdict=row.verdict,
+                citations=tuple((c.doc_id, c.page, c.quote) for c in row.citations),
+                reason=why.strip(),
+                by=by,
+                at=_iso_now(),
+            )
+        )
+
+    if unknown:
+        _echo_error(
+            f"unknown claim id(s): {', '.join(unknown)}. Run `autodeck gate2 {run_id}` to "
+            "see the current claim ids — they change across content passes."
+        )
+        raise typer.Exit(code=1)
+
+    path = append_send_backs(orchestrator.paths.root, records)
+    for record in records:
+        typer.secho(
+            f"sent back {record.claim_id} (v{record.ir_version}) — {record.reason}",
+            fg=typer.colors.YELLOW,
+        )
+    typer.secho(f"\nwrote {path}", fg=typer.colors.GREEN)
+    typer.echo(
+        "\nThis is a rejection, not an approval — GATE 2 still needs `autodeck approve "
+        f"{run_id} claims` once every claim is addressed. Re-run `autodeck content {run_id}` "
+        "so the writer sees this."
+    )
 
 
 # ---------------------------------------------------------------------------
