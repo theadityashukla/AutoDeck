@@ -44,12 +44,14 @@ app = typer.Typer(
 ir_app = typer.Typer(help="Inspect and diff Deck IR versions.", no_args_is_help=True)
 spike_app = typer.Typer(help="GATE 0 spike artifacts.", no_args_is_help=True)
 fonts_app = typer.Typer(help="Font availability checks.", no_args_is_help=True)
+components_app = typer.Typer(help="Component catalog: golden previews.", no_args_is_help=True)
 knowledge_app = typer.Typer(
     help="Knowledge folders and the document corpus.", no_args_is_help=True
 )
 app.add_typer(ir_app, name="ir")
 app.add_typer(spike_app, name="spike")
 app.add_typer(fonts_app, name="fonts")
+app.add_typer(components_app, name="components")
 app.add_typer(knowledge_app, name="knowledge")
 
 EnvOption = Annotated[
@@ -314,6 +316,57 @@ def fonts_check(
             typer.echo(f"          {exc}")
     if missing:
         raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# components
+# ---------------------------------------------------------------------------
+
+
+@components_app.command("preview")
+def components_preview(
+    tokens: TokensOption = Path("config/tokens/dev.json"),
+    only: Annotated[
+        list[str] | None,
+        typer.Option("--only", help="Render just these components (repeatable). Default: all."),
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Where to write PNGs. Default: the committed preview dir."),
+    ] = None,
+) -> None:
+    """Render every registered component to its committed golden preview PNG (D5, 3a.4).
+
+    Regenerates unconditionally, every registered component by default, so a `layout_kit`
+    change that shifts every component's geometry is visible as one diff across every PNG
+    rather than a stale subset of them. The PNGs this writes ARE the design artifact of
+    record — commit them.
+    """
+    from autodeck.design.components import preview as preview_loop
+    from autodeck.design.components.catalog import PREVIEW_DIR, UnknownComponentError
+    from autodeck.render.qa.libreoffice import FontSubstitutionRisk, RenderError
+
+    design_tokens = DesignTokens.load(tokens)
+    out_dir = out or PREVIEW_DIR
+    try:
+        results = preview_loop.render_previews(
+            design_tokens, only=tuple(only) if only else None, out_dir=out_dir
+        )
+    except (FontSubstitutionRisk, RenderError, UnknownComponentError, KeyError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    for result in results:
+        typer.echo(f"  {result.name:<20} {result.png}")
+
+    preview_loop.write_provenance(results, out_dir / "provenance.json")
+
+    typer.secho(
+        f"\n{len(results)} preview(s) rendered in {design_tokens.typography.major} / "
+        f"{design_tokens.typography.minor}. A visual judgement is only valid for that "
+        "family — Aptos is the deliverable target (B11).",
+        fg=typer.colors.YELLOW,
+    )
 
 
 # ---------------------------------------------------------------------------
