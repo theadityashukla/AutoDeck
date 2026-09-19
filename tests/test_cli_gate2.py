@@ -34,6 +34,7 @@ from autodeck.pipeline.orchestrator import Gate, Orchestrator
 from autodeck.pipeline.send_back import load_send_backs, send_backs_path
 from tests.test_knowledge import build_knowledge
 from tests.test_validation import Scripted as ScriptedValidator
+from tests.test_verdicts import deck_with, diagram_block
 
 runner = CliRunner()
 
@@ -329,6 +330,56 @@ def test_gate2_never_writes_an_approval(
     run_gate2(runs_root)
     orchestrator = Orchestrator("r1", runs_root=runs_root, env="dev")
     assert not orchestrator.state.is_approved(Gate.CLAIMS)
+
+
+# ---------------------------------------------------------------------------
+# GATE 2's criteria and GATE 2's claims table must agree
+# ---------------------------------------------------------------------------
+
+
+def test_gate2_fails_on_a_contradicted_diagram_node_claim() -> None:
+    """The defect, at the screen a human reads.
+
+    GATE 2 printed the claims table and the checkable criteria one after the other. With a
+    `contradicted` claim on a diagram node, the table said `contradicted` and criterion 1
+    said `[PASS] zero blocks verdict unsupported/contradicted` — on the same screen, about
+    the same claim. A reviewer trusting the criterion would approve it.
+    """
+    from autodeck.audit.framing_linter import lint_framing
+    from autodeck.audit.numeric_linter import lint_deck
+    from autodeck.audit.report import build_audit_report
+    from autodeck.cli import _gate2_checks
+
+    deck = deck_with(diagram_block("b1", {"n1": "contradicted"}))
+    numeric, framing = lint_deck(deck), lint_framing(deck)
+    report = build_audit_report(deck, brief=None, numeric=numeric, framing=framing)
+
+    assert [(r.block_id, r.verdict) for r in report.claim_rows()] == [
+        ("b1/n1", "contradicted")
+    ], "the claims table has always seen it"
+
+    label, passed, detail = _gate2_checks(deck, None, numeric, framing, report)[0]
+
+    assert "unsupported/contradicted" in label
+    assert not passed, "the criterion must agree with the table it is printed beside"
+    assert "1 blocking block(s)" in detail
+
+
+def test_gate2_fails_on_an_unverified_diagram_node_claim() -> None:
+    """A node the validator never reached is not a node that passed."""
+    from autodeck.audit.framing_linter import lint_framing
+    from autodeck.audit.numeric_linter import lint_deck
+    from autodeck.audit.report import build_audit_report
+    from autodeck.cli import _gate2_checks
+
+    deck = deck_with(diagram_block("b1", {"n1": "unverified"}))
+    numeric, framing = lint_deck(deck), lint_framing(deck)
+    report = build_audit_report(deck, brief=None, numeric=numeric, framing=framing)
+
+    _, passed, detail = _gate2_checks(deck, None, numeric, framing, report)[0]
+
+    assert not passed
+    assert "1 unverified claim(s)" in detail
 
 
 # ---------------------------------------------------------------------------

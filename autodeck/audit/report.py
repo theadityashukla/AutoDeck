@@ -378,21 +378,20 @@ def build_audit_report(
 
 
 def _slide_section(slide: Slide, framing: FramingReport | None) -> SlideSection:
-    note_ids = {block.id for block in slide.speaker_notes}
-    rows: list[ClaimRow] = []
-    for block in slide.all_blocks():
-        in_notes = block.id in note_ids
-        if block.claim is not None:
-            rows.append(_claim_row(slide.id, block.id, block.claim, in_notes=in_notes))
-        if block.diagram is not None:
-            # A diagram node whose label asserts a fact is a claim like any other
-            # (`autodeck/ir/models.py`). Reported under the block that carries the diagram,
-            # with the node id appended, so the reviewer can find the label on the slide.
-            rows.extend(
-                _claim_row(slide.id, f"{block.id}/{node.id}", node.claim, in_notes=in_notes)
-                for node in block.diagram.nodes
-                if node.claim is not None
-            )
+    # Through `Slide.claim_sites()` rather than walking blocks and diagram nodes here. This
+    # function had the diagram branch and `Block.blocks_render()` did not, which is how the
+    # claims table came to print a claim as `contradicted` on the same GATE 2 screen as
+    # "[PASS] zero blocks verdict unsupported/contradicted". One walk, so they cannot
+    # disagree again — including about a claim site neither has heard of yet.
+    rows = [
+        _claim_row(
+            site.slide_id,
+            f"{site.block_id}/{site.node_id}" if site.node_id else site.block_id,
+            site.claim,
+            in_notes=site.in_speaker_notes,
+        )
+        for site in slide.claim_sites()
+    ]
     demotions = (
         tuple(d for d in framing.demotions if d.slide_id == slide.id)
         if framing is not None
