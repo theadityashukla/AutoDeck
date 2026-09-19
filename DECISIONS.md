@@ -817,3 +817,42 @@ the owner with options.
   implementation detail. **No code was changed on the strength of this entry.**
 - **Consequence either way:** the Phase 2b milestone run starts from `autodeck plan`, and
   `docs/handovers/PHASE-2B.md` §10 is written on that assumption.
+
+### B31 — Phase 3a starts with three preconditions unmet, knowingly
+- **Date:** 2026-09-19
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active
+- **Context:** `docs/phases/PHASE-3A.md` lists four preconditions. Three are not met, and
+  proceeding anyway is a decision rather than an oversight, so it is recorded here.
+- **1. "GATE 2 approved."** It is not, and cannot be before the review session — **B27** is
+  the standing decision that phases 2b–3b stack unmerged and every gate stays `pending`. The
+  cost was stated when B27 was taken and is restated here: **a GATE 2 rejection invalidates
+  whatever Phase 3a builds on top of it.** The owner accepted that trade when choosing the
+  batch. Nothing in 3a may alter a verified fact, which the phase's own exit criteria
+  already require ("Phase 2b's audit report is still clean").
+- **2. "GATE 0 spikes all passed"** — they passed *on the visual bar only* (**G0**). The
+  icon and theme behaviour has never been confirmed in PowerPoint itself, and PHASE-3A says
+  Phase 3a must check both **before** building on them. There is no PowerPoint in this
+  environment and no way to obtain one. **Resolution: build against headless LibreOffice,
+  which is what the golden-PNG loop uses anyway, and carry the PowerPoint check forward as
+  owner debt rather than claiming it.** Two specific behaviours must be listed in the Phase
+  3a handover for the owner to check at GATE 3 with a real PowerPoint: that a theme appears
+  in PowerPoint's own theme UI and that hand-added slides inherit it (3a.1's done-when), and
+  that icons arrive as recolourable native shapes rather than pictures (3a.7's). LibreOffice
+  agreeing is evidence, not proof; the two engines disagree about OOXML in exactly the areas
+  D10 and D11 care about.
+- **3. "Owner answer to Q5"** (a client with a mandated corporate template). Unanswered.
+  Per the batch plan: **mode (b) — generate from tokens — is built fully; mode (a) is built
+  against a synthetic corporate template and the gap is recorded.** A synthetic template
+  exercises the extraction path but proves nothing about the malformed, decade-old templates
+  real clients mandate, which is the only interesting case.
+- **Also recorded: the budget ceiling was lifted by the owner**, which retires the
+  budget-driven half of **B28**. B28's rule was "guardrail paths keep their tier; Opus-tagged
+  work *outside* them drops to Sonnet under the budget". With no budget pressure, Opus-tagged
+  tasks run on Opus, and the de-escalations 3a.4 and 3a.6 anticipate stay in place because
+  those are *pattern-driven* — the nth mechanical instance of an established component
+  renderer genuinely does not need a top-tier model — not budget-driven. **Fable 5.1 is
+  unavailable on this account** (HTTP 429, "requires usage credits"), so Opus is the top tier
+  actually available, including for the review passes the plan reserved for Fable.
+- **Consequence:** the Phase 3a handover's §3 and §7 carry all three gaps, and none of them
+  may be quietly closed by a later phase noticing the box is ticked.
