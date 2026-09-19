@@ -110,11 +110,145 @@ def test_big_number_source_box_is_exactly_the_renderers_caption_strip() -> None:
 
 @requires_test_font
 def test_two_column_point_is_capped_to_one_line_by_design() -> None:
-    """The one deliberate exception to "reserve headroom, don't guess": row parity across
-    the two columns depends on it (see `_two_column_compare_slots`'s docstring)."""
+    """`point` stays a single line for legibility (a scannable phrase), not for row parity
+    — see `_two_column_compare_slots`'s corrected docstring."""
     tokens = tokens_for()
     budget = budget_for("two_column_compare", "left_point", tokens)
     assert budget.max_lines == 1
+
+
+# ---------------------------------------------------------------------------
+# Carried finding (2b.2 review): repeatable slots — real content is a LIST
+# ---------------------------------------------------------------------------
+
+
+@requires_test_font
+def test_two_column_points_slots_share_point_widths() -> None:
+    """`left_points`/`right_points` are the real, multi-item content model; their per-item
+    geometry must be exactly `left_point`/`right_point`'s box, not a fresh guess."""
+    tokens = tokens_for()
+    spec = spec_for("two_column_compare", tokens)
+    assert spec.slot("left_points").item_box == spec.slot("left_point").box
+    assert spec.slot("right_points").item_box == spec.slot("right_point").box
+    assert spec.slot("left_points").repeatable
+    assert spec.slot("left_points").row_gap > 0
+
+
+@requires_test_font
+def test_check_overflow_catches_a_too_long_point_in_a_list() -> None:
+    tokens = tokens_for()
+    blocks = {
+        "headline": "Two paths forward",
+        "left_title": "Add hardware",
+        "right_title": "Rewrite the kernel",
+        "left_points": ["Cost scales linearly with load.", "word " * 300],
+    }
+    findings = check_overflow(blocks, "two_column_compare", tokens)
+    assert any("left_points[1]" in finding for finding in findings)
+    assert not any("left_points[0]" in finding for finding in findings)
+
+
+@requires_test_font
+def test_check_overflow_catches_too_many_points_even_if_each_fits_alone() -> None:
+    tokens = tokens_for()
+    spec = spec_for("two_column_compare", tokens)
+    max_items = _max_items_for_test(spec.slot("left_points"))
+    blocks = {
+        "headline": "Two paths forward",
+        "left_title": "Add hardware",
+        "right_title": "Rewrite the kernel",
+        "left_points": [f"Point number {i}." for i in range(max_items + 5)],
+    }
+    findings = check_overflow(blocks, "two_column_compare", tokens)
+    assert any("left_points" in finding and "item(s) need" in finding for finding in findings)
+
+
+def _max_items_for_test(slot: object) -> int:
+    """A local, obviously-correct re-derivation, kept independent of the catalog's own
+    `_max_items` so a bug in that private helper cannot hide behind reusing it here."""
+    item_box = slot.item_box  # type: ignore[attr-defined]
+    row_gap = slot.row_gap  # type: ignore[attr-defined]
+    box = slot.box  # type: ignore[attr-defined]
+    row = item_box.height + row_gap
+    return max(int((box.height + row_gap) // row), 0)
+
+
+@requires_test_font
+def test_check_overflow_is_clean_for_a_reasonable_point_list() -> None:
+    tokens = tokens_for()
+    blocks = {
+        "headline": "Two paths forward",
+        "left_title": "Add hardware",
+        "right_title": "Rewrite the kernel",
+        "left_points": ["Cost scales linearly with load.", "Six to nine weeks to capacity."],
+        "right_points": ["One-off cost; savings compound.", "Three weeks on the fleet."],
+    }
+    assert check_overflow(blocks, "two_column_compare", tokens) == []
+
+
+@requires_test_font
+def test_left_points_is_optional() -> None:
+    tokens = tokens_for()
+    blocks = {
+        "headline": "Two paths forward",
+        "left_title": "Add hardware",
+        "right_title": "Rewrite the kernel",
+    }
+    assert check_overflow(blocks, "two_column_compare", tokens) == []
+
+
+@requires_test_font
+def test_big_number_has_no_supporting_points_slot_by_default() -> None:
+    tokens = tokens_for()
+    spec = spec_for("big_number", tokens)
+    assert "supporting_points" not in [slot.name for slot in spec.slots]
+
+
+@requires_test_font
+def test_big_number_supporting_points_narrows_the_figure_column() -> None:
+    """The carried finding: writing `supporting_points` switches the renderer to a
+    two-column layout, so `figure` must be narrower — not the full-width box the no-points
+    spec declares."""
+    tokens = tokens_for()
+    wide = spec_for("big_number", tokens)
+    narrow = spec_for("big_number", tokens, has_supporting_points=True)
+    assert narrow.slot("figure").box.width < wide.slot("figure").box.width
+    assert narrow.slot("figure_label").box.width < wide.slot("figure_label").box.width
+    supporting = narrow.slot("supporting_points")
+    assert supporting.repeatable
+    assert supporting.item_box is not None
+    assert supporting.box.width == pytest.approx(narrow.slot("figure").box.width)
+
+
+@requires_test_font
+def test_check_overflow_infers_the_big_number_variant_from_the_blocks_given() -> None:
+    """A caller never has to pass `has_supporting_points` itself — `check_overflow` reads it
+    off whether `blocks` actually carries non-empty `supporting_points`."""
+    tokens = tokens_for()
+    wide_figure = budget_for("big_number", "figure", tokens)
+    long_figure = "9" * (wide_figure.max_chars + 1) if wide_figure.max_chars else "9" * 500
+
+    blocks = {
+        "headline": "Growth accelerated across every region",
+        "figure": long_figure,
+        "figure_label": "YoY revenue growth",
+        "supporting_points": ["Median cost fell.", "No quality regression."],
+    }
+    findings = check_overflow(blocks, "big_number", tokens)
+    # The figure is narrower once supporting_points is present, so the SAME text that just
+    # fit the full-width budget may now also overflow the narrower one — either way, the
+    # check must have measured the narrow box, not the wide one silently kept around.
+    narrow_figure = budget_for("big_number", "figure", tokens, has_supporting_points=True)
+    expected_overflow = not narrow_figure.fits(long_figure)
+    assert any("big_number.figure:" in f for f in findings) == expected_overflow
+
+
+@requires_test_font
+def test_render_budgets_mentions_the_supporting_points_variant() -> None:
+    tokens = tokens_for()
+    block = render_budgets("big_number", tokens)
+    assert "supporting_points" in block
+    assert "narrower" in block.lower() or "NARROWER" in block
 
 
 # ---------------------------------------------------------------------------
