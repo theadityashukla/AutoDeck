@@ -16,6 +16,8 @@ docs/MODEL_ROUTING.md.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -349,6 +351,67 @@ class FigureRef(IRModel):
 
 
 # ---------------------------------------------------------------------------
+# Claim sites — the one walk over every place a claim can live
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ClaimSite:
+    """One claim in the deck, located, with the means to write a judged one back.
+
+    **A claim does not live in only one kind of place, and this is the only thing that
+    knows where they all are.** `Block.claim` is the obvious one; a `DiagramSpec` node
+    carries its own, because a node label that asserts a fact is a claim like any other
+    (`DiagramNode`'s own words). Every consumer that decides anything about claims — the
+    validation agent, `Deck.blocking_blocks`, `verdicts.blocking_blocks`,
+    `verdicts.unverified_claims`, the render guard, GATE 2 — walks the deck through here
+    rather than re-deriving where claims are.
+
+    That is not tidiness. Before this walk existed, `Block.blocks_render()` read only
+    `self.claim`, so a diagram node whose claim was `contradicted` was cleared to render
+    while the audit report printed it as contradicted on the same screen. Five modules
+    knew about node claims and the one that blocked did not. The rule now is: **a new
+    claim-bearing place in the IR is added to `Block.claim_sites` (or `Slide.claim_sites`)
+    and nowhere else**, and `tests/test_ir_models.py` fails loudly if a claim site exists
+    that this walk does not visit.
+
+    Each site carries its own setter. The alternative is every caller knowing that a node
+    claim is written back through `block.diagram.nodes[i].claim`, which is the same
+    knowledge spreading into the same five places again.
+    """
+
+    slide_id: str
+    block_id: str
+    node_id: str | None
+    claim: Claim
+    in_speaker_notes: bool
+    """A1 and A3 do not care, and a human reader does: a reviewer told only "block b7"
+    cannot tell whether the sentence is one the room will see."""
+
+    path: str
+    """Where in the IR this claim was found — `slides[s1].blocks[b1].diagram.nodes[n1]
+    .claim`. Carried so a test can compare the places the walk visits against the places
+    the model graph can hold a `Claim`, with ids blanked out."""
+
+    _write: Callable[[Claim], None]
+
+    @property
+    def claim_id(self) -> str:
+        """`slide:block`, or `slide:block:node` — unique across the deck, since slide ids
+        are deck-unique and block and node ids are unique within their parent."""
+        tail = f":{self.node_id}" if self.node_id is not None else ""
+        return f"{self.slide_id}:{self.block_id}{tail}"
+
+    def blocks_render(self) -> bool:
+        """True when A3 forbids the claim at this site from reaching final render."""
+        return self.claim.blocks_render()
+
+    def replace(self, claim: Claim) -> None:
+        """Write `claim` back into the IR at the place this one was read from."""
+        self._write(claim)
+
+
+# ---------------------------------------------------------------------------
 # Blocks, slides, decks
 # ---------------------------------------------------------------------------
 
@@ -417,9 +480,67 @@ class Block(IRModel):
             )
         return self
 
+    def claim_sites(
+        self, *, slide_id: str = "", path: str = "", in_speaker_notes: bool = False
+    ) -> list[ClaimSite]:
+        """Every claim this block carries, directly or inside a payload.
+
+        **The one function to update when a new payload field can hold a `Claim`.** Add the
+        field here and `Deck.blocking_blocks`, `verdicts.blocking_blocks`,
+        `verdicts.unverified_claims`, the render guard, GATE 2, the audit report and the
+        validation agent all see it; add it at a call site instead and you have written the
+        diagram blind spot again.
+        """
+        base = path or f"blocks[{self.id}]"
+        sites: list[ClaimSite] = []
+
+        if self.claim is not None:
+
+            def write_block(new_claim: Claim, block: Block = self) -> None:
+                block.claim = new_claim
+
+            sites.append(
+                ClaimSite(
+                    slide_id=slide_id,
+                    block_id=self.id,
+                    node_id=None,
+                    claim=self.claim,
+                    in_speaker_notes=in_speaker_notes,
+                    path=f"{base}.claim",
+                    _write=write_block,
+                )
+            )
+
+        if self.diagram is not None:
+            for node in self.diagram.nodes:
+                if node.claim is None:
+                    continue
+
+                def write_node(new_claim: Claim, node: DiagramNode = node) -> None:
+                    node.claim = new_claim
+
+                sites.append(
+                    ClaimSite(
+                        slide_id=slide_id,
+                        block_id=self.id,
+                        node_id=node.id,
+                        claim=node.claim,
+                        in_speaker_notes=in_speaker_notes,
+                        path=f"{base}.diagram.nodes[{node.id}].claim",
+                        _write=write_node,
+                    )
+                )
+
+        return sites
+
     def blocks_render(self) -> bool:
-        """True when A3 forbids this block from reaching final render."""
-        return self.claim is not None and self.claim.blocks_render()
+        """True when A3 forbids this block from reaching final render.
+
+        Asks `claim_sites()` rather than reading `self.claim`. Reading the field directly
+        is what made a `contradicted` diagram node invisible to every blocking check while
+        the audit report listed it.
+        """
+        return any(site.blocks_render() for site in self.claim_sites())
 
 
 class Slide(IRModel):
@@ -482,6 +603,27 @@ class Slide(IRModel):
         """Face blocks and notes together — what A1, A2 and A5 all iterate over."""
         return [*self.blocks, *self.speaker_notes]
 
+    def claim_sites(self, *, path: str = "") -> list[ClaimSite]:
+        """Every claim on this slide, faces and speaker notes alike.
+
+        Notes are walked for the reason they are blocks at all: A1 and A3 apply to a
+        sentence the presenter reads aloud exactly as they apply to one on the face.
+        """
+        base = path or f"slides[{self.id}]"
+        sites: list[ClaimSite] = []
+        groups = (("blocks", self.blocks), ("speaker_notes", self.speaker_notes))
+        for field_name, blocks in groups:
+            for block in blocks:
+                path = f"{base}.{field_name}[{block.id}]"
+                sites.extend(
+                    block.claim_sites(
+                        slide_id=self.id,
+                        path=path,
+                        in_speaker_notes=field_name == "speaker_notes",
+                    )
+                )
+        return sites
+
 
 class Deck(IRModel):
     """The root IR document, versioned per run.
@@ -512,11 +654,26 @@ class Deck(IRModel):
         """Every block in the deck, faces and notes."""
         return [block for slide in self.slides for block in slide.all_blocks()]
 
+    def claim_sites(self) -> list[ClaimSite]:
+        """Every claim in the deck, wherever it lives (`ClaimSite`).
+
+        The single enumeration the validation agent, the verdict core, the render guard and
+        GATE 2 all read. A consumer that walks `slides`/`blocks` itself to find claims is a
+        bug waiting to be written — that is exactly how `Block.claim` came to be the only
+        claim the blocking checks could see.
+        """
+        return [
+            site
+            for slide in self.slides
+            for site in slide.claim_sites(path=f"slides[{slide.id}]")
+        ]
+
     def blocking_blocks(self) -> list[Block]:
         """Blocks whose verdict forbids final render (A3).
 
         The orchestrator's render guard calls this; an empty list is the precondition for
-        entering the render phase.
+        entering the render phase. A block is blocking when *any* claim it carries is —
+        including one on a diagram node, which is a claim like any other.
         """
         return [block for block in self.all_blocks() if block.blocks_render()]
 

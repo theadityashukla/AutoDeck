@@ -88,7 +88,7 @@ between them.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -98,13 +98,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from autodeck.audit.verdicts import (
     ClaimBlock,
     ValidatorEvidence,
-    VerdictAssessment,
     VerdictJudgement,
     VerdictReport,
     assess_claim,
 )
 from autodeck.ingest.document_store import DocumentStore, IngestError
-from autodeck.ir.models import Block, Citation, Claim, Deck, DiagramNode
+from autodeck.ir.models import Citation, Claim, ClaimSite, Deck
 from autodeck.retrieval.hybrid import HybridIndex, RetrievedSpan, search
 
 logger = logging.getLogger(__name__)
@@ -185,72 +184,17 @@ class ValidationModel(Protocol):
 # ---------------------------------------------------------------------------
 # Claim sites — where a claim lives, and how to write a validated one back
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class ClaimSite:
-    """One claim in the deck, plus how to replace it once it has a verdict.
-
-    Claims live in two places in the IR — `Block.claim` directly, and, nested inside a
-    diagram block, `DiagramNode.claim` — and A3 does not care which; a diagram node whose
-    label asserts a fact is a claim like any other (`autodeck/ir/models.py`'s own words).
-    Rather than special-case the second everywhere a claim is visited, each site carries its
-    own setter, so `validate_deck`'s main loop only ever sees "a claim, and a place to put
-    the validated one back".
-    """
-
-    claim_id: str
-    """`slide_id:block_id` or `slide_id:block_id:node_id` — unique across the deck, since
-    slide ids are deck-unique and block/node ids are unique within their parent."""
-    slide_id: str
-    block_id: str
-    claim: Claim
-    _write: Callable[[Claim], None]
-
-    def apply(self, assessment: VerdictAssessment) -> None:
-        self._write(assessment.apply(self.claim))
+#
+# This module used to own the walk: `Block.claim` directly, plus `DiagramNode.claim`
+# nested inside a diagram block. It was correct, and it was the *only* correct one — the
+# blocking checks had their own, narrower walk, so a `contradicted` diagram node validated
+# here was cleared to render there. The walk now lives on the IR (`Deck.claim_sites`), and
+# this module reads it like everyone else.
 
 
 def _claim_sites(deck: Deck) -> list[ClaimSite]:
-    """Every claim in the deck, faces and speaker notes alike (`Slide.all_blocks`)."""
-    sites: list[ClaimSite] = []
-    for slide in deck.slides:
-        for block in slide.all_blocks():
-            if block.claim is not None:
-                sites.append(_block_site(slide.id, block.id, block.claim, block))
-            if block.diagram is not None:
-                for node in block.diagram.nodes:
-                    if node.claim is not None:
-                        sites.append(_node_site(slide.id, block.id, node))
-    return sites
-
-
-def _block_site(slide_id: str, block_id: str, claim: Claim, block: Block) -> ClaimSite:
-    def write(new_claim: Claim) -> None:
-        block.claim = new_claim
-
-    return ClaimSite(
-        claim_id=f"{slide_id}:{block_id}",
-        slide_id=slide_id,
-        block_id=block_id,
-        claim=claim,
-        _write=write,
-    )
-
-
-def _node_site(slide_id: str, block_id: str, node: DiagramNode) -> ClaimSite:
-    assert node.claim is not None
-
-    def write(new_claim: Claim) -> None:
-        node.claim = new_claim
-
-    return ClaimSite(
-        claim_id=f"{slide_id}:{block_id}:{node.id}",
-        slide_id=slide_id,
-        block_id=block_id,
-        claim=node.claim,
-        _write=write,
-    )
+    """Every claim in the deck, faces, notes and diagram nodes alike."""
+    return deck.claim_sites()
 
 
 def _chunks(items: Sequence[ClaimSite], size: int) -> Iterator[list[ClaimSite]]:
@@ -462,9 +406,10 @@ def validate_deck(
                     block_id=site.block_id,
                     verdict=assessment.verdict,
                     notes=assessment.notes,
+                    node_id=site.node_id,
                 )
             )
-            site.apply(assessment)
+            site.replace(assessment.apply(site.claim))
 
     return ValidationResult(
         deck=deck, report=report, claims_table=claims_table, provider_calls=provider_calls
