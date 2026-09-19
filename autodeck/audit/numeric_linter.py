@@ -1380,6 +1380,16 @@ def _match_against_derivations(
     asymmetry is the point: a derived figure is computed here and rounding it for a slide is
     the writer's own arithmetic, shown in the audit report. An input was copied from a span,
     so a rounded input is a numeral that no source contains.
+
+    The rounding tolerance is `ROUNDING_REL_LIMIT`, the same bound `re_execute_derivation`
+    puts on the other rounding path in this module. It used to be unbounded here, which
+    meant a derivation computing 0.51 could be printed as `1x` — a +96% drift — with
+    `passes=True` and no finding of any severity, while the citation path next door
+    correctly blocked `about 30ms` against a span reading `29ms`, a drift of 3.4%.
+
+    A rounded match is also **reported**, as `printed figure is a rounding`. It was silent
+    before, which hid a legitimate rounding from the one reader who needs it: the figure on
+    the slide is not the figure the arithmetic produced.
     """
     for derivation in derivations:
         unit = _canonical_unit(derivation.unit)
@@ -1397,18 +1407,30 @@ def _match_against_derivations(
             if key_unit != unit:
                 continue
             places = _places_of(value)
-            if Decimal(str(round(derivation.result, places))) == value:
-                return NumeralMatch(
-                    numeral=numeral,
-                    source="derivation_result",
-                    detail=(
-                        f"the result of {derivation.formula!r} ({derivation.result!r}) "
-                        f"rounded to {places} decimal place(s)"
-                    ),
-                    location=location,
-                    via_rounding=True,
-                    matched_on=key,
-                )
+            if Decimal(str(round(derivation.result, places))) != value:
+                continue
+            # Prevents: 0.51 printed as `1x`, a +96% drift, passing A2 in silence.
+            # Rounding to zero decimal places is a very coarse operation and `round()`
+            # alone says nothing about how far it moved — 1.49 and 1.51 both round to
+            # something, and one of them is a third of the way to a different claim.
+            # `ROUNDING_REL_LIMIT` already bounds the other rounding path in this module
+            # (`re_execute_derivation`); two rounding paths answering differently is not a
+            # tolerance, it is a route. Beyond this distance it is a different number.
+            drift = _relative_difference(float(derivation.result), float(value))
+            if drift > ROUNDING_REL_LIMIT:
+                continue
+            return NumeralMatch(
+                numeral=numeral,
+                source="derivation_result",
+                detail=(
+                    f"the result of {derivation.formula!r} ({derivation.result!r}) "
+                    f"rounded to {places} decimal place(s) — {drift:.1%} from the "
+                    "computed figure"
+                ),
+                location=location,
+                via_rounding=True,
+                matched_on=key,
+            )
         for name, item in sorted(derivation.inputs.items()):
             for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
                 if key[0] == Decimal(str(item.value)):
@@ -1492,7 +1514,7 @@ def lint_scope(
 
 
 def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[NumericFinding]:
-    """Advisories for the three ways a match can be true without being decisive.
+    """Advisories for the four ways a match can be true without being decisive.
 
     Both are escalation triggers in the phase brief rather than failures, and both are
     aggregated into one finding each so that a long slide does not bury its blocking
@@ -1510,6 +1532,23 @@ def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[
                     f"{', '.join(m.numeral.describe() for m in ambiguous)} matched only under "
                     "the minority reading of a separator ('1,234' as 1.234, or a day/month "
                     "order). The figure may be right; nothing in the text says so."
+                ),
+                location=location,
+            )
+        )
+
+    rounded = [m for m in matches if m.via_rounding]
+    if rounded:
+        findings.append(
+            NumericFinding(
+                check="printed figure is a rounding",
+                severity="advisory",
+                detail=(
+                    "; ".join(f"{m.numeral.describe()} is {m.detail}" for m in rounded)
+                    + ". Within ROUNDING_REL_LIMIT, so A2 holds — but the figure on the "
+                    "slide is not the figure the arithmetic produced, and a reader who "
+                    "cannot see that cannot check it. This is what A6's 'show the working' "
+                    "section exists for."
                 ),
                 location=location,
             )

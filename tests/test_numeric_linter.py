@@ -388,6 +388,123 @@ class TestMatching:
         assert report.passes, report.render()
         assert [f.check for f in report.advisory] == ["derivation rounding"]
 
+    @pytest.mark.parametrize(
+        ("a", "b", "printed", "drift"),
+        [
+            (600.0, 400.0, "2x", "+33.3%"),
+            (510.0, 1000.0, "1x", "+96.1%"),
+            (251.0, 100.0, "3x", "+19.5%"),
+            (149.0, 100.0, "1x", "-32.9%"),
+            (605.0, 400.0, "2x", "+32.2%"),
+        ],
+    )
+    def test_a_rounding_beyond_the_relative_limit_is_a_different_number(
+        self, a: float, b: float, printed: str, drift: str
+    ) -> None:
+        """Catches: 0.51 sold as `1x`, verbatim from the reproduction script.
+
+        Every row here has a valid derivation: both inputs are properly cited, both appear
+        in their spans, and the formula re-executes exactly. Only the printed figure is
+        wrong, and `round()` on its own accepted all of them because rounding to zero
+        decimal places will turn almost anything into almost anything. `ROUNDING_REL_LIMIT`
+        bounds the other rounding path in this module and now bounds this one; two rounding
+        paths answering differently is not a tolerance, it is a route.
+        """
+        qa = cite(f"vLLM sustains {a:g} requests per second on the ShareGPT trace")
+        qb = cite(f"the FasterTransformer baseline sustains {b:g} requests per second")
+        derivation = Derivation(
+            formula="a / b",
+            inputs={
+                "a": DerivationInput(value=a, citation=qa),
+                "b": DerivationInput(value=b, citation=qb),
+            },
+            result=a / b,
+            unit="x",
+        )
+        report = lint_scope(
+            LintScope(
+                location="slide s2 / block b1",
+                text=f"Our stack is {printed} faster than the incumbent.",
+                citations=(qa, qb),
+                derivations=(derivation,),
+            )
+        )
+        assert not report.passes, f"{drift} drift accepted as a rounding"
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    def test_a_rounding_inside_the_limit_is_reported_rather_than_silent(self) -> None:
+        """Catches: a legitimate rounding that no reader can see.
+
+        `_ambiguity_findings` reported `via_ambiguous_form` and `other_sources` and not
+        `via_rounding`, so the one case where the figure on the slide is *not* the figure
+        the arithmetic produced was the one case the audit report said nothing about. A6's
+        'show the working' section exists for exactly this.
+        """
+        qa = cite("weights take 65 percent of memory")
+        qb = cite("the KV cache takes 2.14 percent")
+        derivation = Derivation(
+            formula="a + b",
+            inputs={
+                "a": DerivationInput(value=65.0, citation=qa),
+                "b": DerivationInput(value=2.14, citation=qb),
+            },
+            result=67.14,
+            unit="percent",
+        )
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="Memory use is 67.1%.",
+                citations=(qa, qb),
+                derivations=(derivation,),
+            )
+        )
+        assert report.passes, report.render()
+        assert [f.check for f in report.advisory] == ["printed figure is a rounding"]
+        assert "0.1%" in report.advisory[0].detail
+        assert report.matches[0].via_rounding
+
+    def test_the_two_rounding_paths_share_one_bound(self) -> None:
+        """Catches: the bound drifting apart again.
+
+        `re_execute_derivation` bounds a stated *result* against its formula; the matcher
+        bounds a printed *figure* against that result. They are the same question asked one
+        step apart, and while only one of them carried a bound a writer who noticed could
+        route the number through the other. Both now read `ROUNDING_REL_LIMIT`, so the
+        boundary is asserted here rather than the constant being asserted twice.
+
+        `round()` still gates the branch first, so the bound bites only where rounding is
+        coarse relative to the figure — which is precisely the multiplier case, `1x` to
+        `9x`, where a whole-number rounding moves a claim the furthest.
+        """
+        from autodeck.audit.numeric_linter import ROUNDING_REL_LIMIT
+
+        assert ROUNDING_REL_LIMIT == 0.05
+
+        def printed(numerator: float, figure: str) -> bool:
+            qa = cite(f"the tuned stack reaches {numerator:g} units of throughput")
+            qb = cite("the baseline reaches 10 units of throughput")
+            derivation = Derivation(
+                formula="a / b",
+                inputs={
+                    "a": DerivationInput(value=numerator, citation=qa),
+                    "b": DerivationInput(value=10.0, citation=qb),
+                },
+                result=numerator / 10.0,
+                unit="x",
+            )
+            return lint_scope(
+                LintScope(
+                    location="s1",
+                    text=f"A {figure} gain.",
+                    citations=(qa, qb),
+                    derivations=(derivation,),
+                )
+            ).passes
+
+        assert printed(84.0, "8x")  # 8.4 printed as 8x — 4.8% away, inside the limit
+        assert not printed(74.0, "7x")  # 7.4 printed as 7x — 5.4% away, outside it
+
     def test_a_derivation_input_value_traces(self) -> None:
         """Catches: the working shown on the slide being treated as fabricated."""
         quote = cite("Weights take 65% of memory and the KV cache close to 30%.")
