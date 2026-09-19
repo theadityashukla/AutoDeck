@@ -183,6 +183,14 @@ class ComponentSlot:
     box: Box
     face: Literal["major", "minor"] = "minor"
     size_scale: float = 1.0
+    bold: bool = False
+    italic: bool = False
+    """Whether the renderer draws this slot bold and/or italic. Part of the geometry, not
+    styling trivia: bold advances are wider (6.1% for Inter Display at 32pt), so a slot
+    budgeted as regular but drawn bold passes text that then wraps one line further at
+    render — 3a.6's defect, and this field is the half of the fix that lives here. A slot
+    whose flags disagree with its renderer's `canvas.style(...)` call reintroduces it, so
+    these are read straight off the renderer, exactly like every box in this module."""
     line_spacing: float | None = None
     """Overrides the role's default line spacing when the renderer's own style does — e.g.
     the figure is set at 0.95 rather than the tight 1.15 `display`/`title`/`heading` share.
@@ -203,7 +211,13 @@ class ComponentSlot:
 
     def style(self, canvas: Canvas) -> TextStyle:
         """The exact `TextStyle` the renderer builds for this slot, from `canvas`'s tokens."""
-        style = canvas.style(self.role, face=self.face, scale=self.size_scale)
+        style = canvas.style(
+            self.role,
+            face=self.face,
+            scale=self.size_scale,
+            bold=self.bold,
+            italic=self.italic,
+        )
         if self.line_spacing is None:
             return style
         return style.with_(line_spacing=self.line_spacing)
@@ -493,9 +507,13 @@ def _big_number_slots(canvas: Canvas, *, with_supporting_points: bool) -> list[C
     """
     region, source_area = canvas.body_and_caption()
 
-    headline_style = canvas.style("title", face="major")
+    headline_style = canvas.style("title", face="major", bold=True)
     figure_style = canvas.style(
-        "display", face="major", scale=big_number._FIGURE_SCALE, line_spacing=0.95
+        "display",
+        face="major",
+        scale=big_number._FIGURE_SCALE,
+        line_spacing=0.95,
+        bold=True,
     )
     label_style = canvas.style("heading")
     point_style = canvas.style("body")
@@ -543,7 +561,7 @@ def _big_number_slots(canvas: Canvas, *, with_supporting_points: bool) -> list[C
     support_box = after_label  # optional, so it may fairly claim whatever else is left
 
     slots = [
-        ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
         ComponentSlot(
             name="figure",
             role="display",
@@ -551,6 +569,7 @@ def _big_number_slots(canvas: Canvas, *, with_supporting_points: bool) -> list[C
             face="major",
             size_scale=big_number._FIGURE_SCALE,
             line_spacing=0.95,
+            bold=True,
         ),
         ComponentSlot(name="figure_label", role="heading", box=label_box),
         ComponentSlot(name="support", role="body", box=support_box, required=False),
@@ -604,8 +623,8 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     region, source_area = canvas.body_and_caption()
     left_area, right_area = region.split_columns(2, canvas.gutter * 1.5)
 
-    headline_style = canvas.style("title", face="major")
-    title_style = canvas.style("heading")  # face defaults to minor, unlike big_number
+    headline_style = canvas.style("title", face="major", bold=True)
+    title_style = canvas.style("heading", bold=True)  # minor face, unlike big_number
     point_style = canvas.style("body")
 
     padding = two_column_compare._PANEL_PADDING
@@ -648,9 +667,9 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     row_gap = canvas.baseline * 2.5  # the column stack's own gap between rows.
 
     return [
-        ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
-        ComponentSlot(name="left_title", role="heading", box=title_box(left_area)),
-        ComponentSlot(name="right_title", role="heading", box=title_box(right_area)),
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(name="left_title", role="heading", box=title_box(left_area), bold=True),
+        ComponentSlot(name="right_title", role="heading", box=title_box(right_area), bold=True),
         # Not required: the real content model is `left_points`/`right_points` below, a
         # LIST of several. These singular slots stay for a caller that genuinely has one
         # point, and requiring them would reject a slide that only ever fills the plural
@@ -693,12 +712,12 @@ def _quote_slots(canvas: Canvas) -> list[ComponentSlot]:
     """
     region, source_area = canvas.body_and_caption()
 
-    headline_style = canvas.style("title", face="major")
+    headline_style = canvas.style("title", face="major", bold=True)
     quote_style = canvas.style(
-        "title", face="major", scale=quote._QUOTE_SCALE, line_spacing=1.15
+        "title", face="major", scale=quote._QUOTE_SCALE, line_spacing=1.15, italic=True
     )
     attribution_style = canvas.style("heading")
-    mark_style = canvas.style("display", face="major", line_spacing=0.9)
+    mark_style = canvas.style("display", face="major", line_spacing=0.9, bold=True)
 
     gap_headline_to_body = canvas.baseline * 3 + quote._RULE_THICKNESS + canvas.baseline * 4
     gap_mark_to_quote = canvas.baseline * 2
@@ -732,7 +751,7 @@ def _quote_slots(canvas: Canvas) -> list[ComponentSlot]:
     _, attribution_box = after_mark.split_top(quote_one_line, gutter=gap_quote_to_attribution)
 
     return [
-        ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
         ComponentSlot(
             name="quote",
             role="title",
@@ -740,6 +759,7 @@ def _quote_slots(canvas: Canvas) -> list[ComponentSlot]:
             face="major",
             size_scale=quote._QUOTE_SCALE,
             line_spacing=1.15,
+            italic=True,
         ),
         ComponentSlot(name="attribution", role="heading", box=attribution_box),
         ComponentSlot(name="source", role="caption", box=source_area, required=False),
@@ -755,7 +775,7 @@ def _bullets_supporting_slots(canvas: Canvas) -> list[ComponentSlot]:
     """
     region, source_area = canvas.body_and_caption()
 
-    headline_style = canvas.style("title", face="major")
+    headline_style = canvas.style("title", face="major", bold=True)
     point_style = canvas.style("body")
 
     gap_headline_to_body = (
@@ -770,7 +790,7 @@ def _bullets_supporting_slots(canvas: Canvas) -> list[ComponentSlot]:
     _, points_region = region.split_top(headline_one_line, gutter=gap_headline_to_body)
 
     return [
-        ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
         ComponentSlot(
             name="points",
             role="body",
@@ -796,8 +816,8 @@ def _callout_takeaway_slots(canvas: Canvas) -> list[ComponentSlot]:
     body, source_area = canvas.body_and_caption()
     inner = body.pad(callout_takeaway._PANEL_PADDING)
 
-    label_style = canvas.style("caption")
-    takeaway_style = canvas.style("title", face="major", line_spacing=1.15)
+    label_style = canvas.style("caption", bold=True)
+    takeaway_style = canvas.style("title", face="major", line_spacing=1.15, bold=True)
     support_style = canvas.style("body")
 
     gap_label_to_takeaway = canvas.baseline * 2
@@ -820,9 +840,14 @@ def _callout_takeaway_slots(canvas: Canvas) -> list[ComponentSlot]:
     _, support_box = after_label.split_top(takeaway_one_line, gutter=gap_takeaway_to_support)
 
     return [
-        ComponentSlot(name="label", role="caption", box=label_box),
+        ComponentSlot(name="label", role="caption", box=label_box, bold=True),
         ComponentSlot(
-            name="takeaway", role="title", box=takeaway_box, face="major", line_spacing=1.15
+            name="takeaway",
+            role="title",
+            box=takeaway_box,
+            face="major",
+            line_spacing=1.15,
+            bold=True,
         ),
         ComponentSlot(name="support", role="body", box=support_box, required=False),
         ComponentSlot(name="source", role="caption", box=source_area, required=False),
@@ -908,6 +933,8 @@ def _budget(slot: ComponentSlot, tokens: DesignTokens) -> SlotBudget:
         width_pt=slot.box.width,
         height_pt=slot.box.height,
         line_spacing=style.line_spacing,
+        bold=style.bold,
+        italic=style.italic,
     )
 
 
@@ -927,6 +954,8 @@ def _item_budget(slot: ComponentSlot, tokens: DesignTokens) -> SlotBudget:
         width_pt=slot.item_box.width,
         height_pt=slot.item_box.height,
         line_spacing=style.line_spacing,
+        bold=style.bold,
+        italic=style.italic,
     )
 
 

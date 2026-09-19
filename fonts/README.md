@@ -11,8 +11,26 @@ every computed budget is wrong — and wrong in the direction that produces over
 is precisely the failure that stalled v1 (`legacy/v1/LEGACY.md`). Decision B11 therefore
 requires a **loud error**.
 
-`autodeck.design.fonts.resolve_family()` raises `FontNotFoundError` when a family cannot
-be located. Nothing in the codebase catches it and carries on.
+`autodeck.design.fonts.resolve_face()` raises `FontNotFoundError` when a face cannot be
+located. Nothing in the codebase catches it and carries on.
+
+## A family is not enough: each face must be installed
+
+Budgets are measured per **face**, not per family, because the bold face is genuinely
+wider than the regular one — measured at 32pt on the faces in this directory, +6.1% for
+Inter Display and +2.8% for Inter. Every headline the component library draws is bold and
+every pull-quote is italic, so:
+
+**A declared family must supply its regular, bold and italic faces.** `resolve_face()`
+refuses to fall back to regular and refuses to synthesise: a synthesised face has no file
+to measure, and a budget this codebase cannot measure is one it will not issue. Until
+3a.6 the resolver returned the regular file whatever was asked of it, which made every
+bold budget under-predict by exactly the percentages above — in the overflow direction,
+and invisibly, because every automated check compared the prediction against itself.
+
+`DesignTokens.require_fonts()` and `autodeck fonts check` both report per face. Bold-italic
+is the one combination not required up front, because nothing draws it yet and Inter
+Display ships none; asking for it raises at measurement time, naming the face.
 
 ## Aptos — the deliverable default (B11)
 
@@ -30,7 +48,10 @@ font directory.
 | Windows | `C:\Windows\Fonts\`, or `%LOCALAPPDATA%\Microsoft\Windows\Fonts\` |
 | Linux | not shipped — Aptos is unavailable unless copied from a licensed install |
 
-Required faces: `Aptos.ttf`, `Aptos-Bold.ttf`, `Aptos-Italic.ttf`, `Aptos-Display.ttf`.
+Required faces: the regular, bold and italic of **both** declared families — so
+`Aptos.ttf`, `Aptos-Bold.ttf`, `Aptos-Italic.ttf` for the minor family, and the matching
+three for Aptos Display (the major family, which carries every bold headline). A regular
+file alone is not enough; see the per-face section above.
 
 **Headless LibreOffice needs them too.** The preview loop (D5) renders through LibreOffice,
 so if Aptos is missing there, the PNGs come back in a substituted face and the design loop

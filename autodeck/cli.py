@@ -300,22 +300,36 @@ def fonts_check(
 
     Worth running before any design work: a missing family means budgets would be computed
     against a substituted face, which is the failure B11 exists to prevent.
+
+    Reports per **face**, not per family. The component library draws bold headlines and
+    italic pull-quotes, so a family present in regular alone is a family half the budgets
+    cannot be computed for — and a check that only looked for the regular file is what let
+    every bold budget be measured against the wrong face until 3a.6.
     """
-    from autodeck.design.fonts import FontNotFoundError, resolve_family
+    from autodeck.design.fonts import FontNotFoundError, resolve_face
 
     families = [family] if family else sorted(DesignTokens.load(tokens).typography.families())
     missing = False
     for name in families:
-        try:
+        for bold, italic in ((False, False), (True, False), (False, True)):
+            try:
+                resolved = resolve_face(name, bold=bold, italic=italic)
+            except FontNotFoundError as exc:
+                missing = True
+                label = _face_label(bold, italic)
+                typer.secho(f"  MISSING {name} ({label})", fg=typer.colors.RED)
+                typer.echo(f"          {exc}")
+                continue
             typer.secho(
-                f"  OK      {name} -> {resolve_family(name).path}", fg=typer.colors.GREEN
+                f"  OK      {name} ({resolved.face}) -> {resolved.path}",
+                fg=typer.colors.GREEN,
             )
-        except FontNotFoundError as exc:
-            missing = True
-            typer.secho(f"  MISSING {name}", fg=typer.colors.RED)
-            typer.echo(f"          {exc}")
     if missing:
         raise typer.Exit(code=1)
+
+
+def _face_label(bold: bool, italic: bool) -> str:
+    return "bold" if bold else ("italic" if italic else "regular")
 
 
 # ---------------------------------------------------------------------------

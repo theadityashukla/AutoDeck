@@ -240,6 +240,8 @@ def render_measurement_slide(
     width_pt: float,
     *,
     line_spacing: float = 1.0,
+    bold: bool = False,
+    italic: bool = False,
     out_dir: Path,
     dpi: int = DEFAULT_DPI,
 ) -> RenderedInk:
@@ -266,7 +268,9 @@ def render_measurement_slide(
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])  # blank layout
 
     box = Box(x=_BOX_ORIGIN, y=_BOX_ORIGIN, width=width_pt, height=_BOX_MAX_HEIGHT)
-    style = TextStyle(family=family, size=size_pt, line_spacing=line_spacing)
+    style = TextStyle(
+        family=family, size=size_pt, line_spacing=line_spacing, bold=bold, italic=italic
+    )
     add_text(slide, box, text, style)
 
     out_dir = Path(out_dir)
@@ -286,6 +290,8 @@ def measure_rendered_pitch_pt(
     width_pt: float,
     *,
     line_spacing: float = 1.0,
+    bold: bool = False,
+    italic: bool = False,
     out_dir: Path,
     dpi: int = DEFAULT_DPI,
 ) -> float:
@@ -303,7 +309,15 @@ def measure_rendered_pitch_pt(
             `text`/`width_pt` so it wraps to at least two.
     """
     rendered = render_measurement_slide(
-        text, family, size_pt, width_pt, line_spacing=line_spacing, out_dir=out_dir, dpi=dpi
+        text,
+        family,
+        size_pt,
+        width_pt,
+        line_spacing=line_spacing,
+        bold=bold,
+        italic=italic,
+        out_dir=out_dir,
+        dpi=dpi,
     )
     return measure_line_pitch_pt(rendered.image, dpi)
 
@@ -345,6 +359,8 @@ def check_against_render(
     width_pt: float,
     *,
     line_spacing: float = 1.0,
+    bold: bool = False,
+    italic: bool = False,
     out_dir: Path,
     dpi: int = DEFAULT_DPI,
 ) -> BudgetCheckResult:
@@ -353,11 +369,21 @@ def check_against_render(
     This is the whole point of the module — everything above exists to produce the two
     numbers compared here.
     """
-    measured = measure_height(text, family, size_pt, width_pt, line_spacing)
-    rendered = render_measurement_slide(
-        text, family, size_pt, width_pt, line_spacing=line_spacing, out_dir=out_dir, dpi=dpi
+    measured = measure_height(
+        text, family, size_pt, width_pt, line_spacing, bold=bold, italic=italic
     )
-    lines = wrap_text(text, family, size_pt, width_pt).line_count
+    rendered = render_measurement_slide(
+        text,
+        family,
+        size_pt,
+        width_pt,
+        line_spacing=line_spacing,
+        bold=bold,
+        italic=italic,
+        out_dir=out_dir,
+        dpi=dpi,
+    )
+    lines = wrap_text(text, family, size_pt, width_pt, bold=bold, italic=italic).line_count
     return BudgetCheckResult(
         measured_pt=measured,
         rendered_pt=rendered.height_pt,

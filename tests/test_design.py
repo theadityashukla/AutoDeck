@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from autodeck.design.budgets import compute_budget, load_metrics, measure_height, wrap_text
-from autodeck.design.fonts import FontNotFoundError, is_available, resolve_family
+from autodeck.design.fonts import FontFile, FontNotFoundError, is_available, resolve_face
 from autodeck.design.icons.custgeom import custgeom_xml
 from autodeck.design.icons.library import IconNotFoundError, icon_names, load_icon, parse_svg
 from autodeck.design.icons.svg_path import (
@@ -54,13 +54,13 @@ requires_test_font = pytest.mark.skipif(
 def test_a_missing_family_raises_rather_than_substituting() -> None:
     """The invariant of this module. A fallback here corrupts every budget silently."""
     with pytest.raises(FontNotFoundError, match="not found"):
-        resolve_family("Definitely Not An Installed Typeface")
+        resolve_face("Definitely Not An Installed Typeface")
 
 
 def test_the_error_explains_the_aptos_case() -> None:
     """Whoever hits this is usually setting the project up for the first time."""
     with pytest.raises(FontNotFoundError, match="Microsoft 365"):
-        resolve_family("Aptos Nonexistent Variant")
+        resolve_face("Aptos Nonexistent Variant")
 
 
 def test_tokens_declaring_a_missing_font_fail_up_front() -> None:
@@ -73,7 +73,68 @@ def test_tokens_declaring_a_missing_font_fail_up_front() -> None:
 
 @requires_test_font
 def test_resolve_returns_a_real_file() -> None:
-    assert resolve_family(TEST_FAMILY).path.exists()
+    assert resolve_face(TEST_FAMILY).path.exists()
+
+
+@requires_test_font
+def test_each_face_resolves_to_its_own_file() -> None:
+    """The 3a.6 defect in one assertion: asking for bold used to hand back the regular file.
+
+    Four distinct paths, each verified against the style bits the file itself declares —
+    so this fails both if the resolver falls back to regular and if it picks up a file
+    whose name says Bold while its `OS/2`/`head` tables say otherwise.
+    """
+    faces = {
+        (bold, italic): resolve_face(TEST_FAMILY, bold=bold, italic=italic)
+        for bold in (False, True)
+        for italic in (False, True)
+    }
+    assert len({face.path for face in faces.values()}) == 4
+    for (bold, italic), face in faces.items():
+        assert face.bold is bold and face.italic is italic
+        assert face.path.exists()
+
+
+def test_a_missing_face_is_as_loud_as_a_missing_family() -> None:
+    """B11's rule applies per face: substituting regular for bold is the same silent
+    corruption as substituting one family for another, and it is how every bold budget in
+    the component library came to be measured against the wrong file. Inter Display is the
+    real case — it genuinely ships no bold-italic — so this asserts the decision rather
+    than a hypothetical: the resolver raises, naming the face, instead of quietly
+    measuring something it can measure."""
+    if not is_available("Inter Display"):
+        pytest.skip("Inter Display not installed")
+    assert is_available("Inter Display", bold=True)
+    assert is_available("Inter Display", italic=True)
+    with pytest.raises(FontNotFoundError, match="bold italic"):
+        resolve_face("Inter Display", bold=True, italic=True)
+
+
+@requires_test_font
+def test_require_fonts_checks_bold_and_italic_not_just_regular(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A family present in regular alone cannot carry a bold headline's budget, and the
+    build should say so before it measures anything rather than at the first component
+    that needs it. Recorded as "which faces were asked for", because that is the whole
+    behaviour — the old version asked for one face per family and was satisfied."""
+    import autodeck.design.fonts as fonts_module
+
+    asked: list[tuple[str, bool, bool]] = []
+    real = fonts_module.resolve_face
+
+    def _spy(family: str, *, bold: bool = False, italic: bool = False) -> FontFile:
+        asked.append((family, bold, italic))
+        return real(family, bold=bold, italic=italic)
+
+    monkeypatch.setattr(fonts_module, "resolve_face", _spy)
+    DesignTokens(
+        name="faces", typography=Typography(major=TEST_FAMILY, minor=TEST_FAMILY)
+    ).require_fonts()
+
+    assert (TEST_FAMILY, False, False) in asked
+    assert (TEST_FAMILY, True, False) in asked
+    assert (TEST_FAMILY, False, True) in asked
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +148,45 @@ def test_metrics_come_from_the_font_file() -> None:
     assert metrics.units_per_em > 0
     assert metrics.advances
     assert metrics.char_width("W", 16) > metrics.char_width("i", 16)
+
+
+@requires_test_font
+def test_bold_text_measures_wider_than_regular() -> None:
+    """The arithmetic half of 3a.6: bold advances really are wider, so a budget computed
+    from the regular face over-promises. Asserted as a strict inequality rather than
+    against a pinned percentage — the gap is a property of whichever family is installed
+    (+2.8% for Inter, +6.1% for Inter Display at 32pt), and pinning one family's number
+    here would make this test a fact about this container instead of about the fix."""
+    text = "Inference costs fall when the model is small enough to serve"
+    regular = load_metrics(TEST_FAMILY).text_width(text, 32)
+    bold = load_metrics(TEST_FAMILY, bold=True).text_width(text, 32)
+    assert bold > regular
+
+
+@requires_test_font
+def test_bold_text_wraps_sooner_than_regular_at_the_same_width() -> None:
+    """The consequence that actually bites, stated in the units the budget is written in.
+
+    A width is chosen so the regular face fits on one line with only a few percent to
+    spare — the same few percent `quote`'s headline had — and the bold face does not.
+    Before this fix `wrap_text` had no `bold` argument at all and both calls returned the
+    identical measurement, which is what let a bold headline be promised a line it did not
+    have."""
+    text = "Inference costs fall when the model is small enough to serve"
+    regular_width = load_metrics(TEST_FAMILY).text_width(text, 32)
+    box = regular_width * 1.02
+    assert wrap_text(text, TEST_FAMILY, 32, box).line_count == 1
+    assert wrap_text(text, TEST_FAMILY, 32, box, bold=True).line_count == 2
+
+
+@requires_test_font
+def test_a_bold_budget_holds_less_than_the_same_box_in_regular() -> None:
+    """`SlotBudget` carries the face, so `fits()` and `max_chars` both move with it."""
+    common = {"slot": "headline", "family": TEST_FAMILY, "size_pt": 32, "height_pt": 90}
+    regular = compute_budget(width_pt=600, **common)  # type: ignore[arg-type]
+    bold = compute_budget(width_pt=600, bold=True, **common)  # type: ignore[arg-type]
+    assert bold.max_chars < regular.max_chars
+    assert "bold" in bold.describe()
 
 
 @requires_test_font

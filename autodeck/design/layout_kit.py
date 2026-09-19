@@ -448,13 +448,21 @@ class Canvas:
         height a one-line measurement predicts. Wrapping cannot help — the fix is a smaller
         size, a wider box or shorter content — so `Stack` refuses the item rather than
         drawing an overflow that measures as fitting.
+
+        Measured against the face `style` will actually be drawn in, bold and italic
+        included. That is the whole of 3a.6's fix at this level: `TextStyle.bold` already
+        reached here intact and was then dropped on the floor, so a bold headline was
+        wrapped against regular-weight advances and predicted one line short of what it
+        renders.
         """
-        measurement = wrap_text(text, style.family, style.size, width)
+        measurement = wrap_text(
+            text, style.family, style.size, width, bold=style.bold, italic=style.italic
+        )
         paragraph_gaps = max(text.count("\n"), 0)
         height = measurement.height_pt * style.line_spacing + style.space_after * paragraph_gaps
         too_wide: tuple[str, ...] = ()
         if measurement.overflow_width:
-            metrics = load_metrics(style.family)
+            metrics = load_metrics(style.family, bold=style.bold, italic=style.italic)
             too_wide = tuple(
                 word
                 for word in dict.fromkeys(text.split())
@@ -483,6 +491,8 @@ class Canvas:
             width_pt=box.width,
             height_pt=box.height,
             line_spacing=style.line_spacing,
+            bold=style.bold,
+            italic=style.italic,
         )
 
 
