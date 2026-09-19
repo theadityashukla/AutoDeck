@@ -58,12 +58,25 @@ while building this check, not assumed going in:
 
 `_line_height_factor`'s replacement (`budgets.LINE_HEIGHT_FACTOR`) is now correct — see its
 docstring for the fix — so this module's numbers above describe history, not the present
-gap. Ink-based deltas after the fix are *larger*, not smaller (see `RENDER_TOLERANCE`'s
-comment): a correct, bigger line-box prediction naturally sits further above the same
-(unavoidably shorter) ink footprint, which is the expected shape once the two questions are
-told apart rather than a sign of a new problem.
+gap. Ink-based deltas after the fix are *larger*, not smaller: a correct, bigger line-box
+prediction naturally sits further above the same (unavoidably shorter) ink footprint,
+which is the expected shape once the two questions are told apart rather than a sign of a
+new problem. Point 2's arithmetic also fixes the *shape* of the ink allowance — it is one
+line's headroom, constant in N, which is why `RENDER_HEADROOM_FRACTION` is a fraction of a
+line box rather than of the measured total.
 
-Owning phase: 2b (task 2b.1), extending the Phase 0 budgets engine.
+## Same quantity, compared exactly: the line count
+
+Both functions above reconcile two quantities that differ by construction, and both
+therefore need a tolerance — which is where PHASE-2B.md 6.2's bias hid. 3a.6 added the
+comparison that needs none: `check_line_count_against_render` puts the predicted line
+count beside the rendered one. One quantity, integers, no tolerance. It exists because
+`catalog.check_overflow` — the gate that decides whether written content may be rendered
+— compares a predicted line count against the box, which is the same predictor on both
+sides and so cannot detect a biased predictor at all. See that function's docstring.
+
+Owning phase: 2b (task 2b.1), extending the Phase 0 budgets engine. The line-count check
+and the recalibrated ink allowance are 3a.6's.
 """
 
 from __future__ import annotations
@@ -75,40 +88,51 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.util import Emu
 
-from autodeck.design.budgets import measure_height, wrap_text
+from autodeck.design.budgets import LINE_HEIGHT_FACTOR, measure_height, wrap_text
 from autodeck.design.draw import add_text
 from autodeck.design.layout_kit import Box, TextStyle
 from autodeck.design.theme.tokens import DesignTokens, Typography
 from autodeck.render.qa.libreoffice import DEFAULT_DPI, render_pptx
 
 #: How far "measured" (line-box, from `budgets.LINE_HEIGHT_FACTOR`) and "rendered" (ink,
-#: from a real LibreOffice PNG) may diverge before the cross-check fails, as a fraction of
-#: the measured height.
+#: from a real LibreOffice PNG) may diverge before the cross-check fails — as a fraction of
+#: **one line box**, not of the measured height.
 #:
-#: This was `0.06` before 2b.1's line-height fix, calibrated (wrongly, as it turned out —
-#: see the module docstring) against a *biased* prediction that happened to sit close to
-#: ink height. Fixing the bias made `measured_pt` bigger by design — the corrected pitch is
-#: genuinely larger than the old one — while `rendered_pt` (real ink) is unchanged, so every
-#: delta below grew by roughly the same ~7.4% the fix added. Recalibrated against the same
-#: three multi-line title/body combinations the render-marked tests below use:
+#: That unit is the whole of 3a.6's recalibration, and it is derived rather than fitted.
+#: The module docstring's point 2 says total ink spans `(N-1) x pitch + one line's own ink`
+#: where the prediction is `N x pitch`, so the difference is
 #:
-#: - headline, 32pt, ls=1.15, 4 lines: 7.9%
-#: - body copy, 16pt, ls=1.25, 3 lines: 12.0%   (fewest lines here, so point 1's headroom
-#:   is the largest share of the total — the expected shape, not an outlier)
-#: - body copy narrower, 16pt, ls=1.25, 5 lines: 7.2%
+#:     delta = pitch - (one line's ink)
 #:
-#: 0.15 leaves margin above the worst of those (12.0%) while still catching a gross error —
-#: an accidentally-doubled line height, or a budget measured against the wrong family, moves
-#: `measured_pt` by far more than 15% in every case tried during this fix. This tolerance
-#: exists for the ink comparison only; `measure_line_pitch_pt`'s render test uses a tight,
-#: separate tolerance because pitch does not carry point 1's per-line headroom to begin
-#: with, and is the check that actually protects `LINE_HEIGHT_FACTOR`'s value.
-RENDER_TOLERANCE = 0.15
-
-#: A floor under `RENDER_TOLERANCE` for short text, where 6% of the measured height can be
-#: smaller than a single rendered pixel at `DEFAULT_DPI` (150dpi → 0.48pt/px) and the check
-#: would fail on rasteriser quantisation rather than a real disagreement.
-RENDER_TOLERANCE_FLOOR_PT = 2.0
+#: which is **constant in N**. Measured on Liberation Sans, N sweeping 1 to 6 (the raw
+#: figures; the two values per row are lines whose tallest glyph differs, quantised to the
+#: 150dpi pixel grid):
+#:
+#: - 16pt, ls=1.25 (pitch 24.00pt): delta 8.64 or 11.52pt -> at most 0.480 of a pitch
+#: - 32pt, ls=1.15 (pitch 44.16pt): delta 13.92 or 20.16pt -> at most 0.457 of a pitch
+#: - 22pt, ls=1.00 (pitch 26.40pt): delta 5.28 or 9.60pt  -> at most 0.436 of a pitch
+#:
+#: The same deltas as a fraction of the measured height — what this constant used to be —
+#: run from 36.0% at N=1 to 3.3% at N=6 on those very rows. A flat fraction therefore
+#: cannot be right at both ends, and 0.15 was not: it was calibrated in 2b.1 on three
+#: cases of 3, 4 and 5 lines and it **rejects a correct 2-line prediction** (measured
+#: 24.0% here, and 15.8% for the bold headline that started 3a.6). Calibrating a
+#: wrong-shaped constant on a narrow sample is how it came to look settled — the same
+#: mistake as 2b.1's, in the axis 2b.1 was not looking at.
+#:
+#: 0.65 leaves 35% of headroom above the worst measured case (0.480) and stays below 1.0,
+#: which matters: `delta < pitch` holds by construction whenever the line counts agree, so
+#: a threshold of one whole pitch would be a tautology that passes everything. What this
+#: value actually asserts is **"the rendered block is within two-thirds of a line of the
+#: prediction"** — a sensitivity that no longer changes with the length of the text, where
+#: 15% of the measured height meant two-thirds of a line at N=4 and four whole lines at
+#: N=27.
+#:
+#: Bold and italic were included in the sweep for the first time here (nothing in this
+#: module rendered anything but regular before 3a.6). They move the ink figure by a pixel
+#: or two and nothing else: a bold face paints slightly taller glyphs, so its ink is
+#: marginally *closer* to the prediction, not further.
+RENDER_HEADROOM_FRACTION = 0.65
 
 #: Anything this dark or darker, on the greyscale render, counts as ink. Not pure black:
 #: anti-aliasing fades a glyph's edge gradually to white, and requiring exact white for
@@ -322,6 +346,167 @@ def measure_rendered_pitch_pt(
     return measure_line_pitch_pt(rendered.image, dpi)
 
 
+#: Two ink bands closer together than this fraction of the point size are parts of one
+#: rendered line, not two lines. Found empirically, not assumed: rendering "romeo sierra"
+#: at 32pt produced two bands where the line-count check expected one, because the only
+#: ink that line paints above x-height is the tittle of its `i` — a 13px island 13px clear
+#: of the band below it at 150dpi (0.20em), while real lines sat 92px apart. Accents and
+#: any other floating diacritic do the same thing.
+#:
+#: 0.5 sits well clear of both sides of that measurement and does so structurally rather
+#: than by luck: the smallest line-to-line pitch this codebase can produce is
+#: `size_pt * 0.9 * LINE_HEIGHT_FACTOR` (the `quote` mark's spacing), which is 1.08em and
+#: cannot be mistaken for 0.5em, while a tittle's clearance is a fraction of x-height.
+#:
+#: The threshold is a fraction of the **point size**, which is an input the caller handed
+#: to the renderer, not an output of `budgets.py`. That matters: a merge rule keyed on
+#: anything the predictor produced would let a biased predictor quietly edit the render it
+#: is being checked against, which is the failure this whole module exists to avoid.
+_BAND_MERGE_FRACTION = 0.5
+
+
+def count_ink_bands(image_path: Path, *, dpi: int, size_pt: float) -> int:
+    """How many rendered **lines** of text `image_path` contains.
+
+    Bands of ink, with bands closer than `_BAND_MERGE_FRACTION` of the point size merged
+    into one line — see that constant for the measured reason a line can paint two bands.
+    For a measurement slide holding nothing but wrapped text, the result is the number of
+    lines the renderer drew; `check_line_count_against_render` states the remaining
+    conditions that make that so, and is the only caller that depends on it.
+
+    Raises:
+        BudgetCheckError: the image is entirely background.
+    """
+    has_ink, _ = _ink_row_mask(image_path)
+    starts = _band_start_rows(has_ink)
+    if not starts:
+        raise BudgetCheckError(
+            f"{image_path} has no ink above the {_INK_THRESHOLD}/255 threshold; nothing "
+            "was rendered, or the calibration text was blank."
+        )
+
+    minimum_gap_px = _BAND_MERGE_FRACTION * size_pt / 72.0 * dpi
+    lines = 1
+    previous = starts[0]
+    for start in starts[1:]:
+        if start - previous >= minimum_gap_px:
+            lines += 1
+            previous = start
+    return lines
+
+
+@dataclass(frozen=True)
+class LineCountCheck:
+    """Predicted line count against rendered line count, for one piece of text.
+
+    Both numbers answer the **same** question — *how many lines does this text wrap to at
+    this width, in this face?* — which is the whole point of this dataclass existing
+    separately from `BudgetCheckResult`. See `check_line_count_against_render`.
+    """
+
+    predicted_lines: int
+    """What `budgets.wrap_text` said, from glyph advance widths alone."""
+    rendered_lines: int
+    """How many lines LibreOffice actually drew, counted as bands of ink."""
+    image: Path
+    """The rendered PNG, kept for a human to open when the two disagree."""
+
+    @property
+    def agrees(self) -> bool:
+        """Exact equality. A line count is an integer and there is nothing to round."""
+        return self.predicted_lines == self.rendered_lines
+
+    def describe(self) -> str:
+        return (
+            f"predicted {self.predicted_lines} line(s), rendered "
+            f"{self.rendered_lines} ({self.image})"
+        )
+
+
+def check_line_count_against_render(
+    text: str,
+    family: str,
+    size_pt: float,
+    width_pt: float,
+    *,
+    line_spacing: float = 1.0,
+    bold: bool = False,
+    italic: bool = False,
+    out_dir: Path,
+    dpi: int = DEFAULT_DPI,
+) -> LineCountCheck:
+    """Compare the line count `budgets.wrap_text` predicts against the one LibreOffice
+    renders.
+
+    ## Why this exists, and what it is not
+
+    `catalog.check_overflow` — the deterministic gate that decides whether written content
+    may be rendered — asks "does the predicted line count fit the box?". Both sides of that
+    comparison come from the same predictor, so it compares a prediction against itself and
+    **cannot detect a biased predictor**, only an over-long string. That is how 3a.6's
+    defect reached a committed PNG with every automated check green: `budgets.py` measured
+    bold text against the regular face, `check_overflow` agreed with it, and the only thing
+    that disagreed was a human looking at the picture.
+
+    This function is the check that can disagree. It is the twin of PHASE-2B.md 6.2's
+    lesson (*a cross-check that measures a different quantity than the thing it is checking
+    will report agreement it has not established*), so it is worth being exact about the
+    quantity, as that finding demands:
+
+    * **Predicted**: `wrap_text(...).line_count` — how many lines the greedy wrap folds
+      `text` into, from the advance widths of the requested face.
+    * **Rendered**: bands of ink in the PNG — how many lines LibreOffice actually drew.
+
+    Same quantity, same units, independently arrived at, and compared **exactly**: a line
+    count is an integer, so there is no tolerance to hide a bias behind. That is the
+    difference from `check_against_render`, which compares a predicted line *box* against
+    rendered *ink* — two different quantities, reconciled by a 15% tolerance wide enough
+    that 2b.1's 7.4% bias read as agreement inside it.
+
+    ## When a band is a line
+
+    Three conditions, all of which the caller owns and none of which this function can
+    check for itself:
+
+    1. **The slide holds nothing but this text.** `render_measurement_slide` guarantees it.
+    2. **No line is blank.** An empty line paints no ink and produces no band, so `text`
+       must not contain blank lines. `wrap_text` emits one for a blank paragraph, so the
+       two would disagree for a reason that has nothing to do with measurement.
+    3. **Adjacent lines' ink does not touch.** A descender meeting the next line's
+       ascender merges two bands into one. At this codebase's line spacings (0.9 and up,
+       against `LINE_HEIGHT_FACTOR` 1.2) there is real space between lines and observed
+       band counts match line counts exactly across 54 rendered cases; at a tight enough
+       spacing they would not. A merge under-counts the render, which biases this check
+       towards *reporting a disagreement that is not there* — the safe direction for a
+       check to fail in.
+
+    The converse — one line painting two bands — is real and is handled rather than
+    assumed away: see `_BAND_MERGE_FRACTION`, which exists because this check found such a
+    case on its first sweep and reported it as a disagreement, exactly as designed.
+
+    Raises:
+        FontSubstitutionRisk, RenderError: as `render_measurement_slide`.
+        BudgetCheckError: the render produced no ink at all.
+    """
+    predicted = wrap_text(text, family, size_pt, width_pt, bold=bold, italic=italic)
+    rendered = render_measurement_slide(
+        text,
+        family,
+        size_pt,
+        width_pt,
+        line_spacing=line_spacing,
+        bold=bold,
+        italic=italic,
+        out_dir=out_dir,
+        dpi=dpi,
+    )
+    return LineCountCheck(
+        predicted_lines=predicted.line_count,
+        rendered_lines=count_ink_bands(rendered.image, dpi=dpi, size_pt=size_pt),
+        image=rendered.image,
+    )
+
+
 @dataclass(frozen=True)
 class BudgetCheckResult:
     """One comparison between `budgets.py`'s prediction and a real LibreOffice render."""
@@ -331,7 +516,11 @@ class BudgetCheckResult:
     rendered_pt: float
     """What the LibreOffice render's ink actually measured."""
     line_count: int
-    """How many lines `wrap_text` folded the text into — see `within_tolerance`."""
+    """How many lines `wrap_text` folded the text into."""
+    size_pt: float
+    line_spacing: float
+    """The type size and spacing the slide was rendered at. Carried because the allowance
+    in `within_tolerance` is one line box wide, and a line box is made of these two."""
     image: Path
     """The rendered PNG, kept for a human to open when a check fails."""
 
@@ -340,16 +529,22 @@ class BudgetCheckResult:
         return self.measured_pt - self.rendered_pt
 
     @property
-    def within_tolerance(self) -> bool:
-        """Whether `delta_pt` sits inside `RENDER_TOLERANCE` of the measured height.
+    def line_box_pt(self) -> float:
+        """One line's predicted height — the unit the allowance below is measured in."""
+        return self.size_pt * self.line_spacing * LINE_HEIGHT_FACTOR
 
-        Meaningful only for `line_count >= 2` (module docstring); a caller checking a
-        single line is measuring the predicted line box's own unused headroom (module
-        docstring, point 1), not this module's accuracy, and this property does not
-        attempt to compensate for that.
+    @property
+    def within_tolerance(self) -> bool:
+        """Whether `delta_pt` sits inside `RENDER_HEADROOM_FRACTION` of one line box.
+
+        Not a fraction of the measured height: the gap between a predicted line box and
+        rendered ink is one line's unused headroom, which does not grow with the text (see
+        `RENDER_HEADROOM_FRACTION` for the measurement). Because the allowance is now in
+        the same units as the thing it allows for, this is meaningful at any line count,
+        including one — the old fraction-of-total form was the only reason a single line
+        had to be excluded.
         """
-        allowed = max(self.measured_pt * RENDER_TOLERANCE, RENDER_TOLERANCE_FLOOR_PT)
-        return abs(self.delta_pt) <= allowed
+        return abs(self.delta_pt) <= self.line_box_pt * RENDER_HEADROOM_FRACTION
 
 
 def check_against_render(
@@ -388,5 +583,7 @@ def check_against_render(
         measured_pt=measured,
         rendered_pt=rendered.height_pt,
         line_count=lines,
+        size_pt=size_pt,
+        line_spacing=line_spacing,
         image=rendered.image,
     )

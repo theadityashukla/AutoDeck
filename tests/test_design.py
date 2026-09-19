@@ -272,7 +272,7 @@ def test_measure_height_never_undershoots_the_calibrated_line_height() -> None:
     calibrated against a real render (`test_budget_check.py`'s render-marked pitch tests);
     a future edit that quietly shrinks `LINE_HEIGHT_FACTOR` should fail *this* test, not
     sail through because the test moved with it. Over-predicting by a little is fine — see
-    `budget_check.py`'s `RENDER_TOLERANCE` for how much — so this only guards the floor.
+    `budget_check.py`'s `RENDER_HEADROOM_FRACTION` for how much — so this only guards the floor.
     """
     calibrated_factor = 1.20
     for size_pt, line_spacing in [(16, 1.0), (22, 1.15), (40, 1.25)]:
