@@ -163,14 +163,14 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | **tested** | tested | | | | | |
-| A2 numbers | partial | partial | partial | | | | | |
-| A3 validation | partial | partial | partial | | | | | |
-| A4 isolation | not-started | **tested** | tested | | | | | |
-| A5 framing | not-started | partial | partial | | | | | |
-| A6 reproducibility | partial | partial | partial | | | | | |
-| A7 gates | **enforced** | **enforced** | **tested** | | | | | |
-| A8 uncertainty | not-started | partial | **enforced** | | | | | |
+| A1 citation | **tested** | **tested** | tested | **tested** | | | | |
+| A2 numbers | partial | partial | partial | **tested** | | | | |
+| A3 validation | partial | partial | partial | **tested** | | | | |
+| A4 isolation | not-started | **tested** | tested | tested | | | | |
+| A5 framing | not-started | partial | partial | **tested** | | | | |
+| A6 reproducibility | partial | partial | partial | partial | | | | |
+| A7 gates | **enforced** | **enforced** | **tested** | **tested** | | | | |
+| A8 uncertainty | not-started | partial | **enforced** | **tested** | | | | |
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
@@ -205,6 +205,30 @@ outline agent refuses an unsigned brief outright.
 
 A3 stays `partial` — the validator is Phase 2b — but B25 now binds `validation` to a
 different model from the writer, which is the cheap version of the independence A3 wants.
+
+**Phase 2b notes.** Five cells move to `tested`. A2 and A5 gain linters that block rather
+than warn: every numeral must trace to a cited span or a re-executed derivation, and a
+`framing` block carrying a fact is *demoted* to `claim`, where `Claim.citations` refuses to
+construct it. A3 gains the behaviour it had no v1 ancestor for — independent re-retrieval
+with a separate contradiction pass, and a rule ordered so that a contradicting span
+elsewhere in the corpus outranks a perfectly valid citation. A8 becomes `tested` rather than
+`enforced`: `open_risks` resurface in the audit report, conflicting sources appear with both
+spans rather than an average, and a provider failure returns `unverified` with a reason
+instead of a guess.
+
+Two of these are worth reading with their traps attached. **A clean `Deck` is no longer
+sufficient evidence that A1 and A5 hold** — a demoted framing block, and a validation pass
+that failed outright, both leave `Deck.blocking_blocks()` empty. `require_safe_to_render` is
+the single place that knows what "safe" means, and the cells above are `tested` on that
+function, not on the deck validating.
+
+**A6 deliberately stays `partial`.** Its headline promises "byte-comparable" output, which
+is not achievable for PPTX — measured, not assumed (DECISIONS.md **B29**). The manifest
+implements the achievable property, a canonical digest over normalised package contents, and
+refuses to name anything `bytes_match`. Marking the cell `enforced` against a statement we
+know to be wrong would be the dishonest kind of green. **B29 proposes a correction to this
+document's own wording and is waiting on the owner**; changing what an invariant says is not
+the implementer's call (plan §0.4).
 
 Fill each cell as its phase completes. A phase whose brief claims an invariant cannot
 close its gate with that cell below `enforced`.

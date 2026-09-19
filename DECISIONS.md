@@ -772,3 +772,48 @@ the owner with options.
   normalised-comparability, and Phase 3b's render determinism test targets the digest rather
   than raw bytes. **If it is rejected**, A6 is unsatisfiable as written and Phase 3b cannot
   close against it — which is the reason this is flagged now rather than at GATE 3.
+
+### B30 — A gate approval does not survive the machine. Owner decision needed.
+- **Date:** 2026-09-19
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** **open — no change made.** Flagged for the owner at GATE 2.
+- **Context:** `Orchestrator.approve` records an approval as
+  `state.approvals[gate] = "<timestamp> by <approver>"` in `runs/<run_id>/state.json`.
+  B22 keeps derived artifacts out of git, and `runs/` is squarely derived data — run
+  directories hold model output, intermediate IR versions and caches. So `state.json` is not
+  committed.
+
+  The consequence surfaced while trying to run this phase's milestone. GATE 1 was genuinely
+  approved on 2026-09-18 against a real brief and a real ten-slide outline (**G1**). That
+  approval lived in a container that no longer exists. On a fresh clone there is no record
+  of it that any code can read: `autodeck content` correctly refuses to proceed, and the
+  only surviving trace of the owner's decision is the prose we wrote into this file by
+  convention.
+- **Why this is not simply "re-run it".** Re-creating the run means a fresh `/sign` on a
+  fresh brief — A7 approval 1 of 4, a human act — and a fresh GATE 1 judgement on a
+  different outline, because the planning session is a model conversation and does not
+  reproduce. The owner would not be re-confirming a decision they made; they would be making
+  a new one about different material. **An approval is not reproducible, which is exactly
+  why it is the one thing in a run that should not be treated as derived.**
+- **Why it matters beyond convenience.** A6 asks what produced an artifact and A7 asks who
+  approved it. A build manifest that can name the model IDs, the prompt hashes and the
+  knowledge commit, but cannot name who approved the claims table or when, is missing the
+  only field in it that a human is accountable for. At Phase 4, "who signed off on this
+  deck" is a question a client may ask about a deck that shipped months earlier.
+- **Options for the owner, in the order I would take them:**
+  1. **Commit approvals, not runs.** `autodeck approve` also appends to a small committed
+     ledger (`approvals/<run_id>.yaml`) carrying gate, approver, timestamp, the IR version
+     approved and its hash. Derived data stays out of git; the human act does not. The IR
+     hash matters: it is what stops an approval being read as covering content that changed
+     after it was given.
+  2. **Fold the approval into the build manifest**, which is already the A6 record and is
+     already committed for a shipped deck. Less machinery, but it only exists once a deck is
+     built, so GATE 1 and GATE 2 approvals have nowhere to live in the meantime.
+  3. **Leave it, and rely on `DECISIONS.md`.** Honest, and it is what we have been doing —
+     but it is a convention rather than a mechanism, and conventions are what A7 exists
+     because we do not trust.
+- **Not decided here.** Any of the three touches `autodeck/pipeline/orchestrator.py` and
+  option 1 adds a committed artifact, which is a project-shape decision rather than an
+  implementation detail. **No code was changed on the strength of this entry.**
+- **Consequence either way:** the Phase 2b milestone run starts from `autodeck plan`, and
+  `docs/handovers/PHASE-2B.md` §10 is written on that assumption.

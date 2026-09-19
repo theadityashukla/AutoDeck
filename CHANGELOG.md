@@ -7,6 +7,87 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Phase 2b: content, linters, validation
+
+All eleven Phase 2b tasks. **GATE 2 is not closed** — it asks the owner to read the claims
+table and approve or send claims back, and no claims table has been put to them. **No live
+milestone run exists either**: `autodeck content` refuses to run without an approved
+outline, and no flag anywhere approves a gate. See `docs/handovers/PHASE-2B.md` §3 and §10.
+
+### Added
+- `autodeck/audit/numeric_linter.py` — **A2**. Every numeral in deck text traces to a cited
+  span or to a derivation that re-executes to its stated result. Normalisation is
+  declarative (each row carries a `why`, and import fails if two rules claim the same
+  surface form), arithmetic is `Decimal`, and formulas are re-executed by AST walk rather
+  than `eval` — they are model-generated text, so that is a security property.
+- `autodeck/audit/framing_linter.py` — **A5**. A `framing` block carrying a fact is
+  **demoted** to `claim`, and the demotion's `materialise()` raises from `Claim.citations`.
+  The IR's refusal to construct the block *is* the A1 failure; nothing re-implements it.
+- `autodeck/audit/verdicts.py` — **A3**'s rule, in a guardrail path. Four ordered bounds
+  applied to the model's answer after the fact, so a model that ignores its instructions
+  still cannot produce `supported` with no evidence. `ValidatorEvidence` refuses at
+  construction any citation not marked `retrieved_by="validator"`.
+- `autodeck/agents/content.py` — one `content` call per slide. The model picks a verbatim
+  quote; the **code** resolves it into a citation with a real page, bbox and hash. A quote
+  that does not resolve drops the claim rather than producing an uncited block.
+- `autodeck/agents/validation.py` — independent re-retrieval, a separate contradiction
+  pass, six claims per `validation` call. A provider failure returns `unverified` with a
+  reason, never a guess.
+- `autodeck/audit/report.py` — the working shown for every derivation, per-input
+  traceability, and conflicts recorded with **both** spans. A test asserts the averaged
+  figure is absent: averaging two disagreeing sources invents a number nobody measured.
+- `autodeck/audit/manifest.py` — `canonical_pptx_digest`, `knowledge_commit`,
+  `knowledge_dirty`, `Manifest.reproducible()`. Nothing is named `bytes_match` (B29).
+- `autodeck/design/budget_check.py` and per-slot budgets in
+  `autodeck/design/components/catalog.py` — over-budget text is rejected **before** render.
+- `autodeck/pipeline/send_back.py` and four CLI commands — `content`, `validate`, `gate2`,
+  `send-back`. Rejecting a named claim existed nowhere before this phase.
+- `prompts/content.md`, `prompts/validation.md` — the writer and its adversary.
+
+### Fixed
+- **`budgets.py` under-predicted line height by ~7.4%, in the direction that overflows.**
+  Pitch was derived from hhea `ascent + descent` (1.1172 for Liberation Sans); LibreOffice
+  renders **1.20** for every family tested, whose own metrics range 1.059–1.200. It is an
+  engine convention, not a value read from the font, so `LINE_HEIGHT_FACTOR` is now measured
+  rather than derived.
+- **The LibreOffice cross-check could not have caught that**, and read as agreement while
+  being two errors cancelling: it compared rendered *ink* against a predicted *line box*.
+  It now measures line pitch, the quantity the prediction is actually about.
+- **A derivation could cite real spans and still invent its inputs.** B13 required a value
+  *and* a citation, but never that the value appear in the quote — reproduced with inputs
+  900/300 against spans reading 671/412, which passed every check and traced to itself.
+  `check_derivation_inputs` closes it.
+- **A clean `Deck` was no longer sufficient evidence that A1 and A5 hold.** A demoted
+  framing block, and a validation pass that failed outright, both leave
+  `Deck.blocking_blocks()` empty. `require_safe_to_render` is now the single place that
+  knows what "safe to render" means.
+- `prompts/validation.md` asked the model for citation objects with pages and hashes, which
+  no model can compute. It asks for verbatim quotes; the system resolves them, and an
+  unmatched quote is dropped.
+- Two component slots had no budget coverage at all — `big_number.supporting_points` (whose
+  presence also switches the renderer to two columns, halving the *other* slots' widths) and
+  multi-point `two_column_compare` columns.
+
+### Changed
+- Phase branches 2b–3b stack on each other and **merge nothing** until the owner works each
+  gate (**B27**) — BRANCHING rule 3 derives from A7, rule 1 is a topology convention, so the
+  convention yields.
+- Guardrail paths hold their model tier regardless of a task's tag (**B28**). A3's rule and
+  the aesthetic action set were *split* out of their agents so the invariant sits inside a
+  guardrail path rather than being de-tiered with its plumbing.
+- Five invariant cells move to `tested`; **A6 deliberately does not** (see below).
+
+### Open
+- **B29 — A6 promises "byte-comparable" PPTX output, which is measurably impossible.** Two
+  identical saves two seconds apart differ in bytes from four causes outside our control,
+  while the canonical digest matches; A6's own "watch for" line contradicts its headline.
+  `docs/INVARIANTS.md` is deliberately unedited — changing what an invariant says is the
+  owner's call, not the implementer's.
+- **A gate approval does not survive the machine.** Approvals live in
+  `runs/<id>/state.json`, which is derived data and not committed (B22).
+
+---
+
 ## [Unreleased] — Phase 2a: planning agent & outline
 
 All nine Phase 2a tasks. **GATE 1 is not closed** — it asks the owner whether an outline
