@@ -23,9 +23,11 @@ from autodeck.ir.models import (
     Derivation,
     DerivationInput,
     DiagramEdge,
-    DiagramNode,
     DiagramSpec,
     IconRef,
+    LabelFraming,
+    ProcessFlowSpec,
+    ProcessStep,
     Slide,
     quote_digest,
 )
@@ -43,6 +45,13 @@ def make_citation(quote: str = QUOTE, **overrides: object) -> Citation:
     }
     fields.update(overrides)
     return Citation.for_quote(**fields)  # type: ignore[arg-type]
+
+
+def step(node_id: str, label: str, order: int) -> ProcessStep:
+    """A framed (non-asserting) step — the shape a stage name takes under A1."""
+    return ProcessStep(
+        id=node_id, label=label, order=order, framing=LabelFraming(reason="stage_name")
+    )
 
 
 def make_claim(**overrides: object) -> Claim:
@@ -294,17 +303,40 @@ def test_chart_series_must_align_with_categories() -> None:
 
 
 def test_diagram_edges_must_resolve_to_nodes() -> None:
-    with pytest.raises(ValidationError, match="unknown node ids"):
-        DiagramSpec(
-            kind="process_flow",
-            nodes=[DiagramNode(id="n1", label="Ingest")],
-            edges=[DiagramEdge(source="n1", target="n2")],
+    """The same contract as before, now held by construction rather than by a validator.
+
+    An edge naming a node that does not exist used to be built and then rejected. Edges are
+    now derived from the geometry's own structure — a process flow's arrows are its step
+    order — so authoring one is refused outright and every edge that exists resolves by
+    definition. Both halves are asserted here: the old failure mode is unreachable, not
+    merely unvalidated.
+    """
+    with pytest.raises(ValidationError, match=r"no longer takes .*edges"):
+        # Through `model_validate`, because a hand-written or stored IR is the only way
+        # this shape can still arrive — the constructor has no such parameter at all.
+        DiagramSpec.model_validate(
+            {
+                "relationship": "sequence",
+                "kind": "process_flow",
+                "edges": [DiagramEdge(source="n1", target="n2").model_dump()],
+                "process_flow": {"steps": [step("n1", "Ingest", 1).model_dump()]},
+            }
         )
+
+    flow = DiagramSpec(
+        relationship="sequence",
+        kind="process_flow",
+        process_flow=ProcessFlowSpec(steps=[step("n1", "Ingest", 1), step("n2", "Fit", 2)]),
+    )
+    known = {node.id for node in flow.nodes}
+    assert flow.edges == (DiagramEdge(source="n1", target="n2", label=None),)
+    assert all({edge.source, edge.target} <= known for edge in flow.edges)
 
 
 def test_diagram_node_ids_must_be_unique() -> None:
     with pytest.raises(ValidationError, match="duplicate diagram node ids"):
         DiagramSpec(
-            kind="cycle",
-            nodes=[DiagramNode(id="n1", label="A"), DiagramNode(id="n1", label="B")],
+            relationship="sequence",
+            kind="process_flow",
+            process_flow=ProcessFlowSpec(steps=[step("n1", "A", 1), step("n1", "B", 2)]),
         )

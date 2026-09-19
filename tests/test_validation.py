@@ -27,8 +27,10 @@ from autodeck.ir.models import (
     Citation,
     Claim,
     Deck,
-    DiagramNode,
     DiagramSpec,
+    LabelFraming,
+    ProcessFlowSpec,
+    ProcessStep,
     Slide,
 )
 from autodeck.retrieval.hybrid import build_index
@@ -297,8 +299,19 @@ def test_speaker_note_claims_and_diagram_node_claims_are_both_validated(tmp_path
         kind="diagram",
         slot="diagram",
         diagram=DiagramSpec(
+            relationship="sequence",
             kind="process_flow",
-            nodes=[DiagramNode(id="n1", label="Quantise", claim=diagram_claim)],
+            process_flow=ProcessFlowSpec(
+                steps=[
+                    ProcessStep(id="n1", label="Quantise", order=1, claim=diagram_claim),
+                    ProcessStep(
+                        id="n2",
+                        label="Serve",
+                        order=2,
+                        framing=LabelFraming(reason="stage_name"),
+                    ),
+                ]
+            ),
         ),
     )
     slide = Slide(

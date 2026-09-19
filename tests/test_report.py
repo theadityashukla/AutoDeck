@@ -49,10 +49,12 @@ from autodeck.ir.models import (
     DeckBrief,
     Derivation,
     DerivationInput,
-    DiagramNode,
     DiagramSpec,
     KeyMessage,
+    LabelFraming,
     OpenRisk,
+    ProcessFlowSpec,
+    ProcessStep,
     RetrievedBy,
     Slide,
     Verdict,
@@ -225,11 +227,19 @@ def test_a_diagram_node_claim_is_audited_like_any_other() -> None:
         kind="diagram",
         slot="body",
         diagram=DiagramSpec(
+            relationship="sequence",
             kind="process_flow",
-            nodes=[
-                DiagramNode(id="n1", label="Cutover"),
-                DiagramNode(id="n2", label="Cost falls", claim=node_claim),
-            ],
+            process_flow=ProcessFlowSpec(
+                steps=[
+                    ProcessStep(
+                        id="n1",
+                        label="Cutover",
+                        order=1,
+                        framing=LabelFraming(reason="stage_name"),
+                    ),
+                    ProcessStep(id="n2", label="Cost falls", order=2, claim=node_claim),
+                ]
+            ),
         ),
     )
     report = build_audit_report(one_slide_deck(block), brief=brief())

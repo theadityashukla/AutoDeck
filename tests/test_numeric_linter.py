@@ -745,12 +745,28 @@ class TestEntryPoints:
     def test_a_diagram_node_label_is_not_a_hole_in_a2(self) -> None:
         """Catches: a number reaching a slide as a diagram label.
 
-        `DiagramNode.claim` is optional, so a label reading "95% of memory" with no claim
-        carries a figure and no evidence — on a slide whose other blocks are all correctly
-        cited. The IR says the diagram engine is not a loophole in A1; this is the same
-        sentence about A2.
+        A node label carries no citation unless it carries a `Claim`, and the IR now makes
+        the alternative explicit rather than implicit: a label with no claim must declare
+        itself framing. That closes the *accidental* hole — nobody can simply omit the
+        evidence — and leaves this one, which is the deliberate version: "95% of memory"
+        declared a category name. A2 is what catches it, and it still does. The IR says the
+        diagram engine is not a loophole in A1; this is the same sentence about A2, and the
+        declaration is a signature on a statement, not a proof of it.
         """
-        from autodeck.ir.models import DiagramNode, DiagramSpec
+        from autodeck.ir.models import (
+            DiagramSpec,
+            LabelFraming,
+            LayeredStackSpec,
+            StackLayer,
+        )
+
+        def layer(node_id: str, label: str, level: int) -> StackLayer:
+            return StackLayer(
+                id=node_id,
+                label=label,
+                level=level,
+                framing=LabelFraming(reason="category_name"),
+            )
 
         deck = deck_with(
             Block(
@@ -758,11 +774,12 @@ class TestEntryPoints:
                 kind="diagram",
                 slot="diagram",
                 diagram=DiagramSpec(
+                    relationship="hierarchy_foundation",
                     kind="layered_stack",
-                    nodes=[
-                        DiagramNode(id="n1", label="Weights"),
-                        DiagramNode(id="n2", label="95% of memory"),
-                    ],
+                    layered_stack=LayeredStackSpec(
+                        support="rests_on",
+                        layers=[layer("n1", "Weights", 1), layer("n2", "95% of memory", 2)],
+                    ),
                 ),
             )
         )

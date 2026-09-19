@@ -9,6 +9,11 @@ carrying no citation cannot be *constructed* — it is not a runtime check that 
 might skip, forget, or be talked out of. Everything else in the accuracy subsystem is
 downstream of that one constraint, which is why the IR is built before anything else.
 
+The same move is made once more, one level down. A diagram node is the place an uncited
+fact is most likely to survive review — three words in a box read as a label rather than
+as an assertion — so `DiagramNode` requires every node to declare itself either a `Claim`
+or explicitly framed. "Nobody said" is not a state it can be in. See the diagram section.
+
 Owning phase: 0 (task 0.2). Opus tier — `autodeck/ir/` is a path guardrail in
 docs/MODEL_ROUTING.md.
 """
@@ -16,7 +21,9 @@ docs/MODEL_ROUTING.md.
 from __future__ import annotations
 
 import hashlib
-from typing import Annotated, Literal
+from dataclasses import dataclass
+from itertools import pairwise
+from typing import Annotated, Any, Literal, NamedTuple, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -52,6 +59,33 @@ writer's citation, so who found a span is part of the audit trail."""
 CommunicationMode = Literal["text_led", "icon_anchored", "diagram_led"]
 """§6.11.2 — an explicit per-slide decision, not an emergent property."""
 
+DiagramRelationship = Literal[
+    "sequence",
+    "cycle",
+    "mutual_reinforcement",
+    "tension_tradeoff",
+    "complement",
+    "convergence",
+    "divergence",
+    "hierarchy_foundation",
+    "overlap",
+    "containment",
+    "transformation",
+    "classification",
+]
+"""What a diagram's points have to do with each other — the classification the
+slide-geometry skill makes step 1 of every slide with parallel points.
+
+Eleven of these are the skill's own table. Its twelfth row, "None (a true list)", is
+deliberately absent: an honest list is not a diagram, and the way to say so is to build no
+`DiagramSpec` at all rather than to have a value for "this geometry means nothing".
+
+`classification` is an AutoDeck addition and is owed back upstream (PHASE-3A, "keep the two
+in sync"). The table has no row a real 2x2 fits: its four positions are defined by two
+independent continuums, which is not tension — more cost does not mean less novelty — and
+the skill's own catalog describes the geometry without naming the relationship it encodes.
+"""
+
 DiagramKind = Literal[
     "process_flow",
     "cycle",
@@ -62,7 +96,21 @@ DiagramKind = Literal[
     "layered_stack",
 ]
 """Seeded from the owner's `slide-geometry` skill (docs/reference/slide-geometry).
-Keep the two in sync — decision B6."""
+Keep the two in sync — decision B6. `GEOMETRIES` says which of these are modelled, which
+relationships each may encode, and what each one's labels may cost."""
+
+LabelReason = Literal[
+    "stage_name",
+    "actor_name",
+    "artefact_name",
+    "category_name",
+    "question",
+]
+"""The closed set of reasons a diagram label may carry no citation. See `LabelFraming`."""
+
+StackSupport = Literal["rests_on", "peers"]
+"""Whether a `layered_stack`'s layers depend on the one below or merely sit in an order.
+A rendering instruction and a claim at once — see `LayeredStackSpec`."""
 
 ChartKind = Literal["bar", "column", "line", "pie", "scatter", "area", "stacked_bar"]
 
@@ -272,55 +320,726 @@ class ChartSpec(IRModel):
         return self
 
 
-class DiagramNode(IRModel):
-    """A node in a `DiagramSpec`.
+# ---------------------------------------------------------------------------
+# Diagrams — the geometry grammar (§6.11.2, task 3a.6)
+# ---------------------------------------------------------------------------
+#
+# Three failures are designed out here, in this order.
+#
+# **A1 at a diagram node.** A box with three words in it reads as a label, not as an
+# assertion, which makes it the best hiding place in the deck for an uncited fact. So a
+# node's text must be *either* a `Claim` (and `Claim.citations` makes a citation-free one
+# unconstructible) *or* an explicit `LabelFraming` saying it asserts nothing about the
+# world. Neither is not an option: `DiagramNode` rejects a node that declares no status at
+# all, so the safe reading is what you get by default and the exemption has to be asked for.
+#
+# **The relationship named before the geometry.** `slide-geometry`'s step 1 is the
+# load-bearing one: *"If you catch yourself placing boxes before you have named the
+# relationship, stop and classify."* `DiagramSpec.relationship` is required and is declared
+# **before** `kind`, so a model filling this schema field by field states what the points
+# have to do with each other before it is offered a shape to put them in. `GEOMETRIES` then
+# refuses a geometry that does not encode the declared relationship.
+#
+# **Modelling the relationship, not a bag of nodes.** A process step has an order, a
+# two-by-two item has a position in two dimensions, a stack layer has a level. Each
+# geometry therefore carries its own payload type with its own fields, the way `Block`
+# carries exactly one payload for its `kind`; `nodes` and `edges` are *derived* from that
+# payload. A process flow's arrows come from its declared step order rather than from a
+# convention about list order, which is why re-serialising a shuffled list cannot silently
+# reorder the diagram — and why an edge to a node that does not exist is not a thing this
+# type can hold.
+#
+# Adding `funnel` or `venn` later is a payload class plus a `GEOMETRIES` entry. It is not a
+# redesign, and it is deliberately not done here for geometries nobody has asked for.
 
-    A node label that asserts a fact is a claim like any other — the diagram engine is not
-    a loophole in A1. Labels also obey text budgets (§6.7), enforced at render time.
+
+class LabelFraming(IRModel):
+    """The positive declaration that a node's label asserts nothing about the world.
+
+    **This is the label/claim seam, and it is A5's fence wearing a different hat.** A5 lets
+    a `framing` block carry no citation because *"serve better before you buy more"* is the
+    argument of a deck and there is no paper to cite for it; `audit/framing_linter.py`
+    keeps that exemption honest by demoting any framing block that says something about the
+    world. A diagram label like `Strategy` on a two-by-two axis, or `Discovery` on a
+    process flow, is the same sentence in a smaller box — so it is the same exemption,
+    declared the same way and fenced by the same lint.
+
+    `reason` is a closed vocabulary rather than free text for the reason the framing
+    linter's pattern tables are closed lists: a category anybody can widen is a category
+    that ends up holding everything. Each value names a thing that is true *of this
+    engagement's own vocabulary* rather than of the world:
+
+    - `stage_name` — a phase of the process being described (`Discovery`, `Pilot`). That
+      the stage exists is a fact about the plan on this slide, not about the world.
+    - `actor_name` — a party, team or system in the client's own world (`Finance`).
+    - `artefact_name` — a deliverable or document the engagement produces.
+    - `category_name` — a regime or grouping the deck itself defines (`Quick wins`).
+    - `question` — a question. A question asserts nothing; D12's `question_led` header
+      voice is the same move one text size up.
+
+    **What this cannot do, stated plainly.** Nothing here stops `40% cheaper than Oracle`
+    being typed into a label and declared `category_name`. The IR cannot run the A5 fence
+    itself — `autodeck/audit/` imports the design system, so the IR importing the audit
+    layer would close an import cycle — and a prose test for "is this a fact?" is exactly
+    the judgement `framing_linter.py` keeps deterministic by owning it in one place. So the
+    obligation is handed over explicitly instead of being hoped for:
+    `DiagramSpec.framing_texts()` enumerates every uncited text in a diagram, and a caller
+    that runs `lint_framing_text` over them gets, for diagrams, the demotion A5 already
+    performs for prose. Until that call exists, this declaration is a signature on a
+    statement, not a proof of it.
     """
 
-    id: str = Field(min_length=1)
-    label: str = Field(min_length=1)
-    claim: Claim | None = Field(
+    reason: LabelReason
+    note: str | None = Field(
         default=None,
-        description="Set when the label asserts a fact rather than naming a stage.",
+        description="Why this text asserts nothing about the world, in the author's words.",
     )
 
 
+class DiagramNode(IRModel):
+    """A node in a `DiagramSpec`: one label, and the status of the text in it.
+
+    **Exactly one of `claim` and `framing` must be set.** A node carrying neither is the
+    uncited factual label A1 exists to forbid, and it fails at construction rather than at
+    some later pass that might not run. A node carrying both is ambiguous about whether
+    there is evidence behind the words, and every consumer downstream would be free to
+    resolve it differently.
+
+    `label` is what the reader sees in the shape; `claim.text` is the assertion being made
+    and may be fuller (`Throughput rose from 412 to 671 sequences per second` behind a
+    label reading `Throughput +63%`). Keeping them separate is what lets the label obey a
+    four-word budget without the claim having to be compressed into something its citation
+    no longer supports — and `audit/numeric_linter.py` already lints both.
+
+    Subclasses add what their geometry needs. `DiagramNode` itself is not abstract, but a
+    `DiagramSpec` only ever holds the node type its geometry declares.
+    """
+
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1, description="The text in the shape. Budgeted; see A1.")
+    claim: Claim | None = Field(
+        default=None,
+        description="Set when the label asserts a fact. Carries the citations A1 requires.",
+    )
+    framing: LabelFraming | None = Field(
+        default=None,
+        description="Set INSTEAD of `claim`, when the label asserts nothing about the world.",
+    )
+
+    @model_validator(mode="after")
+    def _label_is_claimed_or_framed(self) -> DiagramNode:
+        if (self.claim is None) == (self.framing is None):
+            both = self.claim is not None
+            raise ValueError(
+                f"diagram node {self.id!r} sets "
+                f"{'both claim and framing' if both else 'neither claim nor framing'}; "
+                "exactly one is required. A node whose label asserts a fact carries a "
+                "`claim` with its citations (A1); a node whose label names a stage, a "
+                "party or a category says so with `framing`. There is no third case, "
+                "because 'nobody said' is how an uncited fact reaches a slide in a box."
+            )
+        return self
+
+    def word_count(self) -> int:
+        """Words in the label — the unit the slide-geometry skill states budgets in."""
+        return len(self.label.split())
+
+
+class ProcessStep(DiagramNode):
+    """One step of a `process_flow`, with its place in the sequence stated.
+
+    `order` is a field, not a list position. A type that can only express "this node is the
+    third step" as a convention about list order is not modelling sequence: a shuffled list
+    would be a different diagram with no validator able to tell, and a diff of two IR
+    versions would read as a rewrite whenever anything was inserted.
+    """
+
+    order: int = Field(ge=1, description="1 is the first step. Contiguous within the flow.")
+    transition: str | None = Field(
+        default=None,
+        description=(
+            "The label on the arrow leaving this step, if it needs one. Arrows mean flow, "
+            "causality or influence and nothing else, so this names what happens between "
+            "two steps; it is never a decorative connector caption."
+        ),
+    )
+
+
+class QuadrantItem(DiagramNode):
+    """One item plotted on a `two_by_two`, at its honest position on both axes.
+
+    Positions are 0.0 at the axis's `low` pole and 1.0 at its `high` pole. They are real
+    coordinates rather than a quadrant name because *"proportion is a factual claim"*: two
+    items in the same quadrant are usually the slide's point, and a type that could only
+    say "top right" would make that point unsayable.
+    """
+
+    x: float = Field(ge=0.0, le=1.0, description="Position along `x_axis`, low=0 to high=1.")
+    y: float = Field(ge=0.0, le=1.0, description="Position along `y_axis`, low=0 to high=1.")
+
+    @property
+    def quadrant(self) -> str:
+        """`low_low` … `high_high`, as `<x>_<y>`. The midpoint reads as `high`."""
+        return f"{'high' if self.x >= 0.5 else 'low'}_{'high' if self.y >= 0.5 else 'low'}"
+
+
+class StackLayer(DiagramNode):
+    """One band of a `layered_stack`, with the level it occupies.
+
+    Level 1 is the bottom. In a `rests_on` stack that is the foundation everything above
+    depends on, which is the whole claim the geometry makes; in a `peers` stack the levels
+    are only an order. Same reason as `ProcessStep.order`: the level is stated, never
+    inferred from where the layer happens to sit in a list.
+    """
+
+    level: int = Field(ge=1, description="1 is the bottom layer. Contiguous within the stack.")
+
+
 class DiagramEdge(IRModel):
-    """A directed relationship between two nodes, by node id."""
+    """A directed relationship between two nodes, by node id.
+
+    **Derived, never authored.** Edges come from the geometry's own structure — a process
+    flow's arrows are its step order — so an edge naming a node that does not exist, or
+    contradicting the order the steps declare, is not a state this IR can reach. The class
+    remains because consumers (`audit/numeric_linter.py` lints edge labels) read edges, and
+    a future geometry whose edges are genuinely free-form will produce these too.
+    """
 
     source: str = Field(min_length=1)
     target: str = Field(min_length=1)
     label: str | None = None
 
 
-class DiagramSpec(IRModel):
-    """Structure rendered as native PowerPoint shapes and connectors (§6.11.2).
+class DiagramAxis(IRModel):
+    """One labelled continuum of a `two_by_two`.
 
-    The ChartSpec pattern applied to concepts instead of data: typed and parameterised, so
-    art direction chooses a *kind* and the engine owns the geometry.
+    The catalog is explicit that this is what separates a real 2x2 from four boxes wearing
+    a costume: *"If you cannot name both axes as continuums, this is not a 2x2 —
+    reclassify."* So the dimension and both of its poles are required, and poles that read
+    the same are rejected: an axis whose ends are indistinguishable is not a continuum and
+    the items plotted against it are not positioned by anything.
+    """
+
+    name: str = Field(min_length=1, description="The dimension, e.g. 'Cost to serve'.")
+    low: str = Field(min_length=1, description="The label at the low end, e.g. 'Low'.")
+    high: str = Field(min_length=1, description="The label at the high end, e.g. 'High'.")
+
+    @model_validator(mode="after")
+    def _poles_differ(self) -> DiagramAxis:
+        if self.low.strip().casefold() == self.high.strip().casefold():
+            raise ValueError(
+                f"axis {self.name!r} has the same label at both ends ({self.low!r}). An axis "
+                "with indistinguishable poles is not a continuum, and a 2x2 built on one is "
+                "four boxes with arrowheads."
+            )
+        return self
+
+
+class TextSite(NamedTuple):
+    """One piece of on-slide diagram text, and where in the spec it came from."""
+
+    location: str
+    text: str
+
+
+class ProcessFlowSpec(IRModel):
+    """A sequence: A leads to B leads to C. Chevrons or a path (`references/construction.md`).
+
+    Two or more steps, because a sequence of one is not a sequence, and `order` values that
+    form exactly 1..n, because a flow with two third steps and no second is a diagram nobody
+    can draw and everybody would draw differently.
+    """
+
+    steps: list[ProcessStep] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def _orders_are_contiguous(self) -> ProcessFlowSpec:
+        orders = sorted(step.order for step in self.steps)
+        if orders != list(range(1, len(self.steps) + 1)):
+            raise ValueError(
+                f"process flow step orders are {orders}; expected exactly "
+                f"1..{len(self.steps)} with no gaps or repeats. Order is the whole content "
+                "of a sequence — a gap in it is an unanswerable question about what the "
+                "arrows connect."
+            )
+        return self
+
+    def steps_in_order(self) -> list[ProcessStep]:
+        """The steps as the flow runs them, by declared `order` and never by list order."""
+        return sorted(self.steps, key=lambda step: step.order)
+
+    @property
+    def nodes(self) -> tuple[DiagramNode, ...]:
+        return tuple(self.steps_in_order())
+
+    @property
+    def edges(self) -> tuple[DiagramEdge, ...]:
+        """One arrow per adjacent pair, in declared order."""
+        return tuple(
+            DiagramEdge(source=first.id, target=second.id, label=first.transition)
+            for first, second in pairwise(self.steps_in_order())
+        )
+
+    def structural_texts(self) -> tuple[TextSite, ...]:
+        return tuple(
+            TextSite(f"step {step.id} transition", step.transition)
+            for step in self.steps_in_order()
+            if step.transition
+        )
+
+
+class TwoByTwoSpec(IRModel):
+    """Items positioned against two crossed continuums (`True 2x2` in the catalog).
+
+    Both axes are required and so is more than one item: a single dot on a plane encodes no
+    comparison, which is the form of the load-bearing test this geometry can actually be
+    held to. The axes must also name different dimensions — plotting cost against cost is
+    one continuum drawn twice, and the second axis is then decoration.
+    """
+
+    x_axis: DiagramAxis
+    y_axis: DiagramAxis
+    items: list[QuadrantItem] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def _axes_are_different_dimensions(self) -> TwoByTwoSpec:
+        if self.x_axis.name.strip().casefold() == self.y_axis.name.strip().casefold():
+            raise ValueError(
+                f"both axes are named {self.x_axis.name!r}. A 2x2 claims two independent "
+                "continuums; the same one twice positions nothing."
+            )
+        return self
+
+    @property
+    def nodes(self) -> tuple[DiagramNode, ...]:
+        return tuple(self.items)
+
+    @property
+    def edges(self) -> tuple[DiagramEdge, ...]:
+        """None. An arrow on a 2x2 would claim flow between positions, which it has not."""
+        return ()
+
+    def structural_texts(self) -> tuple[TextSite, ...]:
+        return (
+            TextSite("x_axis name", self.x_axis.name),
+            TextSite("x_axis low", self.x_axis.low),
+            TextSite("x_axis high", self.x_axis.high),
+            TextSite("y_axis name", self.y_axis.name),
+            TextSite("y_axis low", self.y_axis.low),
+            TextSite("y_axis high", self.y_axis.high),
+        )
+
+
+class LayeredStackSpec(IRModel):
+    """Layers resting on one another, or sitting as peers (`Four strata` in the catalog).
+
+    `support` is a rendering instruction *and* a claim: the catalog gives the foundation the
+    widest band when the argument is "everything rests on this", and equal bands when the
+    layers are peers. Drawing one as the other misstates the relationship, so it is declared
+    rather than inferred from how many layers there are.
+
+    A `peers` stack is the variant closest to failing the skill's load-bearing test — peers
+    in a fixed order are very nearly a list — which is a judgement about the slide's content
+    and therefore belongs to the grammar lints (task 3a.9), not to this type. Flagged here
+    so 3a.9 knows where to look.
+    """
+
+    support: StackSupport
+    layers: list[StackLayer] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def _levels_are_contiguous(self) -> LayeredStackSpec:
+        levels = sorted(layer.level for layer in self.layers)
+        if levels != list(range(1, len(self.layers) + 1)):
+            raise ValueError(
+                f"stack levels are {levels}; expected exactly 1..{len(self.layers)}. A gap "
+                "in a stack is a band with nothing in it, and 'what rests on what' is the "
+                "only thing this geometry says."
+            )
+        return self
+
+    def layers_upwards(self) -> list[StackLayer]:
+        """The layers bottom first, by declared `level` and never by list order."""
+        return sorted(self.layers, key=lambda layer: layer.level)
+
+    @property
+    def nodes(self) -> tuple[DiagramNode, ...]:
+        """Bottom first, so index 0 is the foundation in a `rests_on` stack."""
+        return tuple(self.layers_upwards())
+
+    @property
+    def edges(self) -> tuple[DiagramEdge, ...]:
+        """None. Adjacency carries "rests on"; an arrow would claim flow instead."""
+        return ()
+
+    def structural_texts(self) -> tuple[TextSite, ...]:
+        return ()
+
+
+DiagramGeometry = ProcessFlowSpec | TwoByTwoSpec | LayeredStackSpec
+"""The geometry payloads this phase models. One more is one more member plus one entry."""
+
+
+@dataclass(frozen=True)
+class Geometry:
+    """One registered geometry: what it may encode, what it holds, and what it costs.
+
+    The same idea as `design/components/catalog.py`'s registration — one declaration
+    answering every question the rest of the system asks — kept here rather than there for
+    one reason: the constraint this table exists to enforce (does this geometry encode the
+    declared relationship?) has to hold at *construction* of the IR, and the IR may not
+    import the design system. The catalog's own `register()` could not host a diagram type
+    as it stands anyway: its `SlotBuilder` takes a `Canvas` and returns fixed boxes, while a
+    diagram's boxes depend on how many nodes it has. See the handover note for 3a.6's
+    renderer task.
+
+    `max_label_words` is a *declaration*, not a measurement. `autodeck/design/` owns
+    measurement (`budgets.compute_budget` turns a box and a font into a real limit) and the
+    IR must not import it, so what lives here is the skill's own unit — node labels of 2 to
+    4 words — which a renderer and a budget checker can both read and which is enforceable
+    without a font. The physical check stays where the fonts are.
+
+    `shapes` names python-pptx `MSO_SHAPE` members from `references/construction.md` as
+    strings. It is a cross-reference for whoever writes the renderer, not an API: nothing
+    here imports python-pptx, and the pptxgenjs column of that table is not modelled (D5).
     """
 
     kind: DiagramKind
+    relationships: tuple[DiagramRelationship, ...]
+    payload_field: str | None
+    """The `DiagramSpec` field carrying this geometry's payload, or None if unmodelled."""
+    node_type: type[DiagramNode]
+    max_label_words: int
+    encodes: str
+    """What this geometry carries that a plain list would lose. The skill's step 3, stated
+    per geometry so a lint or a reviewer can quote it rather than re-derive it."""
+    label_anchor: str
+    """Where the catalog puts this geometry's labels."""
+    shapes: tuple[str, ...]
+    catalog_entry: str
+    """The heading in `references/geometry-catalog.md` this entry is a reading of."""
+
+
+GEOMETRIES: dict[DiagramKind, Geometry] = {
+    "process_flow": Geometry(
+        kind="process_flow",
+        relationships=("sequence",),
+        payload_field="process_flow",
+        node_type=ProcessStep,
+        max_label_words=4,
+        encodes="the order of the steps and what happens between them",
+        label_anchor="inside each chevron; number the nodes on a journey path",
+        shapes=("CHEVRON", "RIGHT_ARROW"),
+        catalog_entry="Chevron / path sequence",
+    ),
+    "two_by_two": Geometry(
+        kind="two_by_two",
+        relationships=("classification", "tension_tradeoff"),
+        payload_field="two_by_two",
+        node_type=QuadrantItem,
+        max_label_words=4,
+        encodes="each item's position on two independent continuums at once",
+        label_anchor="beside each plotted dot; pole labels small and muted at each arrowhead",
+        shapes=("OVAL", "RECTANGLE"),
+        catalog_entry="True 2x2",
+    ),
+    "layered_stack": Geometry(
+        kind="layered_stack",
+        relationships=("hierarchy_foundation",),
+        payload_field="layered_stack",
+        node_type=StackLayer,
+        max_label_words=4,
+        encodes="which layers rest on which, and therefore what fails if the base does",
+        label_anchor="left-aligned inside each band",
+        shapes=("RECTANGLE",),
+        catalog_entry="Four strata / Pyramid, strata",
+    ),
+    "cycle": Geometry(
+        kind="cycle",
+        relationships=("cycle",),
+        payload_field=None,
+        node_type=DiagramNode,
+        max_label_words=4,
+        encodes="that the last phase feeds the first, so the process repeats",
+        label_anchor="outside the ring at each segment's angular centre",
+        shapes=("BLOCK_ARC", "OVAL", "ARC"),
+        catalog_entry="Three- to six-node cycle / Ring cycle",
+    ),
+    "funnel": Geometry(
+        kind="funnel",
+        relationships=("convergence",),
+        payload_field=None,
+        node_type=DiagramNode,
+        max_label_words=4,
+        encodes="how much is lost at each stage, in the widths themselves",
+        label_anchor="inside each band, left-padded; metrics right of the funnel",
+        shapes=("TRAPEZOID",),
+        catalog_entry="Funnel",
+    ),
+    "pyramid": Geometry(
+        kind="pyramid",
+        relationships=("hierarchy_foundation",),
+        payload_field=None,
+        node_type=DiagramNode,
+        max_label_words=4,
+        encodes="that each tier is narrower than the one it stands on",
+        label_anchor="inside each band; outside-right with a leader if the band is thin",
+        shapes=("TRAPEZOID", "ISOSCELES_TRIANGLE"),
+        catalog_entry="Pyramid / strata",
+    ),
+    "hub_spoke": Geometry(
+        kind="hub_spoke",
+        relationships=("convergence", "divergence"),
+        payload_field=None,
+        node_type=DiagramNode,
+        max_label_words=4,
+        encodes="that every satellite relates to the centre and not to each other",
+        label_anchor="outside each satellite on its radial line, by the anchoring rule",
+        shapes=("OVAL", "RECTANGLE"),
+        catalog_entry="Radial hub / orbit / compass",
+    ),
+}
+"""Every geometry this IR knows, whether or not it is modelled yet.
+
+An entry with `payload_field=None` is registered and **not constructible**: the catalog
+describes it, this phase does not model it, and `DiagramSpec` says so in the error rather
+than accepting a shapeless bag of nodes on its behalf. Adding one is a payload class, a
+field on `DiagramSpec`, and the `payload_field` here — a registration, not a redesign.
+
+`hub_spoke` is listed against both `convergence` and `divergence` because the relationship
+table has no radial family at all: the catalog distinguishes a hub (satellites supporting a
+centre) from a compass or starburst (a centre branching outwards) by the connectors, and
+the two read as opposite relationships. That, and `classification`, are the two places this
+table departs from the vendored skill; both are owed upstream (PHASE-3A, "keep the two in
+sync").
+"""
+
+
+def geometry_for(kind: DiagramKind) -> Geometry:
+    """The registered geometry for `kind`."""
+    return GEOMETRIES[kind]
+
+
+def geometries_for(relationship: DiagramRelationship) -> tuple[DiagramKind, ...]:
+    """Every geometry that may encode `relationship`, in registration order.
+
+    What art direction (Phase 3b) picks from once it has classified the relationship, and
+    the reason classification comes first: the choice of shape is *downstream* of it.
+    """
+    return tuple(
+        kind for kind, geometry in GEOMETRIES.items() if relationship in geometry.relationships
+    )
+
+
+def relationships_without_geometry() -> tuple[DiagramRelationship, ...]:
+    """Relationships the skill names that no registered geometry can encode.
+
+    A standing finding rather than a bug: PHASE-3A requires the vendored skill and this
+    table to be kept in sync, and this is the mechanical half of that review — it answers
+    "what can a classifier legitimately conclude that we cannot then draw?" without anyone
+    re-reading the table by eye.
+    """
+    covered = {r for geometry in GEOMETRIES.values() for r in geometry.relationships}
+    return tuple(r for r in get_args(DiagramRelationship) if r not in covered)
+
+
+#: Which `DiagramSpec` field carries each geometry's payload. Derived from `GEOMETRIES` so
+#: the registry stays the one place a geometry is declared.
+_GEOMETRY_FIELDS: tuple[str, ...] = tuple(
+    geometry.payload_field
+    for geometry in GEOMETRIES.values()
+    if geometry.payload_field is not None
+)
+
+
+def _payload_field(kind: DiagramKind) -> str:
+    field = GEOMETRIES[kind].payload_field
+    assert field is not None  # guaranteed by `_geometry_matches_kind`
+    return field
+
+
+class DiagramSpec(IRModel):
+    """Structure rendered as native PowerPoint shapes and connectors (§6.11.2).
+
+    **`relationship` is declared before `kind`, and that field order is load-bearing.**
+    Fields are emitted in declaration order by structured output, so a model filling this
+    schema names what its points have to do with each other before it is offered a geometry
+    for them. A `DiagramSpec` that let a caller pick a shape first would reproduce the exact
+    failure the slide-geometry skill exists to prevent — N points becoming N rounded
+    rectangles — with a type system's blessing on it.
+
+    Exactly one geometry payload is set and it must be the one `kind` names, the same
+    kind/payload agreement `Block` enforces for its own payloads and for the same reason: a
+    spec carrying two is ambiguous to the renderer, the linters and the audit report alike,
+    and each would be free to resolve it differently.
+
+    `nodes` and `edges` are derived from that payload rather than stored beside it. They
+    read the same as before for every consumer that walks a diagram, and the states they
+    used to allow — an edge to a node that does not exist, a step order contradicted by the
+    list it sits in — are now unreachable instead of validated.
+
+    What this type does **not** decide is the skill's load-bearing test — *"if this geometry
+    were replaced by a plain list, would information be lost?"*. Its mechanisable half is
+    here, per geometry (a 2x2 needs two named continuums and more than one item; a sequence
+    needs more than one step); the other half is a judgement about whether *this slide's*
+    content really holds the relationship it claims, which needs the slide, the deck's
+    rhythm and the argument — none of which the IR has. That half is task 3a.9's, and
+    `Geometry.encodes` is the sentence it should be holding the diagram to.
+    """
+
+    relationship: DiagramRelationship = Field(
+        description="What the points have to do with each other. Classify BEFORE choosing a "
+        "geometry — see `GEOMETRIES` for which geometries may encode which relationship."
+    )
+    kind: DiagramKind = Field(description="The geometry. Must encode `relationship`.")
     title: str | None = None
-    nodes: list[DiagramNode] = Field(min_length=1)
-    edges: list[DiagramEdge] = Field(default_factory=list)
+    process_flow: ProcessFlowSpec | None = None
+    two_by_two: TwoByTwoSpec | None = None
+    layered_stack: LayeredStackSpec | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_untyped_nodes(cls, data: Any) -> Any:
+        """Catch the old shape — `nodes=[...]`, `edges=[...]` — with an explanation.
+
+        `extra="forbid"` would already refuse these, saying only that the field is unknown.
+        A stored IR written before this phase, or a model copying an older example, deserves
+        to be told what replaced them.
+        """
+        if isinstance(data, dict):
+            legacy = sorted(k for k in ("nodes", "edges") if k in data)
+            if legacy:
+                raise ValueError(
+                    f"DiagramSpec no longer takes {', '.join(legacy)} directly. Nodes live "
+                    "in the payload for the declared `kind` (`process_flow`, `two_by_two`, "
+                    "`layered_stack`) with the fields that geometry needs — an order, a "
+                    "position, a level — and `nodes`/`edges` are derived from it."
+                )
+        return data
 
     @model_validator(mode="after")
-    def _edges_resolve_and_ids_are_unique(self) -> DiagramSpec:
-        ids = [n.id for n in self.nodes]
+    def _geometry_matches_kind(self) -> DiagramSpec:
+        geometry = GEOMETRIES[self.kind]
+        present = sorted(
+            field for field in _GEOMETRY_FIELDS if getattr(self, field) is not None
+        )
+        if geometry.payload_field is None:
+            raise ValueError(
+                f"diagram kind {self.kind!r} is in the catalog but is not modelled yet "
+                f"({geometry.catalog_entry}). Adding it is a payload class, a field on "
+                "DiagramSpec and a `payload_field` in GEOMETRIES — not an image and not a "
+                "bag of untyped nodes standing in for one."
+            )
+        if present != [geometry.payload_field]:
+            raise ValueError(
+                f"diagram of kind {self.kind!r} must set exactly {geometry.payload_field!r}"
+                f"; got {', '.join(present) or 'nothing'}. One kind, one geometry payload."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _relationship_matches_geometry(self) -> DiagramSpec:
+        geometry = GEOMETRIES[self.kind]
+        if self.relationship not in geometry.relationships:
+            allowed = ", ".join(geometry.relationships)
+            elsewhere = ", ".join(geometries_for(self.relationship)) or "none registered"
+            raise ValueError(
+                f"a {self.kind!r} cannot encode {self.relationship!r}: it encodes "
+                f"{allowed}. Geometry that does not match the relationship misstates how "
+                f"the points relate, which is the claim the shape makes. For "
+                f"{self.relationship!r}, try: {elsewhere}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _node_ids_are_unique(self) -> DiagramSpec:
+        ids = [node.id for node in self.nodes]
         duplicates = sorted({i for i in ids if ids.count(i) > 1})
         if duplicates:
             raise ValueError(f"duplicate diagram node ids: {', '.join(duplicates)}")
-        known = set(ids)
-        dangling = sorted(
-            {e.source for e in self.edges if e.source not in known}
-            | {e.target for e in self.edges if e.target not in known}
-        )
-        if dangling:
-            raise ValueError(f"edges reference unknown node ids: {', '.join(dangling)}")
         return self
+
+    @model_validator(mode="after")
+    def _labels_fit_the_budget(self) -> DiagramSpec:
+        """Node labels and structural text obey the geometry's word budget.
+
+        §6.7's rule one level down: geometry buys clarity, not room. The title is exempt
+        because it is set in the component's own slot and measured there; everything inside
+        the geometry has only the space the geometry gives it.
+        """
+        budget = GEOMETRIES[self.kind].max_label_words
+        over = [
+            f"{site.location} ({len(site.text.split())} words)"
+            for site in (
+                *(TextSite(f"node {n.id}", n.label) for n in self.nodes),
+                *self.payload.structural_texts(),
+            )
+            if len(site.text.split()) > budget
+        ]
+        if over:
+            raise ValueError(
+                f"diagram labels over the {budget}-word budget for {self.kind!r}: "
+                f"{', '.join(over)}. If the content cannot compress to that, the slide is "
+                "overloaded — split it, rather than shrinking the label until it fits."
+            )
+        return self
+
+    @property
+    def geometry(self) -> Geometry:
+        """This diagram's registry entry — budgets, label anchors, shape vocabulary."""
+        return GEOMETRIES[self.kind]
+
+    @property
+    def payload(self) -> DiagramGeometry:
+        """The geometry payload `kind` names. Present by construction."""
+        payload = getattr(self, _payload_field(self.kind))
+        assert payload is not None  # guaranteed by `_geometry_matches_kind`
+        return payload
+
+    @property
+    def nodes(self) -> tuple[DiagramNode, ...]:
+        """Every node, in the order the geometry puts them in — never list order."""
+        return self.payload.nodes
+
+    @property
+    def edges(self) -> tuple[DiagramEdge, ...]:
+        """The arrows this geometry implies, empty where an arrow would overclaim."""
+        return self.payload.edges
+
+    def claims(self) -> list[Claim]:
+        """Every claim carried by this diagram's nodes.
+
+        **The single enumeration of claim sites inside a diagram.** Four places already walk
+        `diagram.nodes` looking for `node.claim` — the validator's claim sites, the audit
+        report's rows, and the numeric linter twice — and a fifth (`Block.blocks_render`)
+        does not, which is how a `contradicted` diagram-node claim can print in the claims
+        table and still render. Callers that ask this question should ask it here.
+        """
+        return [node.claim for node in self.nodes if node.claim is not None]
+
+    def blocks_render(self) -> bool:
+        """True when A3 forbids any of this diagram's node claims from reaching render."""
+        return any(claim.blocks_render() for claim in self.claims())
+
+    def framing_texts(self) -> tuple[TextSite, ...]:
+        """Every text in this diagram that reaches the slide with no citation behind it.
+
+        Title, framed node labels, and the geometry's own structural text (axis poles,
+        transition labels). **This is the A5 surface of a diagram**: `LabelFraming` is a
+        declaration that these say nothing about the world, and `framing_linter`'s fence is
+        what tests the declaration. Enumerated here so that check is one call over one list
+        rather than a second answer invented per caller.
+        """
+        sites: list[TextSite] = []
+        if self.title:
+            sites.append(TextSite("title", self.title))
+        sites.extend(
+            TextSite(f"node {node.id}", node.label)
+            for node in self.nodes
+            if node.framing is not None
+        )
+        sites.extend(self.payload.structural_texts())
+        return tuple(sites)
 
 
 class IconRef(IRModel):
