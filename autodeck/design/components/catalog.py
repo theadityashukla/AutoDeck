@@ -1,4 +1,4 @@
-"""What text budgets look like once a component has a name — the content prompt's contract.
+"""The component registry — one registration establishes everything about a component.
 
 `budgets.py` can turn a box into a limit; nothing before this module turned a *component*
 into a box. Without it the content agent has a measurement engine and nowhere to point it,
@@ -7,11 +7,36 @@ because nothing upstream declared how much a slot could hold. §6.7 requires slo
 reach the writer as hard constraints *before* it writes, and this is the module that makes
 "the slot" a concrete thing with a width and a height rather than a synonym for "some text".
 
-Phase 3a (task 3a.3) grows this into the full ~15-30 component registry the plan describes
-(§6.6); this is deliberately the two components that exist after Phase 0's design spike,
-`big_number` and `two_column_compare`, and nothing else. Building the registry shape now,
-ahead of the components it would hold, is the kind of premature structure the phase brief
-warns against.
+## What a registration is for
+
+The brief's registry fields are `name -> role -> slots -> budgets -> renderer -> golden
+preview`, and the reason they belong to **one** declaration is that Phase 3b's assembler,
+the preview gallery and the content prompt all need the same answers. Three modules each
+keeping their own list is three lists that can disagree, and the one that has gone stale is
+never the one being read. So `register()` takes all of it at once and nothing may be left
+out — `preview=None` is a statement ("no golden PNG yet"), not an omission, because
+`components_missing_previews()` has to answer "did this one ever get a preview committed"
+from the registry rather than from a directory listing. Fifteen components are coming and
+most will be written by cheaper models; the question needs an answer that does not depend
+on anyone remembering to look.
+
+Adding a component is a registration: a slot builder and a `register(...)` call in this
+file. Nothing in `spec_for`, `render_budgets`, `check_overflow` or any caller changes.
+
+## Variants: a component whose slots depend on its content
+
+`big_number` lays out differently the moment it has supporting points — the figure moves
+into a column half the width. That fact used to travel as `spec_for(...,
+has_supporting_points=False)`: one component's private business sitting in the signature
+every caller uses, with `check_overflow` inferring the flag back from the caller's blocks.
+The inference was clever and it was a symptom.
+
+A **variant** replaces it. A registration declares its variants, and a non-default variant
+says which slot being filled selects it (`when_filled`). Resolution is then generic:
+`variant_for` walks the component's own declarations, so no code outside this component's
+registration knows that `big_number` has modes, and the generic API names no component.
+`when_filled` is a slot name rather than a predicate function on purpose — a name can be
+shown to the writer ("if you write supporting_points: ...") and a lambda cannot.
 
 ## Where the geometry comes from
 
@@ -19,12 +44,12 @@ A slot's box is read off the renderer that already computes it, not invented her
 `docs/phases/PHASE-2B.md`'s 2b.2 entry. Two kinds of number appear:
 
 * **Width and column position** are genuinely fixed by the renderer's own `Box` arithmetic
-  (`split_columns`, `split_bottom`, padding constants) and do not depend on what the writer
-  puts in any slot. These are copied exactly.
-* **Height**, for a slot the renderer sizes to its own measured content (`canvas.fit`), has
-  no single fixed value in the renderer — by design, since that is precisely what lets a
-  one-line headline and a two-line headline both produce a correctly-laid-out slide. A
-  *budget* still needs a number, so each such slot gets the most height it could use while
+  (`split_columns`, `body_and_caption`, padding constants) and do not depend on what the
+  writer puts in any slot. These are copied exactly.
+* **Height**, for a slot the renderer sizes to its own measured content, has no single
+  fixed value in the renderer — by design, since that is precisely what lets a one-line
+  headline and a two-line headline both produce a correctly-laid-out slide. A *budget*
+  still needs a number, so each such slot gets the most height it could use while
   guaranteeing every sibling slot still has room for at least one line of its own text —
   never the whole remaining region, which would make the budget vacuous, and never a made-up
   constant, since the "one line" reservation is measured from the same real font metrics
@@ -49,27 +74,24 @@ each item against `item_box` and the whole stack against `box`; `budget_for` on 
 slot returns the per-item budget, since that is the number a writer can hold in its head
 while composing one bullet.
 
-`big_number.supporting_points` carries a second wrinkle: writing it switches the renderer
-to a **two-column layout** (`_render_body`), so `figure`, `figure_label` and `support` are
-each half the width they are when `supporting_points` is empty. `spec_for` takes
-`has_supporting_points` to select which geometry applies, and `check_overflow` infers it
-from whether the caller's own `blocks` mapping has a non-empty `supporting_points` entry —
-a caller checking real content never has to know the flag exists.
-
-Owning phase: 2b (task 2b.2). Geometry is re-derived per call from the caller's own
-`DesignTokens`, never cached at import time: margins, gutters and the type scale all come
-from the client's theme, and a different client's tokens genuinely move every box edge.
+Owning phase: 2b (task 2b.2); made a registry in 3a (task 3a.3). Geometry is re-derived per
+call from the caller's own `DesignTokens`, never cached at import time: margins, gutters and
+the type scale all come from the client's theme, and a different client's tokens genuinely
+move every box edge.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal, Protocol
+
+from pptx.slide import Slide
 
 from autodeck.design.budgets import SlotBudget, compute_budget
 from autodeck.design.components.renderers import big_number, two_column_compare
-from autodeck.design.layout_kit import Box, Canvas, TextStyle
+from autodeck.design.layout_kit import MARKER_INSET, Box, Canvas, TextStyle
 from autodeck.design.theme.tokens import DesignTokens
 
 #: The component library's version, and the only definition of it.
@@ -86,6 +108,11 @@ from autodeck.design.theme.tokens import DesignTokens
 #: moving, which is exactly what this number is for.
 COMPONENT_LIB_VERSION = "0.2.0"
 
+#: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
+#: so the preview gallery has somewhere to read from; the registry, not this directory, is
+#: what says whether a given component has one.
+PREVIEW_DIR = Path(__file__).resolve().parent / "previews"
+
 #: Any non-empty, non-wrapping text. A single line's height in `budgets.wrap_text` depends
 #: only on the font's metrics, size and line spacing — never on which characters are in it
 #: — so this exists purely to ask "how tall is one line", not to guess real content.
@@ -95,14 +122,38 @@ _CALIBRATION_LINE = "Ag"
 #: slot — a list of independent, roughly-one-line items.
 BlockValue = str | Sequence[str]
 
+SlotBuilder = Callable[[Canvas], Sequence["ComponentSlot"]]
+"""Builds one variant's slot geometry against one client's theme."""
+
+
+class ComponentRenderer(Protocol):
+    """What every component's `render` looks like from the registry's side.
+
+    The content argument is the renderer's own dataclass and is deliberately untyped here:
+    a registry that insisted on one content type could not hold fifteen different ones.
+    `ComponentRegistration.content_type` is what a caller uses to build the right object.
+    """
+
+    def __call__(self, slide: Slide, canvas: Canvas, content: Any, /) -> None: ...
+
 
 class UnknownComponentError(ValueError):
-    """No catalog entry for a component or slot name.
+    """No catalog entry for a component, variant or slot name.
 
     A `KeyError` would read naturally here, but every other unknown-name failure in the
     design system (`layout_kit.Canvas.size`, `draw.theme_color`) raises `ValueError` with
     the valid options listed in the message, and matching that is worth more than the
     marginal precision of a different exception type.
+    """
+
+
+class RegistrationError(ValueError):
+    """A registration is malformed, and it says so at import time.
+
+    Most of what `register()` checks could instead be discovered later, by a caller getting
+    a confusing answer. Fifteen components are coming and most of them will be registered
+    by a cheaper model working from this file's existing entries; a registration that is
+    wrong should fail where it is written, not three layers away inside someone's prompt.
     """
 
 
@@ -142,22 +193,109 @@ class ComponentSlot:
 
     def style(self, canvas: Canvas) -> TextStyle:
         """The exact `TextStyle` the renderer builds for this slot, from `canvas`'s tokens."""
-        style = canvas.style(self.role, face=self.face)
-        overrides: dict[str, object] = {}
-        if self.size_scale != 1.0:
-            overrides["size"] = style.size * self.size_scale
-        if self.line_spacing is not None:
-            overrides["line_spacing"] = self.line_spacing
-        return style.with_(**overrides) if overrides else style
+        style = canvas.style(self.role, face=self.face, scale=self.size_scale)
+        if self.line_spacing is None:
+            return style
+        return style.with_(line_spacing=self.line_spacing)
+
+
+# ---------------------------------------------------------------------------
+# The registry
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ComponentVariant:
+    """One layout a component can take, and how the content selects it.
+
+    The default variant has `when_filled=None`; every other one names the slot whose
+    presence switches the component into it. That is the whole mechanism, and it is
+    deliberately small: a component with genuinely content-dependent geometry can express
+    it, and the generic API stays free of any particular component's vocabulary.
+    """
+
+    name: str
+    slots: SlotBuilder
+    when_filled: str | None = None
+    """The slot whose non-empty value selects this variant. `None` marks the default."""
+    note: str = ""
+    """What changes, in the writer's terms — `render_budgets` shows this in the prompt."""
+
+    @property
+    def is_default(self) -> bool:
+        return self.when_filled is None
+
+
+@dataclass(frozen=True)
+class ComponentRegistration:
+    """Everything the rest of the system needs to know about one component.
+
+    Held in one object so the assembler, the preview gallery and the content prompt read
+    one source. See this module's docstring on why that matters more than it looks.
+    """
+
+    name: str
+    narrative_roles: tuple[str, ...]
+    renderer: ComponentRenderer
+    content_type: type
+    """The dataclass `renderer` takes. Phase 3b's assembler builds one of these per slide;
+    without it the assembler needs its own component -> content-class table, which is the
+    fourth parallel list this registry exists to prevent."""
+    variants: tuple[ComponentVariant, ...]
+    preview: Path | None
+    """The golden preview PNG (D5's design artifact of record), or `None` for "not yet"."""
+
+    @property
+    def default_variant(self) -> ComponentVariant:
+        return next(variant for variant in self.variants if variant.is_default)
+
+    @property
+    def has_preview(self) -> bool:
+        """Whether a golden preview is actually committed, not merely declared."""
+        return self.preview is not None and self.preview.exists()
+
+    def variant(self, name: str) -> ComponentVariant:
+        for candidate in self.variants:
+            if candidate.name == name:
+                return candidate
+        known = ", ".join(v.name for v in self.variants)
+        raise UnknownComponentError(f"{self.name!r} has no variant {name!r}. Known: {known}")
+
+    def variant_for(self, blocks: Mapping[str, BlockValue]) -> ComponentVariant:
+        """Which variant this content selects — the first whose trigger slot is filled.
+
+        Declaration order decides, so a component with overlapping triggers has a defined
+        answer rather than a dict-ordering one.
+        """
+        for candidate in self.variants:
+            if candidate.when_filled is not None and blocks.get(candidate.when_filled):
+                return candidate
+        return self.default_variant
 
 
 @dataclass(frozen=True)
 class ComponentSpec:
-    """A component's name, the narrative jobs it can do, and its slots."""
+    """One component's slots, resolved against one client's theme and one variant."""
 
-    name: str
-    narrative_roles: tuple[str, ...]
+    component: ComponentRegistration
+    variant: str
     slots: tuple[ComponentSlot, ...]
+
+    @property
+    def name(self) -> str:
+        return self.component.name
+
+    @property
+    def narrative_roles(self) -> tuple[str, ...]:
+        return self.component.narrative_roles
+
+    @property
+    def renderer(self) -> ComponentRenderer:
+        return self.component.renderer
+
+    @property
+    def preview(self) -> Path | None:
+        return self.component.preview
 
     def slot(self, name: str) -> ComponentSlot:
         for candidate in self.slots:
@@ -165,6 +303,153 @@ class ComponentSpec:
                 return candidate
         known = ", ".join(s.name for s in self.slots)
         raise UnknownComponentError(f"{self.name!r} has no slot {name!r}. Known: {known}")
+
+
+_REGISTRY: dict[str, ComponentRegistration] = {}
+
+
+def register(
+    *,
+    name: str,
+    narrative_roles: tuple[str, ...],
+    renderer: ComponentRenderer,
+    content_type: type,
+    preview: Path | None,
+    slots: SlotBuilder | None = None,
+    variants: tuple[ComponentVariant, ...] = (),
+) -> ComponentRegistration:
+    """Register one component. The only way into the catalog.
+
+    Pass `slots` for the common case of a component with one layout; pass `variants` when
+    the layout depends on what the writer fills in (see `ComponentVariant`). `preview` has
+    no default: a component author has to say whether a golden PNG exists, because the
+    registry is what answers that question for the other fourteen.
+
+    Raises:
+        RegistrationError: the name is taken, or the registration is malformed.
+    """
+    if name in _REGISTRY:
+        raise RegistrationError(f"{name!r} is already registered")
+    if not narrative_roles:
+        raise RegistrationError(
+            f"{name!r} declares no narrative role. The outline chooses components by the "
+            "job they do; one with no stated job can never be chosen deliberately."
+        )
+    if (slots is None) == (not variants):
+        raise RegistrationError(
+            f"{name!r} must declare either `slots` (one layout) or `variants` (several), "
+            "not both and not neither."
+        )
+
+    resolved = variants or (ComponentVariant(name="default", slots=_required(slots)),)
+    defaults = [variant for variant in resolved if variant.is_default]
+    if len(defaults) != 1:
+        raise RegistrationError(
+            f"{name!r} declares {len(defaults)} default variants (those with no "
+            "`when_filled`); exactly one is the layout used when nothing selects another."
+        )
+    for variant in resolved:
+        if not variant.is_default and not variant.note:
+            raise RegistrationError(
+                f"{name!r} variant {variant.name!r} has no note. The note is what tells the "
+                "writer how its budgets differ; without one the variant is invisible in the "
+                "content prompt and the writer cannot know it is in it."
+            )
+
+    entry = ComponentRegistration(
+        name=name,
+        narrative_roles=narrative_roles,
+        renderer=renderer,
+        content_type=content_type,
+        variants=resolved,
+        preview=preview,
+    )
+    _REGISTRY[name] = entry
+    return entry
+
+
+def _required(slots: SlotBuilder | None) -> SlotBuilder:
+    assert slots is not None
+    return slots
+
+
+def known_components() -> list[str]:
+    """Every registered component name, sorted."""
+    return sorted(_REGISTRY)
+
+
+def registration(component: str) -> ComponentRegistration:
+    """The registry entry for `component`.
+
+    Raises:
+        UnknownComponentError: `component` is not in the catalog.
+    """
+    try:
+        return _REGISTRY[component]
+    except KeyError:
+        raise UnknownComponentError(
+            f"no catalog entry for {component!r}. Known: {', '.join(known_components())}"
+        ) from None
+
+
+def renderer_for(component: str) -> ComponentRenderer:
+    """The renderer registered for `component` — the assembler's lookup.
+
+    Phase 3b assembles slides through this rather than importing renderer modules, so a new
+    component reaches the assembler by being registered and by nothing else.
+    """
+    return registration(component).renderer
+
+
+def preview_for(component: str) -> Path | None:
+    """The golden preview declared for `component`, committed or not."""
+    return registration(component).preview
+
+
+def components_missing_previews() -> list[str]:
+    """Registered components with no golden preview PNG actually committed.
+
+    The question the phase brief needs answerable without looking in a directory: fifteen
+    components, most of them written by cheaper models, and "did this one ever get a
+    preview committed" must have a mechanical answer.
+    """
+    return [name for name in known_components() if not _REGISTRY[name].has_preview]
+
+
+def variant_for(component: str, blocks: Mapping[str, BlockValue]) -> str:
+    """Which of `component`'s layouts this content selects.
+
+    The replacement for the old per-component keyword argument: a caller that already holds
+    the blocks never has to know a component has variants at all.
+    """
+    return registration(component).variant_for(blocks).name
+
+
+def spec_for(
+    component: str, tokens: DesignTokens, *, variant: str | None = None
+) -> ComponentSpec:
+    """Build `component`'s slot geometry for one client's theme.
+
+    Rebuilt on every call rather than cached at import time — see the module docstring.
+
+    Args:
+        variant: which layout to build; the component's default when omitted. A caller
+            holding real content should use `variant_for` (or `check_overflow`, which does
+            it for them) rather than naming a variant.
+
+    Raises:
+        UnknownComponentError: no such component, or no such variant of it.
+    """
+    entry = registration(component)
+    chosen = entry.default_variant if variant is None else entry.variant(variant)
+    return ComponentSpec(
+        component=entry, variant=chosen.name, slots=tuple(chosen.slots(Canvas(tokens)))
+    )
+
+
+# ---------------------------------------------------------------------------
+# Slot geometry, read off each renderer's own arithmetic
+# ---------------------------------------------------------------------------
 
 
 def _one_line_height(canvas: Canvas, style: TextStyle, width: float) -> float:
@@ -176,72 +461,46 @@ def _one_line_height(canvas: Canvas, style: TextStyle, width: float) -> float:
     return canvas.measure(_CALIBRATION_LINE, width, style)
 
 
-def _role_style(
-    canvas: Canvas,
-    role: str,
-    *,
-    face: Literal["major", "minor"] = "minor",
-    size_scale: float = 1.0,
-    line_spacing: float | None = None,
-) -> TextStyle:
-    """`ComponentSlot.style`'s logic, usable before a `ComponentSlot` exists yet — the slot
-    builders below need a style to measure headroom with before they can build the slot
-    that will eventually carry the same parameters."""
-    style = canvas.style(role, face=face)
-    overrides: dict[str, object] = {}
-    if size_scale != 1.0:
-        overrides["size"] = style.size * size_scale
-    if line_spacing is not None:
-        overrides["line_spacing"] = line_spacing
-    return style.with_(**overrides) if overrides else style
-
-
-# ---------------------------------------------------------------------------
-# big_number
-# ---------------------------------------------------------------------------
-
-
-def _big_number_slots(
-    canvas: Canvas, *, has_supporting_points: bool = False
-) -> list[ComponentSlot]:
+def _big_number_slots(canvas: Canvas, *, with_supporting_points: bool) -> list[ComponentSlot]:
     """Reconstruct the boxes `renderers/big_number.py` computes for itself.
 
-    Same split calls and gap constants as `render()`/`_render_headline()`/`_render_body()`,
-    so a slot's box is a read of the renderer's own arithmetic. The renderer leaves exactly
-    one thing undetermined until content exists — how the space between the caption strip
-    and the slide edge divides between the headline and the figure block below it — and
-    that is the one place this function makes a policy choice, documented in the module
-    docstring: each of `headline` and `figure` gets the most height it could use while
-    still leaving the other room for one line.
+    Same stacks and gap constants as `render()`, so a slot's box is a read of the renderer's
+    own arithmetic. The renderer leaves exactly one thing undetermined until content exists
+    — how the space between the caption strip and the slide edge divides between the
+    headline and the figure block below it — and that is the one place this function makes
+    a policy choice, documented in the module docstring: each of `headline` and `figure`
+    gets the most height it could use while still leaving the other room for one line.
 
-    `has_supporting_points` mirrors `_render_body`'s own branch exactly: the moment
-    `supporting_points` is non-empty, the renderer halves `body_region` into a figure column
-    and a points column (`region.split_columns(2, canvas.gutter * 2)`), so `figure`,
+    `with_supporting_points` mirrors `render()`'s own branch exactly: the moment
+    `supporting_points` is non-empty, the renderer halves the body region into a figure
+    column and a points column (`region.split_columns(2, canvas.gutter * 2)`), so `figure`,
     `figure_label` and `support` are each half the width they are otherwise. Getting this
     wrong is the carried finding from reviewing 2b.2 — the catalog had no slot for
     `supporting_points` at all, so the three slots it did declare were silently wrong by
-    half in exactly the mode the codebase's own example (`design/spikes.py`) uses.
+    half in exactly the mode the codebase's own example (`design/spikes.py`) uses. It is a
+    parameter of this private builder and not of the public API: the registration below
+    binds one variant per value, and no caller ever passes it.
     """
     region, source_area = canvas.body_and_caption()
 
-    headline_style = _role_style(canvas, "title", face="major")
-    figure_style = _role_style(
-        canvas, "display", face="major", size_scale=big_number._FIGURE_SCALE, line_spacing=0.95
+    headline_style = canvas.style("title", face="major")
+    figure_style = canvas.style(
+        "display", face="major", scale=big_number._FIGURE_SCALE, line_spacing=0.95
     )
-    label_style = _role_style(canvas, "heading")
-    point_style = _role_style(canvas, "body")
+    label_style = canvas.style("heading")
+    point_style = canvas.style("body")
 
-    # The fixed distance `_render_headline` puts between the headline and the figure block:
-    # a baseline gap, the rule itself, then a second, larger gap.
+    # The fixed distance `render()` puts between the headline and the figure block: a
+    # baseline gap, the rule itself, then a second, larger gap.
     gap_headline_to_body = (
         canvas.baseline * 3 + big_number._RULE_THICKNESS + canvas.baseline * 4
     )
 
     # The least the figure block ever needs: one line of the figure and one of its label,
-    # with no supporting points and no support sentence (`_figure_block_height` adds more
-    # only when those are present, so this is the true floor, not a typical case). Measured
-    # at the full region width: whether a one-line calibration string wraps does not depend
-    # on which of the (equal) half-widths it is measured against once columns split, so the
+    # with no supporting points and no support sentence (the figure stack adds more only
+    # when those are present, so this is the true floor, not a typical case). Measured at
+    # the full region width: whether a one-line calibration string wraps does not depend on
+    # which of the (equal) half-widths it is measured against once columns split, so the
     # reservation is the same either way and only the final boxes' widths differ below.
     min_figure_block = (
         _one_line_height(canvas, figure_style, region.width)
@@ -255,8 +514,8 @@ def _big_number_slots(
     headline_one_line = _one_line_height(canvas, headline_style, region.width)
     _, body_region = region.split_top(headline_one_line, gutter=gap_headline_to_body)
 
-    # `_render_body`'s own branch: split into a figure column and a points column, or don't.
-    if has_supporting_points:
+    # `render()`'s own branch: split into a figure column and a points column, or don't.
+    if with_supporting_points:
         content_region, points_region = body_region.split_columns(2, canvas.gutter * 2)
     else:
         content_region, points_region = body_region, None
@@ -289,10 +548,10 @@ def _big_number_slots(
     ]
 
     if points_region is not None:
-        # The bound the renderer itself already guards with: `_render_body` raises
-        # `LayoutOverflowError` if `block_height > region.height`, where its `region` is
-        # this function's `body_region` — so `body_region.height` is not invented here, it
-        # is the same ceiling the render-time safety net already enforces.
+        # The bound the renderer itself already guards with: `render()` reserves one band
+        # height for both columns out of this function's `body_region`, so
+        # `body_region.height` is not invented here — it is the same ceiling the
+        # render-time safety net already enforces.
         point_one_line = _one_line_height(canvas, point_style, points_region.width)
         slots.append(
             ComponentSlot(
@@ -300,17 +559,12 @@ def _big_number_slots(
                 role="body",
                 box=points_region.resize(height=body_region.height),
                 item_box=points_region.resize(height=point_one_line),
-                row_gap=canvas.baseline * 2.5,  # `_render_supporting_points`'s own gutter.
+                row_gap=canvas.baseline * 2.5,  # the points stack's own row gap.
                 repeatable=True,
                 required=False,
             )
         )
     return slots
-
-
-# ---------------------------------------------------------------------------
-# two_column_compare
-# ---------------------------------------------------------------------------
 
 
 def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
@@ -324,10 +578,10 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     capping `point` to one line by claiming a wrapped point would "grow both columns' row at
     once... before the panel-height overflow check ever gets a chance to fire", as if
     wrapping broke row parity. Checked against the renderer, that is not true: `_row_heights`
-    measures each row's real height with `canvas.measure` — wrapped or not — and takes the
-    max across both columns for that row, so the two sides stay level regardless of how many
-    lines a point wraps to. Row parity survives wrapping by construction; it was never what
-    the cap protected.
+    measures each row's real height with `canvas.measure` — wrapped or not — and hands it to
+    both columns' stacks as that row's `min_height`, so the two sides stay level regardless
+    of how many lines a point wraps to. Row parity survives wrapping by construction; it was
+    never what the cap protected.
 
     The cap is kept anyway, on a different and honest justification: a comparison `point` is
     meant to be a scannable phrase, and a point that wraps to a paragraph stops reading as a
@@ -340,20 +594,19 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     region, source_area = canvas.body_and_caption()
     left_area, right_area = region.split_columns(2, canvas.gutter * 1.5)
 
-    headline_style = _role_style(canvas, "title", face="major")
-    title_style = _role_style(canvas, "heading")  # face defaults to minor, unlike big_number
-    point_style = _role_style(canvas, "body")
+    headline_style = canvas.style("title", face="major")
+    title_style = canvas.style("heading")  # face defaults to minor, unlike big_number
+    point_style = canvas.style("body")
 
-    inner_width = left_area.width - two_column_compare._PANEL_PADDING * 2
-    text_width = inner_width - two_column_compare._MARKER_INSET
+    padding = two_column_compare._PANEL_PADDING
+    inner_width = left_area.width - padding * 2
+    text_width = inner_width - MARKER_INSET
 
-    # `_content_height`'s fixed chrome: gap under the title, the rule, gap under the rule.
+    # The column stack's fixed chrome: gap under the title, the rule, gap under the rule.
     chrome = canvas.baseline * 1.5 + two_column_compare._RULE_THICKNESS + canvas.baseline * 3
     point_one_line = _one_line_height(canvas, point_style, text_width)
     title_one_line = _one_line_height(canvas, title_style, inner_width)
-    min_column_height = (
-        two_column_compare._PANEL_PADDING * 2 + title_one_line + chrome + point_one_line
-    )
+    min_column_height = padding * 2 + title_one_line + chrome + point_one_line
     gap_after_headline = canvas.baseline * 5
 
     headline_height = max(region.height - gap_after_headline - min_column_height, 0.0)
@@ -363,34 +616,26 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     _, body_area = region.split_top(headline_one_line, gutter=gap_after_headline)
 
     # `panel_height` in the renderer is the *max* of the two columns' own content heights,
-    # and the overflow check compares that max against `body_area.height` — so neither
-    # column alone may exceed it either, and both share one height ceiling here.
-    title_height = max(
-        body_area.height - two_column_compare._PANEL_PADDING * 2 - chrome - point_one_line,
-        0.0,
-    )
+    # and `Box.reserve` measures that max against `body_area.height` — so neither column
+    # alone may exceed it either, and both share one height ceiling here.
+    title_height = max(body_area.height - padding * 2 - chrome - point_one_line, 0.0)
     # The row stack's own ceiling, symmetric with `title_height` above: title gets the most
     # height it can use while reserving one line for the row stack; the row stack gets the
     # most height it can use while reserving one line for the title. Neither reservation
     # assumes how many rows the writer actually uses — `check_overflow` is what checks the
     # real count, against whichever of `left_points`/`right_points` the writer filled in.
-    points_height = max(
-        body_area.height - two_column_compare._PANEL_PADDING * 2 - chrome - title_one_line,
-        0.0,
-    )
+    points_height = max(body_area.height - padding * 2 - chrome - title_one_line, 0.0)
 
     def title_box(area: Box) -> Box:
-        return area.pad(two_column_compare._PANEL_PADDING).resize(height=title_height)
+        return area.pad(padding).resize(height=title_height)
 
     def point_box(area: Box) -> Box:
-        inner = area.pad(two_column_compare._PANEL_PADDING)
-        return inner.inset(left=two_column_compare._MARKER_INSET).resize(height=point_one_line)
+        return area.pad(padding).inset(left=MARKER_INSET).resize(height=point_one_line)
 
     def points_box(area: Box) -> Box:
-        inner = area.pad(two_column_compare._PANEL_PADDING)
-        return inner.inset(left=two_column_compare._MARKER_INSET).resize(height=points_height)
+        return area.pad(padding).inset(left=MARKER_INSET).resize(height=points_height)
 
-    row_gap = canvas.baseline * 2.5  # `_render_column`'s own gap between rows.
+    row_gap = canvas.baseline * 2.5  # the column stack's own gap between rows.
 
     return [
         ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
@@ -427,57 +672,45 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
 
 
 # ---------------------------------------------------------------------------
-# The catalog itself
+# The registrations
 # ---------------------------------------------------------------------------
 
-_SLOT_BUILDERS = {
-    "big_number": _big_number_slots,
-    "two_column_compare": _two_column_compare_slots,
-}
+register(
+    name="big_number",
+    narrative_roles=("headline metric", "single-figure proof point"),
+    renderer=big_number.render,
+    content_type=big_number.BigNumberContent,
+    preview=PREVIEW_DIR / "big_number.png",
+    variants=(
+        ComponentVariant(
+            name="default",
+            slots=lambda canvas: _big_number_slots(canvas, with_supporting_points=False),
+        ),
+        ComponentVariant(
+            name="with_supporting_points",
+            slots=lambda canvas: _big_number_slots(canvas, with_supporting_points=True),
+            when_filled="supporting_points",
+            note=(
+                "figure/figure_label/support share the slide with them in two columns and "
+                "are NARROWER than the widths above"
+            ),
+        ),
+    ),
+)
 
-_NARRATIVE_ROLES: dict[str, tuple[str, ...]] = {
-    "big_number": ("headline metric", "single-figure proof point"),
-    "two_column_compare": ("comparison", "recommendation"),
-}
+register(
+    name="two_column_compare",
+    narrative_roles=("comparison", "recommendation"),
+    renderer=two_column_compare.render,
+    content_type=two_column_compare.TwoColumnCompareContent,
+    preview=PREVIEW_DIR / "two_column_compare.png",
+    slots=_two_column_compare_slots,
+)
 
 
-def known_components() -> list[str]:
-    return sorted(_SLOT_BUILDERS)
-
-
-def spec_for(
-    component: str, tokens: DesignTokens, *, has_supporting_points: bool = False
-) -> ComponentSpec:
-    """Build `component`'s slot geometry for one client's theme.
-
-    Rebuilt on every call rather than cached at import time — see the module docstring.
-
-    Args:
-        has_supporting_points: only meaningful for `big_number`. Selects the two-column
-            geometry `_render_body` switches to the moment `supporting_points` is
-            non-empty — narrower `figure`/`figure_label`/`support` and an extra
-            `supporting_points` slot. Ignored by every other component.
-
-    Raises:
-        UnknownComponentError: `component` is not in the catalog.
-    """
-    try:
-        builder = _SLOT_BUILDERS[component]
-    except KeyError:
-        raise UnknownComponentError(
-            f"no catalog entry for {component!r}. Known: {', '.join(known_components())}"
-        ) from None
-    canvas = Canvas(tokens)
-    slots = (
-        builder(canvas, has_supporting_points=has_supporting_points)
-        if component == "big_number"
-        else builder(canvas)
-    )
-    return ComponentSpec(
-        name=component,
-        narrative_roles=_NARRATIVE_ROLES[component],
-        slots=tuple(slots),
-    )
+# ---------------------------------------------------------------------------
+# Budgets
+# ---------------------------------------------------------------------------
 
 
 def _budget(slot: ComponentSlot, tokens: DesignTokens) -> SlotBudget:
@@ -528,7 +761,7 @@ def _max_items(slot: ComponentSlot) -> int:
 
 
 def budget_for(
-    component: str, slot: str, tokens: DesignTokens, *, has_supporting_points: bool = False
+    component: str, slot: str, tokens: DesignTokens, *, variant: str | None = None
 ) -> SlotBudget:
     """The `SlotBudget` for one named slot of `component`, under `tokens`.
 
@@ -536,11 +769,9 @@ def budget_for(
     is the constraint a writer composing one bullet actually needs.
 
     Raises:
-        UnknownComponentError: no such component or slot.
+        UnknownComponentError: no such component, variant or slot.
     """
-    resolved = spec_for(component, tokens, has_supporting_points=has_supporting_points).slot(
-        slot
-    )
+    resolved = spec_for(component, tokens, variant=variant).slot(slot)
     return _item_budget(resolved, tokens) if resolved.repeatable else _budget(resolved, tokens)
 
 
@@ -551,25 +782,38 @@ def render_budgets(component: str, tokens: DesignTokens) -> str:
     in its head while writing — max characters and max lines, which is what `SlotBudget`
     already exposes through `describe()`. This function only has to assemble them.
 
-    For `big_number`, the widths above assume `supporting_points` stays empty; a note and
-    the narrower alternative are appended, because the writer decides which mode it is in
-    by whether it writes that field, not by reading a flag this function cannot see yet.
+    The default variant's slots come first. Each other variant then contributes only the
+    slots it actually changes, under a line naming what the writer would have to write to
+    end up in it — because the writer selects the variant by what it writes, not by reading
+    a flag it cannot see. *Which* slots those are is computed rather than listed: a
+    hand-written list of affected slots stays correct right up until a variant's geometry
+    changes, and then silently does not.
     """
-    spec = spec_for(component, tokens)
-    lines = [f"{spec.name} text budgets:"]
-    for slot in spec.slots:
-        lines.append(f"- {_describe_slot(slot, tokens)}{_optional_tag(slot)}")
+    entry = registration(component)
+    default = spec_for(component, tokens)
 
-    if component == "big_number":
-        narrow = spec_for(component, tokens, has_supporting_points=True)
-        lines.append(
-            "if you write supporting_points: figure/figure_label/support share the slide "
-            "with them in two columns and are NARROWER than the widths above:"
+    lines = [f"{component} text budgets:"]
+    lines.extend(
+        f"- {_describe_slot(slot, tokens)}{_optional_tag(slot)}" for slot in default.slots
+    )
+
+    for variant in entry.variants:
+        if variant.is_default:
+            continue
+        changed = _changed_slots(spec_for(component, tokens, variant=variant.name), default)
+        if not changed:
+            continue
+        lines.append(f"if you write {variant.when_filled}: {variant.note}:")
+        lines.extend(
+            f"  - {_describe_slot(slot, tokens)}{_optional_tag(slot)}" for slot in changed
         )
-        for name in ("figure", "figure_label", "support", "supporting_points"):
-            slot = narrow.slot(name)
-            lines.append(f"  - {_describe_slot(slot, tokens)}{_optional_tag(slot)}")
     return "\n".join(lines)
+
+
+def _changed_slots(spec: ComponentSpec, default: ComponentSpec) -> list[ComponentSlot]:
+    """The slots this variant adds or moves, relative to the default layout."""
+    by_name = {slot.name: slot for slot in default.slots}
+    return [slot for slot in spec.slots if by_name.get(slot.name) != slot]
 
 
 def _describe_slot(slot: ComponentSlot, tokens: DesignTokens) -> str:
@@ -587,6 +831,11 @@ def _optional_tag(slot: ComponentSlot) -> str:
     return "" if slot.required else " (optional)"
 
 
+# ---------------------------------------------------------------------------
+# The deterministic pre-render gate
+# ---------------------------------------------------------------------------
+
+
 def check_overflow(
     blocks: Mapping[str, BlockValue], component: str, tokens: DesignTokens
 ) -> list[str]:
@@ -601,17 +850,16 @@ def check_overflow(
     not "zero overflow", it is a different failure the same deterministic gate should catch
     before render rather than after.
 
-    For `big_number`, whether `supporting_points` is a non-empty entry in `blocks` decides
-    which geometry `figure`/`figure_label`/`support` are checked against — the caller never
-    has to pass a separate flag for content it is already handing over.
+    The component's own variant rules decide which geometry the slots are checked against
+    (`ComponentRegistration.variant_for`), so a caller handing over real content never has
+    to know the component has modes at all.
 
     A `repeatable` slot's value is a `Sequence[str]`: each item is checked against the
     slot's per-item budget, and the whole list's stacked height (items plus the gaps between
     them) is checked against the slot's own box — the aggregate check the singular `point`
     slots never had, which is the carried finding this function closes.
     """
-    has_supporting_points = component == "big_number" and bool(blocks.get("supporting_points"))
-    spec = spec_for(component, tokens, has_supporting_points=has_supporting_points)
+    spec = spec_for(component, tokens, variant=variant_for(component, blocks))
     findings: list[str] = []
     for slot in spec.slots:
         value = blocks.get(slot.name)

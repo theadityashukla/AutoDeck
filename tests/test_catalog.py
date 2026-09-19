@@ -15,14 +15,21 @@ from pathlib import Path
 import pytest
 
 from autodeck.design.components.catalog import (
+    ComponentVariant,
+    RegistrationError,
     UnknownComponentError,
     budget_for,
     check_overflow,
+    components_missing_previews,
     known_components,
+    register,
+    registration,
     render_budgets,
+    renderer_for,
     spec_for,
+    variant_for,
 )
-from autodeck.design.components.renderers import two_column_compare
+from autodeck.design.components.renderers import big_number, two_column_compare
 from autodeck.design.fonts import is_available
 from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.tokens import DesignTokens
@@ -211,7 +218,7 @@ def test_big_number_supporting_points_narrows_the_figure_column() -> None:
     spec declares."""
     tokens = tokens_for()
     wide = spec_for("big_number", tokens)
-    narrow = spec_for("big_number", tokens, has_supporting_points=True)
+    narrow = spec_for("big_number", tokens, variant="with_supporting_points")
     assert narrow.slot("figure").box.width < wide.slot("figure").box.width
     assert narrow.slot("figure_label").box.width < wide.slot("figure_label").box.width
     supporting = narrow.slot("supporting_points")
@@ -221,9 +228,9 @@ def test_big_number_supporting_points_narrows_the_figure_column() -> None:
 
 
 @requires_test_font
-def test_check_overflow_infers_the_big_number_variant_from_the_blocks_given() -> None:
-    """A caller never has to pass `has_supporting_points` itself — `check_overflow` reads it
-    off whether `blocks` actually carries non-empty `supporting_points`."""
+def test_check_overflow_resolves_the_big_number_variant_from_the_blocks_given() -> None:
+    """A caller never names a variant — `check_overflow` resolves it from whether `blocks`
+    actually carries non-empty `supporting_points`, using the component's own rule."""
     tokens = tokens_for()
     wide_figure = budget_for("big_number", "figure", tokens)
     long_figure = "9" * (wide_figure.max_chars + 1) if wide_figure.max_chars else "9" * 500
@@ -238,7 +245,7 @@ def test_check_overflow_infers_the_big_number_variant_from_the_blocks_given() ->
     # The figure is narrower once supporting_points is present, so the SAME text that just
     # fit the full-width budget may now also overflow the narrower one — either way, the
     # check must have measured the narrow box, not the wide one silently kept around.
-    narrow_figure = budget_for("big_number", "figure", tokens, has_supporting_points=True)
+    narrow_figure = budget_for("big_number", "figure", tokens, variant="with_supporting_points")
     expected_overflow = not narrow_figure.fits(long_figure)
     assert any("big_number.figure:" in f for f in findings) == expected_overflow
 
@@ -282,6 +289,131 @@ def test_an_unknown_component_names_the_known_ones() -> None:
 
 def test_known_components_lists_both_catalog_entries() -> None:
     assert known_components() == ["big_number", "two_column_compare"]
+
+
+# ---------------------------------------------------------------------------
+# The registry: one registration establishes all five fields
+# ---------------------------------------------------------------------------
+
+
+def test_the_registry_is_what_finds_a_renderer() -> None:
+    """3b's assembler looks a renderer up here rather than importing the module, so a new
+    component reaches it by being registered and by nothing else."""
+    assert renderer_for("big_number") is big_number.render
+    assert renderer_for("two_column_compare") is two_column_compare.render
+
+
+def test_a_registration_carries_the_content_class_its_renderer_takes() -> None:
+    """Without it the assembler needs its own component -> content-class table, which is
+    the fourth parallel list the registry exists to prevent."""
+    assert registration("big_number").content_type is big_number.BigNumberContent
+    assert (
+        registration("two_column_compare").content_type
+        is two_column_compare.TwoColumnCompareContent
+    )
+
+
+def test_a_registration_without_a_committed_preview_is_detectable() -> None:
+    """Fifteen components are coming, most written by cheaper models. "Did this one ever
+    get a golden preview committed" has to be answerable from the registry rather than by
+    looking in a directory — and today, honestly, the answer is no for both."""
+    missing = components_missing_previews()
+    for name in known_components():
+        declared = registration(name).preview
+        assert (name in missing) == (declared is None or not declared.exists())
+
+
+def test_a_component_declares_which_slot_selects_each_of_its_layouts() -> None:
+    """The generic API names no component: `variant_for` asks the registration, and the
+    registration is the only place `supporting_points` is mentioned."""
+    assert variant_for("big_number", {}) == "default"
+    assert variant_for("big_number", {"supporting_points": []}) == "default"
+    assert (
+        variant_for("big_number", {"supporting_points": ["One."]}) == "with_supporting_points"
+    )
+
+
+def test_a_component_with_one_layout_always_resolves_to_its_default() -> None:
+    assert variant_for("two_column_compare", {"left_points": ["One."]}) == "default"
+
+
+def test_an_unknown_variant_names_the_known_ones() -> None:
+    with pytest.raises(UnknownComponentError, match="with_supporting_points"):
+        spec_for("big_number", tokens_for(), variant="not_a_real_variant")
+
+
+def test_registering_a_name_twice_is_refused() -> None:
+    with pytest.raises(RegistrationError, match="already registered"):
+        register(
+            name="big_number",
+            narrative_roles=("headline metric",),
+            renderer=big_number.render,
+            content_type=big_number.BigNumberContent,
+            preview=None,
+            slots=lambda canvas: [],
+        )
+
+
+def test_a_registration_must_declare_slots_or_variants_but_not_both() -> None:
+    for kwargs in (
+        {},
+        {
+            "slots": lambda canvas: [],
+            "variants": (ComponentVariant(name="default", slots=lambda canvas: []),),
+        },
+    ):
+        with pytest.raises(RegistrationError, match="not both and not neither"):
+            register(
+                name="never_registered",
+                narrative_roles=("test",),
+                renderer=big_number.render,
+                content_type=big_number.BigNumberContent,
+                preview=None,
+                **kwargs,  # type: ignore[arg-type]
+            )
+
+
+def test_exactly_one_variant_is_the_default() -> None:
+    with pytest.raises(RegistrationError, match="default variants"):
+        register(
+            name="never_registered",
+            narrative_roles=("test",),
+            renderer=big_number.render,
+            content_type=big_number.BigNumberContent,
+            preview=None,
+            variants=(
+                ComponentVariant(name="a", slots=lambda canvas: []),
+                ComponentVariant(name="b", slots=lambda canvas: []),
+            ),
+        )
+
+
+def test_a_variant_the_writer_cannot_be_told_about_is_refused() -> None:
+    """A variant with no note never appears in the content prompt, so the writer can be put
+    into it by what it writes and never learn that its budgets changed."""
+    with pytest.raises(RegistrationError, match="no note"):
+        register(
+            name="never_registered",
+            narrative_roles=("test",),
+            renderer=big_number.render,
+            content_type=big_number.BigNumberContent,
+            preview=None,
+            variants=(
+                ComponentVariant(name="default", slots=lambda canvas: []),
+                ComponentVariant(
+                    name="extra", slots=lambda canvas: [], when_filled="something"
+                ),
+            ),
+        )
+
+
+def test_every_registered_component_is_one_the_outline_may_choose() -> None:
+    """The outline's `CATALOG` is the planned fifteen and the registry is what is built so
+    far, so the registry is a subset — but a *disagreement* (a component that renders and
+    that the outline may never assign) would be invisible without this."""
+    from autodeck.agents.outline import CATALOG
+
+    assert set(known_components()) <= set(CATALOG)
 
 
 # ---------------------------------------------------------------------------
