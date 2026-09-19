@@ -90,7 +90,13 @@ from typing import Any, Literal, Protocol
 from pptx.slide import Slide
 
 from autodeck.design.budgets import SlotBudget, compute_budget
-from autodeck.design.components.renderers import big_number, two_column_compare
+from autodeck.design.components.renderers import (
+    big_number,
+    bullets_supporting,
+    callout_takeaway,
+    quote,
+    two_column_compare,
+)
 from autodeck.design.layout_kit import MARKER_INSET, Box, Canvas, TextStyle
 from autodeck.design.theme.tokens import DesignTokens
 
@@ -106,7 +112,11 @@ from autodeck.design.theme.tokens import DesignTokens
 #: geometry moved into the kit, so `two_column_compare`'s points hang at 18pt rather than
 #: 17pt and every `point` slot is one point narrower. A small move, but it is a slot box
 #: moving, which is exactly what this number is for.
-COMPONENT_LIB_VERSION = "0.2.0"
+#:
+#: 0.3.0: task 3a.4's first tranche registers `quote`, `bullets_supporting` and
+#: `callout_takeaway` — the set of components a deck may be built from changes, even though
+#: no existing component's geometry moved.
+COMPONENT_LIB_VERSION = "0.3.0"
 
 #: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
 #: so the preview gallery has somewhere to read from; the registry, not this directory, is
@@ -671,6 +681,154 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     ]
 
 
+def _quote_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/quote.py` computes for itself.
+
+    Same headline-and-rule chrome as `_big_number_slots` and
+    `_two_column_compare_slots` (`gap_headline_to_body` is the identical
+    `baseline*3 + rule_thickness + baseline*4` formula in all three), then a second block
+    of `[mark, quote, attribution]`. The mark is `quote.py`'s own decorative glyph — not a
+    `QuoteContent` field, so it carries no slot of its own — and its height is reserved as
+    fixed chrome the same way the rule's thickness is.
+    """
+    region, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major")
+    quote_style = canvas.style(
+        "title", face="major", scale=quote._QUOTE_SCALE, line_spacing=1.15
+    )
+    attribution_style = canvas.style("heading")
+    mark_style = canvas.style("display", face="major", line_spacing=0.9)
+
+    gap_headline_to_body = canvas.baseline * 3 + quote._RULE_THICKNESS + canvas.baseline * 4
+    gap_mark_to_quote = canvas.baseline * 2
+    gap_quote_to_attribution = canvas.baseline * 3
+
+    mark_one_line = _one_line_height(canvas, mark_style, region.width)
+    quote_one_line = _one_line_height(canvas, quote_style, region.width)
+    attribution_one_line = _one_line_height(canvas, attribution_style, region.width)
+
+    # The least the quote block ever needs: the mark, one line of the quote, and one line
+    # of the attribution, with `render()`'s own gaps between them — the same "assume every
+    # sibling takes only its floor" bound `_big_number_slots` uses for its headline/figure
+    # pair.
+    min_quote_block = (
+        mark_one_line
+        + gap_mark_to_quote
+        + quote_one_line
+        + gap_quote_to_attribution
+        + attribution_one_line
+    )
+    headline_height = max(region.height - gap_headline_to_body - min_quote_block, 0.0)
+    headline_box = region.resize(height=headline_height)
+
+    headline_one_line = _one_line_height(canvas, headline_style, region.width)
+    _, quote_region = region.split_top(headline_one_line, gutter=gap_headline_to_body)
+
+    # Mirror image: bound the quote block by assuming the headline takes only one line.
+    _, after_mark = quote_region.split_top(mark_one_line, gutter=gap_mark_to_quote)
+    quote_height = max(after_mark.height - gap_quote_to_attribution - attribution_one_line, 0.0)
+    quote_box = after_mark.resize(height=quote_height)
+    _, attribution_box = after_mark.split_top(quote_one_line, gutter=gap_quote_to_attribution)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
+        ComponentSlot(
+            name="quote",
+            role="title",
+            box=quote_box,
+            face="major",
+            size_scale=quote._QUOTE_SCALE,
+            line_spacing=1.15,
+        ),
+        ComponentSlot(name="attribution", role="heading", box=attribution_box),
+        ComponentSlot(name="source", role="caption", box=source_area, required=False),
+    ]
+
+
+def _bullets_supporting_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/bullets_supporting.py` computes for itself.
+
+    The single-column counterpart to `_two_column_compare_slots`: one headline band (same
+    chrome formula as every other component here) and one repeatable `points` slot below
+    it, with no partner column to keep row parity with.
+    """
+    region, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major")
+    point_style = canvas.style("body")
+
+    gap_headline_to_body = (
+        canvas.baseline * 3 + bullets_supporting._RULE_THICKNESS + canvas.baseline * 4
+    )
+    point_one_line = _one_line_height(canvas, point_style, region.width)
+
+    headline_height = max(region.height - gap_headline_to_body - point_one_line, 0.0)
+    headline_box = region.resize(height=headline_height)
+
+    headline_one_line = _one_line_height(canvas, headline_style, region.width)
+    _, points_region = region.split_top(headline_one_line, gutter=gap_headline_to_body)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major"),
+        ComponentSlot(
+            name="points",
+            role="body",
+            box=points_region,
+            item_box=points_region.resize(height=point_one_line),
+            row_gap=canvas.baseline * 3,
+            repeatable=True,
+        ),
+        ComponentSlot(name="source", role="caption", box=source_area, required=False),
+    ]
+
+
+def _callout_takeaway_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/callout_takeaway.py` computes for itself.
+
+    A single stack, unlike every other component registered so far: `render()` places one
+    `Stack` holding `label`, `takeaway` and the optional `support` line, centred inside the
+    padded panel, with no separate headline band above it (see the renderer's own
+    docstring for why). `label` is capped to one line on purpose — the same policy
+    `_two_column_compare_slots`' `point` slots use: an eyebrow tag that wraps to a
+    paragraph stops reading as a tag.
+    """
+    body, source_area = canvas.body_and_caption()
+    inner = body.pad(callout_takeaway._PANEL_PADDING)
+
+    label_style = canvas.style("caption")
+    takeaway_style = canvas.style("title", face="major", line_spacing=1.15)
+    support_style = canvas.style("body")
+
+    gap_label_to_takeaway = canvas.baseline * 2
+    gap_takeaway_to_support = canvas.baseline * 3
+
+    label_one_line = _one_line_height(canvas, label_style, inner.width)
+    takeaway_one_line = _one_line_height(canvas, takeaway_style, inner.width)
+    support_one_line = _one_line_height(canvas, support_style, inner.width)
+
+    label_box = inner.resize(height=label_one_line)
+    _, after_label = inner.split_top(label_one_line, gutter=gap_label_to_takeaway)
+
+    # Symmetric bound, same shape as `_big_number_slots`' headline/figure pair: `takeaway`
+    # gets the most height it could use while still leaving `support` one line, and vice
+    # versa. Neither reservation assumes `support` is actually present — it is optional, so
+    # an absent line simply leaves the takeaway with more room than the budget claims,
+    # never less.
+    takeaway_height = max(after_label.height - gap_takeaway_to_support - support_one_line, 0.0)
+    takeaway_box = after_label.resize(height=takeaway_height)
+    _, support_box = after_label.split_top(takeaway_one_line, gutter=gap_takeaway_to_support)
+
+    return [
+        ComponentSlot(name="label", role="caption", box=label_box),
+        ComponentSlot(
+            name="takeaway", role="title", box=takeaway_box, face="major", line_spacing=1.15
+        ),
+        ComponentSlot(name="support", role="body", box=support_box, required=False),
+        ComponentSlot(name="source", role="caption", box=source_area, required=False),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # The registrations
 # ---------------------------------------------------------------------------
@@ -705,6 +863,33 @@ register(
     content_type=two_column_compare.TwoColumnCompareContent,
     preview=PREVIEW_DIR / "two_column_compare.png",
     slots=_two_column_compare_slots,
+)
+
+register(
+    name="quote",
+    narrative_roles=("third-party validation", "testimonial"),
+    renderer=quote.render,
+    content_type=quote.QuoteContent,
+    preview=PREVIEW_DIR / "quote.png",
+    slots=_quote_slots,
+)
+
+register(
+    name="bullets_supporting",
+    narrative_roles=("supporting evidence", "headline argument"),
+    renderer=bullets_supporting.render,
+    content_type=bullets_supporting.BulletsSupportingContent,
+    preview=PREVIEW_DIR / "bullets_supporting.png",
+    slots=_bullets_supporting_slots,
+)
+
+register(
+    name="callout_takeaway",
+    narrative_roles=("single takeaway", "section close"),
+    renderer=callout_takeaway.render,
+    content_type=callout_takeaway.CalloutTakeawayContent,
+    preview=PREVIEW_DIR / "callout_takeaway.png",
+    slots=_callout_takeaway_slots,
 )
 
 

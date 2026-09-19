@@ -133,7 +133,12 @@ def slide(**overrides) -> Slide:  # type: ignore[no-untyped-def]
     payload: dict[str, object] = {
         "id": "s1",
         "narrative_role": "evidence",
-        "component": "quote",  # not in the design catalog — budgets skip, no font needed
+        # Not yet in the design catalog (3a.4 has only registered five of the fifteen so
+        # far) — budgets skip, no font needed. `quote` itself was this placeholder until
+        # task 3a.4 registered it for real; picking a name still outside the catalog keeps
+        # this fixture's actual intent (skip budget checking) rather than accidentally
+        # exercising a real component's geometry.
+        "component": "closing_cta",
         "intent": "Establish that quantisation is the cheap first move.",
         "message_ids": ["km1"],
     }

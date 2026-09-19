@@ -5,6 +5,18 @@
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },
+    "bullets_supporting": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "callout_takeaway": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "quote": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
     "two_column_compare": {
       "font_major": "Inter Display",
       "font_minor": "Inter"

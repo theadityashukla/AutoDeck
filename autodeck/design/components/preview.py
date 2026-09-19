@@ -41,6 +41,9 @@ from typing import Any
 
 from autodeck.design.components import catalog
 from autodeck.design.components.renderers.big_number import BigNumberContent
+from autodeck.design.components.renderers.bullets_supporting import BulletsSupportingContent
+from autodeck.design.components.renderers.callout_takeaway import CalloutTakeawayContent
+from autodeck.design.components.renderers.quote import QuoteContent
 from autodeck.design.components.renderers.two_column_compare import (
     ComparisonColumn,
     TwoColumnCompareContent,
@@ -71,6 +74,10 @@ EXAMPLES: dict[str, Any] = {
         ),
         source="Source: Kaplan et al. 2024, p.4 — figures re-verified at validation.",
         accent="accent1",
+        # Each point is capped to one line by the `with_supporting_points` variant's own
+        # geometry (narrower than the full-width slots above) — this example was the first
+        # thing this module's own overflow test caught, and it is kept short on purpose so
+        # the gallery demonstrates a component that fits, not one that quietly does not.
         supporting_points=[
             "Median cost per token fell to $0.42.",
             "No regression on any benchmark.",
@@ -101,6 +108,44 @@ EXAMPLES: dict[str, Any] = {
             ],
         ),
         source="Source: internal benchmark, Q3 2025 — see audit report for derivations.",
+    ),
+    "quote": QuoteContent(
+        # Deliberately short of the wrap boundary — see this module's own commit message
+        # (task 3a.4) for why: `budgets.py` measures wrapping against the REGULAR-weight
+        # font file regardless of `TextStyle.bold`, so a bold headline can wrap to one more
+        # line than predicted once it is within a few percent of its box width. A longer,
+        # more "natural" headline here originally sat in exactly that gap (839.8pt
+        # predicted against an 852pt box — 1.4% of headroom — but genuinely wrapped to two
+        # lines once rendered bold) and its committed preview showed the accent rule
+        # overlapping the wrapped second line. That is not a `quote.py` bug — the identical
+        # failure reproduces with plain `add_text` and no `Stack` involved — so the fix here
+        # is a safer example, not a workaround in the renderer; the underlying gap is
+        # reported upstream instead.
+        headline="Clients notice the difference immediately",
+        quote=(
+            "This is the first vendor deck where I did not have to fact-check a single "
+            "number myself before sending it to the board."
+        ),
+        attribution="VP of Strategy, Fortune 500 client",
+        source="Source: client debrief call, 12 Mar 2026 — quoted with permission.",
+        accent="accent3",
+    ),
+    "bullets_supporting": BulletsSupportingContent(
+        headline="Three changes account for nearly all of the improvement",
+        points=[
+            "The attention kernel rewrite removed the single largest source of latency.",
+            "Batch composition now adapts to load instead of using a fixed size.",
+            "A caching layer in front of the tokenizer cut preprocessing time in half.",
+        ],
+        source="Source: internal benchmark, Q3 2025 — see audit report for derivations.",
+        accent="accent2",
+    ),
+    "callout_takeaway": CalloutTakeawayContent(
+        takeaway="The kernel rewrite pays for itself in under six weeks.",
+        label="Takeaway",
+        support="Every week after that is pure margin, compounding as load grows.",
+        source="Source: internal benchmark, Q3 2025 — see audit report for derivations.",
+        accent="accent4",
     ),
 }
 

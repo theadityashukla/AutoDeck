@@ -287,8 +287,15 @@ def test_an_unknown_component_names_the_known_ones() -> None:
         spec_for("not_a_real_component", tokens_for())
 
 
-def test_known_components_lists_both_catalog_entries() -> None:
-    assert known_components() == ["big_number", "two_column_compare"]
+def test_known_components_lists_every_registered_entry() -> None:
+    """Updated by task 3a.4's first tranche: three components joined the original two."""
+    assert known_components() == [
+        "big_number",
+        "bullets_supporting",
+        "callout_takeaway",
+        "quote",
+        "two_column_compare",
+    ]
 
 
 # ---------------------------------------------------------------------------
