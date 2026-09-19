@@ -22,6 +22,24 @@ are declarative, carry their own justification, self-check for collisions at imp
 are tested directly rather than only through a lint run. A regex that happens to pass is
 untestable in exactly the cases that matter.
 
+**Matching has a floor, and the floor is the `(value, unit)` key.** A numeral matches a
+citation when the numeral and the cited span share a normalised key, and nothing else
+counts. That sentence exists because the three defects found in this module by an
+adversarial review were all in *fallback* paths, and every one had been added to prevent a
+false block: a verbatim substring search that let `40%` match `140%`, an unbounded rounding
+match that let `0.51` be printed as `1x`, and an input match that threw the unit away so a
+millisecond figure could be printed as a percentage. Each fallback was looser than the
+thing it backed up, and the ladder had no floor.
+
+So the floor is stated as a rule with a hole in it, because a rule with no hole gets
+quietly ignored the first time it causes a false block: **a fallback may be wider than the
+key intersection only if every match it makes is reported as a finding.** The
+minority-reading branch already obeyed it. The three defects did not, and that — not the
+individual rules — is what made them dangerous, because A2's green is the one result a
+GATE 2 reviewer is invited to treat as settled. Every `NumeralMatch` records the
+`matched_on` key it was made on, and `tests/test_numeric_linter.py` walks them, so the next
+fallback either names a key its source carries or shows up in the report.
+
 **A derivation is checked from both ends.** Re-executing the formula proves the
 arithmetic; `check_derivation_inputs` proves the inputs were copied rather than invented.
 Only the pair closes the loop — a derivation with real spans, correct arithmetic and made-up
@@ -68,9 +86,10 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from typing import Literal
 
-from autodeck.ingest.provenance import find_span, normalise_text
+from autodeck.ingest.provenance import normalise_text
 from autodeck.ir.models import Citation, Deck, Derivation, DerivationInput, DiagramSpec
 
 # ---------------------------------------------------------------------------
@@ -129,6 +148,22 @@ class NumeralMatch:
     """True when the match needed the minority reading of a locale-ambiguous separator."""
     other_sources: tuple[str, ...] = ()
     """Further citations carrying the same numeral. A2 ambiguity, surfaced not resolved."""
+    via_unqualified_form: bool = False
+    """True when the text carried a bare number and the cited span qualifies it with a unit.
+
+    The one place matching is allowed to be *wider* than the key intersection, and it pays
+    for that by being reported — see `_match_against_citations`.
+    """
+    matched_on: NormalKey | None = None
+    """The normalised `(value, unit)` key this match was made on, from the numeral's side.
+
+    Recorded so **the floor rule can be checked rather than merely written down**. A match
+    against a citation has to name a key the cited span itself carries; a match against a
+    derivation has to name a key whose unit is the derivation's declared unit. The test
+    `test_every_match_names_a_key_its_source_actually_carries` walks every match a lint run
+    produces and confirms exactly that, so a future fallback matching on something looser
+    than a shared key has nothing truthful to put here and the suite goes red.
+    """
 
 
 @dataclass
@@ -523,6 +558,18 @@ class Numeral:
     end: int
     """Offsets into the *normalised* text `extract_numerals` was given, not the original."""
     kind: Literal["number", "date"] = "number"
+    qualifier: str = ""
+    """A word written against the digits that the tables did not recognise as a unit.
+
+    `UNIT_TABLE` lists the units this corpus writes often; it cannot list every one. So a
+    numeral has three states, not two: qualified by a known unit (`40 ms` → `ms`),
+    genuinely bare (a chart series value, `4.0`), and **qualified by something the table
+    does not know** (`3.2 million requests`, `40 GPUs`, `700 W`), which normalises to the
+    empty unit and must not be confused with the second. `_match_against_citations`' last
+    tier lets a genuinely bare numeral match a qualified span; it must not let
+    `3.2 million requests` match `3.2 million dollars`, which is `UNIT_TABLE`'s own
+    justification for the `usd` row.
+    """
 
     def describe(self) -> str:
         if self.context and self.context != self.text:
@@ -631,7 +678,24 @@ def _plain_numeral(text: str, match: re.Match[str]) -> Numeral:
         ambiguous_forms=frozenset(ambiguous),
         start=match.start() - len(prefix),
         end=end + suffix_width,
+        qualifier=_trailing_qualifier(text, end + suffix_width),
     )
+
+
+#: A word written against the digits, after any recognised prefix and suffix are consumed.
+_QUALIFIER = re.compile(r"[ \t]?([A-Za-z][A-Za-z/_-]*)")
+
+
+def _trailing_qualifier(text: str, end: int) -> str:
+    """The word immediately after the numeral, when the tables did not claim it.
+
+    Only used to tell a genuinely bare numeral from one the table simply does not have a
+    row for — see `Numeral.qualifier`. Anything the scale and unit tables recognised has
+    already been consumed by `_scan_suffix` before this is called, so what is left is by
+    construction a qualifier the normalisation table does not know about.
+    """
+    match = _QUALIFIER.match(text, end)
+    return match.group(1) if match else ""
 
 
 def _forms_for(
@@ -829,6 +893,7 @@ def _with_extra_forms(
         start=numeral.start,
         end=numeral.end,
         kind=numeral.kind,
+        qualifier=numeral.qualifier,
     )
 
 
@@ -1054,6 +1119,39 @@ def re_execute_derivation(
     ]
 
 
+@lru_cache(maxsize=2048)
+def _keys_for_value(quote: str, value: float) -> frozenset[NormalKey]:
+    """Every `(value, unit)` key the numerals in `quote` give to `value`.
+
+    Cached on the pair rather than on the `DerivationInput`, which is a pydantic model and
+    not hashable, and because a rendered-slide pass asks the same short quote about the
+    same input once per numeral on the slide.
+    """
+    wanted = Decimal(str(value))
+    return frozenset(
+        key
+        for numeral in extract_numerals(quote)
+        for key in numeral.forms | numeral.ambiguous_forms
+        if key[0] == wanted
+    )
+
+
+def input_keys(item: DerivationInput) -> frozenset[NormalKey]:
+    """The normalised keys the cited span attaches to this input's value.
+
+    `DerivationInput` carries a value and a citation and no unit (B13), so the unit half of
+    the key has to come from somewhere. It comes from the span: the numeral in the quote
+    that *is* this value, read through the same tables as everything else. An input cited
+    to *"generates at 40 ms per token"* is 40 milliseconds and nothing else, so a slide
+    printing `40%` matches no input of that derivation.
+
+    Empty when the value does not appear in its span at all — which is already a blocking
+    `derivation input` finding, and which correctly matches nothing here rather than
+    matching everything.
+    """
+    return _keys_for_value(item.citation.quote, item.value)
+
+
 def derivation_input_is_traceable(item: DerivationInput) -> bool:
     """Whether this input's value really appears as a numeral in the span it cites.
 
@@ -1069,12 +1167,7 @@ def derivation_input_is_traceable(item: DerivationInput) -> bool:
     `match_numerals`, and refusing the match would make this report "input not found" for a
     number that is plainly in the sentence.
     """
-    wanted = Decimal(str(item.value))
-    return any(
-        wanted == value
-        for numeral in extract_numerals(item.citation.quote)
-        for value, _ in numeral.forms | numeral.ambiguous_forms
-    )
+    return bool(input_keys(item))
 
 
 def check_derivation_inputs(
@@ -1113,6 +1206,160 @@ def check_derivation_inputs(
             )
         )
     return findings
+
+
+#: Below this relative distance two figures are the same measurement written twice, not a
+#: disagreement — deliberately the same number as `ROUNDING_REL_LIMIT`, because this module
+#: already calls that distance "one figure rounded" and it would be incoherent for two
+#: values to be a rounding of each other at one call site and a conflict at another.
+CONFLICT_REL_LIMIT = ROUNDING_REL_LIMIT
+
+
+def check_derivation_reconciles_sources(
+    derivation: Derivation, *, location: str = ""
+) -> list[NumericFinding]:
+    """Refuse a derivation that averages away a disagreement between two sources (A8).
+
+    `prompts/content.md`: *"Show both, never the average… Do not average them"*, and
+    *"Never round to hedge, never average to reconcile"*. A8 says the same and is enforced
+    by *"`prompts/content.md` behaviour + a conflicts section in the audit report"* — that
+    is, by asking the model nicely. The derivation machinery then supplied the mechanism
+    that makes breaking the promise look audited: two corpus sources reporting 412 and 671
+    tokens per second for one workload, reconciled with `(a + b) / 2`, both inputs cited,
+    both present in their spans, the arithmetic exact. `A2 passes: True`, zero findings,
+    `require_safe_to_render` PASSED, the conflicts section reading *"no contradicting span"*
+    — and the averaged figure printed under **"Working (A2 — derived figure)"** with a green
+    tick against each source. A 63% disagreement between two papers, presented to a GATE 2
+    reviewer as verified arithmetic.
+
+    This is `PHASE-2B.md` §6.3's shape one level up. §6.3 closed *"the inputs trace to
+    nothing"*; this is *"the inputs trace perfectly and the operation over them is the thing
+    A8 forbids"*.
+
+    ## Where the line is
+
+    **Combining two sources is not the offence.** A rate built from one paper's numerator
+    and another's denominator is honest arithmetic, and so is a percentage delta between a
+    figure in one paper and a figure in another. Blocking those would push writers away from
+    declaring their working at all, which is a worse outcome than the hole. **The offence is
+    reconciling a disagreement about the same quantity into a single figure nobody
+    measured.**
+
+    So the blocking case is the narrow, certain one, and it is three conditions at once:
+
+    1. the formula, re-executed over the real inputs, returns **exactly their arithmetic
+       mean** — which is what `(a + b) / 2`, `a/2 + b/2`, `(a + b) * 0.5` and the midpoint
+       `a + (b - a) / 2` all are, without this function having to pattern-match on formula
+       text that a writer can spell a dozen ways;
+    2. two of the inputs cite **different `doc_id`s** — one paper averaging two of its own
+       measurements is a different argument, and not one A8 makes;
+    3. those two values differ by more than `CONFLICT_REL_LIMIT`, so there is a
+       disagreement to reconcile rather than one figure written twice.
+
+    A percentage delta survives all of this — `(b - a) / b * 100` over 412 and 671 computes
+    38.6, nowhere near their mean of 541.5 — and so does a cross-source rate, and that is
+    the test of the boundary rather than an argument about it.
+
+    **The residue is reported, not blocked.** A weighted average, or any other formula
+    landing strictly between two materially different figures from two documents, is the
+    same manoeuvre with a thumb on the scale, and so is a mean drawn from one document.
+    Neither is certain enough to block on, so each raises an advisory naming the two
+    figures. Better a reviewer reads one line about honest arithmetic than a writer learns
+    that declaring a derivation is how a deck gets stopped.
+    """
+    values = {name: item.value for name, item in derivation.inputs.items()}
+    if len(values) < 2:
+        return []
+    try:
+        computed = evaluate_formula(derivation.formula, values)
+    except FormulaError:
+        return []  # already a blocking finding from `re_execute_derivation`
+    if not math.isfinite(computed):
+        return []
+
+    mean = sum(values.values()) / len(values)
+    is_mean = math.isclose(computed, mean, rel_tol=DERIVATION_REL_TOL, abs_tol=1e-12)
+    low, high = min(values.values()), max(values.values())
+    between = low < computed < high
+
+    if not is_mean and not between:
+        return []
+
+    pair = _widest_disagreeing_pair(derivation)
+    if pair is None:
+        # Nothing here disagrees with anything, or it all came from one document.
+        same_document = _widest_disagreeing_pair(derivation, across_documents=False)
+        if is_mean and same_document is not None:
+            return [_reconciliation_finding(derivation, same_document, computed, location)]
+        return []
+
+    if is_mean:
+        return [_reconciliation_finding(derivation, pair, computed, location, blocking=True)]
+    return [_reconciliation_finding(derivation, pair, computed, location)]
+
+
+InputPair = tuple[tuple[str, DerivationInput], tuple[str, DerivationInput]]
+
+
+def _widest_disagreeing_pair(
+    derivation: Derivation, *, across_documents: bool = True
+) -> InputPair | None:
+    """The two inputs furthest apart that are far enough apart to be a disagreement.
+
+    Widest rather than first, so the finding quotes the two figures a reader would argue
+    about. Deterministic on ties by input name, because a finding whose text changed between
+    runs is one nobody trusts.
+    """
+    items = sorted(derivation.inputs.items())
+    best: InputPair | None = None
+    best_distance = CONFLICT_REL_LIMIT
+    for index, left in enumerate(items):
+        for right in items[index + 1 :]:
+            if across_documents and left[1].citation.doc_id == right[1].citation.doc_id:
+                continue
+            if not across_documents and left[1].citation.doc_id != right[1].citation.doc_id:
+                continue
+            distance = _relative_difference(left[1].value, right[1].value)
+            if distance > best_distance:
+                best, best_distance = (left, right), distance
+    return best
+
+
+def _reconciliation_finding(
+    derivation: Derivation,
+    pair: InputPair,
+    computed: float,
+    location: str,
+    *,
+    blocking: bool = False,
+) -> NumericFinding:
+    """One finding naming both figures, both sources, and where the disagreement belongs."""
+    (left_name, left), (right_name, right) = pair
+    distance = _relative_difference(left.value, right.value)
+    verb = "averages" if blocking else "reconciles"
+    consequence = (
+        "The average is a figure neither source measured and no reader can check, and "
+        "declaring it as a derivation is what makes it look audited: the report prints it "
+        "under 'Working (A2 — derived figure)' with a green tick against each source."
+        if blocking
+        else "It may be honest arithmetic — a rate or a delta across two papers is fine — "
+        "but a formula landing between two figures that disagree is how an average gets "
+        "spelled when it is not spelled '/ 2'."
+    )
+    return NumericFinding(
+        check="derivation reconciles disagreeing sources",
+        severity="blocking" if blocking else "advisory",
+        detail=(
+            f"{derivation.formula!r} {verb} {left_name}={left.value!r} "
+            f"({_citation_label(left.citation)}: {left.citation.quote!r}) and "
+            f"{right_name}={right.value!r} "
+            f"({_citation_label(right.citation)}: {right.citation.quote!r}) to "
+            f"{computed!r}. Those figures differ by {distance:.0%}. {consequence} A8: show "
+            "both, each with its source and its workload, and put the disagreement in the "
+            "audit report's conflicts section — never average to reconcile."
+        ),
+        location=location,
+    )
 
 
 def _decimal_places(value: float) -> int:
@@ -1201,7 +1448,7 @@ def match_numerals(
     for numeral in numerals:
         if numeral.text in allowed:
             continue
-        match = _match_against_citations(numeral, citations, citation_forms, location)
+        match = _match_against_citations(numeral, citation_forms, location)
         if match is None:
             match = _match_against_derivations(numeral, derivations, location)
         if match is None:
@@ -1233,54 +1480,113 @@ def _citation_forms(citations: Sequence[Citation]) -> list[CitationForms]:
 
 def _match_against_citations(
     numeral: Numeral,
-    citations: Sequence[Citation],
     citation_forms: Sequence[CitationForms],
     location: str,
 ) -> NumeralMatch | None:
-    """Match a numeral to a span that contains it.
+    """Match a numeral to a span that contains it — on normalised `(value, unit)` keys only.
 
-    Two strategies, in order. First the verbatim one: `provenance.find_span` looks for the
-    surface form itself in the quote, which is the same search the citation resolver does,
-    so a numeral that is literally in the source matches for the same reason the quote does.
-    Then the normalised one, over `(value, unit)` keys.
+    **One strategy, and that is the floor.** There used to be a verbatim branch ahead of
+    this one: `provenance.find_span` looking for the numeral's surface form inside the
+    quote, on the reasoning that a numeral literally present in the source matches for the
+    same reason the quote itself does. `find_span` is a *quote* locator. Its needle is
+    normally a whole sentence, where substring semantics are right; here the needle was one
+    to four characters, where they are catastrophically wrong. It matched `40%` against a
+    span reading `140%`, `12` against `3,120`, `29 ms` against `1029 ms` and `3x` against
+    `13x` — every one of them A2-green with no finding of any severity, and the audit
+    report then printed the `140%` sentence underneath the `40%` claim as its evidence.
+
+    The branch was **dropped rather than fenced**. A digit fence — requiring a non-numeral
+    character on both sides of the hit — closes the four cases above and leaves two more
+    open, because the fence can only see the *digits*: a bare `100` on a slide still passes
+    a fence against a span reading `$100 million`, and a bare `29` still passes one against
+    `29 ms`. Both are the unit-and-scale blindness that `UNIT_TABLE` exists to prevent, so
+    any honest repair of the branch converges on re-implementing the key intersection that
+    is already here. Removing it changed no legitimate match anywhere in the suite or in the
+    A2 negative controls, which is the evidence that it backed up nothing.
 
     There is **no rounding tolerance here**, unlike the derivation path. `prompts/content.md`
     is explicit: if the span says `29ms` and the slide says `about 30ms`, a numeral has been
     introduced that appears in no source. Allowing 30 to match 29 would make that
     instruction unenforceable.
     """
-    verbatim = [c for c in citations if find_span(c.quote, numeral.text) is not None]
-    if verbatim:
-        return NumeralMatch(
-            numeral=numeral,
-            source="citation",
-            detail=f"verbatim in {_citation_label(verbatim[0])}",
-            location=location,
-            other_sources=tuple(_citation_label(c) for c in verbatim[1:]),
-        )
-
-    strict = [c for c, forms, _ in citation_forms if forms & numeral.forms]
+    strict = [
+        (c, shared) for c, forms, _ in citation_forms if (shared := forms & numeral.forms)
+    ]
     if strict:
         return NumeralMatch(
             numeral=numeral,
             source="citation",
-            detail=f"normalises onto a numeral in {_citation_label(strict[0])}",
+            detail=f"normalises onto a numeral in {_citation_label(strict[0][0])}",
             location=location,
-            other_sources=tuple(_citation_label(c) for c in strict[1:]),
+            other_sources=tuple(_citation_label(c) for c, _ in strict[1:]),
+            matched_on=_preferred_key(strict[0][1]),
         )
 
     everything = numeral.forms | numeral.ambiguous_forms
-    loose = [c for c, forms, alt in citation_forms if (forms | alt) & everything]
+    loose = [
+        (c, shared)
+        for c, forms, alt in citation_forms
+        if (shared := (forms | alt) & everything)
+    ]
     if loose:
         return NumeralMatch(
             numeral=numeral,
             source="citation",
-            detail=f"matches {_citation_label(loose[0])} only under the minority reading",
+            detail=f"matches {_citation_label(loose[0][0])} only under the minority reading",
             location=location,
             via_ambiguous_form=True,
-            other_sources=tuple(_citation_label(c) for c in loose[1:]),
+            other_sources=tuple(_citation_label(c) for c, _ in loose[1:]),
+            matched_on=_preferred_key(loose[0][1]),
         )
+
+    # Last tier: the text wrote a bare number where the span qualifies it — a chart series
+    # value of `4.0` against a span reading `4.0x`, a table cell of `29` against `29 ms`.
+    # Prevents: blocking a correct deck whose units live in the axis label rather than in
+    # the cell, which is how charts and tables are actually written and which the dropped
+    # verbatim branch used to carry by accident.
+    #
+    # It runs **only from bare to qualified, never the other way and never between two
+    # different units**: `40%` against a span saying `40 ms` stays blocked, because a slide
+    # that supplies a unit the source does not is asserting something the source does not
+    # say. And it is advisory-reported on every hit, which is the whole licence it has to
+    # be wider than the key intersection at all.
+    #
+    # `numeral.qualifier` is what keeps "bare" honest. A numeral the table has no row for
+    # normalises to the empty unit too, and without that guard this tier would let
+    # `3.2 million requests` match a span reading `3.2 million dollars` — the sentence
+    # `UNIT_TABLE`'s `usd` row exists to make impossible.
+    bare_values = {value for value, unit in numeral.forms if not unit}
+    if bare_values and not numeral.qualifier:
+        unqualified = [
+            (c, shared)
+            for c, forms, alt in citation_forms
+            if (shared := {key for key in (forms | alt) if key[0] in bare_values})
+        ]
+        if unqualified:
+            span_key = _preferred_key(unqualified[0][1])
+            return NumeralMatch(
+                numeral=numeral,
+                source="citation",
+                detail=(
+                    f"matches {_citation_label(unqualified[0][0])} on value only — the span "
+                    f"qualifies it as {span_key[1]!r} and the text does not"
+                ),
+                location=location,
+                via_unqualified_form=True,
+                other_sources=tuple(_citation_label(c) for c, _ in unqualified[1:]),
+                matched_on=(span_key[0], ""),
+            )
     return None
+
+
+def _preferred_key(shared: frozenset[NormalKey] | set[NormalKey]) -> NormalKey:
+    """One key out of an intersection, chosen deterministically.
+
+    Which key is reported changes nothing about whether the match happened — the set is
+    non-empty either way — but a match that reported a different key run to run would make
+    the floor test flap, and a flapping invariant test is one somebody eventually deletes.
+    """
+    return min(shared, key=lambda key: (key[0], key[1]))
 
 
 def _match_against_derivations(
@@ -1292,40 +1598,87 @@ def _match_against_derivations(
     asymmetry is the point: a derived figure is computed here and rounding it for a slide is
     the writer's own arithmetic, shown in the audit report. An input was copied from a span,
     so a rounded input is a numeral that no source contains.
+
+    The rounding tolerance is `ROUNDING_REL_LIMIT`, the same bound `re_execute_derivation`
+    puts on the other rounding path in this module. It used to be unbounded here, which
+    meant a derivation computing 0.51 could be printed as `1x` — a +96% drift — with
+    `passes=True` and no finding of any severity, while the citation path next door
+    correctly blocked `about 30ms` against a span reading `29ms`, a drift of 3.4%.
+
+    A rounded match is also **reported**, as `printed figure is a rounding`. It was silent
+    before, which hid a legitimate rounding from the one reader who needs it: the figure on
+    the slide is not the figure the arithmetic produced.
+
+    **An input match compares the unit**, as the two branches above it always did. It used
+    to compare values alone, so a derivation `(b - a) / b * 100` with `a=40.0` cited to
+    *"generates at 40 ms per token"* let a slide print `Latency improves by 40%.`,
+    `A 40x improvement.` or `It costs $100 per month.` — each one A2-green with no finding.
+    `UNIT_TABLE`'s own justification for the `usd` row reads *"Currency is a unit: 3.2
+    million dollars must not match 3.2 million requests."* That branch did precisely that.
+
+    `DerivationInput` records a value and a citation and **no unit** — see B13 — so there
+    is no field to compare. The unit is not missing, though: it is in the span the input
+    cites, which is the only place it was ever written down, and `input_keys` reads it back
+    out. An input whose span writes the value bare therefore has the *empty* unit and is
+    matched only by a bare numeral. "No unit declared" never becomes "matches any unit",
+    which is this bug with an extra step.
     """
     for derivation in derivations:
         unit = _canonical_unit(derivation.unit)
-        for key in numeral.forms:
+        for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
             if key == (Decimal(str(derivation.result)), unit):
                 return NumeralMatch(
                     numeral=numeral,
                     source="derivation_result",
                     detail=f"the stated result of {derivation.formula!r}",
                     location=location,
+                    matched_on=key,
                 )
-        for key in numeral.forms:
+        for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
             value, key_unit = key
             if key_unit != unit:
                 continue
             places = _places_of(value)
-            if Decimal(str(round(derivation.result, places))) == value:
-                return NumeralMatch(
-                    numeral=numeral,
-                    source="derivation_result",
-                    detail=(
-                        f"the result of {derivation.formula!r} ({derivation.result!r}) "
-                        f"rounded to {places} decimal place(s)"
-                    ),
-                    location=location,
-                    via_rounding=True,
-                )
+            if Decimal(str(round(derivation.result, places))) != value:
+                continue
+            # Prevents: 0.51 printed as `1x`, a +96% drift, passing A2 in silence.
+            # Rounding to zero decimal places is a very coarse operation and `round()`
+            # alone says nothing about how far it moved — 1.49 and 1.51 both round to
+            # something, and one of them is a third of the way to a different claim.
+            # `ROUNDING_REL_LIMIT` already bounds the other rounding path in this module
+            # (`re_execute_derivation`); two rounding paths answering differently is not a
+            # tolerance, it is a route. Beyond this distance it is a different number.
+            drift = _relative_difference(float(derivation.result), float(value))
+            if drift > ROUNDING_REL_LIMIT:
+                continue
+            return NumeralMatch(
+                numeral=numeral,
+                source="derivation_result",
+                detail=(
+                    f"the result of {derivation.formula!r} ({derivation.result!r}) "
+                    f"rounded to {places} decimal place(s) — {drift:.1%} from the "
+                    "computed figure"
+                ),
+                location=location,
+                via_rounding=True,
+                matched_on=key,
+            )
         for name, item in sorted(derivation.inputs.items()):
-            if any(value == Decimal(str(item.value)) for value, _ in numeral.forms):
+            # Prevents: a millisecond figure being reprinted as a percentage, a throughput,
+            # a multiplier or a sum of money. This compared values only and discarded the
+            # unit, unlike the citation branch and unlike the result branch directly above.
+            shared = input_keys(item) & numeral.forms
+            if shared:
+                key = _preferred_key(shared)
                 return NumeralMatch(
                     numeral=numeral,
                     source="derivation_input",
-                    detail=f"input {name!r} of {derivation.formula!r}",
+                    detail=(
+                        f"input {name!r} of {derivation.formula!r}, which the span it "
+                        f"cites writes as {key[1] or 'a bare number'}"
+                    ),
                     location=location,
+                    matched_on=key,
                 )
     return None
 
@@ -1369,6 +1722,9 @@ def lint_scope(
     for derivation in scope.derivations:
         report.derivations_checked += 1
         report.findings.extend(check_derivation_inputs(derivation, location=scope.location))
+        report.findings.extend(
+            check_derivation_reconciles_sources(derivation, location=scope.location)
+        )
         report.findings.extend(re_execute_derivation(derivation, location=scope.location))
 
     numerals = extract_numerals(scope.text)
@@ -1400,7 +1756,7 @@ def lint_scope(
 
 
 def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[NumericFinding]:
-    """Advisories for the two ways a match can be true without being decisive.
+    """Advisories for the four ways a match can be true without being decisive.
 
     Both are escalation triggers in the phase brief rather than failures, and both are
     aggregated into one finding each so that a long slide does not bury its blocking
@@ -1418,6 +1774,41 @@ def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[
                     f"{', '.join(m.numeral.describe() for m in ambiguous)} matched only under "
                     "the minority reading of a separator ('1,234' as 1.234, or a day/month "
                     "order). The figure may be right; nothing in the text says so."
+                ),
+                location=location,
+            )
+        )
+
+    rounded = [m for m in matches if m.via_rounding]
+    if rounded:
+        findings.append(
+            NumericFinding(
+                check="printed figure is a rounding",
+                severity="advisory",
+                detail=(
+                    "; ".join(f"{m.numeral.describe()} is {m.detail}" for m in rounded)
+                    + ". Within ROUNDING_REL_LIMIT, so A2 holds — but the figure on the "
+                    "slide is not the figure the arithmetic produced, and a reader who "
+                    "cannot see that cannot check it. This is what A6's 'show the working' "
+                    "section exists for."
+                ),
+                location=location,
+            )
+        )
+
+    unqualified = [m for m in matches if m.via_unqualified_form]
+    if unqualified:
+        findings.append(
+            NumericFinding(
+                check="numeral matched without its unit",
+                severity="advisory",
+                detail=(
+                    "; ".join(f"{m.numeral.describe()} → {m.detail}" for m in unqualified)
+                    + ". The value is in the span, so A2 holds — but the unit came from the "
+                    "source rather than from the text, and a bare figure on a slide is one "
+                    "axis label away from meaning something else. The only match in this "
+                    "module wider than a shared (value, unit) key, and it is reported every "
+                    "time precisely because it is wider."
                 ),
                 location=location,
             )

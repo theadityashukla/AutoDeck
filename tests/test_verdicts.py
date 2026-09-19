@@ -35,7 +35,20 @@ from autodeck.audit.verdicts import (
     unverified_claims,
     verdict_blocks_render,
 )
-from autodeck.ir.models import Block, Citation, Claim, Deck, RetrievedBy, Slide, Verdict
+from autodeck.ir.models import (
+    Block,
+    Citation,
+    Claim,
+    ClaimSite,
+    Deck,
+    DiagramSpec,
+    LabelFraming,
+    ProcessFlowSpec,
+    ProcessStep,
+    RetrievedBy,
+    Slide,
+    Verdict,
+)
 
 #: `prompts/validation.md`'s own worked example, because the prompt is authoritative on the
 #: boundary between the verdicts and the tests should be arguing about the same sentences.
@@ -525,6 +538,119 @@ class TestBlocking:
 
         assert unverified_claims(deck) == []
         assert blocking_blocks(deck) == []
+
+
+# ---------------------------------------------------------------------------
+# A diagram node's claim is a claim — the walk, and the defect it closes
+# ---------------------------------------------------------------------------
+
+
+def diagram_block(block_id: str, node_verdicts: dict[str, Verdict]) -> Block:
+    """A `diagram` block whose node labels assert facts — claims like any other.
+
+    The flow opens with one *framed* step that the caller does not ask for. A sequence
+    needs two steps to be a sequence, and a framed label asserts nothing about the world,
+    so it makes the geometry legal without adding a claim site — which is itself the
+    A1 seam these tests rely on when they name the nodes that block.
+    """
+    steps: list[ProcessStep] = [
+        ProcessStep(
+            id="start", label="Discovery", order=1, framing=LabelFraming(reason="stage_name")
+        ),
+        *(
+            ProcessStep(
+                id=node_id,
+                label=CLAIM_TEXT,
+                order=order,
+                claim=claim().model_copy(update={"verdict": verdict}),
+            )
+            for order, (node_id, verdict) in enumerate(node_verdicts.items(), start=2)
+        ),
+    ]
+    return Block(
+        id=block_id,
+        kind="diagram",
+        slot="body",
+        diagram=DiagramSpec(
+            relationship="sequence",
+            kind="process_flow",
+            process_flow=ProcessFlowSpec(steps=steps),
+        ),
+    )
+
+
+class TestDiagramNodeClaims:
+    """The defect: `Block.blocks_render()` read `self.claim` and nothing else, so a
+    `contradicted` claim on a diagram node was cleared to render while the audit report
+    printed it as contradicted on the same GATE 2 screen."""
+
+    def test_a_contradicted_node_claim_blocks_the_render(self) -> None:
+        deck = deck_with(diagram_block("b1", {"n1": "contradicted"}))
+
+        found = blocking_blocks(deck)
+
+        assert [(b.block_id, b.node_id, b.verdict) for b in found] == [
+            ("b1", "n1", "contradicted")
+        ]
+        assert "slide s1 block b1 node n1" in str(found[0]), (
+            "a six-node process flow needs the node named, not just the block"
+        )
+        assert deck.blocking_blocks(), "the IR's own blocking set must agree"
+
+    def test_an_unverified_node_claim_is_reported_unverified(self) -> None:
+        """A3's first clause reaches diagram nodes too — a node the validator never
+        reached is not a node that passed."""
+        deck = deck_with(diagram_block("b1", {"n1": "unverified"}))
+
+        assert blocking_blocks(deck) == []
+        assert [(b.block_id, b.node_id) for b in unverified_claims(deck)] == [("b1", "n1")]
+
+    def test_a_node_claim_in_the_speaker_notes_blocks_too(self) -> None:
+        deck = deck_with(notes=(diagram_block("n1", {"step": "unsupported"}),))
+
+        assert [b.node_id for b in blocking_blocks(deck)] == ["step"]
+
+    def test_only_the_offending_node_of_several_is_named(self) -> None:
+        deck = deck_with(
+            diagram_block("b1", {"n1": "supported", "n2": "contradicted", "n3": "supported"})
+        )
+
+        assert [b.node_id for b in blocking_blocks(deck)] == ["n2"]
+
+    def test_narrowing_the_walk_back_to_block_claim_lets_it_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Defence off, confirm red.
+
+        Restores the pre-fix walk — `Block.claim` only — and asserts the contradicted node
+        sails through every blocking check. Without this, a fixture that happened never to
+        exercise the diagram branch would leave the tests above green for the wrong reason.
+        """
+        deck = deck_with(diagram_block("b1", {"n1": "contradicted"}))
+        assert blocking_blocks(deck), "guarded behaviour, before the defence is removed"
+
+        real_walk = Block.claim_sites
+
+        def only_block_claims(
+            self: Block,
+            *,
+            slide_id: str = "",
+            path: str = "",
+            in_speaker_notes: bool = False,
+        ) -> list[ClaimSite]:
+            without_the_diagram = self.model_copy(update={"diagram": None})
+            return real_walk(
+                without_the_diagram,
+                slide_id=slide_id,
+                path=path,
+                in_speaker_notes=in_speaker_notes,
+            )
+
+        monkeypatch.setattr(Block, "claim_sites", only_block_claims)
+
+        assert blocking_blocks(deck) == []
+        assert unverified_claims(deck) == []
+        assert deck.blocking_blocks() == []
 
 
 # ---------------------------------------------------------------------------

@@ -59,7 +59,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field
 
 from autodeck.ingest.provenance import find_span
-from autodeck.ir.models import Block, Citation, Claim, Deck, Verdict
+from autodeck.ir.models import Citation, Claim, ClaimSite, Deck, Verdict
 
 JudgedVerdict = Literal["supported", "partially_supported", "unsupported", "contradicted"]
 """The four verdicts A3 names — the IR's `Verdict` minus `unverified`.
@@ -489,38 +489,41 @@ BLOCKING_VERDICTS: frozenset[str] = frozenset(
 
 @dataclass(frozen=True)
 class ClaimBlock:
-    """A claim-bearing block, located. What a report or a guard needs to name it.
+    """A claim, located. What a report or a guard needs to name it.
 
     `Deck.blocking_blocks()` returns `Block` objects, which carry no slide id — and "block
     b3 is contradicted" sends a reviewer through the whole deck looking for b3.
+
+    `node_id` is set when the claim is a diagram node's rather than the block's own. A
+    reviewer told "block b1 is contradicted" on a six-node process flow is being sent to
+    look at the whole diagram for the one label that is wrong.
     """
 
     slide_id: str
     block_id: str
     verdict: Verdict
     notes: str = ""
+    node_id: str | None = None
 
     def __str__(self) -> str:
         detail = f" — {self.notes}" if self.notes else ""
-        return f"slide {self.slide_id} block {self.block_id}: {self.verdict}{detail}"
+        where = f" node {self.node_id}" if self.node_id else ""
+        return f"slide {self.slide_id} block {self.block_id}{where}: {self.verdict}{detail}"
 
 
 def blocking_blocks(deck: Deck) -> list[ClaimBlock]:
-    """Every block whose verdict forbids final render, with the slide it sits on.
+    """Every claim whose verdict forbids final render, with the slide it sits on.
 
-    Delegates the rule to `Block.blocks_render()`. This function is about *locating* them;
-    what counts as blocking is the IR's to say and is said in exactly one place.
+    Two things are delegated and neither is restated here: *where the claims are* is
+    `Deck.claim_sites()`, and *what counts as blocking* is `Claim.blocks_render()`. This
+    function only locates. Both delegations are the fix for the same defect — this walked
+    `Block.claim` itself, so a `contradicted` claim on a diagram node was cleared to render.
     """
-    return [
-        _locate(slide.id, block)
-        for slide in deck.slides
-        for block in slide.all_blocks()
-        if block.blocks_render()
-    ]
+    return [_locate(site) for site in deck.claim_sites() if site.blocks_render()]
 
 
 def unverified_claims(deck: Deck) -> list[ClaimBlock]:
-    """Every claim block the validator never reached.
+    """Every claim the validator never reached, wherever it lives.
 
     A3's first clause is *"every claim gets a verdict"*, and `unverified` is not one of the
     four. It does not block under `Claim.blocks_render` — correctly, since that method
@@ -528,21 +531,16 @@ def unverified_claims(deck: Deck) -> list[ClaimBlock]:
     clean `blocking_blocks()` and no verdicts at all. That is the same shape of trap as a
     framing demotion, which is why the render guard consults this too.
     """
-    return [
-        _locate(slide.id, block)
-        for slide in deck.slides
-        for block in slide.all_blocks()
-        if block.claim is not None and block.claim.verdict == "unverified"
-    ]
+    return [_locate(site) for site in deck.claim_sites() if site.claim.verdict == "unverified"]
 
 
-def _locate(slide_id: str, block: Block) -> ClaimBlock:
-    claim = block.claim
+def _locate(site: ClaimSite) -> ClaimBlock:
     return ClaimBlock(
-        slide_id=slide_id,
-        block_id=block.id,
-        verdict=claim.verdict if claim is not None else "unverified",
-        notes=(claim.verdict_notes or "") if claim is not None else "",
+        slide_id=site.slide_id,
+        block_id=site.block_id,
+        verdict=site.claim.verdict,
+        notes=site.claim.verdict_notes or "",
+        node_id=site.node_id,
     )
 
 

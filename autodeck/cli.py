@@ -31,9 +31,8 @@ from autodeck.pipeline.orchestrator import (
 from autodeck.providers.registry import ModelRegistry
 
 if TYPE_CHECKING:
-    from autodeck.audit.framing_linter import FramingReport
-    from autodeck.audit.numeric_linter import NumericReport
     from autodeck.audit.report import AuditReport
+    from autodeck.pipeline.orchestrator import RenderSafety
 
 app = typer.Typer(
     name="autodeck",
@@ -1134,11 +1133,9 @@ def gate2(
     the gate: the owner reading the claims table is. Approve with `autodeck approve
     <run> claims`, or reject named claims with `autodeck send-back`.
     """
-    from autodeck.audit.framing_linter import lint_framing
-    from autodeck.audit.numeric_linter import lint_deck
     from autodeck.audit.report import build_audit_report, render
     from autodeck.ir.store import IRStoreError
-    from autodeck.pipeline.orchestrator import Orchestrator
+    from autodeck.pipeline.orchestrator import Orchestrator, assess_render_safety
     from autodeck.pipeline.send_back import load_send_backs
 
     orchestrator = Orchestrator(run_id, runs_root=runs_root)
@@ -1161,9 +1158,13 @@ def gate2(
     except IRStoreError:
         brief_doc = None
 
-    numeric = lint_deck(deck)
-    framing = lint_framing(deck)
-    report = build_audit_report(deck, brief=brief_doc, numeric=numeric, framing=framing)
+    # One assessment, feeding both the report and the criteria. The render guard computes
+    # exactly this from exactly this deck, so GATE 2 cannot show a green criterion for a
+    # deck the render stage will refuse — and neither can be handed another deck's reports.
+    safety = assess_render_safety(deck)
+    report = build_audit_report(
+        deck, brief=brief_doc, numeric=safety.numeric, framing=safety.framing
+    )
 
     typer.echo(render(report))
     typer.echo("=" * 78)
@@ -1171,7 +1172,7 @@ def gate2(
         "GATE 2 checkable criteria (docs/phases/PHASE-2B.md)", bold=True, fg=typer.colors.CYAN
     )
     all_pass = True
-    for label, passed, detail in _gate2_checks(deck, brief_doc, numeric, framing, report):
+    for label, passed, detail in _gate2_checks(brief_doc, safety, report):
         all_pass = all_pass and passed
         typer.secho(
             f"  [{'PASS' if passed else 'FAIL'}] {label}",
@@ -1210,27 +1211,29 @@ def gate2(
 
 
 def _gate2_checks(
-    deck: Deck,
     brief_doc: DeckBrief | None,
-    numeric: NumericReport,
-    framing: FramingReport,
+    safety: RenderSafety,
     report: AuditReport,
 ) -> list[tuple[str, bool, str]]:
     """The six checkable criteria `docs/phases/PHASE-2B.md` names for GATE 2.
 
-    Every check calls an existing function or reads an existing report field — nothing here
-    re-derives a verdict, a numeral match or a demotion. The one deliberate broadening:
-    criterion 1 also fails on an `unverified` claim, not only `unsupported`/`contradicted`.
-    `require_safe_to_render`'s own docstring names the trap this closes — a validation pass
-    that never reached a claim leaves `blocking_blocks()` empty, which would otherwise let
-    an unvalidated deck read as passing every GATE 2 criterion.
-    """
-    from autodeck.audit.verdicts import blocking_blocks, unverified_claims
+    Every check reads an existing report field — nothing here re-derives a verdict, a
+    numeral match or a demotion, and **this function is not given the deck**, so it cannot
+    start. The first three criteria are `assess_render_safety`'s own four conditions,
+    printed one per line: this used to call `blocking_blocks`, `unverified_claims` and read
+    two reports of its own, which is three of the render guard's four conditions
+    re-implemented at a second call site. The guard's docstring warns that three checks at
+    three call sites is how one gets forgotten; it had already happened, and both copies
+    shared the diagram blind spot. Phase 3b's render stage inherits one answer.
 
+    The one deliberate broadening over "unsupported/contradicted": criterion 1 also fails
+    on an `unverified` claim. A validation pass that never reached a claim leaves
+    `blocking_blocks()` empty, which would otherwise let an unvalidated deck read as passing
+    every GATE 2 criterion — the same trap `assess_render_safety` names.
+    """
     checks: list[tuple[str, bool, str]] = []
 
-    blocking = blocking_blocks(deck)
-    unverified = unverified_claims(deck)
+    blocking, unverified = safety.blocking, safety.unverified
     checks.append(
         (
             "zero blocks verdict unsupported/contradicted (and none left unverified)",
@@ -1243,6 +1246,7 @@ def _gate2_checks(
         )
     )
 
+    numeric = safety.numeric
     checks.append(
         (
             "numeric linter: zero unmatched numerals, every derivation re-executes",
@@ -1251,6 +1255,7 @@ def _gate2_checks(
         )
     )
 
+    framing = safety.framing
     checks.append(
         (
             "framing linter clean, no unresolved demotions",

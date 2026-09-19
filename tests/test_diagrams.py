@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import Field, ValidationError
@@ -24,6 +25,7 @@ from autodeck.ir.models import (
     Claim,
     Deck,
     DiagramAxis,
+    DiagramGeometry,
     DiagramNode,
     DiagramSpec,
     IRModel,
@@ -509,6 +511,150 @@ def test_a_diagrams_claims_are_enumerated_in_one_place() -> None:
     verdict_holder.verdict = "contradicted"
     assert contradicted.blocks_render()
     assert [c.blocks_render() for c in contradicted.claims()] == [True]
+
+
+def test_a_framed_node_is_not_a_claim_site() -> None:
+    """A1's seam composes with the deck-wide walk, in the direction that matters.
+
+    `DiagramNode` demands exactly one of `claim` and `framing`, so "no claim here" is a
+    declaration rather than an omission — and the walk must take it at its word. A framed
+    label produces no claim site, is not sent to the validator, and cannot block a render;
+    the fence that keeps that honest is `framing_linter`'s, not the walk's.
+    """
+    grid = two_by_two()
+    block = Block(id="b1", kind="diagram", slot="body", diagram=grid)
+
+    assert [node.id for node in grid.nodes if node.framing is not None] == ["q1"]
+    assert [site.node_id for site in block.claim_sites()] == ["q2"]
+    assert block.claims() == grid.claims()
+
+
+def test_a_claim_site_names_the_field_the_node_is_actually_stored_in() -> None:
+    """Catches: a path that describes the derived view rather than the IR.
+
+    `nodes` is derived, so `diagram.nodes[q2]` names nothing a stored deck contains, and
+    `test_the_claim_walk_visits_every_place_a_claim_can_live` compares the walk against
+    the *model graph*. A path naming the geometry's own field is what lets that comparison
+    stay an equality instead of becoming a translation table.
+    """
+    block = Block(id="b1", kind="diagram", slot="body", diagram=two_by_two())
+
+    assert [site.path for site in block.claim_sites()] == [
+        "blocks[b1].diagram.two_by_two.items[q2].claim"
+    ]
+
+
+def layered_stack_with_a_claim() -> DiagramSpec:
+    """A stack whose upper band asserts something; the foundation is only a name."""
+    return DiagramSpec(
+        relationship="hierarchy_foundation",
+        kind="layered_stack",
+        layered_stack=LayeredStackSpec(
+            support="rests_on",
+            layers=[
+                StackLayer(
+                    id="l1",
+                    label="Data platform",
+                    level=1,
+                    framing=LabelFraming(reason="actor_name"),
+                ),
+                StackLayer(id="l2", label="Serving cost fell", level=2, claim=claim()),
+            ],
+        ),
+    )
+
+
+#: Every geometry, with a builder that puts a claim in it. Kept as a table so that
+#: `test_every_geometry_is_covered_by_the_write_through_test` can hold it to the union.
+CLAIM_BEARING_GEOMETRIES: tuple[tuple[str, Callable[[], DiagramSpec], type], ...] = (
+    ("process_flow", process_flow, ProcessFlowSpec),
+    ("two_by_two", two_by_two, TwoByTwoSpec),
+    ("layered_stack", layered_stack_with_a_claim, LayeredStackSpec),
+)
+
+
+def stored_nodes(spec: DiagramSpec) -> list[DiagramNode]:
+    """The payload's own node objects, read off its fields and never through `nodes`.
+
+    The point of the detour: the write-through test must not prove its conclusion with the
+    same derived property whose behaviour is under test.
+    """
+    payload = spec.payload
+    found: list[DiagramNode] = []
+    for field in type(payload).model_fields:
+        value = getattr(payload, field)
+        if isinstance(value, list):
+            found.extend(item for item in value if isinstance(item, DiagramNode))
+    return found
+
+
+def test_every_geometry_is_covered_by_the_write_through_test() -> None:
+    """Catches: a fourth geometry arriving with nobody checking a verdict can reach it."""
+    covered = {payload for _, _, payload in CLAIM_BEARING_GEOMETRIES}
+
+    assert covered == set(get_args(DiagramGeometry))
+
+
+@pytest.mark.parametrize(
+    ("build", "payload_type"),
+    [(build, payload) for _, build, payload in CLAIM_BEARING_GEOMETRIES],
+    ids=[name for name, _, _ in CLAIM_BEARING_GEOMETRIES],
+)
+def test_a_verdict_written_through_a_claim_site_reaches_the_stored_node(
+    build: Callable[[], DiagramSpec], payload_type: type
+) -> None:
+    """**If this fails, a validator's judgement is written to a temporary and lost.**
+
+    `ClaimSite._write` does `node.claim = new_claim` on whatever object the walk handed
+    it, and the walk gets its nodes from a *derived* property. Write-through therefore
+    holds only while every geometry's `nodes` returns the objects its payload stores. That
+    is a property of three implementations rather than of the type, so it is asserted per
+    geometry, and asserted by reading the payload's own fields back.
+    """
+    spec = build()
+    block = Block(id="b1", kind="diagram", slot="body", diagram=spec)
+    sites = block.claim_sites(slide_id="s1")
+
+    assert sites, "the fixture is meant to carry a claim"
+    assert not block.blocks_render()
+
+    for site in sites:
+        site.replace(site.claim.model_copy(update={"verdict": "contradicted"}))
+
+    verdicts_stored = [
+        node.claim.verdict for node in stored_nodes(spec) if node.claim is not None
+    ]
+    assert verdicts_stored == ["contradicted"] * len(sites)
+    assert isinstance(spec.payload, payload_type)
+    assert block.blocks_render(), "the write reached the object A3 reads"
+    assert spec.blocks_render()
+
+
+def test_a_geometry_whose_nodes_are_rebuilt_is_refused_rather_than_silently_ignored() -> None:
+    """Catches: the *fourth* geometry, written with a `nodes` that builds fresh objects.
+
+    This is the failure the three real geometries happen not to have. A `nodes` property
+    returning copies type-checks, round-trips, renders and passes every other test in this
+    file — and quietly swallows every verdict written through a `ClaimSite`, so a
+    contradicted claim would reach the slide. `claim_nodes()` locates each node in the
+    payload by identity, so the copy is caught where it is made rather than three phases
+    later on a rendered deck.
+    """
+
+    class RebuildingFlow(ProcessFlowSpec):
+        @property
+        def nodes(self) -> tuple[DiagramNode, ...]:
+            return tuple(step.model_copy(deep=True) for step in self.steps_in_order())
+
+    spec = process_flow()
+    rebuilt = RebuildingFlow(steps=spec.payload_as(ProcessFlowSpec).steps)
+    broken = spec.model_copy(update={"process_flow": rebuilt})
+
+    with pytest.raises(TypeError, match="not an object this payload stores"):
+        broken.claim_nodes()
+
+    with pytest.raises(TypeError, match="not an object this payload stores"):
+        Block(id="b1", kind="diagram", slot="body", diagram=broken).claim_sites()
 
 
 # ---------------------------------------------------------------------------

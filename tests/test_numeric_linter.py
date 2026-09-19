@@ -31,9 +31,12 @@ from autodeck.audit.numeric_linter import (
     AllowedNumeral,
     FormulaError,
     LintScope,
+    _canonical_unit,
     check_derivation_inputs,
+    check_derivation_reconciles_sources,
     evaluate_formula,
     extract_numerals,
+    input_keys,
     lint_deck,
     lint_rendered_slides,
     lint_scope,
@@ -387,6 +390,217 @@ class TestMatching:
         assert report.passes, report.render()
         assert [f.check for f in report.advisory] == ["derivation rounding"]
 
+    @pytest.mark.parametrize(
+        ("a", "b", "printed", "drift"),
+        [
+            (600.0, 400.0, "2x", "+33.3%"),
+            (510.0, 1000.0, "1x", "+96.1%"),
+            (251.0, 100.0, "3x", "+19.5%"),
+            (149.0, 100.0, "1x", "-32.9%"),
+            (605.0, 400.0, "2x", "+32.2%"),
+        ],
+    )
+    def test_a_rounding_beyond_the_relative_limit_is_a_different_number(
+        self, a: float, b: float, printed: str, drift: str
+    ) -> None:
+        """Catches: 0.51 sold as `1x`, verbatim from the reproduction script.
+
+        Every row here has a valid derivation: both inputs are properly cited, both appear
+        in their spans, and the formula re-executes exactly. Only the printed figure is
+        wrong, and `round()` on its own accepted all of them because rounding to zero
+        decimal places will turn almost anything into almost anything. `ROUNDING_REL_LIMIT`
+        bounds the other rounding path in this module and now bounds this one; two rounding
+        paths answering differently is not a tolerance, it is a route.
+        """
+        qa = cite(f"vLLM sustains {a:g} requests per second on the ShareGPT trace")
+        qb = cite(f"the FasterTransformer baseline sustains {b:g} requests per second")
+        derivation = Derivation(
+            formula="a / b",
+            inputs={
+                "a": DerivationInput(value=a, citation=qa),
+                "b": DerivationInput(value=b, citation=qb),
+            },
+            result=a / b,
+            unit="x",
+        )
+        report = lint_scope(
+            LintScope(
+                location="slide s2 / block b1",
+                text=f"Our stack is {printed} faster than the incumbent.",
+                citations=(qa, qb),
+                derivations=(derivation,),
+            )
+        )
+        assert not report.passes, f"{drift} drift accepted as a rounding"
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    def test_a_rounding_inside_the_limit_is_reported_rather_than_silent(self) -> None:
+        """Catches: a legitimate rounding that no reader can see.
+
+        `_ambiguity_findings` reported `via_ambiguous_form` and `other_sources` and not
+        `via_rounding`, so the one case where the figure on the slide is *not* the figure
+        the arithmetic produced was the one case the audit report said nothing about. A6's
+        'show the working' section exists for exactly this.
+        """
+        qa = cite("weights take 65 percent of memory")
+        qb = cite("the KV cache takes 2.14 percent")
+        derivation = Derivation(
+            formula="a + b",
+            inputs={
+                "a": DerivationInput(value=65.0, citation=qa),
+                "b": DerivationInput(value=2.14, citation=qb),
+            },
+            result=67.14,
+            unit="percent",
+        )
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="Memory use is 67.1%.",
+                citations=(qa, qb),
+                derivations=(derivation,),
+            )
+        )
+        assert report.passes, report.render()
+        assert [f.check for f in report.advisory] == ["printed figure is a rounding"]
+        assert "0.1%" in report.advisory[0].detail
+        assert report.matches[0].via_rounding
+
+    def test_the_two_rounding_paths_share_one_bound(self) -> None:
+        """Catches: the bound drifting apart again.
+
+        `re_execute_derivation` bounds a stated *result* against its formula; the matcher
+        bounds a printed *figure* against that result. They are the same question asked one
+        step apart, and while only one of them carried a bound a writer who noticed could
+        route the number through the other. Both now read `ROUNDING_REL_LIMIT`, so the
+        boundary is asserted here rather than the constant being asserted twice.
+
+        `round()` still gates the branch first, so the bound bites only where rounding is
+        coarse relative to the figure — which is precisely the multiplier case, `1x` to
+        `9x`, where a whole-number rounding moves a claim the furthest.
+        """
+        from autodeck.audit.numeric_linter import ROUNDING_REL_LIMIT
+
+        assert ROUNDING_REL_LIMIT == 0.05
+
+        def printed(numerator: float, figure: str) -> bool:
+            qa = cite(f"the tuned stack reaches {numerator:g} units of throughput")
+            qb = cite("the baseline reaches 10 units of throughput")
+            derivation = Derivation(
+                formula="a / b",
+                inputs={
+                    "a": DerivationInput(value=numerator, citation=qa),
+                    "b": DerivationInput(value=10.0, citation=qb),
+                },
+                result=numerator / 10.0,
+                unit="x",
+            )
+            return lint_scope(
+                LintScope(
+                    location="s1",
+                    text=f"A {figure} gain.",
+                    citations=(qa, qb),
+                    derivations=(derivation,),
+                )
+            ).passes
+
+        assert printed(84.0, "8x")  # 8.4 printed as 8x — 4.8% away, inside the limit
+        assert not printed(74.0, "7x")  # 7.4 printed as 7x — 5.4% away, outside it
+
+    @pytest.mark.parametrize(
+        ("text", "why"),
+        [
+            ("Latency improves by 40%.", "a millisecond figure printed as a percentage"),
+            ("We serve 100 requests per second.", "milliseconds printed as throughput"),
+            ("A 40x improvement.", "milliseconds printed as a multiplier"),
+            ("It costs $100 per month.", "milliseconds printed as money"),
+        ],
+    )
+    def test_a_derivation_input_does_not_match_across_units(self, text: str, why: str) -> None:
+        """Catches: `UNIT_TABLE`'s own `usd` row, broken by the branch below it.
+
+        Verbatim from the reproduction script. The input branch compared values and threw
+        the unit away, unlike the citation branch and unlike the result branch directly
+        above it, so every figure in a derivation became reusable as any kind of quantity
+        at all — and `usd`'s justification reads "Currency is a unit: 3.2 million dollars
+        must not match 3.2 million requests."
+        """
+        latency = cite(
+            "the model generates at 40 ms per token on this configuration",
+            doc_id="pope2022",
+        )
+        baseline = cite("the unoptimised baseline runs at 100 ms per token", doc_id="pope2022")
+        derivation = Derivation(
+            formula="(b - a) / b * 100",
+            inputs={
+                "a": DerivationInput(value=40.0, citation=latency),
+                "b": DerivationInput(value=100.0, citation=baseline),
+            },
+            result=60.0,
+            unit="percent",
+        )
+        report = lint_scope(LintScope(location="s1/b1", text=text, derivations=(derivation,)))
+        assert not report.passes, why
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    def test_a_derivation_input_still_matches_in_its_own_unit(self) -> None:
+        """Catches: closing the unit hole by blocking the working shown on the slide.
+
+        A writer who puts the inputs of their derivation on the slide next to its result is
+        doing exactly what A2 asks for, and `40 ms` against an input cited to `40 ms per
+        token` has to keep matching.
+        """
+        latency = cite("the model generates at 40 ms per token", doc_id="pope2022")
+        baseline = cite("the unoptimised baseline runs at 100 ms per token", doc_id="pope2022")
+        derivation = Derivation(
+            formula="(b - a) / b * 100",
+            inputs={
+                "a": DerivationInput(value=40.0, citation=latency),
+                "b": DerivationInput(value=100.0, citation=baseline),
+            },
+            result=60.0,
+            unit="percent",
+        )
+        report = lint_scope(
+            LintScope(
+                location="s1/b1",
+                text="60% faster: 40 ms per token against 100 ms.",
+                derivations=(derivation,),
+            )
+        )
+        assert report.passes, report.render()
+        assert {m.source for m in report.matches} == {
+            "derivation_result",
+            "derivation_input",
+        }
+
+    def test_an_input_whose_span_writes_it_bare_takes_the_empty_unit(self) -> None:
+        """Catches: "no unit declared" quietly becoming "matches any unit".
+
+        `DerivationInput` has no unit field (B13), so the unit comes from the span the
+        input cites. Where that span writes the value bare, the input's unit is the *empty*
+        one — a bare numeral matches it and a qualified one does not. The alternative, a
+        missing unit matching anything, is the bug this test's neighbours describe with an
+        extra step in front of it.
+        """
+        bare = cite("the measured ratio was 40 against a baseline of 100", doc_id="pope2022")
+        derivation = Derivation(
+            formula="a / b",
+            inputs={
+                "a": DerivationInput(value=40.0, citation=bare),
+                "b": DerivationInput(value=100.0, citation=bare),
+            },
+            result=0.4,
+            unit="",
+        )
+        assert input_keys(derivation.inputs["a"]) == frozenset({(Decimal(40), "")})
+        assert lint_scope(
+            LintScope(location="s1", text="The ratio input was 40.", derivations=(derivation,))
+        ).passes
+        assert not lint_scope(
+            LintScope(location="s1", text="A 40% input.", derivations=(derivation,))
+        ).passes
+
     def test_a_derivation_input_value_traces(self) -> None:
         """Catches: the working shown on the slide being treated as fabricated."""
         quote = cite("Weights take 65% of memory and the KV cache close to 30%.")
@@ -454,6 +668,234 @@ class TestMatching:
             AllowedNumeral("20", "page chrome in a Phase 3b render fixture"),
         )
         assert lint_scope(scope, allow=allowed).passes
+
+
+# ---------------------------------------------------------------------------
+# The matching floor
+# ---------------------------------------------------------------------------
+
+
+#: The four pairs an adversarial review used to walk straight through A2, verbatim from
+#: the reproduction script. Every one was `passes=True` with zero findings of any severity,
+#: because the matcher's first branch was `str.find` and the slide's numeral is a substring
+#: of a *different, larger* numeral in the cited span.
+SUBSTRING_ATTACK: tuple[tuple[str, str, str], ...] = (
+    (
+        "A 40% reduction in serving cost.",
+        "the baseline configuration consumed 140% of the memory budget",
+        "40%",
+    ),
+    (
+        "Across 12 production deployments we saw the same pattern.",
+        "the system served 3,120 requests per second at steady state",
+        "12",
+    ),
+    (
+        "Latency fell to 29 ms.",
+        "generation proceeds at 1029 ms per token on the reference stack",
+        "29 ms",
+    ),
+    (
+        "We measured a 3x improvement.",
+        "throughput improved by 13x over the FasterTransformer baseline",
+        "3x",
+    ),
+)
+
+
+class TestTheMatchingFloor:
+    """Catches: a fallback path that is looser than the `(value, unit)` key intersection.
+
+    The module's three matcher defects were all in fallbacks, and each had been added to
+    stop a false block. Tests on the individual bugs would not have caught the *next* one,
+    so the floor itself is asserted here: a match names the key it was made on, and that
+    key has to be one the thing it matched against actually carries.
+    """
+
+    @pytest.mark.parametrize(("text", "quote", "numeral"), SUBSTRING_ATTACK)
+    def test_a_numeral_inside_a_larger_numeral_in_the_span_does_not_match(
+        self, text: str, quote: str, numeral: str
+    ) -> None:
+        """Catches: `40%` sourced to a span that only ever says `140%`.
+
+        The consequence was worse than a green tick. A6's report prints the matched span
+        underneath the claim as its evidence, so the owner read the `140%` sentence as the
+        source of the `40%` figure.
+        """
+        report = lint_scope(
+            LintScope(location="slide s1 / block b1", text=text, citations=(cite(quote),))
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+        assert repr(numeral) in report.blocking[0].detail
+
+    @pytest.mark.parametrize(("text", "quote", "numeral"), SUBSTRING_ATTACK)
+    def test_disable_the_defence_and_the_attack_goes_green(
+        self, text: str, quote: str, numeral: str
+    ) -> None:
+        """Disable the defence, confirm red — the digit-fence half of it.
+
+        The defence is that matching happens on normalised keys and nowhere else. This
+        reinstates what the dropped branch did — `provenance.find_span` over the numeral's
+        surface form — and confirms it still finds the needle in every one of these spans.
+        So the block above is the key intersection doing work, not an accident of
+        extraction: put substring semantics back and all four attacks pass again.
+        """
+        from autodeck.ingest.provenance import find_span
+
+        assert find_span(quote, numeral) is not None
+
+    def test_a_numeral_genuinely_in_the_span_still_matches(self) -> None:
+        """Catches: closing the substring hole by blocking honest copies too.
+
+        `29 ms` against a span that really says `29 ms` is the case the dropped branch was
+        there for, and the key intersection has always handled it. Kept as its own test so
+        a future tightening cannot quietly take it away.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="Latency fell to 29 ms.",
+                citations=(cite("generation proceeds at 29 ms per token"),),
+            )
+        )
+        assert report.passes
+        assert report.matches[0].matched_on == (Decimal(29), "ms")
+
+    def test_a_bare_number_matches_a_qualified_span_but_is_reported(self) -> None:
+        """Catches: closing the substring hole by blocking charts and tables.
+
+        A chart series value is a bare `4.0` and the span that sources it says `4.0x`; the
+        dropped verbatim branch carried that case by accident, and losing it silently would
+        have been a false block traded for a true one. It matches on value — the one place
+        this module is wider than a shared key — and pays for it with an advisory, so the
+        widening is visible in the audit report rather than in the source of this function.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1 / chart",
+                text="4.0",
+                citations=(cite("vLLM improves throughput by 4.0x"),),
+            )
+        )
+        assert report.passes
+        assert [f.check for f in report.advisory] == ["numeral matched without its unit"]
+        assert report.matches[0].via_unqualified_form
+
+    def test_a_unit_the_span_does_not_say_is_still_blocked(self) -> None:
+        """Catches: the value-only tier growing into "any unit matches any unit".
+
+        `40%` against a span reading `40 ms` shares a value and nothing else. The widening
+        runs one way only — from a bare figure to a qualified span — because a slide that
+        supplies a unit the source never wrote is asserting something the source does not
+        say, which is `UNIT_TABLE`'s `usd` row in different words.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="A 40% cut in cost.",
+                citations=(cite("latency fell by 40 ms"),),
+            )
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    @pytest.mark.parametrize(
+        ("text", "quote", "why"),
+        [
+            (
+                "We processed 3.2 million requests.",
+                "revenue of 3.2 million dollars in the quarter",
+                "UNIT_TABLE's own words for the `usd` row",
+            ),
+            (
+                "We deploy 40 GPUs.",
+                "latency improves by 40 percentage points",
+                "a count against a percentage-point figure",
+            ),
+            ("The card draws 700 W.", "the run took 700 seconds", "watts against seconds"),
+        ],
+    )
+    def test_an_unrecognised_qualifier_is_not_the_same_as_no_qualifier(
+        self, text: str, quote: str, why: str
+    ) -> None:
+        """Catches: the value-only tier reading "unit I have no row for" as "no unit".
+
+        `UNIT_TABLE` lists the units this corpus writes often and cannot list every one, so
+        `requests`, `GPUs` and `W` all normalise to the empty unit — the same key a chart
+        series value carries. Without `Numeral.qualifier` separating the two, the tier that
+        exists for chart values would hand `3.2 million requests` a match against
+        `3.2 million dollars`, which is the one sentence `UNIT_TABLE`'s `usd` row was
+        written to make impossible.
+        """
+        report = lint_scope(LintScope(location="slide s1", text=text, citations=(cite(quote),)))
+        assert not report.passes, why
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    def test_every_match_names_a_key_its_source_actually_carries(self) -> None:
+        """Catches: the *next* fallback, the one this review did not reach.
+
+        A match against a citation has to name a `(value, unit)` key the cited span itself
+        carries; a match against a derivation has to name one whose unit is the
+        derivation's declared unit. A fallback looser than that has nothing truthful to put
+        in `matched_on`, so it fails here rather than shipping as a fifth hole.
+        """
+        quote = cite("vLLM sustains 412 tokens per second on the ShareGPT trace")
+        other = cite("the baseline sustains 206 tokens per second", doc_id="yu2022", page=5)
+        derivation = Derivation(
+            formula="a / b",
+            inputs={
+                "a": DerivationInput(value=412.0, citation=quote),
+                "b": DerivationInput(value=206.0, citation=other),
+            },
+            result=2.0,
+            unit="x",
+        )
+        scopes = (
+            LintScope(
+                location="s1",
+                text="vLLM sustains 412 and the baseline 206 tokens per second.",
+                citations=(quote, other),
+            ),
+            LintScope(
+                location="s2",
+                text="That is a 2x gain.",
+                citations=(quote, other),
+                derivations=(derivation,),
+            ),
+            LintScope(
+                location="s3",
+                text="The estimate is 3.2M tokens per day.",
+                citations=(cite("the workload is 3,200,000 tokens per day"),),
+            ),
+        )
+        seen = 0
+        for scope in scopes:
+            report = lint_scope(scope)
+            assert report.passes, scope.location
+            citation_keys = {
+                key
+                for citation in scope.citations
+                for extracted in extract_numerals(citation.quote)
+                for key in extracted.forms | extracted.ambiguous_forms
+            }
+            reported = {
+                fragment
+                for finding in report.advisory
+                for fragment in finding.detail.split(" → ")
+            }
+            for match in report.matches:
+                seen += 1
+                assert match.matched_on is not None, match.detail
+                assert match.matched_on in match.numeral.forms | match.numeral.ambiguous_forms
+                if match.source != "citation":
+                    units = {_canonical_unit(d.unit) for d in scope.derivations}
+                    assert match.matched_on[1] in units, match.detail
+                elif match.matched_on not in citation_keys:
+                    # Wider than the key intersection is allowed only when reported.
+                    assert match.via_unqualified_form, match.detail
+                    assert any(match.numeral.describe() in r for r in reported), match.detail
+        assert seen >= 4
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +1048,184 @@ class TestDerivationReExecution:
         findings = re_execute_derivation(derivation)
         assert [f.check for f in findings] == ["derivation formula"]
         assert "zero" in findings[0].detail
+
+
+# ---------------------------------------------------------------------------
+# A8 — averaging a disagreement away through a derivation
+# ---------------------------------------------------------------------------
+
+
+VLLM = "vLLM sustains 412 tokens per second on the ShareGPT trace"
+ORCA = "the same workload is reported at 671 tokens per second"
+
+
+def disagreeing(formula: str, result: float, *, one_document: bool = False) -> Derivation:
+    """The reproduction script's two corpus sources, under whatever formula is being tested."""
+    return Derivation(
+        formula=formula,
+        inputs={
+            "a": DerivationInput(value=412.0, citation=cite(VLLM, doc_id="kwon-2023-vllm")),
+            "b": DerivationInput(
+                value=671.0,
+                citation=cite(
+                    ORCA,
+                    doc_id="kwon-2023-vllm" if one_document else "yu-2022-orca",
+                    page=5,
+                ),
+            ),
+        },
+        result=result,
+        unit="tok/s",
+    )
+
+
+class TestAveragingAwayAConflict:
+    """Catches: A2's derivation machinery legitimising the averaging A8 forbids.
+
+    A8 is enforced by "`prompts/content.md` behaviour + a conflicts section" — by asking
+    the model nicely — and the derivation machinery supplied the mechanism that makes
+    breaking the promise look audited. `PHASE-2B.md` §6.3 one level up: §6.3 closed "the
+    inputs trace to nothing", this closes "the inputs trace perfectly and the operation
+    over them is the thing A8 forbids".
+    """
+
+    def test_averaging_two_sources_that_disagree_blocks(self) -> None:
+        """The reproduction script end to end: 412 and 671 reconciled to 541.5.
+
+        Both inputs cited, both present in their spans, the arithmetic exact. Before this
+        check the whole thing was `A2 passes: True` with zero findings, and the averaged
+        figure printed under "Working (A2 — derived figure)" with a green tick against each
+        source — a 63% disagreement between two papers shown to a GATE 2 reviewer as
+        verified arithmetic.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1 / block b1",
+                text="Published throughput for this workload is 541.5 tok/s.",
+                citations=(
+                    cite(VLLM, doc_id="kwon-2023-vllm"),
+                    cite(ORCA, doc_id="yu-2022-orca", page=5),
+                ),
+                derivations=(disagreeing("(a + b) / 2", 541.5),),
+            )
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == [
+            "derivation reconciles disagreeing sources"
+        ]
+        detail = report.blocking[0].detail
+        assert "412.0" in detail and "671.0" in detail
+        assert "kwon-2023-vllm" in detail and "yu-2022-orca" in detail
+        assert VLLM in detail and ORCA in detail
+        assert "conflicts section" in detail
+
+    @pytest.mark.parametrize(
+        "formula", ["(a + b) / 2", "a / 2 + b / 2", "(a + b) * 0.5", "a + (b - a) / 2"]
+    )
+    def test_an_average_is_caught_however_it_is_spelled(self, formula: str) -> None:
+        """Catches: the detector being a pattern match on formula text.
+
+        A writer can spell a mean four ways without trying, so the check re-executes the
+        formula over the real inputs and asks whether the answer *is* their mean. That is
+        the same reason `evaluate_formula` exists rather than a regex over the string.
+        """
+        findings = check_derivation_reconciles_sources(
+            disagreeing(formula, 541.5), location="s1"
+        )
+        assert [f.severity for f in findings] == ["blocking"]
+
+    @pytest.mark.parametrize(
+        ("formula", "why"),
+        [
+            ("(b - a) / b * 100", "a percentage delta between two papers"),
+            ("a / b", "a rate from one paper's numerator and another's denominator"),
+            ("a + b", "a total across two papers"),
+            ("a * b", "a product"),
+        ],
+    )
+    def test_honest_arithmetic_across_two_sources_is_not_blocked(
+        self, formula: str, why: str
+    ) -> None:
+        """Catches: the false block that would be worse than the hole.
+
+        A derivation legitimately combining two sources is not automatically wrong, and
+        blocking one would teach writers that declaring their working is how a deck gets
+        stopped. The offence is reconciling a disagreement about the *same quantity* into a
+        figure nobody measured — not touching two documents in one formula.
+        """
+        assert check_derivation_reconciles_sources(disagreeing(formula, 0.0)) == [], why
+
+    def test_sources_that_agree_are_not_a_conflict_to_reconcile(self) -> None:
+        """Catches: the detector firing on one figure written twice.
+
+        Two papers reporting 412 and 420 for the same workload have not disagreed about
+        anything a reader would argue over, and `CONFLICT_REL_LIMIT` is deliberately the
+        same distance this module already calls "one figure rounded".
+        """
+        agreeing = Derivation(
+            formula="(a + b) / 2",
+            inputs={
+                "a": DerivationInput(value=412.0, citation=cite(VLLM, doc_id="kwon-2023-vllm")),
+                "b": DerivationInput(
+                    value=420.0,
+                    citation=cite("measured at 420 tokens per second", doc_id="yu-2022-orca"),
+                ),
+            },
+            result=416.0,
+            unit="tok/s",
+        )
+        assert check_derivation_reconciles_sources(agreeing) == []
+
+    @pytest.mark.parametrize(
+        ("derivation", "why"),
+        [
+            (
+                disagreeing("a * 0.3 + b * 0.7", 593.3),
+                "a weighted average is the same manoeuvre with a thumb on the scale",
+            ),
+            (
+                disagreeing("(a + b) / 2", 541.5, one_document=True),
+                "a mean of two figures from one paper is not A8's argument, but it is "
+                "still a figure nobody measured",
+            ),
+        ],
+    )
+    def test_the_residue_is_reported_rather_than_blocked(
+        self, derivation: Derivation, why: str
+    ) -> None:
+        """Catches: the residue being silently dropped, or blocked on a guess.
+
+        The spec's own instruction: implement the narrow certain case and report the rest,
+        because a false block here pushes writers away from showing their working.
+        """
+        findings = check_derivation_reconciles_sources(derivation, location="s1")
+        assert [f.severity for f in findings] == ["advisory"], why
+
+    def test_disable_the_defence_and_the_average_goes_green(self) -> None:
+        """Disable the defence, confirm red.
+
+        Everything else about the offending derivation is immaculate — that is what made it
+        dangerous — so with this one check removed the deck is A2-clean again. Proves the
+        block comes from the new check rather than from something else noticing.
+        """
+        derivation = disagreeing("(a + b) / 2", 541.5)
+        scope = LintScope(
+            location="slide s1 / block b1",
+            text="Published throughput for this workload is 541.5 tok/s.",
+            citations=(
+                cite(VLLM, doc_id="kwon-2023-vllm"),
+                cite(ORCA, doc_id="yu-2022-orca", page=5),
+            ),
+            derivations=(derivation,),
+        )
+        assert not lint_scope(scope).passes
+        assert check_derivation_inputs(derivation) == []
+        assert re_execute_derivation(derivation) == []
+        report = lint_scope(scope)
+        without_the_check = [
+            f for f in report.findings if f.check != "derivation reconciles disagreeing sources"
+        ]
+        assert without_the_check == []
 
 
 # ---------------------------------------------------------------------------
@@ -821,3 +1441,39 @@ class TestEntryPoints:
         )
         report = lint_deck(deck_with(chart))
         assert not report.passes
+
+
+# ---------------------------------------------------------------------------
+# A2 keeps its own walk of the deck — this is what stops it falling behind the IR
+# ---------------------------------------------------------------------------
+
+
+def test_every_claim_site_in_the_ir_is_scoped_by_a2_too() -> None:
+    """**If this fails, a claim's evidence is invisible to A2.**
+
+    `_deck_scopes` enumerates the claim-bearing places for itself — it has to, because A2
+    lints text against the citations in force over it, which is a different question from
+    "where are the claims". That makes it the fourth enforcement point reading the deck
+    directly rather than through `Deck.claim_sites()`, and the one place a new claim site
+    can still be missed after the A3 walk was made single.
+
+    The IR's tests pin the A3 walk to the model graph; this pins A2's walk to the A3 walk.
+    Every site's citation is unique in the fixture, so the failure names the site.
+    """
+    from autodeck.audit.numeric_linter import _deck_scopes
+    from tests.test_ir_models import deck_with_a_claim_at_every_site
+
+    deck = deck_with_a_claim_at_every_site()
+    in_force = {c.identity() for scope in _deck_scopes(deck) for c in scope.citations}
+
+    missing = [
+        (site.path, c.quote)
+        for site in deck.claim_sites()
+        for c in site.claim.citations
+        if c.identity() not in in_force
+    ]
+
+    assert not missing, (
+        "A2 scopes no text against the evidence at these claim sites, so a numeral there "
+        f"can neither match nor be traced: {missing}"
+    )
