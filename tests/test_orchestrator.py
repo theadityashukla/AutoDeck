@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from autodeck.audit.framing_linter import lint_framing
+from autodeck.audit.framing_linter import FramingReport, lint_framing
 from autodeck.audit.manifest import Manifest, build_manifest, hash_prompts
-from autodeck.audit.numeric_linter import lint_deck
+from autodeck.audit.numeric_linter import NumericReport, lint_deck
 from autodeck.ir.models import Block, Citation, Claim, Deck, Slide, Verdict
 from autodeck.pipeline.orchestrator import (
     Gate,
@@ -23,6 +23,7 @@ from autodeck.pipeline.orchestrator import (
     Orchestrator,
     RenderBlocked,
     StageStatus,
+    assess_render_safety,
     require_safe_to_render,
 )
 
@@ -286,10 +287,8 @@ def deck_with(*blocks: Block) -> Deck:
 
 
 def guard(deck: Deck) -> None:
-    """The guard as a caller must use it: the deck plus both linter reports."""
-    require_safe_to_render(
-        deck, framing=lint_framing(deck), numeric=lint_deck(deck), run_id="r1"
-    )
+    """The guard as a caller must use it — and the only way a caller can. One argument."""
+    require_safe_to_render(deck)
 
 
 def test_a_clean_deck_renders(tmp_path: Path) -> None:
@@ -371,21 +370,109 @@ def test_every_reason_is_reported_at_once() -> None:
     assert prefixes == {"A2", "A3", "A5"}
 
 
-def test_the_guard_cannot_be_called_without_both_reports() -> None:
+# ---------------------------------------------------------------------------
+# The guard cannot be handed the wrong reports, because it cannot be handed any
+# ---------------------------------------------------------------------------
+#
+# The deck below is the attack's: its one block is `framing` and reads "The fastest
+# inference stack available, proven to cut cost 40%." — a superlative, a named-proof
+# phrase and a numeral, none of them citable. `lint_framing(deck), lint_deck(deck)`
+# blocked it with two reasons. `FramingReport(), NumericReport()` passed it, and so did a
+# clean deck's reports, because neither report carries a run id, deck id or version for
+# the guard to check.
+
+FABRICATED = "The fastest inference stack available, proven to cut cost 40%."
+
+
+def test_the_fabricated_framing_block_is_blocked() -> None:
+    """The honest call, which was always fine. Here so the tests below mean something."""
+    with pytest.raises(RenderBlocked) as blocked:
+        guard(deck_with(framing_block(FABRICATED)))
+
+    # A5 for the superlative and the named proof, A2 for the 40% no citation can reach.
+    assert {reason.split()[0] for reason in blocked.value.reasons} == {"A2", "A5"}
+
+
+def test_the_guard_takes_the_deck_and_nothing_else() -> None:
     """The invariant, in the shape `test_no_command_can_bypass_a_gate` uses it.
 
-    A default on either report would restore the trap silently, and a build that skipped a
-    linter would look exactly like a build that passed one.
+    Not "the reports have no defaults" — the omission was never the risk, since nothing
+    compiles without them. The risk was the value, so there is no value to supply.
     """
     parameters = inspect.signature(require_safe_to_render).parameters
-    for name in ("framing", "numeric"):
-        assert parameters[name].default is inspect.Parameter.empty
-        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+
+    assert list(parameters) == ["deck"]
+    assert parameters["deck"].annotation in (Deck, "Deck")
+
+
+@pytest.mark.parametrize(
+    "reports",
+    [
+        pytest.param({"framing": FramingReport(), "numeric": NumericReport()}, id="empty"),
+        pytest.param(
+            {
+                "framing": lint_framing(deck_with(framing_block("The question is cost."))),
+                "numeric": lint_deck(deck_with(framing_block("The question is cost."))),
+            },
+            id="another-deck",
+        ),
+    ],
+)
+def test_reports_cannot_be_passed_to_the_guard_at_all(reports: dict[str, object]) -> None:
+    """Both attack calls, verbatim, now fail to call rather than passing the deck."""
+    bad = deck_with(framing_block(FABRICATED))
+
+    with pytest.raises(TypeError):
+        require_safe_to_render(bad, **reports)  # type: ignore[arg-type]
+
+    with pytest.raises(RenderBlocked):
+        require_safe_to_render(bad)
+
+
+def test_the_default_path_recomputes_the_reports_from_the_deck() -> None:
+    """The seam is not merely hard to misuse; there is nothing to inject.
+
+    `assess_render_safety` is handed only a deck, and the reports it returns are that
+    deck's: the demotion names the fabricated block, and the run id is the deck's own.
+    """
+    bad = deck_with(claim_block("b1"), framing_block(FABRICATED))
+
+    safety = assess_render_safety(bad)
+
+    assert safety.run_id == bad.run_id
+    assert [d.block_id for d in safety.framing.demotions] == ["f1"]
+    assert not safety.numeric.passes or safety.framing.blocks_build
+    assert not safety.safe
+    assert list(inspect.signature(assess_render_safety).parameters) == ["deck"]
+
+
+def test_a_clean_deck_assesses_safe() -> None:
+    safety = assess_render_safety(deck_with(claim_block("b1")))
+
+    assert safety.safe
+    assert safety.reasons == []
 
 
 def test_there_is_one_guard_and_not_three() -> None:
-    """One function knows what 'safe to render' means. Three checks at three call sites is
-    how one of them gets forgotten."""
-    source = inspect.getsource(require_safe_to_render)
-    for consulted in ("blocking_blocks", "unverified_claims", "framing.", "numeric."):
+    """One function knows what 'safe to render' means, and one function computes it.
+
+    `cli._gate2_checks` re-implemented three of these four conditions until it was made to
+    read `assess_render_safety` too — which is the failure the guard's own docstring warns
+    about, having already happened.
+    """
+    source = inspect.getsource(assess_render_safety)
+    for consulted in ("blocking_blocks", "unverified_claims", "lint_framing", "lint_deck"):
         assert consulted in source
+
+    assert "assess_render_safety" in inspect.getsource(require_safe_to_render)
+
+    from autodeck.cli import _gate2_checks
+
+    # Its body, not its docstring, which discusses the functions it must not call.
+    gate2_body = inspect.getsource(_gate2_checks).split('"""')[2]
+    assert "safety." in gate2_body
+    for recomputed in ("blocking_blocks(", "unverified_claims(", "lint_deck(", "lint_framing("):
+        assert recomputed not in gate2_body, (
+            "GATE 2 is deriving render safety for itself again — it and the render stage "
+            "will disagree, and the screen that disagrees is the one a human approves"
+        )

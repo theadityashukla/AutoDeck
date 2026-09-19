@@ -15,10 +15,15 @@ continue, and there is **no flag that skips it**: `tests/test_orchestrator.py` a
 no such flag exists, because the obvious way this invariant dies is someone adding `--yes`
 for a demo.
 
-**The render guard is the enforcement point for A3 and A5.** `require_safe_to_render` is
-the single place that knows what "safe to render" means, and it exists because a deck that
-validates clean is no longer evidence that the invariants hold — see its docstring for the
-trap it closes. Three checks at three call sites is how one of them gets forgotten.
+**The render guard is the enforcement point for A3 and A5.** `assess_render_safety` is the
+single place that knows what "safe to render" means, and it exists because a deck that
+validates clean is no longer evidence that the invariants hold — see `require_safe_to_render`
+for the two traps it closes. Three checks at three call sites is how one of them gets
+forgotten, and GATE 2 was the second site until it was made to read this one.
+
+It takes a deck and nothing else. The linter reports it consults are pure functions of that
+deck, so they are computed here rather than accepted from a caller who can hand over the
+wrong ones — an empty report, or another deck's.
 
 Owning phase: 0 (task 0.7); the four real gates are wired in Phases 2a, 2b and 4, and the
 render guard in Phase 2b (task 2b.8).
@@ -34,9 +39,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from autodeck.audit.framing_linter import FramingReport
-from autodeck.audit.numeric_linter import NumericReport
-from autodeck.audit.verdicts import blocking_blocks, unverified_claims
+from autodeck.audit.framing_linter import FramingReport, lint_framing
+from autodeck.audit.numeric_linter import NumericReport, lint_deck
+from autodeck.audit.verdicts import ClaimBlock, blocking_blocks, unverified_claims
 from autodeck.ir.models import Deck
 from autodeck.ir.store import IRStore, RunPaths, run_paths
 
@@ -265,13 +270,76 @@ class RenderBlocked(RuntimeError):
         self.reasons = reasons
 
 
-def require_safe_to_render(
-    deck: Deck,
-    *,
-    framing: FramingReport,
-    numeric: NumericReport,
-    run_id: str | None = None,
-) -> None:
+@dataclass(frozen=True)
+class RenderSafety:
+    """What every render-safety check says about one deck, computed from that deck.
+
+    Exists so that there is one answer rather than one per caller. `require_safe_to_render`
+    raises on exactly `not self.safe`, and `cli._gate2_checks` prints the same four fields
+    criterion by criterion — so a GATE 2 screen showing six green ticks and a render stage
+    refusing the same deck cannot both be right, because they are the same computation.
+
+    Only `assess_render_safety` builds one, from a `Deck`. There is deliberately no way to
+    assemble a `RenderSafety` whose reports describe a different deck than its verdicts do.
+    """
+
+    run_id: str
+    """The deck's own `run_id`. Every field below was computed from that deck, which is the
+    property the guard could not previously state about its arguments."""
+
+    blocking: tuple[ClaimBlock, ...]
+    unverified: tuple[ClaimBlock, ...]
+    framing: FramingReport
+    numeric: NumericReport
+
+    @property
+    def reasons(self) -> list[str]:
+        """Every reason this deck may not render, in invariant order. Empty when safe."""
+        reasons = [f"A3 {block}" for block in self.blocking]
+        reasons.extend(
+            f"A3 {block} — no verdict; the validator never reached this claim"
+            for block in self.unverified
+        )
+        if self.framing.blocks_build:
+            reasons.extend(f"A5 {demotion.summary()}" for demotion in self.framing.demotions)
+        if not self.numeric.passes:
+            reasons.extend(f"A2 {finding}" for finding in self.numeric.blocking)
+        return reasons
+
+    @property
+    def safe(self) -> bool:
+        return not self.reasons
+
+
+def assess_render_safety(deck: Deck) -> RenderSafety:
+    """Run A1, A2, A3 and A5 over `deck` and return everything they found.
+
+    **The linter reports are computed here, from the deck.** They used to be parameters of
+    `require_safe_to_render`, and a parameter can be wrong: `NumericReport()` is a clean
+    report of nothing and is one keystroke shorter than `lint_deck(deck)`. Both linters are
+    pure, deterministic functions of the deck with no I/O, no model call and no retrieval —
+    there was never a reason for a caller to supply them, and every reason for a caller not
+    to be able to.
+
+    A3's two clauses are asked separately on purpose. `blocking_blocks` answers the second
+    — no final render while a claim is `unsupported` or `contradicted`. `unverified_claims`
+    answers the first — *every* claim gets a verdict — and it is a different question:
+    `unverified` does not block under `Claim.blocks_render`, correctly, so a validation
+    pass that failed outright leaves a deck whose `blocking_blocks()` is empty because
+    nothing was ever judged. Absence of a bad verdict is not the presence of a good one.
+
+    Both walk `Deck.claim_sites()`, so a claim on a diagram node is seen by both.
+    """
+    return RenderSafety(
+        run_id=deck.run_id,
+        blocking=tuple(blocking_blocks(deck)),
+        unverified=tuple(unverified_claims(deck)),
+        framing=lint_framing(deck),
+        numeric=lint_deck(deck),
+    )
+
+
+def require_safe_to_render(deck: Deck) -> None:
     """Refuse to enter the render stage unless A1, A2, A3 and A5 all hold over this deck.
 
     **A clean `Deck` is not sufficient evidence that the invariants hold, and that is the
@@ -286,51 +354,31 @@ def require_safe_to_render(
         demoted kind: claim | verdict: unsupported | blocks_render: True
         Deck.blocking_blocks(): []          <- empty. The deck alone looks clean.
 
-    A guard reading only the deck ships that block. So this function reads the deck **and**
-    the two linter reports, and it is one function on purpose: the next check to be added
-    goes inside it, not at a call site. Three checks at three call sites is how one of them
-    gets forgotten, and the one that gets forgotten is the one that would have fired.
+    A guard reading only the deck ships that block. So the deck **and** both linter reports
+    are consulted, and that is `assess_render_safety`'s job: one function, into which the
+    next check goes. Three checks at three call sites is how one of them gets forgotten,
+    and the one that gets forgotten is the one that would have fired.
 
-    `framing` and `numeric` have no defaults for the same reason. A caller who omits a
-    report would get the trap straight back, silently, and a passing build is exactly what
-    that failure looks like.
+    **This function takes one argument, and that is the fix for a different trap than the
+    one the paragraph above describes.** The reports were once parameters with no defaults,
+    defended here on the grounds that a caller who omitted one would get the trap back
+    silently. The omission was never the risk — nothing compiles without them. The risk was
+    the value: on the deck whose only block reads *"The fastest inference stack available,
+    proven to cut cost 40%."*, `lint_framing(deck), lint_deck(deck)` blocked with two
+    reasons, while `FramingReport(), NumericReport()` passed, and so did another deck's
+    clean reports. Neither report carries a run id, deck id or version, so the guard could
+    not have noticed. Now there is nothing to pass and nothing to bind: the reports are
+    computed from the deck, and the run named in the error is the deck's own.
 
     Args:
         deck: the deck about to be rendered, verdicts already assigned.
-        framing: `lint_framing(deck)` — A5. Its demotions are invisible in the deck.
-        numeric: `lint_deck(deck)` — A2. Blocking findings are unmatched numerals and
-            derivations that do not re-execute.
-        run_id: named in the error when there is one; the guard works without a run.
 
     Raises:
         RenderBlocked: listing every reason, when any of the four conditions fails.
     """
-    reasons: list[str] = []
-
-    # A3, second clause: no final render while any block is unsupported or contradicted.
-    reasons.extend(f"A3 {block}" for block in blocking_blocks(deck))
-
-    # A3, first clause: *every* claim gets a verdict. `unverified` is not one of the four
-    # and does not block under `Claim.blocks_render` — correctly, since that method answers
-    # the second clause — so a validation pass that failed outright leaves a deck whose
-    # `blocking_blocks()` is empty because nothing was ever judged. Same trap, different
-    # linter: absence of a bad verdict is not the presence of a good one.
-    reasons.extend(
-        f"A3 {block} — no verdict; the validator never reached this claim"
-        for block in unverified_claims(deck)
-    )
-
-    # A5, and through it A1: the blocks the deck could not be made to carry. The report's
-    # own `blocks_build` is the condition; the demotions are the detail a writer needs.
-    if framing.blocks_build:
-        reasons.extend(f"A5 {demotion.summary()}" for demotion in framing.demotions)
-
-    # A2: an unmatched numeral or a derivation that does not re-execute.
-    if not numeric.passes:
-        reasons.extend(f"A2 {finding}" for finding in numeric.blocking)
-
-    if reasons:
-        raise RenderBlocked(run_id, reasons)
+    safety = assess_render_safety(deck)
+    if not safety.safe:
+        raise RenderBlocked(safety.run_id, safety.reasons)
 
 
 # ---------------------------------------------------------------------------

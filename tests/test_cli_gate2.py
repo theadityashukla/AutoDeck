@@ -345,20 +345,21 @@ def test_gate2_fails_on_a_contradicted_diagram_node_claim() -> None:
     said `[PASS] zero blocks verdict unsupported/contradicted` — on the same screen, about
     the same claim. A reviewer trusting the criterion would approve it.
     """
-    from autodeck.audit.framing_linter import lint_framing
-    from autodeck.audit.numeric_linter import lint_deck
     from autodeck.audit.report import build_audit_report
     from autodeck.cli import _gate2_checks
+    from autodeck.pipeline.orchestrator import assess_render_safety
 
     deck = deck_with(diagram_block("b1", {"n1": "contradicted"}))
-    numeric, framing = lint_deck(deck), lint_framing(deck)
-    report = build_audit_report(deck, brief=None, numeric=numeric, framing=framing)
+    safety = assess_render_safety(deck)
+    report = build_audit_report(
+        deck, brief=None, numeric=safety.numeric, framing=safety.framing
+    )
 
     assert [(r.block_id, r.verdict) for r in report.claim_rows()] == [
         ("b1/n1", "contradicted")
     ], "the claims table has always seen it"
 
-    label, passed, detail = _gate2_checks(deck, None, numeric, framing, report)[0]
+    label, passed, detail = _gate2_checks(None, safety, report)[0]
 
     assert "unsupported/contradicted" in label
     assert not passed, "the criterion must agree with the table it is printed beside"
@@ -367,16 +368,17 @@ def test_gate2_fails_on_a_contradicted_diagram_node_claim() -> None:
 
 def test_gate2_fails_on_an_unverified_diagram_node_claim() -> None:
     """A node the validator never reached is not a node that passed."""
-    from autodeck.audit.framing_linter import lint_framing
-    from autodeck.audit.numeric_linter import lint_deck
     from autodeck.audit.report import build_audit_report
     from autodeck.cli import _gate2_checks
+    from autodeck.pipeline.orchestrator import assess_render_safety
 
     deck = deck_with(diagram_block("b1", {"n1": "unverified"}))
-    numeric, framing = lint_deck(deck), lint_framing(deck)
-    report = build_audit_report(deck, brief=None, numeric=numeric, framing=framing)
+    safety = assess_render_safety(deck)
+    report = build_audit_report(
+        deck, brief=None, numeric=safety.numeric, framing=safety.framing
+    )
 
-    _, passed, detail = _gate2_checks(deck, None, numeric, framing, report)[0]
+    _, passed, detail = _gate2_checks(None, safety, report)[0]
 
     assert not passed
     assert "1 unverified claim(s)" in detail
