@@ -164,27 +164,134 @@ class TestFabricatedFactsAreCaught:
         ):
             assert entry.why.strip(), f"{entry.name} has no justification"
 
-    def test_non_framing_blocks_are_not_linted(self) -> None:
+    def test_a_cited_claims_own_text_is_not_linted(self) -> None:
         """Catches: A5 demoting correctly cited claims for saying 'faster than'.
 
-        A5 fences the *exemption*. A claim making the same comparison has a span behind it,
-        which is the whole difference, and running these patterns over claims would demote
-        most of a good deck.
+        A5 fences uncited language. A claim making the same comparison has a span behind
+        it, which is the whole difference, and running these patterns over `claim.text`
+        would demote most of a good deck. Note what is being asserted: the block carries no
+        free `text` of its own, only a cited `Claim`.
         """
-        citation = Citation.for_quote(
-            doc_id="kwon2023",
-            page=4,
-            bbox=(1.0, 1.0, 2.0, 2.0),
-            quote="vLLM is 2-4x faster than the state-of-the-art systems.",
-            retrieved_by="writer",
-        )
         claim = Block(
             id="c1",
             kind="claim",
             slot="body",
-            claim=Claim(text="It is 2-4x faster than the incumbent.", citations=[citation]),
+            claim=Claim(
+                text="It is 2-4x faster than the incumbent.", citations=[cited_comparison()]
+            ),
         )
         assert lint_block(claim, slide_id="s1") is None
+
+
+# ---------------------------------------------------------------------------
+# The fence reads free text, not a kind
+# ---------------------------------------------------------------------------
+
+
+def cited_comparison() -> Citation:
+    return Citation.for_quote(
+        doc_id="kwon2023",
+        page=4,
+        bbox=(1.0, 1.0, 2.0, 2.0),
+        quote="vLLM is 2-4x faster than the state-of-the-art systems.",
+        retrieved_by="writer",
+    )
+
+
+FABRICATED = "The fastest stack available, proven to outperform every competitor."
+
+
+class TestTheFenceAppliesToAnyBlocksFreeText:
+    """The defect: `lint_block` returned at a `block.kind != "framing"` guard, so the whole
+    A5 fence — superlatives, named studies, "proven to" — was bypassed for every other
+    kind. `text` is not one of the payload fields `Block._payload_matches_kind` polices, so
+    a `claim` block carrying both a cited `Claim` and that sentence constructs fine."""
+
+    def claim_block_with_free_text(self, text: str = FABRICATED) -> Block:
+        return Block(
+            id="b1",
+            kind="claim",
+            slot="body",
+            text=text,
+            claim=Claim(text="It is faster.", citations=[cited_comparison()]),
+        )
+
+    def test_the_block_that_used_to_slip_through_still_constructs(self) -> None:
+        """Not fixed by forbidding the shape — so the lint has to catch it."""
+        block = self.claim_block_with_free_text()
+
+        assert block.kind == "claim"
+        assert block.text == FABRICATED
+
+    def test_a_superlative_in_a_claim_blocks_text_is_demoted(self) -> None:
+        demotion = lint_block(self.claim_block_with_free_text(), slide_id="s1")
+
+        assert demotion is not None
+        assert demotion.from_kind == "claim"
+        assert {f.fragment for f in demotion.reasons} >= {
+            "The fastest",
+            "proven",
+            "outperform",
+        }
+        assert demotion.blocks_render()
+        assert demotion.verdict == "unsupported"
+
+    def test_the_summary_does_not_call_a_claim_block_framing(self) -> None:
+        """ "framing demoted to claim" is the wrong sentence about a `claim` block, and a
+        reviewer who cannot find the framing block goes looking for a linter bug."""
+        demotion = lint_block(self.claim_block_with_free_text(), slide_id="s1")
+
+        assert demotion is not None
+        assert "free text on a claim block is an uncited claim" in demotion.summary()
+
+    def test_a_section_header_is_fenced_too(self) -> None:
+        """The reason the fence is not a construction ban: `section_header` is a text kind,
+        so forbidding `text` on non-`framing` blocks would have had to permit it."""
+        header = Block(id="h1", kind="section_header", slot="title", text=FABRICATED)
+
+        demotion = lint_block(header, slide_id="s1")
+
+        assert demotion is not None
+        assert demotion.from_kind == "section_header"
+
+    def test_an_honest_heading_still_passes(self) -> None:
+        """The fence tests language. A heading that asserts nothing about the world is
+        untouched, exactly as a legitimate framing line is."""
+        header = Block(
+            id="h1", kind="section_header", slot="title", text="Where the money goes"
+        )
+
+        assert lint_block(header, slide_id="s1") is None
+
+    def test_it_blocks_the_render_through_the_report(self) -> None:
+        """End to end: the demotion reaches `blocks_build`, which is what the render guard
+        and GATE 2 both read."""
+        deck = deck_with(self.claim_block_with_free_text())
+
+        report = lint_framing(deck)
+
+        assert report.blocks_build
+        assert [d.block_id for d in report.demotions] == ["b1"]
+        assert report.framing_blocks_checked == 0, "there is no framing block on this deck"
+        assert report.text_blocks_checked == 1
+
+    def test_the_demoted_claim_block_still_cannot_be_constructed(self) -> None:
+        """A1 refuses it in the IR's own validator, as for any other demotion."""
+        demotion = lint_block(self.claim_block_with_free_text(), slide_id="s1")
+
+        assert demotion is not None
+        with pytest.raises(ValidationError):
+            demotion.materialise()
+
+    def test_restoring_the_kind_guard_lets_it_through(self) -> None:
+        """Defence off, confirm red."""
+        block = self.claim_block_with_free_text()
+        assert lint_block(block, slide_id="s1") is not None
+
+        def only_framing(b: Block, *, slide_id: str = "") -> Demotion | None:
+            return None if b.kind != "framing" else lint_block(b, slide_id=slide_id)
+
+        assert only_framing(block, slide_id="s1") is None
 
 
 # ---------------------------------------------------------------------------

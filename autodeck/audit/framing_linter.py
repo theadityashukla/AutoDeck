@@ -10,6 +10,20 @@ no comparative or superlative carrying factual content. A block that breaks the 
 **demoted to `claim`**, and a claim with no citation cannot exist (A1), so the demotion
 stops the build.
 
+## What the fence is applied to
+
+`block.text`, on a block of **any** kind — not only `framing`. `text` is not one of the
+payload fields `Block._payload_matches_kind` polices, so a `claim` block can carry a
+`Claim` and a line of free text at the same time, and that free text has no citation
+behind it on any kind. The fence used to return at a `block.kind != "framing"` guard, which
+left every superlative, named study and "proven to" outside it for every other kind,
+`section_header` included. A5's patterns are about the language; the language does not care
+which field carried it.
+
+What is *not* linted is `claim.text` — that sentence has a resolved span behind it, and
+running these patterns over it would demote most of a good deck for saying "faster than"
+with a citation.
+
 ## Why demotion, rather than a warning
 
 INVARIANTS is explicit: *"demotion must be a real state change that re-triggers A1/A3, not
@@ -64,7 +78,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from autodeck.audit.numeric_linter import Numeral, extract_numerals
-from autodeck.ir.models import Block, Claim, Deck, Verdict
+from autodeck.ir.models import Block, BlockKind, Claim, Deck, Verdict
 
 Severity = Literal["blocking", "advisory"]
 
@@ -341,6 +355,10 @@ class Demotion:
     text: str
     reasons: tuple[FramingFinding, ...]
     kind: Literal["claim"] = "claim"
+    from_kind: BlockKind = "framing"
+    """What the block was before A5 read its text. Usually `framing` — the exemption being
+    fenced — but the fence reads every block's free text, and "framing demoted to claim" is
+    the wrong sentence to print about a `section_header`."""
 
     @property
     def verdict(self) -> Verdict:
@@ -395,8 +413,13 @@ class Demotion:
 
     def summary(self) -> str:
         fragments = ", ".join(sorted({r.fragment for r in self.reasons if r.fragment}))
+        what = (
+            "framing demoted to claim"
+            if self.from_kind == "framing"
+            else f"free text on a {self.from_kind} block is an uncited claim"
+        )
         return (
-            f"slide {self.slide_id} block {self.block_id}: framing demoted to claim "
+            f"slide {self.slide_id} block {self.block_id}: {what} "
             f"({fragments or 'see findings'})"
         )
 
@@ -407,6 +430,11 @@ class FramingReport:
 
     demotions: list[Demotion] = field(default_factory=list)
     framing_blocks_checked: int = 0
+    """`framing` blocks — the exemption A5 exists to fence."""
+
+    text_blocks_checked: int = 0
+    """Every block whose free text was read, `framing` or not. The fence is about the
+    language, so it is not limited to the kind that is exempt from A1."""
 
     @property
     def findings(self) -> list[FramingFinding]:
@@ -436,7 +464,9 @@ class FramingReport:
     def render(self) -> str:
         lines = [
             "A5 — framing lint",
-            f"{self.framing_blocks_checked} framing block(s) · {len(self.demotions)} demoted",
+            f"{self.framing_blocks_checked} framing block(s) · "
+            f"{self.text_blocks_checked} block(s) of free text · "
+            f"{len(self.demotions)} demoted",
             "",
         ]
         if not self.demotions:
@@ -465,13 +495,30 @@ class FramingReport:
 
 
 def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
-    """Check one block. Returns the demotion it earned, or None.
+    """Check one block's free text. Returns the demotion it earned, or None.
 
-    Non-`framing` blocks return None without being read. A5 is about the exemption, and
-    running these patterns over a `claim` would demote every correctly cited sentence in the
-    deck for saying 'faster than' with a span behind it.
+    **`block.text`, on a block of any kind — and never `claim.text`.** That distinction is
+    the whole of it, and it is not the one this function used to make. A `Claim`'s text has
+    a resolved span behind it, which is why running these patterns over claims would demote
+    every correctly cited sentence in the deck for saying 'faster than'. `block.text` has
+    nothing behind it on any kind: there is no citation anywhere on that path. A `claim`
+    block constructs perfectly happily carrying both —
+
+        Block(id="b1", kind="claim", slot="body", claim=Claim(...),
+              text="The fastest stack available, proven to outperform every competitor.")
+
+    — because `Block._payload_matches_kind` fences the *payload* fields and `text` is not
+    one of them. That sentence used to meet no part of A5, because this function returned
+    `None` at a `block.kind != "framing"` guard. A2 caught its numerals, and nothing caught
+    its superlatives, its named studies or its "proven to".
+
+    The alternative was to forbid `text` outright on a non-`framing` block. It is the
+    narrower fix: `section_header` is a text kind too, so a construction ban would have had
+    to permit it and would have left "The fastest stack, proven to win" unfenced as a
+    heading. A5's rules are about the language, and the language does not care which field
+    carried it.
     """
-    if block.kind != "framing" or not block.text:
+    if not block.text or not block.text.strip():
         return None
     location = f"slide {slide_id} block {block.id}" if slide_id else f"block {block.id}"
     reasons = lint_framing_text(block.text, location=location)
@@ -483,6 +530,7 @@ def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
         slot=block.slot,
         text=block.text,
         reasons=tuple(reasons),
+        from_kind=block.kind,
     )
 
 
@@ -497,9 +545,11 @@ def lint_framing(deck: Deck) -> FramingReport:
     report = FramingReport()
     for slide in deck.slides:
         for block in slide.all_blocks():
-            if block.kind != "framing":
+            if block.kind == "framing":
+                report.framing_blocks_checked += 1
+            if not (block.text and block.text.strip()):
                 continue
-            report.framing_blocks_checked += 1
+            report.text_blocks_checked += 1
             demotion = lint_block(block, slide_id=slide.id)
             if demotion is not None:
                 report.demotions.append(demotion)
