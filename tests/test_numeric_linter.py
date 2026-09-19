@@ -35,6 +35,7 @@ from autodeck.audit.numeric_linter import (
     check_derivation_inputs,
     evaluate_formula,
     extract_numerals,
+    input_keys,
     lint_deck,
     lint_rendered_slides,
     lint_scope,
@@ -504,6 +505,100 @@ class TestMatching:
 
         assert printed(84.0, "8x")  # 8.4 printed as 8x — 4.8% away, inside the limit
         assert not printed(74.0, "7x")  # 7.4 printed as 7x — 5.4% away, outside it
+
+    @pytest.mark.parametrize(
+        ("text", "why"),
+        [
+            ("Latency improves by 40%.", "a millisecond figure printed as a percentage"),
+            ("We serve 100 requests per second.", "milliseconds printed as throughput"),
+            ("A 40x improvement.", "milliseconds printed as a multiplier"),
+            ("It costs $100 per month.", "milliseconds printed as money"),
+        ],
+    )
+    def test_a_derivation_input_does_not_match_across_units(self, text: str, why: str) -> None:
+        """Catches: `UNIT_TABLE`'s own `usd` row, broken by the branch below it.
+
+        Verbatim from the reproduction script. The input branch compared values and threw
+        the unit away, unlike the citation branch and unlike the result branch directly
+        above it, so every figure in a derivation became reusable as any kind of quantity
+        at all — and `usd`'s justification reads "Currency is a unit: 3.2 million dollars
+        must not match 3.2 million requests."
+        """
+        latency = cite(
+            "the model generates at 40 ms per token on this configuration",
+            doc_id="pope2022",
+        )
+        baseline = cite("the unoptimised baseline runs at 100 ms per token", doc_id="pope2022")
+        derivation = Derivation(
+            formula="(b - a) / b * 100",
+            inputs={
+                "a": DerivationInput(value=40.0, citation=latency),
+                "b": DerivationInput(value=100.0, citation=baseline),
+            },
+            result=60.0,
+            unit="percent",
+        )
+        report = lint_scope(LintScope(location="s1/b1", text=text, derivations=(derivation,)))
+        assert not report.passes, why
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
+    def test_a_derivation_input_still_matches_in_its_own_unit(self) -> None:
+        """Catches: closing the unit hole by blocking the working shown on the slide.
+
+        A writer who puts the inputs of their derivation on the slide next to its result is
+        doing exactly what A2 asks for, and `40 ms` against an input cited to `40 ms per
+        token` has to keep matching.
+        """
+        latency = cite("the model generates at 40 ms per token", doc_id="pope2022")
+        baseline = cite("the unoptimised baseline runs at 100 ms per token", doc_id="pope2022")
+        derivation = Derivation(
+            formula="(b - a) / b * 100",
+            inputs={
+                "a": DerivationInput(value=40.0, citation=latency),
+                "b": DerivationInput(value=100.0, citation=baseline),
+            },
+            result=60.0,
+            unit="percent",
+        )
+        report = lint_scope(
+            LintScope(
+                location="s1/b1",
+                text="60% faster: 40 ms per token against 100 ms.",
+                derivations=(derivation,),
+            )
+        )
+        assert report.passes, report.render()
+        assert {m.source for m in report.matches} == {
+            "derivation_result",
+            "derivation_input",
+        }
+
+    def test_an_input_whose_span_writes_it_bare_takes_the_empty_unit(self) -> None:
+        """Catches: "no unit declared" quietly becoming "matches any unit".
+
+        `DerivationInput` has no unit field (B13), so the unit comes from the span the
+        input cites. Where that span writes the value bare, the input's unit is the *empty*
+        one — a bare numeral matches it and a qualified one does not. The alternative, a
+        missing unit matching anything, is the bug this test's neighbours describe with an
+        extra step in front of it.
+        """
+        bare = cite("the measured ratio was 40 against a baseline of 100", doc_id="pope2022")
+        derivation = Derivation(
+            formula="a / b",
+            inputs={
+                "a": DerivationInput(value=40.0, citation=bare),
+                "b": DerivationInput(value=100.0, citation=bare),
+            },
+            result=0.4,
+            unit="",
+        )
+        assert input_keys(derivation.inputs["a"]) == frozenset({(Decimal(40), "")})
+        assert lint_scope(
+            LintScope(location="s1", text="The ratio input was 40.", derivations=(derivation,))
+        ).passes
+        assert not lint_scope(
+            LintScope(location="s1", text="A 40% input.", derivations=(derivation,))
+        ).passes
 
     def test_a_derivation_input_value_traces(self) -> None:
         """Catches: the working shown on the slide being treated as fabricated."""

@@ -86,6 +86,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from typing import Literal
 
 from autodeck.ingest.provenance import normalise_text
@@ -1088,6 +1089,39 @@ def re_execute_derivation(
     ]
 
 
+@lru_cache(maxsize=2048)
+def _keys_for_value(quote: str, value: float) -> frozenset[NormalKey]:
+    """Every `(value, unit)` key the numerals in `quote` give to `value`.
+
+    Cached on the pair rather than on the `DerivationInput`, which is a pydantic model and
+    not hashable, and because a rendered-slide pass asks the same short quote about the
+    same input once per numeral on the slide.
+    """
+    wanted = Decimal(str(value))
+    return frozenset(
+        key
+        for numeral in extract_numerals(quote)
+        for key in numeral.forms | numeral.ambiguous_forms
+        if key[0] == wanted
+    )
+
+
+def input_keys(item: DerivationInput) -> frozenset[NormalKey]:
+    """The normalised keys the cited span attaches to this input's value.
+
+    `DerivationInput` carries a value and a citation and no unit (B13), so the unit half of
+    the key has to come from somewhere. It comes from the span: the numeral in the quote
+    that *is* this value, read through the same tables as everything else. An input cited
+    to *"generates at 40 ms per token"* is 40 milliseconds and nothing else, so a slide
+    printing `40%` matches no input of that derivation.
+
+    Empty when the value does not appear in its span at all — which is already a blocking
+    `derivation input` finding, and which correctly matches nothing here rather than
+    matching everything.
+    """
+    return _keys_for_value(item.citation.quote, item.value)
+
+
 def derivation_input_is_traceable(item: DerivationInput) -> bool:
     """Whether this input's value really appears as a numeral in the span it cites.
 
@@ -1103,12 +1137,7 @@ def derivation_input_is_traceable(item: DerivationInput) -> bool:
     `match_numerals`, and refusing the match would make this report "input not found" for a
     number that is plainly in the sentence.
     """
-    wanted = Decimal(str(item.value))
-    return any(
-        wanted == value
-        for numeral in extract_numerals(item.citation.quote)
-        for value, _ in numeral.forms | numeral.ambiguous_forms
-    )
+    return bool(input_keys(item))
 
 
 def check_derivation_inputs(
@@ -1390,6 +1419,20 @@ def _match_against_derivations(
     A rounded match is also **reported**, as `printed figure is a rounding`. It was silent
     before, which hid a legitimate rounding from the one reader who needs it: the figure on
     the slide is not the figure the arithmetic produced.
+
+    **An input match compares the unit**, as the two branches above it always did. It used
+    to compare values alone, so a derivation `(b - a) / b * 100` with `a=40.0` cited to
+    *"generates at 40 ms per token"* let a slide print `Latency improves by 40%.`,
+    `A 40x improvement.` or `It costs $100 per month.` — each one A2-green with no finding.
+    `UNIT_TABLE`'s own justification for the `usd` row reads *"Currency is a unit: 3.2
+    million dollars must not match 3.2 million requests."* That branch did precisely that.
+
+    `DerivationInput` records a value and a citation and **no unit** — see B13 — so there
+    is no field to compare. The unit is not missing, though: it is in the span the input
+    cites, which is the only place it was ever written down, and `input_keys` reads it back
+    out. An input whose span writes the value bare therefore has the *empty* unit and is
+    matched only by a bare numeral. "No unit declared" never becomes "matches any unit",
+    which is this bug with an extra step.
     """
     for derivation in derivations:
         unit = _canonical_unit(derivation.unit)
@@ -1432,15 +1475,22 @@ def _match_against_derivations(
                 matched_on=key,
             )
         for name, item in sorted(derivation.inputs.items()):
-            for key in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
-                if key[0] == Decimal(str(item.value)):
-                    return NumeralMatch(
-                        numeral=numeral,
-                        source="derivation_input",
-                        detail=f"input {name!r} of {derivation.formula!r}",
-                        location=location,
-                        matched_on=key,
-                    )
+            # Prevents: a millisecond figure being reprinted as a percentage, a throughput,
+            # a multiplier or a sum of money. This compared values only and discarded the
+            # unit, unlike the citation branch and unlike the result branch directly above.
+            shared = input_keys(item) & numeral.forms
+            if shared:
+                key = _preferred_key(shared)
+                return NumeralMatch(
+                    numeral=numeral,
+                    source="derivation_input",
+                    detail=(
+                        f"input {name!r} of {derivation.formula!r}, which the span it "
+                        f"cites writes as {key[1] or 'a bare number'}"
+                    ),
+                    location=location,
+                    matched_on=key,
+                )
     return None
 
 
