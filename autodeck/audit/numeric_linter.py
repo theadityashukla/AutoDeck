@@ -71,7 +71,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from autodeck.ingest.provenance import find_span, normalise_text
-from autodeck.ir.models import Citation, Deck, Derivation, DiagramSpec
+from autodeck.ir.models import Citation, Deck, Derivation, DerivationInput, DiagramSpec
 
 # ---------------------------------------------------------------------------
 # Findings and reports — the gate1.py shape
@@ -1054,6 +1054,29 @@ def re_execute_derivation(
     ]
 
 
+def derivation_input_is_traceable(item: DerivationInput) -> bool:
+    """Whether this input's value really appears as a numeral in the span it cites.
+
+    One definition, two readers. `check_derivation_inputs` turns a False into a blocking A2
+    finding; `audit/report.py` prints the answer per input, because A6 asks the report to
+    *show the working* and an input whose value is not in its own span is asserted rather
+    than cited. Restating the test in the report would let the two drift apart, and a
+    disagreement would read as a clean report on a build the linter had blocked.
+
+    The comparison is over every normalised reading the extractor found, ambiguous ones
+    included, so `3.2M` in a quote matches an input of `3200000`. A value that matches only
+    through an ambiguous reading still counts here: the locale advisory belongs to
+    `match_numerals`, and refusing the match would make this report "input not found" for a
+    number that is plainly in the sentence.
+    """
+    wanted = Decimal(str(item.value))
+    return any(
+        wanted == value
+        for numeral in extract_numerals(item.citation.quote)
+        for value, _ in numeral.forms | numeral.ambiguous_forms
+    )
+
+
 def check_derivation_inputs(
     derivation: Derivation, *, location: str = ""
 ) -> list[NumericFinding]:
@@ -1074,13 +1097,7 @@ def check_derivation_inputs(
     """
     findings: list[NumericFinding] = []
     for name, item in sorted(derivation.inputs.items()):
-        wanted = Decimal(str(item.value))
-        present = {
-            value
-            for numeral in extract_numerals(item.citation.quote)
-            for value, _ in numeral.forms | numeral.ambiguous_forms
-        }
-        if wanted in present:
+        if derivation_input_is_traceable(item):
             continue
         findings.append(
             NumericFinding(
