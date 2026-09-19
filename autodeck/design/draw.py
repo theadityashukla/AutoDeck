@@ -15,7 +15,7 @@ Owning phase: 0 (spikes 0.4-0.6); Phase 3a builds the full component library on 
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
@@ -24,7 +24,15 @@ from pptx.shapes.autoshape import Shape
 from pptx.slide import Slide
 from pptx.util import Emu, Pt
 
-from autodeck.design.layout_kit import Box, TextStyle
+if TYPE_CHECKING:  # pragma: no cover - import cycle, see the note below
+    from autodeck.design.layout_kit import Box, TextStyle
+
+# `layout_kit` imports these primitives so that its `Frame`/`Stack` composition layer can
+# draw, which makes the dependency mutual. It is only mutual on paper: nothing here needs
+# `Box` or `TextStyle` at runtime — both are used through their attributes — so the import
+# lives under TYPE_CHECKING and the cycle never exists when the modules are loaded. The
+# alternative, a third module holding the geometry types, would put `Box` somewhere no
+# reader would look for it.
 
 ThemeColor = Literal[
     "dk1",

@@ -4,12 +4,16 @@ The narrative job: a single number is the argument, everything else is support. 
 job is hierarchy so steep that the eye lands on the figure before it reads anything, which
 means the type scale does the work rather than colour or decoration.
 
-Authored natively against `layout_kit` per D5. Every vertical position is derived from a
-measured height rather than a guess — the headline is measured with the same `TextStyle`
-that renders it, so a two-line headline pushes the rule and the figure down instead of
-being overlapped by them.
+Authored natively against `layout_kit` per D5. Nothing here computes a position: each
+block is declared as a `Stack` and placed, so a two-line headline pushes the rule and the
+figure down instead of being overlapped by them, and the figure block is measured by the
+same declaration that draws it.
 
-Owning phase: 0 (spike 0.5). The first of the two components that prove D5.
+The figure and the supporting points share one band height (the taller of the two), which
+is what puts the first supporting point level with the top of the figure rather than
+floating at its own centre. Two blocks centred independently look like two decisions.
+
+Owning phase: 0 (spike 0.5); rewritten against the productionised kit in 3a.2.
 """
 
 from __future__ import annotations
@@ -18,8 +22,7 @@ from dataclasses import dataclass, field
 
 from pptx.slide import Slide
 
-from autodeck.design.draw import add_rule, add_text
-from autodeck.design.layout_kit import Box, Canvas, LayoutOverflowError, TextStyle
+from autodeck.design.layout_kit import Canvas, Frame, Stack
 
 #: The figure is set this many times the display size. Large enough that the number is the
 #: only possible entry point; the label then reads as caption, not as competition.
@@ -49,138 +52,64 @@ class BigNumberContent:
 
 def render(slide: Slide, canvas: Canvas, content: BigNumberContent) -> None:
     """Render `content` onto `slide`."""
-    region, source_area = canvas.content.split_bottom(
-        canvas.size("caption") * 1.6, gutter=canvas.gutter
-    )
+    frame = canvas.on(slide)
+    body, caption = frame.body_and_caption()
+    frame.caption(caption, content.source)
 
-    region = _render_headline(slide, canvas, region, content)
-    _render_body(slide, canvas, region, content)
-
-    if content.source:
-        add_text(
-            slide,
-            source_area,
-            content.source,
-            canvas.style("caption", color="accent6", valign="bottom"),
-        )
-
-
-def _render_headline(
-    slide: Slide, canvas: Canvas, region: Box, content: BigNumberContent
-) -> Box:
-    """Headline plus accent rule. Returns the region left below them."""
-    style = canvas.style("title", face="major", color="dk1", bold=True)
-    headline_box = canvas.fit(content.headline, region, style)
-    add_text(slide, headline_box, content.headline, style)
-
-    _, below = region.split_top(headline_box.height, gutter=canvas.baseline * 3)
-    rule_box, below = below.split_top(_RULE_THICKNESS, gutter=canvas.baseline * 4)
-    add_rule(
-        slide,
-        rule_box.resize(width=_RULE_WIDTH),
-        color=content.accent,
+    headline = frame.stack("big_number headline", body.width)
+    headline.text(content.headline, canvas.style("title", face="major", bold=True))
+    headline.rule(
+        width=_RULE_WIDTH,
         thickness=_RULE_THICKNESS,
-    )
-    return below
-
-
-def _render_body(slide: Slide, canvas: Canvas, region: Box, content: BigNumberContent) -> None:
-    """The figure and its label, with supporting points beside it when there are any.
-
-    The block is centred in whatever vertical space the headline left, so a one-line and a
-    two-line headline both produce a balanced slide instead of the second one leaving a
-    visible band of dead space under the figure.
-    """
-    if content.supporting_points:
-        figure_area, support_area = region.split_columns(2, canvas.gutter * 2)
-    else:
-        figure_area, support_area = region, None
-
-    block_height = _figure_block_height(canvas, content, figure_area.width)
-    if block_height > region.height:
-        raise LayoutOverflowError(
-            f"big_number needs {block_height:.0f}pt below its headline but only "
-            f"{region.height:.0f}pt remain. Shorten the headline or the support line."
-        )
-
-    centred = figure_area.resize(height=block_height).align_within(
-        figure_area, vertical="middle"
-    )
-    _render_figure(slide, canvas, centred, content)
-
-    if support_area is not None:
-        _render_supporting_points(
-            slide,
-            canvas,
-            support_area.resize(height=block_height).align_within(
-                support_area, vertical="middle"
-            ),
-            content,
-        )
-
-
-def _figure_block_height(canvas: Canvas, content: BigNumberContent, width: float) -> float:
-    """Measured height of figure + label + support, gaps included."""
-    figure_style = _figure_style(canvas, content)
-    height = canvas.measure(content.figure, width, figure_style) + canvas.baseline
-
-    label_style = canvas.style("heading", color="dk2")
-    height += canvas.measure(content.figure_label, width, label_style)
-
-    if content.support:
-        height += canvas.baseline * 3
-        height += canvas.measure(content.support, width, canvas.style("body", color="dk2"))
-    return height
-
-
-def _figure_style(canvas: Canvas, content: BigNumberContent) -> TextStyle:
-    return canvas.style(
-        "display",
-        face="major",
         color=content.accent,
-        bold=True,
-        line_spacing=0.95,
-    ).with_(size=canvas.size("display") * _FIGURE_SCALE)
+        gap=canvas.baseline * 3,
+    )
+    region = headline.place(body, gutter=canvas.baseline * 4)
+
+    if content.supporting_points:
+        figure_area, points_area = region.split_columns(2, canvas.gutter * 2)
+    else:
+        figure_area, points_area = region, None
+
+    figure = _figure_stack(frame, figure_area.width, content)
+    points = None if points_area is None else _points_stack(frame, points_area.width, content)
+
+    band = max(figure.height, 0.0 if points is None else points.height)
+    figure.place(figure_area.reserve(band, valign="middle", what="big_number figure block"))
+    if points is not None and points_area is not None:
+        points.place(
+            points_area.reserve(band, valign="middle", what="big_number supporting points"),
+            snap_baseline=True,
+        )
 
 
-def _render_figure(slide: Slide, canvas: Canvas, area: Box, content: BigNumberContent) -> None:
-    figure_style = _figure_style(canvas, content)
-    figure_box = canvas.fit(content.figure, area, figure_style)
-    add_text(slide, figure_box, content.figure, figure_style)
-
-    _, below = area.split_top(figure_box.height, gutter=canvas.baseline)
-
-    label_style = canvas.style("heading", color="dk2")
-    label_box = canvas.fit(content.figure_label, below, label_style)
-    add_text(slide, label_box, content.figure_label, label_style)
-
+def _figure_stack(frame: Frame, width: float, content: BigNumberContent) -> Stack:
+    """The figure, its label, and the optional sentence under them."""
+    canvas = frame.canvas
+    stack = frame.stack("big_number figure block", width)
+    stack.text(
+        content.figure,
+        canvas.style(
+            "display",
+            face="major",
+            scale=_FIGURE_SCALE,
+            color=content.accent,
+            bold=True,
+            line_spacing=0.95,
+        ),
+    )
+    stack.text(content.figure_label, canvas.style("heading", color="dk2"), gap=canvas.baseline)
     if content.support:
-        _, under_label = below.split_top(label_box.height, gutter=canvas.baseline * 3)
-        support_style = canvas.style("body", color="dk2")
-        add_text(
-            slide,
-            canvas.fit(content.support, under_label, support_style),
-            content.support,
-            support_style,
-        )
+        stack.text(content.support, canvas.style("body", color="dk2"), gap=canvas.baseline * 3)
+    return stack
 
 
-def _render_supporting_points(
-    slide: Slide, canvas: Canvas, area: Box, content: BigNumberContent
-) -> None:
-    """Supporting points as a measured stack, each snapped to the baseline grid."""
-    text_style = canvas.style("body", color="dk2")
-    marker_style = canvas.style("body", color=content.accent, bold=True)
-    marker_inset = 18.0
-
-    cursor = area.snap_to_baseline(canvas.baseline)
-    for point in content.supporting_points:
-        text_box = cursor.inset(left=marker_inset)
-        measured = canvas.fit(point, text_box, text_style)
-
-        add_text(
-            slide, cursor.resize(width=10.0, height=text_style.size * 1.4), "—", marker_style
-        )
-        add_text(slide, measured, point, text_style)
-
-        _, cursor = cursor.split_top(measured.height, gutter=canvas.baseline * 2.5)
+def _points_stack(frame: Frame, width: float, content: BigNumberContent) -> Stack:
+    """Supporting points beside the figure, snapped to the baseline grid when placed."""
+    canvas = frame.canvas
+    return frame.stack("big_number supporting points", width).items(
+        content.supporting_points,
+        canvas.style("body", color="dk2"),
+        row_gap=canvas.baseline * 2.5,
+        marker_style=canvas.style("body", color=content.accent, bold=True),
+    )

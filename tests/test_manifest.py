@@ -427,8 +427,14 @@ def test_the_component_library_version_has_one_definition() -> None:
 
 
 def test_a_different_component_library_is_a_different_build() -> None:
-    """Different slot geometry is a different deck, even from identical IR."""
+    """Different slot geometry is a different deck, even from identical IR.
+
+    The other version is derived from the current one rather than written out: a literal
+    here quietly stopped testing anything the day the catalog was bumped to match it.
+    """
     first = build_manifest(run_id="r1", env="dev")
-    second = build_manifest(run_id="r1", env="dev", component_lib_version="0.2.0")
+    second = build_manifest(
+        run_id="r1", env="dev", component_lib_version=f"{COMPONENT_LIB_VERSION}-other"
+    )
 
     assert not first.matches(second)

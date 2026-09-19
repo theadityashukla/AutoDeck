@@ -24,7 +24,14 @@ from autodeck.design.icons.svg_path import (
     circle_subpath,
     parse_path,
 )
-from autodeck.design.layout_kit import Box, Canvas, TextStyle
+from autodeck.design.layout_kit import (
+    Box,
+    Canvas,
+    Frame,
+    LayoutOverflowError,
+    TextStyle,
+    pt_to_emu,
+)
 from autodeck.design.theme.master_builder import apply_theme, build_theme_xml, new_presentation
 from autodeck.design.theme.tokens import DesignTokens, Typography
 
@@ -228,6 +235,137 @@ def test_contains_is_the_safe_area_check() -> None:
     outer = Box(0, 0, 100, 100)
     assert outer.contains(Box(10, 10, 50, 50))
     assert not outer.contains(Box(80, 80, 50, 50))
+
+
+def test_reserve_aligns_a_content_sized_block_inside_its_region() -> None:
+    band = Box(0, 0, 100, 100).reserve(40, valign="middle", what="a block")
+    assert (band.y, band.height, band.width) == (30, 40, 100)
+
+
+def test_reserve_refuses_rather_than_returning_a_shorter_box() -> None:
+    """The kit's one rule. A shorter box would leave the caller free to draw into it
+    anyway, which is how silent overflow gets back in."""
+    with pytest.raises(LayoutOverflowError, match="shrink text to fit"):
+        Box(0, 0, 100, 50).reserve(80, what="too much")
+
+
+# ---------------------------------------------------------------------------
+# Stacks — one declaration is both the measurement and the drawing
+# ---------------------------------------------------------------------------
+
+
+def _frame() -> Frame:
+    """A real slide to draw on. python-pptx only — no LibreOffice, so this runs in CI."""
+    tokens = DesignTokens.load(TOKENS_DIR / "dev.json")
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    return Canvas(tokens).on(slide)
+
+
+@requires_test_font
+def test_a_stack_draws_each_item_where_it_measured_it() -> None:
+    """The property the whole second layer exists for: the block that was measured and the
+    block that was drawn are the same declaration, so they cannot drift apart."""
+    frame = _frame()
+    style = frame.canvas.style("body")
+    stack = frame.stack("test", 300)
+    stack.text("First item.", style)
+    stack.text("Second item.", style, gap=10)
+    stack.place(Box(0, 0, 300, 400))
+
+    first, second = frame.slide.shapes
+    heights = stack.item_heights
+    assert first.top == pt_to_emu(0)
+    assert second.top == pytest.approx(pt_to_emu(heights[0] + 10), abs=2)
+    assert stack.height == pytest.approx(heights[0] + 10 + heights[1])
+
+
+@requires_test_font
+def test_place_returns_the_region_below_the_block() -> None:
+    frame = _frame()
+    stack = frame.stack("test", 300).text("One line.", frame.canvas.style("body"))
+    remainder = stack.place(Box(0, 0, 300, 400), gutter=12)
+    assert remainder.y == pytest.approx(stack.height + 12)
+    assert remainder.bottom == pytest.approx(400)
+
+
+@requires_test_font
+def test_a_stack_taller_than_its_box_raises_rather_than_shrinking() -> None:
+    frame = _frame()
+    stack = frame.stack("a headline", 300)
+    stack.text(
+        "A sentence long enough to wrap several times over. " * 6, frame.canvas.style("body")
+    )
+    with pytest.raises(LayoutOverflowError, match="a headline"):
+        stack.place(Box(0, 0, 300, 30))
+
+
+@requires_test_font
+def test_a_word_too_wide_to_wrap_is_refused_as_it_is_added() -> None:
+    """Height alone cannot see this failure: an over-wide word measures as exactly one line
+    and renders straight past the edge. The stack refuses it where the word can be named."""
+    frame = _frame()
+    stack = frame.stack("a caption", 40)
+    with pytest.raises(LayoutOverflowError, match="Supercalifragilistic"):
+        stack.text("Supercalifragilistic", frame.canvas.style("body"))
+
+
+@requires_test_font
+def test_min_height_holds_two_columns_rows_level() -> None:
+    """How a comparison stays a comparison: a short row on one side takes the height its
+    opposite number needs, so row n is level with row n across the gutter."""
+    frame = _frame()
+    style = frame.canvas.style("body")
+    tall = frame.stack("left", 200)
+    tall.text("A point long enough to wrap onto two lines in this column.", style)
+    short = frame.stack("right", 200)
+    short.text("Short.", style, min_height=tall.item_heights[0])
+    assert short.item_heights == tall.item_heights
+
+
+@requires_test_font
+def test_space_reserves_height_and_draws_nothing() -> None:
+    frame = _frame()
+    stack = frame.stack("test", 300).space(50)
+    stack.place(Box(0, 0, 300, 400))
+    assert stack.height == 50
+    assert len(frame.slide.shapes) == 0
+
+
+@requires_test_font
+def test_items_stack_a_list_with_its_own_row_gap() -> None:
+    frame = _frame()
+    stack = frame.stack("points", 300).items(
+        ["One.", "Two.", "Three."], frame.canvas.style("body"), row_gap=8
+    )
+    assert stack.height == pytest.approx(sum(stack.item_heights) + 16)
+    stack.place(Box(0, 0, 300, 400))
+    # Each item is a marker shape and a text shape.
+    assert len(frame.slide.shapes) == 6
+
+
+def test_the_caption_strip_and_the_body_come_from_one_split() -> None:
+    """Two definitions of where the body ends is how the catalog's `source` budget and the
+    renderer's source line would come to disagree."""
+    canvas = Canvas(DesignTokens.load(TOKENS_DIR / "dev.json"))
+    body, caption = canvas.body_and_caption()
+    assert caption == canvas.caption_strip
+    assert caption.y == pytest.approx(body.bottom + canvas.gutter)
+    assert caption.bottom == pytest.approx(canvas.content.bottom)
+
+
+@requires_test_font
+def test_a_component_with_no_source_draws_no_caption() -> None:
+    frame = _frame()
+    assert frame.caption(Box(0, 0, 300, 20), "") is None
+    assert len(frame.slide.shapes) == 0
+
+
+def test_style_scale_multiplies_the_roles_token_size() -> None:
+    """`big_number`'s figure is twice `display` — a multiple of a token, never a loose
+    point size, so a client's type scale still moves it."""
+    canvas = Canvas(DesignTokens.load(TOKENS_DIR / "dev.json"))
+    assert canvas.style("display", scale=2.0).size == pytest.approx(canvas.size("display") * 2)
 
 
 # ---------------------------------------------------------------------------

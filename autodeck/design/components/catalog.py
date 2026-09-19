@@ -79,7 +79,12 @@ from autodeck.design.theme.tokens import DesignTokens
 #: same IR. Two literals would be two answers to one question, and the manifest's would be
 #: the one nobody noticed had gone stale, so both read this. Bump it whenever a slot's box,
 #: its style, or the set of components changes.
-COMPONENT_LIB_VERSION = "0.1.0"
+#:
+#: 0.2.0: `layout_kit` grew the `Frame`/`Stack` composition layer (task 3a.2) and bullet
+#: geometry moved into the kit, so `two_column_compare`'s points hang at 18pt rather than
+#: 17pt and every `point` slot is one point narrower. A small move, but it is a slot box
+#: moving, which is exactly what this number is for.
+COMPONENT_LIB_VERSION = "0.2.0"
 
 #: Any non-empty, non-wrapping text. A single line's height in `budgets.wrap_text` depends
 #: only on the font's metrics, size and line spacing — never on which characters are in it
@@ -217,9 +222,7 @@ def _big_number_slots(
     `supporting_points` at all, so the three slots it did declare were silently wrong by
     half in exactly the mode the codebase's own example (`design/spikes.py`) uses.
     """
-    region, source_area = canvas.content.split_bottom(
-        canvas.size("caption") * 1.6, gutter=canvas.gutter
-    )
+    region, source_area = canvas.body_and_caption()
 
     headline_style = _role_style(canvas, "title", face="major")
     figure_style = _role_style(
@@ -334,9 +337,7 @@ def _two_column_compare_slots(canvas: Canvas) -> list[ComponentSlot]:
     at all, singular `point` covering only the single-item case `design/spikes.py` never
     actually exercises alone.
     """
-    region, source_area = canvas.content.split_bottom(
-        canvas.size("caption") * 1.6, gutter=canvas.gutter
-    )
+    region, source_area = canvas.body_and_caption()
     left_area, right_area = region.split_columns(2, canvas.gutter * 1.5)
 
     headline_style = _role_style(canvas, "title", face="major")
