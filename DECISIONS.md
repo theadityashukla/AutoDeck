@@ -730,3 +730,45 @@ the owner with options.
     in for the step-by-step human review the owner cannot give.
   - Spend is tracked per dispatch. At ~$40 the current task is finished, committed and
     pushed, and the batch stops and reports rather than starting the next one.
+
+### B29 — A6 says "byte-comparable"; that is not achievable for PPTX. Owner decision needed.
+- **Date:** 2026-09-19
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** **open — proposed correction, not applied.** `docs/INVARIANTS.md` is unedited.
+- **Context:** A6's headline says *"Same manifest + IR re-renders byte-comparable output."*
+  Implementing task 2b.10 established that no PPTX can satisfy that, for reasons outside
+  AutoDeck's control. Measured directly in this container: **two `Presentation().save()`
+  calls two seconds apart, on an identical presentation, produce different bytes.**
+
+  ```
+  identical decks, saved 2s apart:  raw bytes 4b504b3cb189… vs 13012257 40ab…  -> DIFFER
+  under canonical_pptx_digest:      8609e277b720…  vs 8609e277b720…            -> SAME
+  ```
+
+  Four independent causes: `zipfile` stamps every entry header with wall-clock save time;
+  entry order follows the writing library's iteration, not the document; the DEFLATE stream
+  depends on the zlib build and compression level, so the same input bytes give different
+  archive bytes on another machine; and `docProps/core.xml` carries `dcterms:modified` and
+  `cp:revision`, which move whenever the file is saved at all.
+- **The invariant already half-concedes it.** A6's own "watch for" line reads *"normalise
+  before comparing, and record the normalisation"* — which contradicts the headline in the
+  same entry. The wording was internally inconsistent before this phase; implementing it
+  is what surfaced that.
+- **Proposed decision (for the owner):** correct A6's headline to **"re-renders
+  normalised-comparable output under a recorded normalisation"**, and keep the existing
+  "watch for" as the definition of the normalisation. This is a wording correction to match
+  what the invariant always meant, not a relaxation — plan §0.4 forbids weakening an
+  invariant, and nothing here proposes accepting a weaker guarantee. It proposes describing
+  the guarantee accurately.
+- **What was built in the meantime.** `canonical_pptx_digest` with a versioned normalisation
+  (`pptx-canonical-v1`) whose three rules each carry `what` / `why` / `safe_because`; the
+  normalisation id is hashed into the digest, so a v1 digest can never be read as a v2 one.
+  Nothing is named `bytes_match`, and
+  `test_naive_byte_comparison_fails_on_two_identical_decks` asserts the failure so the claim
+  is evidenced rather than argued. Excluded: zip entry order, per-entry storage metadata,
+  and five volatile `docProps/core.xml` fields. Not excluded: relationship ids, `app.xml`,
+  and every part's decompressed bytes.
+- **Consequences if the correction is accepted:** A6's coverage cell means
+  normalised-comparability, and Phase 3b's render determinism test targets the digest rather
+  than raw bytes. **If it is rejected**, A6 is unsatisfiable as written and Phase 3b cannot
+  close against it — which is the reason this is flagged now rather than at GATE 3.
