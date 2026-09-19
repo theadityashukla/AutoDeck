@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from itertools import pairwise
-from typing import Annotated, Any, Literal, NamedTuple, get_args
+from typing import Annotated, Any, Literal, NamedTuple, TypeVar, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -679,6 +679,8 @@ class LayeredStackSpec(IRModel):
 DiagramGeometry = ProcessFlowSpec | TwoByTwoSpec | LayeredStackSpec
 """The geometry payloads this phase models. One more is one more member plus one entry."""
 
+GeometryT = TypeVar("GeometryT", bound=DiagramGeometry)
+
 
 @dataclass(frozen=True)
 class Geometry:
@@ -996,6 +998,27 @@ class DiagramSpec(IRModel):
         assert payload is not None  # guaranteed by `_geometry_matches_kind`
         return payload
 
+    def payload_as(self, geometry: type[GeometryT]) -> GeometryT:
+        """The payload, narrowed to the type this renderer was written for.
+
+        A renderer is registered against one geometry and wants that geometry's own fields
+        — a step's `order`, an item's `x` and `y` — not a union it has to narrow by hand at
+        the top of every function. It also wants the wrong dispatch to fail immediately and
+        say so, rather than to raise `AttributeError` three lines into the layout
+        arithmetic where the message names a field instead of a mistake.
+
+        Raises:
+            TypeError: this spec's geometry is not the one asked for.
+        """
+        payload = self.payload
+        if not isinstance(payload, geometry):
+            raise TypeError(
+                f"diagram of kind {self.kind!r} carries {type(payload).__name__}, not "
+                f"{geometry.__name__}. A renderer registered for one geometry has been "
+                "handed another; dispatch on `kind` through GEOMETRIES."
+            )
+        return payload
+
     @property
     def nodes(self) -> tuple[DiagramNode, ...]:
         """Every node, in the order the geometry puts them in — never list order."""
@@ -1136,8 +1159,31 @@ class Block(IRModel):
             )
         return self
 
+    def claims(self) -> list[Claim]:
+        """Every claim this block carries, wherever in its payload it lives.
+
+        **The single answer to "which claims are on this block?"** A claim reaches a slide
+        two ways — directly, as `Block.claim`, and nested one level down as a diagram
+        node's — and A1, A2 and A3 care about both equally. Four call sites already walk
+        the second path themselves (`agents/validation.py`'s claim sites,
+        `audit/report.py`'s rows, `audit/numeric_linter.py` twice), each with its own copy
+        of the same two lines, and the cost of that is visible right below: `blocks_render`
+        reads `self.claim` alone, so a `contradicted` diagram-node claim prints in the
+        claims table and renders anyway. Asking here is how a caller stops having to know
+        where claims hide.
+        """
+        nested = self.diagram.claims() if self.diagram is not None else []
+        return ([self.claim] if self.claim is not None else []) + nested
+
     def blocks_render(self) -> bool:
-        """True when A3 forbids this block from reaching final render."""
+        """True when A3 forbids this block from reaching final render.
+
+        **Known defect, fix owned elsewhere.** This reads `self.claim` only, so a diagram
+        node's `contradicted` claim is invisible to it, to `Deck.blocking_blocks()` and to
+        the render guard that calls them. `claims()` above is the enumeration that closes
+        it; flipping this to `any(claim.blocks_render() for claim in self.claims())` is a
+        separate, deliberate change to an A3 enforcement path, and it is not made here.
+        """
         return self.claim is not None and self.claim.blocks_render()
 
 
