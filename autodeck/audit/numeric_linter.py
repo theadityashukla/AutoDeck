@@ -558,6 +558,18 @@ class Numeral:
     end: int
     """Offsets into the *normalised* text `extract_numerals` was given, not the original."""
     kind: Literal["number", "date"] = "number"
+    qualifier: str = ""
+    """A word written against the digits that the tables did not recognise as a unit.
+
+    `UNIT_TABLE` lists the units this corpus writes often; it cannot list every one. So a
+    numeral has three states, not two: qualified by a known unit (`40 ms` → `ms`),
+    genuinely bare (a chart series value, `4.0`), and **qualified by something the table
+    does not know** (`3.2 million requests`, `40 GPUs`, `700 W`), which normalises to the
+    empty unit and must not be confused with the second. `_match_against_citations`' last
+    tier lets a genuinely bare numeral match a qualified span; it must not let
+    `3.2 million requests` match `3.2 million dollars`, which is `UNIT_TABLE`'s own
+    justification for the `usd` row.
+    """
 
     def describe(self) -> str:
         if self.context and self.context != self.text:
@@ -666,7 +678,24 @@ def _plain_numeral(text: str, match: re.Match[str]) -> Numeral:
         ambiguous_forms=frozenset(ambiguous),
         start=match.start() - len(prefix),
         end=end + suffix_width,
+        qualifier=_trailing_qualifier(text, end + suffix_width),
     )
+
+
+#: A word written against the digits, after any recognised prefix and suffix are consumed.
+_QUALIFIER = re.compile(r"[ \t]?([A-Za-z][A-Za-z/_-]*)")
+
+
+def _trailing_qualifier(text: str, end: int) -> str:
+    """The word immediately after the numeral, when the tables did not claim it.
+
+    Only used to tell a genuinely bare numeral from one the table simply does not have a
+    row for — see `Numeral.qualifier`. Anything the scale and unit tables recognised has
+    already been consumed by `_scan_suffix` before this is called, so what is left is by
+    construction a qualifier the normalisation table does not know about.
+    """
+    match = _QUALIFIER.match(text, end)
+    return match.group(1) if match else ""
 
 
 def _forms_for(
@@ -864,6 +893,7 @@ def _with_extra_forms(
         start=numeral.start,
         end=numeral.end,
         kind=numeral.kind,
+        qualifier=numeral.qualifier,
     )
 
 
@@ -1520,8 +1550,13 @@ def _match_against_citations(
     # that supplies a unit the source does not is asserting something the source does not
     # say. And it is advisory-reported on every hit, which is the whole licence it has to
     # be wider than the key intersection at all.
+    #
+    # `numeral.qualifier` is what keeps "bare" honest. A numeral the table has no row for
+    # normalises to the empty unit too, and without that guard this tier would let
+    # `3.2 million requests` match a span reading `3.2 million dollars` — the sentence
+    # `UNIT_TABLE`'s `usd` row exists to make impossible.
     bare_values = {value for value, unit in numeral.forms if not unit}
-    if bare_values:
+    if bare_values and not numeral.qualifier:
         unqualified = [
             (c, shared)
             for c, forms, alt in citation_forms

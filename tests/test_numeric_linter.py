@@ -800,6 +800,38 @@ class TestTheMatchingFloor:
         assert not report.passes
         assert [f.check for f in report.blocking] == ["uncited numeral"]
 
+    @pytest.mark.parametrize(
+        ("text", "quote", "why"),
+        [
+            (
+                "We processed 3.2 million requests.",
+                "revenue of 3.2 million dollars in the quarter",
+                "UNIT_TABLE's own words for the `usd` row",
+            ),
+            (
+                "We deploy 40 GPUs.",
+                "latency improves by 40 percentage points",
+                "a count against a percentage-point figure",
+            ),
+            ("The card draws 700 W.", "the run took 700 seconds", "watts against seconds"),
+        ],
+    )
+    def test_an_unrecognised_qualifier_is_not_the_same_as_no_qualifier(
+        self, text: str, quote: str, why: str
+    ) -> None:
+        """Catches: the value-only tier reading "unit I have no row for" as "no unit".
+
+        `UNIT_TABLE` lists the units this corpus writes often and cannot list every one, so
+        `requests`, `GPUs` and `W` all normalise to the empty unit — the same key a chart
+        series value carries. Without `Numeral.qualifier` separating the two, the tier that
+        exists for chart values would hand `3.2 million requests` a match against
+        `3.2 million dollars`, which is the one sentence `UNIT_TABLE`'s `usd` row was
+        written to make impossible.
+        """
+        report = lint_scope(LintScope(location="slide s1", text=text, citations=(cite(quote),)))
+        assert not report.passes, why
+        assert [f.check for f in report.blocking] == ["uncited numeral"]
+
     def test_every_match_names_a_key_its_source_actually_carries(self) -> None:
         """Catches: the *next* fallback, the one this review did not reach.
 
