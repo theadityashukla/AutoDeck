@@ -51,3 +51,21 @@ have Aptos: it cannot be legally fetched. Work in those environments uses the OF
 installed**, never a substituted Aptos. Preview output records which family it rendered in.
 
 Aptos remains the deliverable default and the target for any visual sign-off.
+
+**A fresh container has neither font.** That statement above describes the intent, not the
+state a container starts in: Inter is not preinstalled either, so `autodeck fonts check`
+fails against *both* token sets and the D5 preview loop cannot run at all. That is B11
+behaving correctly in an environment nobody had set up, not a bug — but it does need one
+command:
+
+```bash
+./scripts/install-dev-fonts.sh
+```
+
+It fetches Inter (SIL OFL 1.1, so unlike Aptos it can legally be fetched) and installs the
+nine faces the dev token set uses into **both** `fonts/` — where
+`autodeck.design.fonts.resolve_family()` looks, for glyph metrics — and
+`~/.local/share/fonts/`, where fontconfig looks, so headless LibreOffice renders the same
+face the budgets were computed from. Installing only the first is worse than installing
+neither: budgets in Inter, previews in whatever LibreOffice substitutes, and nothing saying
+so. The binaries stay uncommitted; `.gitignore` still excludes `fonts/*.ttf`.
