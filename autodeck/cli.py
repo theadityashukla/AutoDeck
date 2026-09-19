@@ -17,6 +17,7 @@ from typing import Annotated
 import typer
 
 from autodeck.audit.manifest import build_manifest
+from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.models import Block, Citation, Claim, Deck, Slide
 from autodeck.ir.store import IRStore, diff_decks
@@ -169,7 +170,7 @@ def _stub_deck(run_id: str) -> Deck:
         audience="stub audience",
         version=1,
         theme_ref="config/tokens/dev.json",
-        component_lib_version="0.1.0",
+        component_lib_version=COMPONENT_LIB_VERSION,
         slides=[
             Slide(
                 id="s1",
@@ -822,7 +823,7 @@ def outline(
             client=client,
             project=project,
             theme_ref=str(tokens),
-            component_lib_version="0.1.0",
+            component_lib_version=COMPONENT_LIB_VERSION,
             context=context.to_prompt_context(),
         )
     except OutlineError as exc:

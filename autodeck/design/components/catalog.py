@@ -72,6 +72,15 @@ from autodeck.design.components.renderers import big_number, two_column_compare
 from autodeck.design.layout_kit import Box, Canvas, TextStyle
 from autodeck.design.theme.tokens import DesignTokens
 
+#: The component library's version, and the only definition of it.
+#:
+#: A6 requires the build manifest to record it, and `Deck.component_lib_version` records it
+#: too — a deck laid out against different slot geometry is a different deck even from the
+#: same IR. Two literals would be two answers to one question, and the manifest's would be
+#: the one nobody noticed had gone stale, so both read this. Bump it whenever a slot's box,
+#: its style, or the set of components changes.
+COMPONENT_LIB_VERSION = "0.1.0"
+
 #: Any non-empty, non-wrapping text. A single line's height in `budgets.wrap_text` depends
 #: only on the font's metrics, size and line spacing — never on which characters are in it
 #: — so this exists purely to ask "how tall is one line", not to guess real content.
