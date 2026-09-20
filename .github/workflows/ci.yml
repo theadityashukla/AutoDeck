@@ -38,6 +38,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # The OFL dev font set (Inter). `fonts/README.md` has always said CI works against
+      # config/tokens/dev.json "so that previews are true renders of a font that is
+      # genuinely installed" — but nothing installed it, and the gap stayed invisible while
+      # the font-dependent tests skipped. They no longer skip, and B11 makes a missing face
+      # a hard error rather than a silent substitution, so CI needs the real files.
+      # Aptos is unaffected: it cannot be legally fetched and stays a local-only concern.
+      - name: Install dev fonts
+        run: ./scripts/install-dev-fonts.sh
+
       - name: Lint
         run: uv run ruff check .
 
