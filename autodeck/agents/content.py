@@ -85,6 +85,7 @@ from autodeck.design.components.catalog import (
     check_overflow,
     render_budgets,
 )
+from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ingest.document_store import DocumentStore, IngestError
 from autodeck.ir.models import (
@@ -612,13 +613,15 @@ def _content_prompt(
     budgets: str,
     evidence: str,
 ) -> str:
+    header_profile = resolve_profile(context.header_profile, brief.header_style)
     parts = [
         "# Curated knowledge for this build\n\n" + context.to_prompt_context(),
         "# This slide\n\n"
         f"component: {slide.component}\n"
         f"narrative_role: {slide.narrative_role}\n"
-        f"intent: {slide.intent or '(none recorded)'}\n"
-        f"header_style: {brief.header_style or 'not set'}",
+        f"intent: {slide.intent or '(none recorded)'}",
+        "# Header style profile for this deck (D12 — phrasing only, never a citation "
+        "exemption)\n\n" + render_for_prompt(header_profile),
         "# Key messages this slide serves, and what the brief already knows about them "
         "(A8)\n\n" + _a8_context(slide, brief),
         "# Text budgets for this component's slots (§6.7 — hard constraints)\n\n" + budgets,

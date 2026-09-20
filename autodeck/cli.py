@@ -953,6 +953,17 @@ def content(
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    header_style: Annotated[
+        str | None,
+        typer.Option(
+            "--header-style",
+            help=(
+                "Override this deck's header voice for this run (e.g. question_led, "
+                "assertion). Reshapes phrasing only, on top of whatever the client's own "
+                "headers.yaml sets — it never relaxes what needs a citation (D12)."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Write every slide's blocks from the approved outline, then lint the result (A2, A5).
 
@@ -961,6 +972,10 @@ def content(
     round is read from the run directory and shown to the writer; a new claim identical to
     one already rejected is dropped rather than written again — see
     `autodeck/pipeline/send_back.py` for what that check does and does not catch.
+
+    `--header-style` is the one-flag per-deck switch task 3a.8 asks for: it does not touch
+    the approved brief on disk, the client's `headers.yaml`, or any prompt file — see
+    `autodeck.design.headers.prompt.resolve_profile`.
     """
     import dataclasses
 
@@ -991,6 +1006,12 @@ def content(
     except IRStoreError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
+
+    if header_style is not None:
+        # The one-flag switch: overrides only this run's effective voice, never the
+        # approved brief saved on disk (A7 concerns itself with approvals, not this — but
+        # the brief file itself stays exactly what the owner signed off).
+        brief_doc = brief_doc.model_copy(update={"header_style": header_style})
 
     try:
         context = ContextAssembler(

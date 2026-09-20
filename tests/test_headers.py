@@ -14,6 +14,7 @@ from autodeck.design.headers.profile import (
     HeaderStyleProfile,
     guidance_for,
 )
+from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 
 NORTHWIND_YAML: dict[str, object] = {
     "style": "assertion",
@@ -73,3 +74,31 @@ class TestProfileLoading:
     def test_guidance_falls_back_for_an_unknown_style_name(self) -> None:
         assert "no built-in guidance" in guidance_for("a-client-invented-name")
         assert "question" in guidance_for("question_led").lower()
+
+
+# ---------------------------------------------------------------------------
+# resolve_profile / render_for_prompt — reaching the writer
+# ---------------------------------------------------------------------------
+
+
+class TestApplication:
+    def test_resolve_profile_combines_client_profile_and_deck_override(self) -> None:
+        profile = resolve_profile(NORTHWIND_YAML, "question_led")
+        assert profile.style == "question_led"
+        assert profile.max_words == 12  # kept from the client profile
+
+    def test_resolve_profile_with_no_client_profile_and_no_override(self) -> None:
+        profile = resolve_profile(None, None)
+        assert profile.style == "topic_led"
+
+    def test_rendered_prompt_never_waives_the_citation_requirement(self) -> None:
+        rendered = render_for_prompt(resolve_profile(NORTHWIND_YAML, None))
+        assert "claim" in rendered
+        assert "never lowers what needs support" in rendered
+        assert "revolutionary" in rendered
+        assert "12" in rendered
+
+    def test_rendered_prompt_names_the_chosen_style_and_its_guidance(self) -> None:
+        rendered = render_for_prompt(resolve_profile(None, "question_led"))
+        assert "question_led" in rendered
+        assert "question" in rendered.lower()

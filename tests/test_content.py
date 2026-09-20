@@ -505,6 +505,85 @@ def test_a_thin_message_and_its_open_risk_reach_the_prompt(tmp_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
+# The header style profile reaches the writer (3a.8, D12)
+# ---------------------------------------------------------------------------
+
+
+def test_the_client_header_profile_reaches_the_prompt(tmp_path: Path) -> None:
+    """`AssembledContext.header_profile` is loaded today and rendered nowhere — this pins
+    that it now lands in the slide prompt the model actually reads, not just on the
+    context object."""
+    store = store_with(tmp_path, element("e1", QUOTE))
+    index = build_index([store.get("paper-1")], project="llm-inference-efficiency")
+    model = Scripted(draft_with(claim_block()))
+
+    write_slide(
+        slide(),
+        brief(),
+        AssembledContext(
+            client="northwind",
+            project="llm-inference-efficiency",
+            project_md="# Project",
+            client_md="# Northwind",
+            value_prop_md="Serve better before you buy more.",
+            header_profile={
+                "style": "assertion",
+                "max_words": 12,
+                "avoid": ["revolutionary"],
+            },
+        ),
+        store=store,
+        index=index,
+        claims=[],
+        tokens=tokens_for(),
+        model=model,
+        prompt_path=PROMPT,
+    )
+
+    [prompt] = model.prompts
+    assert "Header style profile" in prompt
+    assert "style: assertion" in prompt
+    assert "max words: 12" in prompt
+    assert "revolutionary" in prompt
+    # The invariant the profile can never waive, restated in the writer's own prompt.
+    assert "never lowers what needs support" in prompt
+
+
+def test_a_header_style_override_changes_the_voice_not_the_clients_other_rules(
+    tmp_path: Path,
+) -> None:
+    """`DeckBrief.header_style` is the one-flag switch: it swaps `style` only, and every
+    other rule the client's `headers.yaml` set (here, the word budget) survives."""
+    store = store_with(tmp_path, element("e1", QUOTE))
+    index = build_index([store.get("paper-1")], project="llm-inference-efficiency")
+    model = Scripted(draft_with(claim_block()))
+
+    write_slide(
+        slide(),
+        brief(header_style="question_led"),
+        AssembledContext(
+            client="northwind",
+            project="llm-inference-efficiency",
+            project_md="# Project",
+            client_md="# Northwind",
+            value_prop_md="Serve better before you buy more.",
+            header_profile={"style": "assertion", "max_words": 9},
+        ),
+        store=store,
+        index=index,
+        claims=[],
+        tokens=tokens_for(),
+        model=model,
+        prompt_path=PROMPT,
+    )
+
+    [prompt] = model.prompts
+    assert "style: question_led" in prompt
+    assert "question" in prompt.lower()
+    assert "max words: 9" in prompt  # kept from the client's own profile
+
+
+# ---------------------------------------------------------------------------
 # Budgets checked before blocks are returned
 # ---------------------------------------------------------------------------
 

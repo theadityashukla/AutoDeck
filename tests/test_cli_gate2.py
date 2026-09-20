@@ -167,21 +167,26 @@ def patch_validation_model(monkeypatch: pytest.MonkeyPatch, model: ScriptedValid
 
 
 def run_content(
-    runs_root: Path, knowledge_root: Path, corpus_root: Path, run_id: str = "r1"
+    runs_root: Path,
+    knowledge_root: Path,
+    corpus_root: Path,
+    run_id: str = "r1",
+    *,
+    header_style: str | None = None,
 ) -> Result:
-    return runner.invoke(
-        app,
-        [
-            "content",
-            run_id,
-            "--knowledge-root",
-            str(knowledge_root),
-            "--corpus-root",
-            str(corpus_root),
-            "--runs-root",
-            str(runs_root),
-        ],
-    )
+    args = [
+        "content",
+        run_id,
+        "--knowledge-root",
+        str(knowledge_root),
+        "--corpus-root",
+        str(corpus_root),
+        "--runs-root",
+        str(runs_root),
+    ]
+    if header_style is not None:
+        args.extend(["--header-style", header_style])
+    return runner.invoke(app, args)
 
 
 def run_validate(runs_root: Path, corpus_root: Path) -> Result:
@@ -225,6 +230,27 @@ def test_content_writes_the_next_ir_version_and_lints_it(
     assert block.claim.text == CLAIM_TEXT
     assert "A2 — numeric lint" in result.output
     assert "A5 — framing lint" in result.output
+
+
+def test_header_style_is_a_one_flag_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--header-style` overrides the voice for this run alone: the saved brief on disk
+    keeps whatever it was signed off with, and the fixture's `headers.yaml` (`style:
+    assertion`, from `build_knowledge`) still supplies every other rule."""
+    knowledge_root, corpus_root, runs_root = make_run(tmp_path)
+    model = ScriptedContent(content_draft())
+    patch_content_model(monkeypatch, model)
+
+    result = run_content(runs_root, knowledge_root, corpus_root, header_style="question_led")
+
+    assert result.exit_code == 0, result.output
+    [prompt] = model.prompts
+    assert "style: question_led" in prompt
+
+    # The approved brief file itself is untouched by the override.
+    saved_brief = Orchestrator("r1", runs_root=runs_root, env="dev").ir.load_brief()
+    assert saved_brief.header_style is None
 
 
 # ---------------------------------------------------------------------------
