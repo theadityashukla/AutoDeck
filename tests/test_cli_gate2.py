@@ -230,6 +230,7 @@ def test_content_writes_the_next_ir_version_and_lints_it(
     assert block.claim.text == CLAIM_TEXT
     assert "A2 — numeric lint" in result.output
     assert "A5 — framing lint" in result.output
+    assert "Header flow" in result.output
 
 
 def test_header_style_is_a_one_flag_switch(

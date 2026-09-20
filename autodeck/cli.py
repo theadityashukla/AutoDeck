@@ -982,6 +982,8 @@ def content(
     from autodeck.agents.content import ContentError, write_slide
     from autodeck.audit.framing_linter import lint_framing
     from autodeck.audit.numeric_linter import lint_deck
+    from autodeck.design.headers.flow import flow_report
+    from autodeck.design.headers.prompt import resolve_profile
     from autodeck.design.theme.tokens import DesignTokens
     from autodeck.ingest.document_store import DocumentStore
     from autodeck.ingest.provenance import normalise_for_match
@@ -1138,6 +1140,11 @@ def content(
     typer.echo(numeric.render())
     typer.echo("")
     typer.echo(framing.render())
+
+    typer.echo("")
+    header_profile = resolve_profile(context.header_profile, brief_doc.header_style)
+    typer.echo(flow_report(new_deck, design_tokens, header_profile).render())
+
     typer.echo(f"\nNext: autodeck validate {run_id}")
 
 

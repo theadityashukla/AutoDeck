@@ -7,14 +7,21 @@ later test in this file that renders a profile or reads a flow report restates t
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from autodeck.design.headers.flow import flow_report
 from autodeck.design.headers.profile import (
     HeaderProfileError,
     HeaderStyleProfile,
     guidance_for,
 )
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
+from autodeck.design.theme.tokens import DesignTokens
+from autodeck.ir.models import Block, Citation, Claim, Deck, Slide
+
+TOKENS = DesignTokens.load(Path("config/tokens/dev.json"))
 
 NORTHWIND_YAML: dict[str, object] = {
     "style": "assertion",
@@ -102,3 +109,134 @@ class TestApplication:
         rendered = render_for_prompt(resolve_profile(None, "question_led"))
         assert "question_led" in rendered
         assert "question" in rendered.lower()
+
+
+# ---------------------------------------------------------------------------
+# Horizontal-flow QA
+# ---------------------------------------------------------------------------
+
+
+def citation() -> Citation:
+    return Citation.for_quote(
+        doc_id="paper-1",
+        page=1,
+        bbox=(0.0, 0.0, 1.0, 1.0),
+        quote="a quoted span",
+        retrieved_by="writer",
+    )
+
+
+def header_block(text: str, *, kind: str = "section_header", slot: str = "headline") -> Block:
+    if kind == "claim":
+        return Block(
+            id="h1",
+            kind="claim",
+            slot=slot,
+            claim=Claim(text=text, citations=[citation()]),
+        )
+    return Block(id="h1", kind=kind, slot=slot, text=text)  # type: ignore[arg-type]
+
+
+def deck_with_slides(*slides: Slide) -> Deck:
+    return Deck(
+        run_id="r1",
+        project="p",
+        client="c",
+        audience="CTO",
+        version=1,
+        slides=list(slides),
+        theme_ref="config/tokens/dev.json",
+        component_lib_version="test",
+    )
+
+
+class TestFlowReport:
+    def test_a_section_header_is_read_in_order(self) -> None:
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="framing",
+                component="big_number",
+                blocks=[header_block("Where the money actually goes")],
+            )
+        )
+        report = flow_report(deck, TOKENS, HeaderStyleProfile())
+        [line] = report.lines
+        assert line.slide_id == "s1"
+        assert line.kind == "section_header"
+        assert line.text == "Where the money actually goes"
+        assert "top to bottom" in report.render()
+
+    def test_a_claim_header_is_read_correctly_by_flow(self) -> None:
+        """D12: a fact-bearing header written as `kind='claim'` is read as one, not as a
+        blank slot — `Block` forbids a `claim` block from also carrying `text`, so this is
+        the one place a naive `block.text` read would silently under-report."""
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="evidence",
+                component="big_number",
+                blocks=[header_block("KV-cache waste is the binding constraint", kind="claim")],
+            )
+        )
+        report = flow_report(deck, TOKENS, HeaderStyleProfile())
+        [line] = report.lines
+        assert line.kind == "claim"
+        assert line.text == "KV-cache waste is the binding constraint"
+        assert not report.findings
+
+    def test_avoid_and_max_words_are_advisory_only(self) -> None:
+        """The mechanical checks flag, they never block — that is A5's job, on the IR,
+        regardless of what this report says."""
+        profile = HeaderStyleProfile.from_mapping(
+            {"max_words": 3, "avoid": ["revolutionary"], "terminal_punctuation": False}
+        )
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="framing",
+                component="big_number",
+                blocks=[header_block("A revolutionary way to think about serving cost.")],
+            )
+        )
+        report = flow_report(deck, TOKENS, profile)
+        details = " ".join(f.detail for f in report.findings)
+        assert "word(s) over" in details
+        assert "revolutionary" in details
+        assert "punctuation" in details
+        # Advisory only: the report itself carries no blocking flag or exception.
+        assert isinstance(report.render(), str)
+
+    def test_a_verbatim_repeat_is_flagged(self) -> None:
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="framing",
+                component="big_number",
+                blocks=[header_block("Serve better before buying more")],
+            ),
+            Slide(
+                id="s2",
+                narrative_role="evidence",
+                component="big_number",
+                blocks=[header_block("Serve better before buying more")],
+            ),
+        )
+        report = flow_report(deck, TOKENS, HeaderStyleProfile())
+        assert any("repeats slide s1" in f.detail for f in report.findings)
+
+    def test_a_component_with_no_registered_header_slot_is_skipped_not_failed(self) -> None:
+        deck = deck_with_slides(
+            Slide(id="s1", narrative_role="framing", component="not_a_real_component")
+        )
+        report = flow_report(deck, TOKENS, HeaderStyleProfile())
+        [line] = report.lines
+        assert line.kind == "(no header slot)"
+        assert not report.findings
+
+    def test_render_reports_an_empty_header_slot(self) -> None:
+        deck = deck_with_slides(
+            Slide(id="s1", narrative_role="framing", component="big_number")
+        )
+        report = flow_report(deck, TOKENS, HeaderStyleProfile())
+        assert any("no block fills" in f.detail for f in report.findings)
