@@ -11,7 +11,19 @@ substituted into the package by rewriting the zip entry. That is deliberate rath
 workaround: the zip is the format, the substitution is explicit and inspectable, and it
 keeps entry order under our control for A6's byte-comparability requirement later.
 
-Owning phase: 0 (spike 0.4); productionised in Phase 3a.
+Inheritance itself needs no code here: python-pptx's bundled default master and layouts
+reference the theme indirectly throughout (`+mj-lt`/`+mn-lt` for fonts, `schemeClr` for
+colour, on every placeholder) rather than hardcoding a face or an RGB value, so swapping
+`theme1.xml` is sufficient for a hand-added slide to inherit it. `tests/test_theme_master.py`
+pins that property and proves it structurally and, for accent colours and font families, in
+a real LibreOffice render (D5's headless loop). There is no PowerPoint in this environment
+(B31): **the theme's colour/font pairing has not been observed in PowerPoint's own Design
+panel, and one specific gap in the render loop below is known and unfixed — see
+`_colour_value` and `tests/test_theme_master.py`'s module docstring.**
+
+Owning phase: 0 (spike 0.4); productionised in Phase 3a (task 3a.1). See `extract.py` for
+onboarding mode (a) — reading a theme back out of an existing client template, rather than
+generating one from tokens as this module does.
 """
 
 from __future__ import annotations
@@ -62,6 +74,21 @@ def build_theme_xml(tokens: DesignTokens) -> str:
 
 
 def _colour_value(slot: str, hex_value: str) -> str:
+    """`dk1`/`lt1` use `sysClr`+`lastClr`; every other slot is a plain `srgbClr`.
+
+    **Known, unfixed gap, recorded rather than worked around (B31):** while writing 3a.1's
+    inheritance tests, LibreOffice was observed to render `sysClr`'s literal system colour
+    (plain black/white) for placeholder text, ignoring `lastClr` entirely — a title's text
+    stayed black across every `dk1` value tried, and only turned the token's actual colour
+    once this function was patched, locally, to emit a plain `srgbClr` there instead. That
+    swap is **not** made here: it was never tried against real PowerPoint, and the whole
+    reason `sysClr` is used is a PowerPoint-only behaviour (the Design panel's text/
+    background pairing) that this environment cannot check either way. Swapping it would
+    trade one unverified claim for another. The upshot: `tests/test_theme_master.py`'s
+    render-marked tests confirm accent-colour and font inheritance, but **cannot** confirm
+    that `dk1`/`lt1` reach hand-added slide text — that is one of the two PowerPoint-only
+    checks carried to the owner at GATE 3.
+    """
     if slot == "dk1":
         return f'<a:sysClr val="windowText" lastClr="{hex_value.upper()}"/>'
     if slot == "lt1":
