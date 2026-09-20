@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, Literal
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml import parse_xml
 from pptx.shapes.autoshape import Shape
+from pptx.shapes.connector import Connector
 from pptx.slide import Slide
 from pptx.util import Emu, Pt
 
@@ -132,21 +134,45 @@ def add_text(slide: Slide, box: Box, text: str, style: TextStyle) -> Shape:
     return shape
 
 
-def add_rect(
+def add_autoshape(
     slide: Slide,
     box: Box,
+    shape_name: str,
     *,
     fill: str | None = None,
     fill_brightness: float | None = None,
     line: str | None = None,
     line_width: float = 1.0,
+    rotation: float = 0.0,
 ) -> Shape:
-    """A rectangle filled and outlined from the theme palette."""
+    """An arbitrary preset autoshape, filled and outlined from the theme palette.
+
+    `shape_name` names a python-pptx `MSO_SHAPE` member — `"CHEVRON"`, `"OVAL"`,
+    `"TRAPEZOID"` — from `references/construction.md`'s authoritative column
+    (`GEOMETRIES[...].shapes` in `autodeck.ir.models` is the same vocabulary). `add_rect`
+    is the one-shape special case this generalises: the diagram engine draws chevrons,
+    ovals and stack bands from the same preset family, and a helper per shape would be a
+    helper per geometry for no reason — the autoshape API takes the preset as a value, not
+    as a different method.
+
+    Raises:
+        ValueError: `shape_name` is not a member of `MSO_SHAPE`.
+    """
     from pptx.enum.shapes import MSO_SHAPE
 
+    try:
+        preset = MSO_SHAPE[shape_name]
+    except KeyError:
+        raise ValueError(
+            f"unknown MSO_SHAPE member {shape_name!r}. See "
+            "references/construction.md's python-pptx column, or pptx.enum.shapes.MSO_SHAPE."
+        ) from None
+
     left, top, width, height = box.as_emu()
-    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+    shape = slide.shapes.add_shape(preset, left, top, width, height)
     shape.shadow.inherit = False
+    if rotation:
+        shape.rotation = rotation
 
     if fill is None:
         shape.fill.background()
@@ -163,11 +189,32 @@ def add_rect(
         shape.line.width = Pt(line_width)
 
     # An autoshape arrives with an empty text frame that still reserves internal margins;
-    # zeroing them keeps a bare rectangle from nudging adjacent geometry.
+    # zeroing them keeps a bare shape from nudging adjacent geometry.
     frame = shape.text_frame
     frame.margin_left = frame.margin_right = Emu(0)
     frame.margin_top = frame.margin_bottom = Emu(0)
     return shape
+
+
+def add_rect(
+    slide: Slide,
+    box: Box,
+    *,
+    fill: str | None = None,
+    fill_brightness: float | None = None,
+    line: str | None = None,
+    line_width: float = 1.0,
+) -> Shape:
+    """A rectangle filled and outlined from the theme palette."""
+    return add_autoshape(
+        slide,
+        box,
+        "RECTANGLE",
+        fill=fill,
+        fill_brightness=fill_brightness,
+        line=line,
+        line_width=line_width,
+    )
 
 
 def add_rule(
@@ -179,6 +226,70 @@ def add_rule(
 ) -> Shape:
     """A horizontal rule — the accent bar that anchors a title block."""
     return add_rect(slide, box.resize(height=thickness), fill=color)
+
+
+_ARROWHEADS: dict[str, tuple[bool, bool]] = {
+    # (head at the connector's start point, head at its end point)
+    "none": (False, False),
+    "start": (True, False),
+    "end": (False, True),
+    "both": (True, True),
+}
+
+
+def add_connector(
+    slide: Slide,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    color: str = "dk1",
+    width: float = 1.5,
+    arrow: Literal["none", "start", "end", "both"] = "end",
+) -> Connector:
+    """A straight connector between two points, in theme colour, with an optional arrowhead.
+
+    `start`/`end` are `(x, y)` in points — the diagram engine's own unit — converted to EMU
+    here so a caller never has to reach past `Box` for a raw `Emu`.
+
+    python-pptx has no high-level API for arrowheads, so `<a:headEnd>`/`<a:tailEnd>` are
+    appended to the connector's `<a:ln>` directly. The same surgical-XML-edit pattern
+    `icons.custgeom._replace_geometry` uses for freeform geometry: python-pptx owns
+    everything else about the shape (position, colour, width), and only the one element it
+    has no setter for is hand-built.
+    """
+    from pptx.enum.shapes import MSO_CONNECTOR
+
+    from autodeck.design.theme.tokens import points_to_emu
+
+    x1, y1 = start
+    x2, y2 = end
+    connector = slide.shapes.add_connector(
+        MSO_CONNECTOR.STRAIGHT,
+        Emu(points_to_emu(x1)),
+        Emu(points_to_emu(y1)),
+        Emu(points_to_emu(x2)),
+        Emu(points_to_emu(y2)),
+    )
+    connector.shadow.inherit = False
+    connector.line.color.theme_color = theme_color(color)
+    connector.line.width = Pt(width)
+
+    try:
+        head, tail = _ARROWHEADS[arrow]
+    except KeyError:
+        known = ", ".join(_ARROWHEADS)
+        raise ValueError(f"unknown arrow style {arrow!r}. Known: {known}") from None
+
+    if head or tail:
+        line = connector.line._get_or_add_ln()
+        ns = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+        # Schema order inside <a:ln> is headEnd before tailEnd.
+        if head:
+            line.append(parse_xml(f'<a:headEnd {ns} type="triangle"/>'))
+        if tail:
+            line.append(parse_xml(f'<a:tailEnd {ns} type="triangle"/>'))
+
+    return connector
 
 
 def set_background(slide: Slide, color: RGBColor) -> None:
