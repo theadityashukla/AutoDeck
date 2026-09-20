@@ -11,18 +11,29 @@ not an accident of the fixture.
 
 from __future__ import annotations
 
+from pptx import Presentation as _open_presentation
+from pptx.presentation import Presentation
+from pptx.util import Emu
+
+from autodeck.design.draw import add_text
 from autodeck.design.grammar import (
     EXCLUDED_CONCEPT_SLOTS,
+    ICON_ADJACENCY_GUTTER_MULTIPLE,
     MAX_CONCEPTS_ADVISORY,
     MAX_DIAGRAMS_PER_SLIDE,
     PILEUP_KINDS,
     WORD_BUDGET_PER_MODE,
     check_concept_count,
     check_diagram_count,
+    check_icon_adjacency,
     check_no_icon_chart_diagram_pileup,
     check_word_budget,
     lint_deck,
 )
+from autodeck.design.icons.custgeom import place_icon
+from autodeck.design.icons.library import resolve_icon
+from autodeck.design.layout_kit import Box, TextStyle
+from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.models import (
     Block,
     ChartSeries,
@@ -368,3 +379,104 @@ class TestLintDeck:
         report = lint_deck(deck)
         assert report.advisory and not report.blocking
         assert report.blocks_build is False
+
+
+# ---------------------------------------------------------------------------
+# Icon adjacency — the rendered pass
+# ---------------------------------------------------------------------------
+
+
+def _presentation(tokens: DesignTokens) -> Presentation:
+    prs = _open_presentation()
+    prs.slide_width = Emu(tokens.slide_width_emu)
+    prs.slide_height = Emu(tokens.slide_height_emu)
+    return prs
+
+
+def _add_slide(prs: Presentation):
+    return prs.slides.add_slide(prs.slide_layouts[6])
+
+
+LABEL_STYLE = TextStyle(family="Liberation Sans", size=12.0)
+
+
+class TestIconAdjacency:
+    def test_a_nearby_label_passes(self) -> None:
+        tokens = DesignTokens(name="t")
+        prs = _presentation(tokens)
+        slide = _add_slide(prs)
+        icon_box = Box(x=100.0, y=100.0, width=28.0, height=28.0)
+        place_icon(slide, icon_box, resolve_icon("risk"))
+        # Just inside the gutter-wide threshold, to the icon's right.
+        label_x = 128.0 + tokens.spacing.gutter - 2.0
+        label_box = Box(x=label_x, y=100.0, width=100.0, height=20.0)
+        add_text(slide, label_box, "Delivery risk", LABEL_STYLE)
+
+        assert check_icon_adjacency(prs, tokens) == []
+
+    def test_no_text_anywhere_on_the_slide_blocks(self) -> None:
+        tokens = DesignTokens(name="t")
+        prs = _presentation(tokens)
+        slide = _add_slide(prs)
+        place_icon(slide, Box(x=100.0, y=100.0, width=28.0, height=28.0), resolve_icon("risk"))
+
+        findings = check_icon_adjacency(prs, tokens)
+        assert [f.check for f in findings] == ["icon adjacent to text label"]
+        assert findings[0].severity == "blocking"
+        assert "slide 1" in findings[0].location
+
+    def test_a_far_away_label_still_blocks(self) -> None:
+        tokens = DesignTokens(name="t")
+        prs = _presentation(tokens)
+        slide = _add_slide(prs)
+        place_icon(slide, Box(x=100.0, y=100.0, width=28.0, height=28.0), resolve_icon("risk"))
+        far_box = Box(x=100.0, y=100.0 + tokens.spacing.gutter * 10, width=100.0, height=20.0)
+        add_text(slide, far_box, "Unrelated caption at the bottom of the slide", LABEL_STYLE)
+
+        findings = check_icon_adjacency(prs, tokens)
+        assert findings and findings[0].severity == "blocking"
+
+    def test_one_icons_several_subpath_shapes_produce_one_finding_not_several(self) -> None:
+        """De-duplication: `place_icon` draws one shape per subpath, all sharing one name
+        and bounding box. Without merging, a single orphaned icon with N strokes would
+        report as N identical findings."""
+        tokens = DesignTokens(name="t")
+        icon = resolve_icon("risk")
+        assert len(icon.subpaths) >= 2, "the fixture needs a multi-subpath icon to be real"
+        prs = _presentation(tokens)
+        slide = _add_slide(prs)
+        place_icon(slide, Box(x=100.0, y=100.0, width=28.0, height=28.0), icon)
+
+        findings = check_icon_adjacency(prs, tokens)
+        assert len(findings) == 1
+
+    def test_disable_the_defence_any_text_anywhere_goes_green(self) -> None:
+        """Disable the defence, confirm red.
+
+        The naive, plausible-but-wrong stand-in this module exists to avoid: "the slide has
+        text somewhere, so its icon has a label". A title at the top of the slide and an
+        orphaned icon at the bottom both satisfy that. The real check measures the gap.
+        """
+        tokens = DesignTokens(name="t")
+        prs = _presentation(tokens)
+        slide = _add_slide(prs)
+        place_icon(slide, Box(x=100.0, y=600.0, width=28.0, height=28.0), resolve_icon("risk"))
+        add_text(
+            slide, Box(x=100.0, y=20.0, width=300.0, height=30.0), "Slide title", LABEL_STYLE
+        )
+
+        def naive_every_icon_has_a_label(s) -> bool:
+            has_text = any(
+                shape.has_text_frame and shape.text_frame.text.strip()
+                for shape in s.shapes
+                if not shape.name.startswith("icon:")
+            )
+            return has_text
+
+        assert naive_every_icon_has_a_label(slide) is True
+
+        findings = check_icon_adjacency(prs, tokens)
+        assert findings and findings[0].severity == "blocking"
+
+    def test_the_threshold_is_named_and_derived_from_the_theme(self) -> None:
+        assert ICON_ADJACENCY_GUTTER_MULTIPLE == 1.0

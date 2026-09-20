@@ -46,9 +46,15 @@ sets the tier (B28's own rule, "guardrail paths keep their tier; the rest de-esc
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal
 
+from pptx.presentation import Presentation as PresentationType
+from pptx.slide import Slide as PptxSlide
+
+from autodeck.design.icons.consistency import ICON_NAME_PREFIX
+from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.models import Block, BlockKind, CommunicationMode, Deck, Slide
 
 Severity = Literal["blocking", "advisory"]
@@ -367,3 +373,151 @@ def lint_deck(deck: Deck) -> GrammarReport:
         report.slides_checked += 1
         report.findings.extend(lint_slide_ir(slide, location=f"slide {slide.id}"))
     return report
+
+
+# ---------------------------------------------------------------------------
+# Icon adjacency — the rendered pass
+# ---------------------------------------------------------------------------
+
+#: How far a text shape may sit from an icon shape and still read as its label, as a
+#: multiple of the deck's own `Spacing.gutter` token — never a bare point value invented
+#: here (`catalog.py`'s own rule: geometry is read off something real, not guessed).
+#: `gutter`, not `baseline`, is the right theme quantity to measure against: this codebase's
+#: own slot builders reach for `canvas.baseline` (2-3x, ~12-18pt at the default scale) for
+#: the gap *inside* one visual unit — `_callout_takeaway_slots`' label-to-takeaway gap,
+#: `_quote_slots`' mark-to-quote gap — and reach for `canvas.gutter` only when splitting a
+#: slide into independent regions (`_evidence_with_figure_slots` and `_before_after_slots`
+#: both call `split_columns(2, canvas.gutter)`; `_two_column_compare_slots` uses
+#: `canvas.gutter * 1.5`). So a text shape further from an icon than one whole gutter is, by
+#: this codebase's own convention, sitting in a different region of the slide, not beside
+#: it. 1.0x (a full gutter, not a fraction of one) is chosen because no registered component
+#: places an icon yet (3a.7's carried finding — see this module's docstring) — there is no
+#: rendered example to calibrate against the way `budget_check.py`'s
+#: `RENDER_HEADROOM_FRACTION` was measured from real LibreOffice output. A full gutter is
+#: generous enough that it should not reject a real pairing once one is built; the cost is a
+#: genuinely mis-placed icon several gutters from any text still passing. Recalibrate this
+#: against a real render the first time a component actually calls `Frame.icon`.
+ICON_ADJACENCY_GUTTER_MULTIPLE = 1.0
+
+
+@dataclass(frozen=True)
+class _ShapeRect:
+    """A shape's bounding box, in points — the only geometry adjacency needs."""
+
+    left: float
+    top: float
+    width: float
+    height: float
+
+
+def _gap_pt(a: _ShapeRect, b: _ShapeRect) -> float:
+    """The shortest distance between two axis-aligned rectangles, in points.
+
+    0.0 when they touch or overlap. The standard AABB-to-AABB gap: the horizontal and
+    vertical clearances are each `max(0, ...)` (zero when the boxes overlap on that axis),
+    and the two are combined as a Euclidean distance so a box sitting diagonally off a
+    corner is not treated as adjacent merely because one axis's clearance is small.
+    """
+    dx = max(a.left - (b.left + b.width), b.left - (a.left + a.width), 0.0)
+    dy = max(a.top - (b.top + b.height), b.top - (a.top + a.height), 0.0)
+    return math.hypot(dx, dy)
+
+
+def _icon_shape_key(name: str, rect: _ShapeRect) -> tuple[str, float, float, float, float]:
+    """De-duplication key for one icon *instance*.
+
+    `place_icon` creates one shape per subpath, all sharing one name and — by construction
+    of `place_icon`'s own `square` — the exact same bounding box (see `custgeom.py`). Without
+    this, one icon with three strokes would produce three identical findings or three
+    identical passes for what a reader sees as one glyph. Two icons of the same glyph placed
+    twice on a slide are NOT merged — the key includes position, not just the name — because
+    `icons/consistency.py`'s own `placed_icons` treats repeated placements as distinct too.
+    """
+    return (
+        name,
+        round(rect.left, 1),
+        round(rect.top, 1),
+        round(rect.width, 1),
+        round(rect.height, 1),
+    )
+
+
+def _text_shapes(slide: PptxSlide) -> list[_ShapeRect]:
+    """Every non-icon shape on `slide` carrying visible text, as its bounding box.
+
+    `has_text_frame` alone is not enough: `add_autoshape` zeroes an autoshape's margins but
+    leaves its (empty) text frame in place for chrome shapes like rules and panels, so an
+    empty-after-strip text frame is excluded — it is not a label, it is a rectangle that
+    happens to have a `TextFrame` object because python-pptx gives every autoshape one.
+    """
+    rects: list[_ShapeRect] = []
+    for shape in slide.shapes:
+        if shape.name.startswith(ICON_NAME_PREFIX):
+            continue
+        if not shape.has_text_frame:
+            continue
+        # `.text_frame` is only on the concrete shape classes that actually have one, not
+        # on the `BaseShape` that iterating `slide.shapes` is typed as — the same narrowing
+        # gap `icons/consistency.py` works around for `.line` on a `Shape`. `has_text_frame`
+        # just confirmed this shape has one.
+        text_frame = getattr(shape, "text_frame")  # noqa: B009
+        if not text_frame.text.strip():
+            continue
+        rects.append(_ShapeRect(shape.left.pt, shape.top.pt, shape.width.pt, shape.height.pt))
+    return rects
+
+
+def check_icon_adjacency(prs: PresentationType, tokens: DesignTokens) -> list[GrammarFinding]:
+    """Blocking: catches an icon shape with no text shape within
+    `ICON_ADJACENCY_GUTTER_MULTIPLE` gutters of it, on the same slide.
+
+    Reads every shape `place_icon` created (`ICON_NAME_PREFIX`, the same hook
+    `icons/consistency.py` uses) and, for each one, the shortest gap to every other
+    text-bearing shape on that slide. **The icon naming convention is a strong hook for
+    finding icons — every icon shape is named and none is missed — but it says nothing
+    about which text is that icon's OWN label**, because no structural pairing exists (see
+    this module's docstring). So this checks the weaker, geometric question: is *some* text
+    close enough to read as this icon's label. See `ICON_ADJACENCY_GUTTER_MULTIPLE` for the
+    threshold and why it is generous rather than tight.
+
+    Does not catch: an icon sitting near text that is not actually its label — a caption or
+    source line that happens to be the nearest text shape on a sparse slide would satisfy
+    this check even though it is not what the icon illustrates. That gap is exactly what a
+    structural `Stack.icon_row(...)` pairing would close and a geometric heuristic cannot;
+    see this module's docstring for why that fix is named rather than built here. Also does
+    not catch a text label that is adjacent but wrong (an icon meant for "risk" sitting next
+    to a "cost" label) — adjacency is a layout fact, not a semantic one.
+
+    Location is positional (`slide {n}`, 1-based), not the IR's `Slide.id`: a rendered
+    `Presentation` carries no reference back to the IR slide it came from.
+    """
+    threshold = tokens.spacing.gutter * ICON_ADJACENCY_GUTTER_MULTIPLE
+    findings: list[GrammarFinding] = []
+    for slide_index, slide in enumerate(prs.slides):
+        texts = _text_shapes(slide)
+        seen: set[tuple[str, float, float, float, float]] = set()
+        for shape in slide.shapes:
+            if not shape.name.startswith(ICON_NAME_PREFIX):
+                continue
+            rect = _ShapeRect(shape.left.pt, shape.top.pt, shape.width.pt, shape.height.pt)
+            key = _icon_shape_key(shape.name, rect)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            if texts and min(_gap_pt(rect, text) for text in texts) <= threshold:
+                continue
+            findings.append(
+                GrammarFinding(
+                    check="icon adjacent to text label",
+                    severity="blocking",
+                    detail=(
+                        f"{shape.name!r} has no text shape within {threshold:.1f}pt "
+                        f"({ICON_ADJACENCY_GUTTER_MULTIPLE:g}x the deck's gutter) of it. "
+                        "D13 requires every icon to sit next to a text label; an icon this "
+                        "far from any text reads as decoration with nothing explaining it."
+                    ),
+                    location=f"slide {slide_index + 1} · {shape.name}",
+                )
+            )
+    return findings
