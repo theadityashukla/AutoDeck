@@ -10,11 +10,28 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pptx.presentation import Presentation
+from pptx.slide import Slide
 
 from autodeck.design.budgets import compute_budget, load_metrics, measure_height, wrap_text
 from autodeck.design.fonts import FontFile, FontNotFoundError, is_available, resolve_face
-from autodeck.design.icons.custgeom import custgeom_xml
-from autodeck.design.icons.library import IconNotFoundError, icon_names, load_icon, parse_svg
+from autodeck.design.icons.consistency import (
+    IconConsistencyError,
+    check_deck_icon_consistency,
+    placed_icons,
+)
+from autodeck.design.icons.custgeom import custgeom_xml, place_icon
+from autodeck.design.icons.library import (
+    Icon,
+    IconNotFoundError,
+    UnsupportedIconElementError,
+    available_concepts,
+    icon_names,
+    load_icon,
+    parse_svg,
+    resolve_icon,
+)
+from autodeck.design.icons.style import DEFAULT_ICON_STYLE, IconStyle, UnknownIconSizeError
 from autodeck.design.icons.svg_path import (
     Close,
     Cubic,
@@ -735,3 +752,198 @@ def test_custgeom_coordinates_scale_into_the_path_space() -> None:
     xml = custgeom_xml([Move(0, 0), Line(24, 24)], 24, 24)
     assert 'x="0"' in xml
     assert f'x="{PATH_SPACE}"' in xml
+
+
+# ---------------------------------------------------------------------------
+# Semantic library — concept -> glyph (§9, task 3a.7)
+# ---------------------------------------------------------------------------
+
+
+def test_a_concept_resolves_to_its_mapped_icon() -> None:
+    assert resolve_icon("risk").name == "circle-alert"
+    assert resolve_icon("growth").name == "trending-up"
+
+
+def test_resolve_icon_falls_back_to_a_literal_filename() -> None:
+    """A caller that already knows the exact glyph is not forced through the concept table."""
+    assert resolve_icon("clock").name == "clock"
+
+
+def test_an_unknown_concept_lists_both_concepts_and_filenames() -> None:
+    with pytest.raises(IconNotFoundError, match="Known concepts") as excinfo:
+        resolve_icon("no-such-thing")
+    assert "Known icon files" in str(excinfo.value)
+
+
+def test_every_mapped_concept_resolves_to_a_vendored_icon() -> None:
+    """The semantic table is only as good as its entries actually resolving."""
+    for concept in available_concepts():
+        assert resolve_icon(concept).name in icon_names()
+
+
+# ---------------------------------------------------------------------------
+# No image fallback: an inconvertible element escalates, it does not vanish
+# ---------------------------------------------------------------------------
+
+
+def test_an_unsupported_svg_element_raises_rather_than_being_dropped() -> None:
+    """D10/D11: a glyph that cannot convert is an escalation, not a `.png` — and not a
+    silently incomplete shape either, which is what dropping the element would produce."""
+    source = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+      <mask id="m"><rect x="0" y="0" width="24" height="24"/></mask>
+    </svg>"""
+    with pytest.raises(UnsupportedIconElementError, match="<mask>"):
+        parse_svg(source, name="masked")
+
+
+def test_benign_metadata_elements_are_skipped_not_escalated() -> None:
+    source = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+      <title>An icon</title><desc>Description</desc>
+      <path d="M1 1 L2 2"/>
+    </svg>"""
+    icon = parse_svg(source, name="titled")
+    assert len(icon.subpaths) == 1
+
+
+# ---------------------------------------------------------------------------
+# Family on the shape name — what makes deck-wide consistency checkable at all
+# ---------------------------------------------------------------------------
+
+
+def test_a_vendored_icon_carries_the_default_family() -> None:
+    assert load_icon("clock").family == "lucide"
+
+
+def test_placed_shapes_are_named_with_family_and_icon() -> None:
+    frame = _frame()
+    place_icon(frame.slide, Box(0, 0, 40, 40), load_icon("clock"))
+    assert frame.slide.shapes
+    assert all(shape.name.startswith("icon:lucide:clock") for shape in frame.slide.shapes)
+
+
+# ---------------------------------------------------------------------------
+# Frame.icon — closing 3a.2's carried finding
+# ---------------------------------------------------------------------------
+
+
+def test_frame_icon_places_a_semantic_icon_without_reaching_past_the_frame() -> None:
+    """The finding 3a.2 carried: icon placement lived outside the `Frame` vocabulary,
+    taking a slide directly. `Frame.icon` is the fix — a renderer never touches
+    `icons.custgeom` or a bare `slide` to place one."""
+    frame = _frame()
+    shapes = frame.icon(Box(0, 0, 40, 40), "risk")
+    assert shapes
+    assert all(shape.name.startswith("icon:lucide:circle-alert") for shape in shapes)
+
+
+def test_frame_icon_accepts_a_literal_icon_name_too() -> None:
+    frame = _frame()
+    shapes = frame.icon(Box(0, 0, 40, 40), "clock", color="accent2")
+    assert shapes
+    assert shapes[0].line.color.theme_color is not None
+
+
+# ---------------------------------------------------------------------------
+# IconStyle — the deck-wide vocabulary a size scale is picked from
+# ---------------------------------------------------------------------------
+
+
+def test_default_icon_style_has_a_three_step_size_scale() -> None:
+    assert DEFAULT_ICON_STYLE.size("sm") < DEFAULT_ICON_STYLE.size("md")
+    assert DEFAULT_ICON_STYLE.size("md") < DEFAULT_ICON_STYLE.size("lg")
+
+
+def test_an_unknown_icon_size_role_lists_whats_available() -> None:
+    with pytest.raises(UnknownIconSizeError, match="Available"):
+        DEFAULT_ICON_STYLE.size("xl")
+
+
+def test_stroke_pt_scales_with_the_size_it_is_placed_at() -> None:
+    """One weight *ratio* per deck, not one fixed point value — a fixed value would look
+    right at one size and wrong at another."""
+    style = IconStyle()
+    assert style.stroke_pt(24.0) == pytest.approx(2.0)
+    assert style.stroke_pt(48.0) == pytest.approx(4.0)
+
+
+# ---------------------------------------------------------------------------
+# check_deck_icon_consistency — enforced against real placed shapes, not hoped for
+# ---------------------------------------------------------------------------
+
+#: Lucide's own design ratio — stroke-width 2 on a 24-unit viewBox.
+_LUCIDE_RATIO = 2.0 / 24.0
+
+
+def _icon_with_ratio(name: str, ratio: float, family: str = "lucide") -> Icon:
+    """A synthetic icon whose stroke-to-viewBox ratio is exactly `ratio`.
+
+    Reuses a real vendored icon's geometry (so it still converts to real subpaths) but
+    substitutes `stroke_width`/`view_width` so the *placed* stroke-to-size ratio is under
+    the test's control rather than Lucide's actual design ratio.
+    """
+    from dataclasses import replace
+
+    return replace(load_icon("clock"), name=name, stroke_width=ratio * 24.0, family=family)
+
+
+def _new_slide() -> tuple[Presentation, Slide]:
+    """A fresh presentation and a slide on it — real python-pptx objects throughout."""
+    tokens = DesignTokens.load(TOKENS_DIR / "dev.json")
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    return presentation, slide
+
+
+def test_placed_icons_reads_family_name_and_geometry_off_the_shape_name() -> None:
+    """`clock` is two subpaths (a circle and the hands), so two shapes — same icon."""
+    presentation, slide = _new_slide()
+    place_icon(slide, Box(0, 0, 24, 24), load_icon("clock"))
+    icons = placed_icons(presentation)
+    assert len(icons) == len(load_icon("clock").subpaths)
+    for icon in icons:
+        assert icon.family == "lucide"
+        assert icon.name == "clock"
+        assert icon.slide_index == 0
+        assert icon.side_pt == pytest.approx(24.0)
+        assert icon.stroke_pt == pytest.approx(icon.side_pt * _LUCIDE_RATIO)
+
+
+def test_a_single_icon_cannot_be_inconsistent_with_itself() -> None:
+    presentation, slide = _new_slide()
+    place_icon(slide, Box(0, 0, 24, 24), load_icon("clock"))
+    check_deck_icon_consistency(presentation)  # does not raise
+
+
+def test_one_family_one_weight_across_sizes_passes() -> None:
+    """`place_icon`'s own default already scales stroke with size — this is the case that
+    proves the checker accepts it rather than mistaking a scaled-up icon for a heavier one."""
+    presentation, slide = _new_slide()
+    place_icon(slide, Box(0, 0, 24, 24), load_icon("clock"))
+    place_icon(slide, Box(0, 0, 48, 48), load_icon("target"))
+    check_deck_icon_consistency(presentation)  # does not raise
+
+
+def test_mixing_two_icon_families_raises() -> None:
+    presentation, slide = _new_slide()
+    place_icon(slide, Box(0, 0, 24, 24), load_icon("clock"))
+    place_icon(slide, Box(0, 0, 24, 24), _icon_with_ratio("clock", _LUCIDE_RATIO, "phosphor"))
+    with pytest.raises(IconConsistencyError, match="mixes icon families"):
+        check_deck_icon_consistency(presentation)
+
+
+def test_a_drifting_stroke_weight_raises() -> None:
+    presentation, slide = _new_slide()
+    place_icon(slide, Box(0, 0, 24, 24), load_icon("clock"))  # ratio ~0.083
+    place_icon(slide, Box(0, 0, 24, 24), _icon_with_ratio("target", 0.25))
+    with pytest.raises(IconConsistencyError, match="stroke weight"):
+        check_deck_icon_consistency(presentation)
+
+
+def test_too_many_distinct_sizes_raises() -> None:
+    """One weight ratio held constant (the family default), sizes fanned out past the
+    deck-wide scale's step count."""
+    presentation, slide = _new_slide()
+    for side in (10.0, 11.0, 12.0, 13.0, 14.0, 15.0):
+        place_icon(slide, Box(0, 0, side, side), load_icon("clock"))
+    with pytest.raises(IconConsistencyError, match="distinct sizes"):
+        check_deck_icon_consistency(presentation)

@@ -56,7 +56,7 @@ from pptx.slide import Slide
 from pptx.util import Emu, Pt
 
 from autodeck.design.budgets import SlotBudget, compute_budget, load_metrics, wrap_text
-from autodeck.design.draw import add_rect, add_rule, add_text
+from autodeck.design.draw import ThemeColor, add_rect, add_rule, add_text
 from autodeck.design.theme.tokens import EMU_PER_POINT, DesignTokens
 
 Align = Literal["left", "center", "right"]
@@ -589,6 +589,24 @@ class Frame:
     def rule(self, box: Box, *, color: str = "accent1", thickness: float = 2.0) -> Shape:
         """A horizontal rule pinned to `box`'s top-left, at `box`'s width."""
         return add_rule(self.slide, box, color=color, thickness=thickness)
+
+    def icon(self, box: Box, concept: str, *, color: ThemeColor = "accent1") -> list[Shape]:
+        """Place a semantic icon inside `box` as native, theme-recolourable shapes (D11).
+
+        `concept` is looked up in the semantic library first — `"risk"`, `"growth"`,
+        `"team"` — and falls back to a literal vendored filename, so a renderer asks for an
+        idea rather than a glyph name unless it already knows exactly which one it wants.
+        See `autodeck.design.icons.library.resolve_icon` for the concept vocabulary and
+        `autodeck.design.icons.consistency` for the deck-wide check this does not itself
+        perform — placing one icon has no way to know what else the deck has placed.
+
+        Imports locally: `icons.custgeom` already imports `Box`/`pt_to_emu` from this
+        module, so a module-level import here would be circular.
+        """
+        from autodeck.design.icons.custgeom import place_icon
+        from autodeck.design.icons.library import resolve_icon
+
+        return place_icon(self.slide, box, resolve_icon(concept), color=color)
 
 
 # ---------------------------------------------------------------------------
