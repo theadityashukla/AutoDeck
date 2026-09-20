@@ -110,17 +110,34 @@ EXAMPLES: dict[str, Any] = {
         source="Source: internal benchmark, Q3 2025 — see audit report for derivations.",
     ),
     "quote": QuoteContent(
-        # Deliberately short of the wrap boundary — see this module's own commit message
-        # (task 3a.4) for why: `budgets.py` measures wrapping against the REGULAR-weight
-        # font file regardless of `TextStyle.bold`, so a bold headline can wrap to one more
-        # line than predicted once it is within a few percent of its box width. A longer,
-        # more "natural" headline here originally sat in exactly that gap (839.8pt
-        # predicted against an 852pt box — 1.4% of headroom — but genuinely wrapped to two
-        # lines once rendered bold) and its committed preview showed the accent rule
-        # overlapping the wrapped second line. That is not a `quote.py` bug — the identical
-        # failure reproduces with plain `add_text` and no `Stack` involved — so the fix here
-        # is a safer example, not a workaround in the renderer; the underlying gap is
-        # reported upstream instead.
+        # 3a.4 chose this headline to stay clear of the wrap boundary, because
+        # `budgets.py` then measured wrapping against the REGULAR-weight font file
+        # whatever `TextStyle.bold` said: a bold headline within a few percent of its box
+        # width wrapped to one more line than predicted, and the accent rule struck
+        # through the second line in the committed PNG. That author reported the gap
+        # upstream instead of quietly working around it, which is why 3a.6 exists.
+        #
+        # 3a.6 checked whether the fix lets that copy come back, because the example that
+        # nearly broke would be the best regression fixture this gallery has. It does not,
+        # and the reason is worth keeping: the boundary copy is now *honestly* measurable
+        # and the honest measurement says the slide will not hold it. Reconstructed into
+        # the same band (842.6pt of Inter Display Regular at 32pt against an 852pt box —
+        # 1.1% of headroom, beside the 839.8pt/1.4% case 3a.4 reported; 890.4pt bold), it
+        # correctly predicts TWO lines, and a second headline line costs 44.2pt where this
+        # component has 26.1pt to spare: the quote block needs 297.5pt and is left 279.5pt.
+        # `render()` raises `LayoutOverflowError`, which is the rule working (§6.7 —
+        # nothing shrinks text to fit), not a measurement that is still wrong. Any two-line
+        # headline does this, so there is no danger-band copy to restore here; the fixture
+        # now lives in `tests/test_budget_check.py` where it can fail without a component
+        # having to be over-full to hold it.
+        #
+        # Worth recording separately, because it is a hole rather than a design choice:
+        # `check_overflow` reports NO findings for that copy. Each slot's budget is derived
+        # assuming its SIBLINGS take their one-line floor (see `_quote_slots`), so the
+        # headline may claim four lines and the quote block three, and nothing checks that
+        # both can be true at once. The deterministic gate passes content the renderer then
+        # refuses — the same "compares a prediction against itself" family as the defect
+        # 3a.6 fixed, one level up. Reported, not fixed here.
         headline="Clients notice the difference immediately",
         quote=(
             "This is the first vendor deck where I did not have to fact-check a single "
