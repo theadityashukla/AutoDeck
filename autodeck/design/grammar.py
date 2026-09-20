@@ -49,7 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from autodeck.ir.models import Block, CommunicationMode, Slide
+from autodeck.ir.models import Block, BlockKind, CommunicationMode, Slide
 
 Severity = Literal["blocking", "advisory"]
 
@@ -195,6 +195,89 @@ def check_word_budget(slide: Slide, *, location: str = "") -> list[GrammarFindin
                 "diagram_led ≤ 60, text_led ≤ 90). Cut prose or split the slide; "
                 "shrinking the type to fit more words defeats the budget rather than "
                 "meeting it."
+            ),
+            location=location,
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Diagram count and the icon/chart/diagram pileup
+# ---------------------------------------------------------------------------
+
+#: D13: "≤1 diagram/slide". A `DiagramSpec` is already a composed geometry of several
+#: nodes and edges; two of them sharing a slide is two competing geometries, not one
+#: richer one, and the slide-geometry skill's own load-bearing test (would a plain list
+#: lose information?) is never asked twice on the same slide by construction here.
+MAX_DIAGRAMS_PER_SLIDE = 1
+
+#: D13: "no icon+chart+diagram pileup" — three distinct kinds of non-prose visual
+#: furniture. Deliberately the three named in the brief and nothing wider: an icon next to
+#: a chart alone, or two charts, is a layout choice this rule has no opinion about. See
+#: `check_no_icon_chart_diagram_pileup` for what that narrowness gives up.
+PILEUP_KINDS: frozenset[BlockKind] = frozenset({"icon", "chart", "diagram"})
+
+
+def check_diagram_count(slide: Slide, *, location: str = "") -> list[GrammarFinding]:
+    """Blocking: catches more than one `kind="diagram"` block on one slide's face.
+
+    Exact and closed: a diagram block either exists on the slide or it does not, so there
+    is no judgement call here to get wrong on an ordinary slide the way a word-count
+    ceiling or a concept count can. Face blocks only — a diagram cannot render twice from
+    one slide's speaker notes, which carry no geometry at all.
+
+    Does not catch: two diagrams that are visually small and genuinely uncluttered, or one
+    diagram that is itself overloaded (`DiagramSpec._labels_fit_the_budget` already blocks
+    an over-budget label; there is no "too many nodes" check here or anywhere else in this
+    module, and it would need its own calibration if the phase after this one wants it).
+    """
+    diagrams = [b for b in slide.blocks if b.kind == "diagram"]
+    if len(diagrams) <= MAX_DIAGRAMS_PER_SLIDE:
+        return []
+    return [
+        GrammarFinding(
+            check="diagram count",
+            severity="blocking",
+            detail=(
+                f"{len(diagrams)} diagram blocks on one slide "
+                f"({', '.join(b.id for b in diagrams)}); D13 allows at most "
+                f"{MAX_DIAGRAMS_PER_SLIDE}. Two geometries competing for one slide is two "
+                "arguments, not one — split the slide."
+            ),
+            location=location,
+        )
+    ]
+
+
+def check_no_icon_chart_diagram_pileup(
+    slide: Slide, *, location: str = ""
+) -> list[GrammarFinding]:
+    """Blocking: catches a slide whose face carries an icon block AND a chart block AND a
+    diagram block all at once — D13's named pileup, read straight off block kinds.
+
+    Exact and closed, for the same reason `check_diagram_count` is: kind membership is a
+    fact, not an estimate. It fires only on the three-way combination the brief names.
+
+    Does not catch: two of the three together without the third (an icon-heavy slide next
+    to a chart, with no diagram, can still be busy); more than one of any single kind
+    contributing to the same pileup feeling; or a genuinely cluttered slide built from
+    kinds outside this set entirely (several `claim` blocks, say). Widening the set to "any
+    two distinct visual kinds" was considered and rejected — a headline `claim` next to a
+    `chart` is most of this catalog's components working as designed, and a rule that fired
+    on that would be the closed-list failure `framing_linter.py` warns about, just on
+    kinds instead of words.
+    """
+    present = {block.kind for block in slide.blocks} & PILEUP_KINDS
+    if present != PILEUP_KINDS:
+        return []
+    return [
+        GrammarFinding(
+            check="icon+chart+diagram pileup",
+            severity="blocking",
+            detail=(
+                "This slide carries an icon block, a chart block and a diagram block "
+                "together — D13's named pileup. Three different kinds of non-prose visual "
+                "furniture compete for the same attention; drop one or split the slide."
             ),
             location=location,
         )

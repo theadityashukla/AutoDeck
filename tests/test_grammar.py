@@ -11,12 +11,22 @@ not an accident of the fixture.
 
 from __future__ import annotations
 
-from autodeck.design.grammar import WORD_BUDGET_PER_MODE, check_word_budget
+from autodeck.design.grammar import (
+    MAX_DIAGRAMS_PER_SLIDE,
+    PILEUP_KINDS,
+    WORD_BUDGET_PER_MODE,
+    check_diagram_count,
+    check_no_icon_chart_diagram_pileup,
+    check_word_budget,
+)
 from autodeck.ir.models import (
     Block,
+    ChartSeries,
+    ChartSpec,
     Citation,
     Claim,
     DiagramSpec,
+    IconRef,
     LabelFraming,
     ProcessFlowSpec,
     ProcessStep,
@@ -75,6 +85,25 @@ def diagram_block(
         relationship="sequence", kind="process_flow", process_flow=ProcessFlowSpec(steps=steps)
     )
     return Block(id=block_id, kind="diagram", slot=slot, diagram=spec)
+
+
+def chart_block(block_id: str, *, slot: str = "chart") -> Block:
+    spec = ChartSpec(
+        chart_type="bar",
+        categories=["Q1", "Q2"],
+        series=[ChartSeries(name="cost", values=[1.0, 2.0])],
+        source_citations=[citation()],
+    )
+    return Block(id=block_id, kind="chart", slot=slot, chart=spec)
+
+
+def icon_block(block_id: str, *, slot: str = "icon") -> Block:
+    return Block(
+        id=block_id,
+        kind="icon",
+        slot=slot,
+        icon=IconRef(concept="risk", glyph_id="circle-alert", color_token="accent1"),
+    )
 
 
 def slide_with(
@@ -183,3 +212,81 @@ class TestWordBudget:
         findings = check_word_budget(slide)
         assert findings and findings[0].severity == "blocking"
         assert naive_total < int(findings[0].detail.split()[0])
+
+
+# ---------------------------------------------------------------------------
+# Diagram count
+# ---------------------------------------------------------------------------
+
+
+class TestDiagramCount:
+    def test_one_diagram_passes(self) -> None:
+        slide = slide_with(diagram_block("d1"))
+        assert check_diagram_count(slide) == []
+
+    def test_two_diagrams_block(self) -> None:
+        slide = slide_with(diagram_block("d1"), diagram_block("d2"))
+        findings = check_diagram_count(slide)
+        assert [f.check for f in findings] == ["diagram count"]
+        assert findings[0].severity == "blocking"
+        assert MAX_DIAGRAMS_PER_SLIDE == 1
+
+    def test_disable_the_defence_trusting_the_declared_mode_goes_green(self) -> None:
+        """Disable the defence, confirm red.
+
+        A plausible-but-wrong stand-in: "this slide has a diagram problem only if its
+        `communication_mode` says `diagram_led`". Two diagram blocks on a slide whose mode
+        is something else (or unset) would sail through that version. The real check counts
+        actual `kind="diagram"` blocks and does not consult the mode at all.
+        """
+        slide = slide_with(diagram_block("d1"), diagram_block("d2"), mode="text_led")
+
+        def naive_has_diagram_problem(s: Slide) -> bool:
+            return s.communication_mode == "diagram_led" and len(s.blocks) > 3
+
+        assert naive_has_diagram_problem(slide) is False
+
+        findings = check_diagram_count(slide)
+        assert findings and findings[0].severity == "blocking"
+
+
+# ---------------------------------------------------------------------------
+# icon+chart+diagram pileup
+# ---------------------------------------------------------------------------
+
+
+class TestPileup:
+    def test_icon_and_chart_alone_is_not_a_pileup(self) -> None:
+        slide = slide_with(icon_block("i1"), chart_block("c1"))
+        assert check_no_icon_chart_diagram_pileup(slide) == []
+
+    def test_all_three_kinds_together_blocks(self) -> None:
+        slide = slide_with(icon_block("i1"), chart_block("c1"), diagram_block("d1"))
+        findings = check_no_icon_chart_diagram_pileup(slide)
+        assert [f.check for f in findings] == ["icon+chart+diagram pileup"]
+        assert findings[0].severity == "blocking"
+        assert frozenset({"icon", "chart", "diagram"}) == PILEUP_KINDS
+
+    def test_disable_the_defence_matching_on_component_name_goes_green(self) -> None:
+        """Disable the defence, confirm red.
+
+        A stand-in that infers a pileup from the component's *name* ("does it mention
+        icon/chart/diagram?") would miss it on a generically named component that
+        nonetheless carries all three block kinds. The real check reads block kinds
+        directly and never looks at the component name.
+        """
+        slide = Slide(
+            id="s1",
+            narrative_role="position",
+            component="custom_layout_7",
+            blocks=[icon_block("i1"), chart_block("c1"), diagram_block("d1")],
+        )
+
+        def naive_pileup(s: Slide) -> bool:
+            name = s.component.lower()
+            return sum(k in name for k in ("icon", "chart", "diagram")) >= 2
+
+        assert naive_pileup(slide) is False
+
+        findings = check_no_icon_chart_diagram_pileup(slide)
+        assert findings and findings[0].severity == "blocking"
