@@ -55,7 +55,7 @@ class DataCardGridContent:
 def render(slide: Slide, canvas: Canvas, content: DataCardGridContent) -> None:
     """Render `content` onto `slide`."""
     frame = canvas.on(slide)
-    body, caption = frame.body_and_caption()
+    body, _caption = frame.body_and_caption()
 
     # Headline block
     headline = frame.stack("data_card_grid headline", body.width)

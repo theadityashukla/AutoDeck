@@ -38,7 +38,7 @@ class AgendaContent:
 def render(slide: Slide, canvas: Canvas, content: AgendaContent) -> None:
     """Render `content` onto `slide`."""
     frame = canvas.on(slide)
-    body, caption = frame.body_and_caption()
+    body, _caption = frame.body_and_caption()
 
     # Headline block
     headline = frame.stack("agenda headline", body.width)

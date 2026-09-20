@@ -37,7 +37,7 @@ class SectionDividerContent:
 def render(slide: Slide, canvas: Canvas, content: SectionDividerContent) -> None:
     """Render `content` onto `slide`."""
     frame = canvas.on(slide)
-    body, caption = frame.body_and_caption()
+    body, _caption = frame.body_and_caption()
 
     # Single centered stack for section number, rule, and name
     section = frame.stack("section_divider", body.width * 0.8)

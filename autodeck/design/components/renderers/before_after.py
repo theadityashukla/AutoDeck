@@ -44,7 +44,7 @@ class BeforeAfterContent:
 def render(slide: Slide, canvas: Canvas, content: BeforeAfterContent) -> None:
     """Render `content` onto `slide`."""
     frame = canvas.on(slide)
-    body, caption = frame.body_and_caption()
+    body, _caption = frame.body_and_caption()
 
     # Headline block
     headline = frame.stack("before_after headline", body.width)
@@ -55,7 +55,9 @@ def render(slide: Slide, canvas: Canvas, content: BeforeAfterContent) -> None:
     before_area, after_area = body_area.split_columns(2, canvas.gutter * 1.5)
 
     # Build before stack
-    before_stack = _state_stack(frame, before_area.width, content.before_label, content.before_text)
+    before_stack = _state_stack(
+        frame, before_area.width, content.before_label, content.before_text
+    )
 
     # Build after stack
     after_stack = _state_stack(frame, after_area.width, content.after_label, content.after_text)
@@ -63,7 +65,9 @@ def render(slide: Slide, canvas: Canvas, content: BeforeAfterContent) -> None:
     # Place both stacks with equal height so they align
     panel_height = max(before_stack.height, after_stack.height) + _PANEL_PADDING * 2
 
-    before_panel = before_area.reserve(panel_height, valign="middle", what="before_after before")
+    before_panel = before_area.reserve(
+        panel_height, valign="middle", what="before_after before"
+    )
     frame.rect(before_panel, fill="accent6", fill_brightness=0.94)
     before_stack.place(before_panel.pad(_PANEL_PADDING))
 

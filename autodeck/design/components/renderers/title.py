@@ -42,7 +42,7 @@ class TitleContent:
 def render(slide: Slide, canvas: Canvas, content: TitleContent) -> None:
     """Render `content` onto `slide`."""
     frame = canvas.on(slide)
-    body, caption = frame.body_and_caption()
+    body, _caption = frame.body_and_caption()
 
     # Main title/subtitle stack
     main = frame.stack("title main", body.width - _PANEL_PADDING * 2)

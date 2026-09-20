@@ -199,20 +199,31 @@ EXAMPLES: dict[str, Any] = {
     ),
     "closing_cta": ClosingCtaContent(
         headline="Ready to move forward",
-        cta="Contact the engineering team to discuss implementation. We're available to walk through the architecture and timeline.",
+        cta=(
+            "Contact the engineering team to discuss implementation. "
+            "We're available to walk through the architecture and timeline."
+        ),
         accent="accent1",
     ),
     "before_after": BeforeAfterContent(
         headline="The old way cost more and left capacity unused",
         before_label="Add hardware",
-        before_text="Cost scales linearly. Capacity locked to batch size. No efficiency gain elsewhere.",
+        before_text=(
+            "Cost scales linearly. Capacity locked to batch size. No efficiency gain elsewhere."
+        ),
         after_label="Rewrite the kernel",
-        after_text="One-time cost. Scales with load. Every downstream team benefits immediately.",
+        after_text=(
+            "One-time cost. Scales with load. Every downstream team benefits immediately."
+        ),
         accent="accent2",
     ),
     "evidence_with_figure": EvidenceWithFigureContent(
         headline="The numbers prove the investment was worth it",
-        supporting_text="Measured across the full Q3 benchmark suite on real workloads. No architectural change, no model shift — only the kernel implementation changed.",
+        supporting_text=(
+            "Measured across the full Q3 benchmark suite on real workloads. "
+            "No architectural change, no model shift — only the kernel "
+            "implementation changed."
+        ),
         figure="[Figure: throughput graph showing 62.9% gain]",
         source="Source: internal measurement, verified at validation.",
         accent="accent3",

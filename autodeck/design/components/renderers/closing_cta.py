@@ -38,7 +38,7 @@ class ClosingCtaContent:
 def render(slide: Slide, canvas: Canvas, content: ClosingCtaContent) -> None:
     """Render `content` onto `slide`."""
     frame = canvas.on(slide)
-    body, caption = frame.body_and_caption()
+    body, _caption = frame.body_and_caption()
 
     # Headline block
     headline = frame.stack("closing_cta headline", body.width)
