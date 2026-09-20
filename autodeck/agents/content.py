@@ -54,6 +54,20 @@ unresolved citation, never rendered small to make it fit. Where the catalog does
 cover a component (Phase 3a's registry is still growing — see `catalog.py`'s own docstring),
 budgets are skipped and that gap is reported rather than silently assumed clean.
 
+`check_overflow` reports two different kinds of finding in one list (its own docstring says
+so): content the writer wrote that does not fit, and a required slot the writer wrote
+nothing for. The first is what A1/§6.7 exist to catch and belongs in `rejections` next to a
+dropped citation — both are the writer having produced something wrong. The second is not
+that: nothing was dropped, because nothing was ever written, and a caller counting
+`rejections` to mean "the writer's output was rejected" would be wrong to include it. This
+module splits them with `is_missing_slot_finding` and keeps the second kind in its own
+`ContentResult.incomplete_slots`, so a citation-resolution failure — the reason this file's
+seven citation tests exist — is never diluted by an unrelated slot the fixture never meant to
+fill (task 3a's component fan-out, `6f2c3ae`, found this the hard way: registering
+`closing_cta` et al. made `check_overflow` start running for slides that only ever filled one
+slot, and every one of those slides' "no rejections" assertions broke on missing-slot noise
+until the split below existed).
+
 ## What this module does not do
 
 It does not decide whether a claim is *true* — that is A3, and `autodeck/audit/verdicts.py`
@@ -83,6 +97,7 @@ from autodeck.design.components.catalog import (
     BlockValue,
     UnknownComponentError,
     check_overflow,
+    is_missing_slot_finding,
     render_budgets,
 )
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
@@ -284,12 +299,24 @@ class ContentResult:
 
     `rejections` is not an afterthought: a build that drops the writer's best evidence for a
     slide and says nothing about it teaches nobody anything. Every drop — an unresolved
-    quote, an overflowing block, an unknown slot — is named here with its reason.
+    quote, an overflowing block, an unknown slot — is named here with its reason. It is
+    deliberately *not* where a missing required slot goes (see `incomplete_slots`): nothing
+    was dropped there, so filing it as a rejection would tell a caller counting rejections
+    that the writer produced something bad when it produced nothing at all.
     """
 
     blocks: list[Block] = field(default_factory=list)
     speaker_notes: list[Block] = field(default_factory=list)
     rejections: list[str] = field(default_factory=list)
+    incomplete_slots: list[str] = field(default_factory=list)
+    """A required slot of `component` that no block filled, one entry per slot
+    (`catalog.check_overflow`'s missing-slot findings — see `is_missing_slot_finding`). Kept
+    apart from `rejections` because it names an absence, not a failure of something the
+    writer wrote: a slide can legitimately be mid-fixture, mid-test or mid-draft with a slot
+    still blank, and that is a different situation from a citation that failed to resolve or
+    a block that had to be dropped for overflowing its budget. Still worth naming, because a
+    real build render cannot proceed with a required slot empty — just not worth conflating
+    with the rejections that mean the writer's own output was wrong."""
     budgets_checked: bool = True
     """False when the catalog has no entry yet for this slide's component (Phase 3a is
     still growing the registry — see `catalog.py`). Overflow cannot be caught for a
@@ -529,12 +556,17 @@ def _block_text(block: Block) -> str:
 
 def _check_budgets(
     blocks: list[Block], *, component: str, tokens: DesignTokens
-) -> tuple[list[Block], list[str], bool]:
+) -> tuple[list[Block], list[str], list[str], bool]:
     """Drop any face block whose slot overflows its budget. Chart blocks are exempt — the
     catalog declares text slots, not chart geometry, and no component yet checked here fills
     a slot with a chart.
 
-    Returns `(kept, rejections, budgets_checked)`.
+    `check_overflow` reports overflow and missing-required-slot findings in one list; they
+    are split here (`is_missing_slot_finding`) because they mean different things to a
+    caller — see `ContentResult.rejections` and `.incomplete_slots`. Only an overflow finding
+    ever drops a block: a missing-slot finding has no block to drop, since none was written.
+
+    Returns `(kept, rejections, incomplete_slots, budgets_checked)`.
     """
     by_slot: dict[str, list[Block]] = {}
     for block in blocks:
@@ -549,21 +581,25 @@ def _check_budgets(
         }
         findings = check_overflow(content, component, tokens)
     except UnknownComponentError:
-        return blocks, [], False
+        return blocks, [], [], False
 
     if not findings:
-        return blocks, [], True
+        return blocks, [], [], True
+
+    overflow_findings = [f for f in findings if not is_missing_slot_finding(f)]
+    incomplete_slots = [f for f in findings if is_missing_slot_finding(f)]
 
     overflowing_slots = {
-        finding.split(":", 1)[0].rsplit(".", 1)[-1].split("[")[0] for finding in findings
+        finding.split(":", 1)[0].rsplit(".", 1)[-1].split("[")[0]
+        for finding in overflow_findings
     }
-    rejections = [f"overflow: {finding}" for finding in findings]
+    rejections = [f"overflow: {finding}" for finding in overflow_findings]
     kept = [
         block
         for block in blocks
         if block.chart is not None or block.slot not in overflowing_slots
     ]
-    return kept, rejections, True
+    return kept, rejections, incomplete_slots, True
 
 
 # ---------------------------------------------------------------------------
@@ -696,7 +732,7 @@ def write_slide(
         rejections=rejections,
     )
 
-    kept, overflow_rejections, budgets_checked = _check_budgets(
+    kept, overflow_rejections, incomplete_slots, budgets_checked = _check_budgets(
         blocks, component=slide.component, tokens=tokens
     )
     rejections.extend(overflow_rejections)
@@ -705,6 +741,7 @@ def write_slide(
         blocks=kept,
         speaker_notes=speaker_notes,
         rejections=rejections,
+        incomplete_slots=incomplete_slots,
         budgets_checked=budgets_checked,
     )
 

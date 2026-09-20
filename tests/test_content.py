@@ -129,16 +129,29 @@ def brief(**overrides) -> DeckBrief:  # type: ignore[no-untyped-def]
     return DeckBrief(**payload)  # type: ignore[arg-type]
 
 
+#: A component genuinely registered in the catalog (`closing_cta`, task 3a's component
+#: fan-out, `6f2c3ae`) but never the one these fixtures write to: every block below fills
+#: `slot="figure"`, a slot `closing_cta` does not declare, so its own required slots
+#: (`headline`, `cta`) are always left empty. That used to matter here — before
+#: `is_missing_slot_finding` split `check_overflow`'s two finding kinds, a missing required
+#: slot landed in `ContentResult.rejections` indistinguishably from a real citation failure,
+#: which is exactly what broke every citation test below when `closing_cta` was registered.
+#: It is deliberately still exercised here, unchanged, rather than swapped for an
+#: unregistered placeholder: these tests are about citation resolution, and a component that
+#: is registered but genuinely incomplete for what the fixture writes is the more honest
+#: case to pin than one that dodges the catalog entirely.
+UNFILLED_COMPONENT = "closing_cta"
+
+#: Genuinely absent from the catalog — used only by the one test that means to exercise that
+#: gap. `agenda` served this role until task 3a's fan-out (`6f2c3ae`) registered it too.
+UNREGISTERED_COMPONENT = "process_flow"
+
+
 def slide(**overrides) -> Slide:  # type: ignore[no-untyped-def]
     payload: dict[str, object] = {
         "id": "s1",
         "narrative_role": "evidence",
-        # Not yet in the design catalog (3a.4 has only registered five of the fifteen so
-        # far) — budgets skip, no font needed. `quote` itself was this placeholder until
-        # task 3a.4 registered it for real; picking a name still outside the catalog keeps
-        # this fixture's actual intent (skip budget checking) rather than accidentally
-        # exercising a real component's geometry.
-        "component": "closing_cta",
+        "component": UNFILLED_COMPONENT,
         "intent": "Establish that quantisation is the cheap first move.",
         "message_ids": ["km1"],
     }
@@ -590,7 +603,14 @@ def test_a_header_style_override_changes_the_voice_not_the_clients_other_rules(
 
 @requires_test_font
 def test_an_overbudget_block_is_rejected_before_render(tmp_path: Path) -> None:
-    long_quote = ("word " * 400).strip()
+    """The block's citation must actually resolve here, or the overflow check this test
+    means to exercise never runs — a dropped-for-citation block leaves its slot empty, which
+    `check_overflow` then reports as a *missing* slot, not an overflowing one, and the two
+    used to be indistinguishable in `rejections` (a repeat of the fan-out bug this file's
+    other tests hit, just via a quote whose vocabulary happened to share nothing with the
+    slide's `intent` and so was never retrieved). A quote sharing `intent`'s vocabulary,
+    repeated past the slot's budget, keeps this test pinned on overflow specifically."""
+    long_quote = ("Quantisation cuts the memory needed for inference. " * 60).strip()
     store = store_with(tmp_path, element("e1", long_quote))
     index = build_index([store.get("paper-1")], project="llm-inference-efficiency")
     model = Scripted(
@@ -621,7 +641,17 @@ def test_an_overbudget_block_is_rejected_before_render(tmp_path: Path) -> None:
 
     assert result.blocks == []
     assert result.budgets_checked is True
-    assert any("overflow" in r for r in result.rejections)
+    [rejection] = result.rejections
+    assert "overflow" in rejection
+    assert "big_number.figure_label" in rejection
+    assert "does not fit" in rejection
+    # `headline`/`figure` were never filled by this fixture either, but leaving them blank
+    # is a different event from figure_label overflowing — it belongs in incomplete_slots,
+    # not folded into the same rejection count (see ContentResult.incomplete_slots).
+    assert {s.split(":", 1)[0] for s in result.incomplete_slots} == {
+        "big_number.headline",
+        "big_number.figure",
+    }
 
 
 @requires_test_font
@@ -631,7 +661,7 @@ def test_a_component_with_no_catalog_entry_skips_budgets_and_says_so(tmp_path: P
     model = Scripted(draft_with(claim_block()))
 
     result = write_slide(
-        slide(component="agenda"),
+        slide(component=UNREGISTERED_COMPONENT),
         brief(),
         context(),
         store=store,

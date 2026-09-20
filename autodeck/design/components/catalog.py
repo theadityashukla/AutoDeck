@@ -1338,19 +1338,52 @@ def _optional_tag(slot: ComponentSlot) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: The exact tail every "missing/empty required slot" finding ends with, shared by the
+#: non-repeatable and repeatable branches below. `is_missing_slot_finding` is the documented
+#: way to test for it — a caller has no business re-deriving this string itself.
+_MISSING_SLOT_SUFFIX = "required slot is missing or empty"
+
+
+def is_missing_slot_finding(finding: str) -> bool:
+    """True for a `check_overflow` finding that reports a required slot with nothing in it,
+    as opposed to one reporting content the writer wrote that does not fit.
+
+    `check_overflow` deliberately returns both kinds in one list (see its own docstring for
+    why), but they are different events and a caller that needs to tell them apart — content
+    dropped for being too long, versus content that was never written at all — should use
+    this rather than re-parsing the finding text itself, which is exactly the fragile
+    string-matching this function exists to centralise. `autodeck.agents.content` is the
+    caller that needs the split, to keep `ContentResult.rejections` meaning "the writer wrote
+    something that did not fit" and not also "the writer left an optional-to-this-call slot
+    blank".
+    """
+    return finding.endswith(f": {_MISSING_SLOT_SUFFIX}")
+
+
 def check_overflow(
     blocks: Mapping[str, BlockValue], component: str, tokens: DesignTokens
 ) -> list[str]:
-    """One finding per slot of `component` whose written content does not fit its budget.
+    """One finding per slot of `component` that is wrong for render: either its written
+    content does not fit its budget, or it is required and nothing was written for it.
 
     Returns findings rather than raising: the brief requires overflow to be rejected before
     render, but *how* — block the whole build, send one slide back, retry the writer — is
     an orchestrator decision, and Phase 2b's orchestrator wiring is a later task. This
-    function only has to be right about which slots overflow.
+    function only has to be right about which slots are wrong.
 
-    A required slot missing from `blocks` entirely is also reported: an omitted headline is
-    not "zero overflow", it is a different failure the same deterministic gate should catch
-    before render rather than after.
+    **These are two different kinds of finding, sharing one list.** An *overflow* finding
+    means the writer wrote something for the slot and it does not fit; render would have to
+    truncate or shrink it, which nothing here does. A *missing-slot* finding
+    (`is_missing_slot_finding` is true of it) means the writer wrote nothing for a slot
+    render cannot proceed without — an omitted headline is not "zero overflow", it is a
+    different failure this gate also has to catch, but it did not cause anything to be
+    dropped, because there was nothing to drop. Reporting both in one list is deliberate:
+    both must block render, and this function's job is only to be right about which slots
+    are wrong, not to decide how a caller should file the two kinds. A caller that needs to
+    tell them apart — `autodeck.agents.content._check_budgets` does, so that "the writer
+    wrote something that didn't fit" and "the writer left this slot blank" land in separate
+    `ContentResult` fields rather than one undifferentiated rejection count — should split
+    the list with `is_missing_slot_finding`, not by re-parsing the finding text itself.
 
     The component's own variant rules decide which geometry the slots are checked against
     (`ComponentRegistration.variant_for`), so a caller handing over real content never has
@@ -1371,7 +1404,7 @@ def check_overflow(
         text = value if isinstance(value, str) else None
         if not text:
             if slot.required:
-                findings.append(f"{component}.{slot.name}: required slot is missing or empty")
+                findings.append(f"{component}.{slot.name}: {_MISSING_SLOT_SUFFIX}")
             continue
         budget = _budget(slot, tokens)
         if not budget.fits(text):
@@ -1398,7 +1431,7 @@ def _check_repeatable(
     items = _items_of(value)
     if not items:
         if slot.required:
-            return [f"{component}.{slot.name}: required slot is missing or empty"]
+            return [f"{component}.{slot.name}: {_MISSING_SLOT_SUFFIX}"]
         return []
 
     item_budget = _item_budget(slot, tokens)
