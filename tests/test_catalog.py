@@ -288,12 +288,20 @@ def test_an_unknown_component_names_the_known_ones() -> None:
 
 
 def test_known_components_lists_every_registered_entry() -> None:
-    """Updated by task 3a.4's first tranche: three components joined the original two."""
+    """Updated by task 3a.4's first tranche: three components joined the original two.
+    Updated by task 3a.4's second tranche: seven more components added."""
     assert known_components() == [
+        "agenda",
+        "before_after",
         "big_number",
         "bullets_supporting",
         "callout_takeaway",
+        "closing_cta",
+        "data_card_grid",
+        "evidence_with_figure",
         "quote",
+        "section_divider",
+        "title",
         "two_column_compare",
     ]
 

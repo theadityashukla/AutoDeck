@@ -91,10 +91,17 @@ from pptx.slide import Slide
 
 from autodeck.design.budgets import SlotBudget, compute_budget
 from autodeck.design.components.renderers import (
+    agenda,
+    before_after,
     big_number,
     bullets_supporting,
     callout_takeaway,
+    closing_cta,
+    data_card_grid,
+    evidence_with_figure,
     quote,
+    section_divider,
+    title,
     two_column_compare,
 )
 from autodeck.design.layout_kit import MARKER_INSET, Box, Canvas, TextStyle
@@ -854,6 +861,224 @@ def _callout_takeaway_slots(canvas: Canvas) -> list[ComponentSlot]:
     ]
 
 
+def _title_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/title.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    title_style = canvas.style("display", face="major", bold=True)
+    subtitle_style = canvas.style("title", face="minor")
+
+    # The main content area is a panel with padding
+    inner = body.pad(title._PANEL_PADDING)
+
+    title_one_line = _one_line_height(canvas, title_style, inner.width)
+    subtitle_one_line = _one_line_height(canvas, subtitle_style, inner.width)
+
+    # Title gets most of the space; subtitle and footer share what's left
+    title_height = max(
+        inner.height - subtitle_one_line - canvas.baseline * 3,
+        title_one_line * 2,
+    )
+    title_box = inner.resize(height=title_height)
+    _, after_title = inner.split_top(title_height, gutter=canvas.baseline * 3)
+    subtitle_box = after_title.resize(height=subtitle_one_line)
+
+    return [
+        ComponentSlot(
+            name="title", role="display", box=title_box, face="major", bold=True
+        ),
+        ComponentSlot(name="subtitle", role="title", box=subtitle_box, required=False),
+        ComponentSlot(name="presenter", role="body", box=after_title, required=False),
+        ComponentSlot(name="date", role="body", box=after_title, required=False),
+    ]
+
+
+def _section_divider_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/section_divider.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    number_style = canvas.style("title", face="major", bold=True)
+    name_style = canvas.style("heading", face="major", bold=True)
+
+    # Centered stack at 80% of body width
+    stack_width = body.width * 0.8
+    number_height = _one_line_height(canvas, number_style, stack_width)
+    name_height = _one_line_height(canvas, name_style, stack_width)
+
+    # Reserve space for rule and gaps
+    rule_gap = canvas.baseline * 3
+    total_height = number_height + rule_gap + section_divider._RULE_THICKNESS + rule_gap + name_height
+
+    # Allocate the space
+    number_box = body.resize(height=number_height)
+    _, after_number = body.split_top(total_height, gutter=0.0)
+
+    return [
+        ComponentSlot(name="section_number", role="title", box=number_box, face="major", bold=True),
+        ComponentSlot(name="section_name", role="heading", box=after_number, face="major", bold=True),
+    ]
+
+
+def _agenda_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/agenda.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+    items_style = canvas.style("body")
+
+    # Headline block
+    headline_one_line = _one_line_height(canvas, headline_style, body.width)
+    gap_headline_to_body = canvas.baseline * 3 + agenda._RULE_THICKNESS + canvas.baseline * 4
+
+    # Items area — reserve space for up to 5 items
+    item_one_line = _one_line_height(canvas, items_style, body.width)
+    max_items = 5
+    items_height = item_one_line * max_items + canvas.baseline * 2.5 * (max_items - 1)
+
+    headline_height = max(body.height - gap_headline_to_body - items_height, headline_one_line)
+    headline_box = body.resize(height=headline_height)
+    _, items_area = body.split_top(headline_height, gutter=gap_headline_to_body)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(
+            name="items",
+            role="body",
+            box=items_area,
+            repeatable=True,
+            item_box=items_area.resize(height=item_one_line),
+            row_gap=canvas.baseline * 2.5,
+        ),
+    ]
+
+
+def _closing_cta_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/closing_cta.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+    cta_style = canvas.style("heading", face="major", bold=True)
+
+    # Headline block
+    headline_one_line = _one_line_height(canvas, headline_style, body.width)
+    gap_headline_to_body = canvas.baseline * 3 + closing_cta._RULE_THICKNESS + canvas.baseline * 4
+
+    # CTA area — reserve space for 1-2 lines
+    cta_one_line = _one_line_height(canvas, cta_style, body.width - closing_cta._PANEL_PADDING * 2)
+    cta_height = cta_one_line * 2 + closing_cta._PANEL_PADDING * 2
+
+    headline_height = max(body.height - gap_headline_to_body - cta_height, headline_one_line)
+    headline_box = body.resize(height=headline_height)
+    _, cta_area = body.split_top(headline_height, gutter=gap_headline_to_body)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(
+            name="cta",
+            role="heading",
+            box=cta_area.resize(height=cta_height),
+            face="major",
+            bold=True,
+        ),
+    ]
+
+
+def _before_after_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/before_after.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+    label_style = canvas.style("heading", bold=True)
+    text_style = canvas.style("body")
+
+    # Headline block
+    headline_one_line = _one_line_height(canvas, headline_style, body.width)
+    gap_headline_to_body = canvas.baseline * 5
+
+    # Split into before/after columns
+    _, body_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
+    before_area, after_area = body_region.split_columns(2, canvas.gutter * 1.5)
+
+    # Each column has: label, rule, and text
+    label_height = _one_line_height(canvas, label_style, before_area.width - before_after._PANEL_PADDING * 2)
+    text_one_line = _one_line_height(canvas, text_style, before_area.width - before_after._PANEL_PADDING * 2)
+    text_height = body_region.height - label_height - before_after._RULE_THICKNESS - canvas.baseline * 3.5
+
+    headline_box = body.resize(height=headline_one_line)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(
+            name="before_label", role="heading", box=before_area, bold=True
+        ),
+        ComponentSlot(
+            name="before_text",
+            role="body",
+            box=before_area.resize(height=text_height),
+        ),
+        ComponentSlot(
+            name="after_label", role="heading", box=after_area, bold=True
+        ),
+        ComponentSlot(
+            name="after_text",
+            role="body",
+            box=after_area.resize(height=text_height),
+        ),
+    ]
+
+
+def _evidence_with_figure_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/evidence_with_figure.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+    text_style = canvas.style("body")
+
+    # Headline block
+    headline_one_line = _one_line_height(canvas, headline_style, body.width)
+    gap_headline_to_body = canvas.baseline * 3 + evidence_with_figure._RULE_THICKNESS + canvas.baseline * 4
+
+    # Split into text and figure columns
+    _, body_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
+    text_area, figure_area = body_region.split_columns(2, canvas.gutter * 2)
+
+    text_one_line = _one_line_height(canvas, text_style, text_area.width)
+    text_height = body_region.height - text_one_line
+
+    headline_box = body.resize(height=headline_one_line)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(name="supporting_text", role="body", box=text_area),
+        ComponentSlot(name="figure", role="body", box=figure_area, required=False, italic=True),
+        ComponentSlot(name="source", role="caption", box=source_area, required=False),
+    ]
+
+
+def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/data_card_grid.py` computes for itself."""
+    body, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+
+    # Headline block
+    headline_one_line = _one_line_height(canvas, headline_style, body.width)
+    gap_headline_to_body = canvas.baseline * 4
+
+    # Grid of 2x3 (6 cards)
+    _, body_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
+
+    # Cards are not treated as a repeatable slot in the budget sense — they are part of a
+    # grid structure that the renderer handles entirely. Each card is small and fixed-size,
+    # so the slot just reserves the whole region for the grid.
+    headline_box = body.resize(height=headline_one_line)
+
+    # Create slots for the headline and the grid region
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # The registrations
 # ---------------------------------------------------------------------------
@@ -915,6 +1140,69 @@ register(
     content_type=callout_takeaway.CalloutTakeawayContent,
     preview=PREVIEW_DIR / "callout_takeaway.png",
     slots=_callout_takeaway_slots,
+)
+
+register(
+    name="title",
+    narrative_roles=("deck introduction",),
+    renderer=title.render,
+    content_type=title.TitleContent,
+    preview=PREVIEW_DIR / "title.png",
+    slots=_title_slots,
+)
+
+register(
+    name="section_divider",
+    narrative_roles=("section break",),
+    renderer=section_divider.render,
+    content_type=section_divider.SectionDividerContent,
+    preview=PREVIEW_DIR / "section_divider.png",
+    slots=_section_divider_slots,
+)
+
+register(
+    name="agenda",
+    narrative_roles=("structure outline", "roadmap"),
+    renderer=agenda.render,
+    content_type=agenda.AgendaContent,
+    preview=PREVIEW_DIR / "agenda.png",
+    slots=_agenda_slots,
+)
+
+register(
+    name="closing_cta",
+    narrative_roles=("call to action", "closing statement"),
+    renderer=closing_cta.render,
+    content_type=closing_cta.ClosingCtaContent,
+    preview=PREVIEW_DIR / "closing_cta.png",
+    slots=_closing_cta_slots,
+)
+
+register(
+    name="before_after",
+    narrative_roles=("transformation", "evolution", "comparison"),
+    renderer=before_after.render,
+    content_type=before_after.BeforeAfterContent,
+    preview=PREVIEW_DIR / "before_after.png",
+    slots=_before_after_slots,
+)
+
+register(
+    name="evidence_with_figure",
+    narrative_roles=("evidence", "claim with proof"),
+    renderer=evidence_with_figure.render,
+    content_type=evidence_with_figure.EvidenceWithFigureContent,
+    preview=PREVIEW_DIR / "evidence_with_figure.png",
+    slots=_evidence_with_figure_slots,
+)
+
+register(
+    name="data_card_grid",
+    narrative_roles=("metrics", "key figures"),
+    renderer=data_card_grid.render,
+    content_type=data_card_grid.DataCardGridContent,
+    preview=PREVIEW_DIR / "data_card_grid.png",
+    slots=_data_card_grid_slots,
 )
 
 

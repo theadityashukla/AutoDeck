@@ -1,6 +1,14 @@
 {
   "note": "Fonts recorded per component. A visual judgement is only valid for the family listed here; Aptos is the deliverable target (B11).",
   "components": {
+    "agenda": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "before_after": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
     "big_number": {
       "font_major": "Inter Display",
       "font_minor": "Inter"
@@ -13,7 +21,27 @@
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },
+    "closing_cta": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "data_card_grid": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "evidence_with_figure": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
     "quote": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "section_divider": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "title": {
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },

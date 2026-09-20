@@ -40,10 +40,22 @@ from pathlib import Path
 from typing import Any
 
 from autodeck.design.components import catalog
+from autodeck.design.components.renderers.agenda import AgendaContent
+from autodeck.design.components.renderers.before_after import BeforeAfterContent
 from autodeck.design.components.renderers.big_number import BigNumberContent
 from autodeck.design.components.renderers.bullets_supporting import BulletsSupportingContent
 from autodeck.design.components.renderers.callout_takeaway import CalloutTakeawayContent
+from autodeck.design.components.renderers.closing_cta import ClosingCtaContent
+from autodeck.design.components.renderers.data_card_grid import (
+    DataCard,
+    DataCardGridContent,
+)
+from autodeck.design.components.renderers.evidence_with_figure import (
+    EvidenceWithFigureContent,
+)
 from autodeck.design.components.renderers.quote import QuoteContent
+from autodeck.design.components.renderers.section_divider import SectionDividerContent
+from autodeck.design.components.renderers.title import TitleContent
 from autodeck.design.components.renderers.two_column_compare import (
     ComparisonColumn,
     TwoColumnCompareContent,
@@ -163,6 +175,57 @@ EXAMPLES: dict[str, Any] = {
         support="Every week after that is pure margin, compounding as load grows.",
         source="Source: internal benchmark, Q3 2025 — see audit report for derivations.",
         accent="accent4",
+    ),
+    "title": TitleContent(
+        title="Kernel Rewrite: Delivering More Value, Less Cost",
+        subtitle="Three weeks to six figures of savings",
+        presenter="Engineering leadership",
+        date="Q3 2025",
+        accent="accent1",
+    ),
+    "section_divider": SectionDividerContent(
+        section_number="3",
+        section_name="The Technical Solution",
+        accent="accent3",
+    ),
+    "agenda": AgendaContent(
+        headline="Three sessions outline the full analysis",
+        items=[
+            "Where the original architecture left headroom — and why it stayed empty.",
+            "The rewrite: what changed, and what stayed locked in place.",
+            "The impact by the numbers: throughput, cost, and time-to-revenue.",
+        ],
+        accent="accent2",
+    ),
+    "closing_cta": ClosingCtaContent(
+        headline="Ready to move forward",
+        cta="Contact the engineering team to discuss implementation. We're available to walk through the architecture and timeline.",
+        accent="accent1",
+    ),
+    "before_after": BeforeAfterContent(
+        headline="The old way cost more and left capacity unused",
+        before_label="Add hardware",
+        before_text="Cost scales linearly. Capacity locked to batch size. No efficiency gain elsewhere.",
+        after_label="Rewrite the kernel",
+        after_text="One-time cost. Scales with load. Every downstream team benefits immediately.",
+        accent="accent2",
+    ),
+    "evidence_with_figure": EvidenceWithFigureContent(
+        headline="The numbers prove the investment was worth it",
+        supporting_text="Measured across the full Q3 benchmark suite on real workloads. No architectural change, no model shift — only the kernel implementation changed.",
+        figure="[Figure: throughput graph showing 62.9% gain]",
+        source="Source: internal measurement, verified at validation.",
+        accent="accent3",
+    ),
+    "data_card_grid": DataCardGridContent(
+        headline="Four metrics that matter",
+        cards=[
+            DataCard(label="Throughput gain", value="62.9%"),
+            DataCard(label="Cost per token", value="$0.42"),
+            DataCard(label="Time to deploy", value="3 weeks"),
+            DataCard(label="Teams affected", value="8+"),
+        ],
+        accent="accent1",
     ),
 }
 
