@@ -49,7 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from autodeck.ir.models import Block, BlockKind, CommunicationMode, Slide
+from autodeck.ir.models import Block, BlockKind, CommunicationMode, Deck, Slide
 
 Severity = Literal["blocking", "advisory"]
 
@@ -282,3 +282,88 @@ def check_no_icon_chart_diagram_pileup(
             location=location,
         )
     ]
+
+
+# ---------------------------------------------------------------------------
+# Concept count — advisory
+# ---------------------------------------------------------------------------
+
+#: D13's own figure is a range ("5-7"), not a single number. 7, the top of that range, is
+#: used as the ceiling: anything at or under 7 is unambiguously within what the brief calls
+#: fine, and firing at the range's low end would flag slides D13 itself does not object to.
+MAX_CONCEPTS_ADVISORY = 7
+
+#: Slot names that are metadata rather than a "concept" a reader is being asked to hold —
+#: the citation strip every component with a `source` slot carries. Kept as an explicit,
+#: named exclusion (rather than inferring it from the slot's role) because a metadata slot
+#: is the one place counting every block would double-count the same information already
+#: sitting behind the claims it labels.
+EXCLUDED_CONCEPT_SLOTS = frozenset({"source"})
+
+
+def check_concept_count(slide: Slide, *, location: str = "") -> list[GrammarFinding]:
+    """Advisory: flags a slide whose face carries an unusually large number of IR blocks.
+
+    **Why advisory, not blocking.** "Concept" is a judgement about distinct ideas; this
+    function counts `Block`s, which is the only unit the IR actually offers and a real but
+    imperfect proxy for it — a one-word data-card label and a fully argued bullet point
+    both count as one "concept" here, and a component's own structural chrome (two column
+    titles, say) counts exactly like a load-bearing point does. A correctly filled
+    `two_column_compare` (two titles plus three points a side) or `data_card_grid` (six
+    cards) can legitimately clear 7 blocks while reading as clean, intentional layouts — the
+    false-positive risk the spec asks this module to weigh against blocking. Per D13's own
+    "prefer advisory where you are unsure" instruction, this stays a name-and-report rather
+    than a build-stopper.
+
+    Does not catch: a slide with few, dense blocks that is conceptually overloaded anyway
+    (one `claim` block whose text argues five unrelated points), or a slide that pads its
+    block count with metadata this function already excludes in some other way it did not
+    anticipate.
+    """
+    concepts = [block for block in slide.blocks if block.slot not in EXCLUDED_CONCEPT_SLOTS]
+    if len(concepts) <= MAX_CONCEPTS_ADVISORY:
+        return []
+    return [
+        GrammarFinding(
+            check="concept count",
+            severity="advisory",
+            detail=(
+                f"{len(concepts)} content blocks on one slide, over the "
+                f"{MAX_CONCEPTS_ADVISORY}-block proxy for D13's 5-7 'concepts' guidance. "
+                "Block count is a rough stand-in for distinct ideas, not a measurement of "
+                "them (see this function's docstring) — a human should look at whether the "
+                "slide actually reads as crowded before splitting it."
+            ),
+            location=location,
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
+# The IR-only pass
+# ---------------------------------------------------------------------------
+
+
+def lint_slide_ir(slide: Slide, *, location: str = "") -> list[GrammarFinding]:
+    """Every IR-only grammar check for one slide: word budget, diagram count, the
+    icon/chart/diagram pileup, and the advisory concept count. No render required."""
+    findings: list[GrammarFinding] = []
+    findings.extend(check_word_budget(slide, location=location))
+    findings.extend(check_diagram_count(slide, location=location))
+    findings.extend(check_no_icon_chart_diagram_pileup(slide, location=location))
+    findings.extend(check_concept_count(slide, location=location))
+    return findings
+
+
+def lint_deck(deck: Deck) -> GrammarReport:
+    """Run every IR-only grammar check over a whole deck.
+
+    Icon adjacency is not in this report — it needs rendered geometry `Deck` does not
+    carry. See `check_icon_adjacency` and combine the two reports at the call site once a
+    render exists (`GrammarReport.extend`).
+    """
+    report = GrammarReport()
+    for slide in deck.slides:
+        report.slides_checked += 1
+        report.findings.extend(lint_slide_ir(slide, location=f"slide {slide.id}"))
+    return report

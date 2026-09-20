@@ -12,12 +12,16 @@ not an accident of the fixture.
 from __future__ import annotations
 
 from autodeck.design.grammar import (
+    EXCLUDED_CONCEPT_SLOTS,
+    MAX_CONCEPTS_ADVISORY,
     MAX_DIAGRAMS_PER_SLIDE,
     PILEUP_KINDS,
     WORD_BUDGET_PER_MODE,
+    check_concept_count,
     check_diagram_count,
     check_no_icon_chart_diagram_pileup,
     check_word_budget,
+    lint_deck,
 )
 from autodeck.ir.models import (
     Block,
@@ -25,6 +29,7 @@ from autodeck.ir.models import (
     ChartSpec,
     Citation,
     Claim,
+    Deck,
     DiagramSpec,
     IconRef,
     LabelFraming,
@@ -119,6 +124,19 @@ def slide_with(
         communication_mode=mode,  # type: ignore[arg-type]
         blocks=list(blocks),
         speaker_notes=list(notes),
+    )
+
+
+def deck_with(*slides: Slide) -> Deck:
+    return Deck(
+        run_id="r1",
+        project="p",
+        client="northwind-retail",
+        audience="CTO",
+        version=1,
+        theme_ref="t",
+        component_lib_version="1",
+        slides=list(slides),
     )
 
 
@@ -290,3 +308,63 @@ class TestPileup:
 
         findings = check_no_icon_chart_diagram_pileup(slide)
         assert findings and findings[0].severity == "blocking"
+
+
+# ---------------------------------------------------------------------------
+# Concept count — advisory
+# ---------------------------------------------------------------------------
+
+
+class TestConceptCount:
+    def test_within_the_brief_range_passes(self) -> None:
+        slide = slide_with(*(text_block(f"b{i}", 3) for i in range(MAX_CONCEPTS_ADVISORY)))
+        assert check_concept_count(slide) == []
+
+    def test_over_the_ceiling_is_advisory_never_blocking(self) -> None:
+        slide = slide_with(*(text_block(f"b{i}", 3) for i in range(MAX_CONCEPTS_ADVISORY + 3)))
+        findings = check_concept_count(slide)
+        assert [f.check for f in findings] == ["concept count"]
+        assert findings[0].severity == "advisory"
+
+    def test_the_source_slot_is_not_a_concept(self) -> None:
+        assert frozenset({"source"}) == EXCLUDED_CONCEPT_SLOTS
+        blocks = [text_block(f"b{i}", 3) for i in range(MAX_CONCEPTS_ADVISORY)]
+        blocks.append(text_block("src", 3, slot="source"))
+        slide = slide_with(*blocks)
+        assert check_concept_count(slide) == []
+
+
+# ---------------------------------------------------------------------------
+# lint_deck — the IR-only pass, end to end
+# ---------------------------------------------------------------------------
+
+
+class TestLintDeck:
+    def test_a_clean_deck_reports_nothing(self) -> None:
+        deck = deck_with(
+            slide_with(text_block("b1", 10), mode="text_led", slide_id="s1"),
+            slide_with(diagram_block("d1"), mode="diagram_led", slide_id="s2"),
+        )
+        report = lint_deck(deck)
+        assert report.findings == []
+        assert report.slides_checked == 2
+        assert report.blocks_build is False
+
+    def test_findings_carry_the_slide_id_as_their_location(self) -> None:
+        deck = deck_with(
+            slide_with(text_block("b1", 200), mode="text_led", slide_id="bad-slide"),
+        )
+        report = lint_deck(deck)
+        assert report.blocking
+        assert "bad-slide" in report.blocking[0].location
+
+    def test_advisory_findings_do_not_block_the_build(self) -> None:
+        deck = deck_with(
+            slide_with(
+                *(text_block(f"b{i}", 2) for i in range(MAX_CONCEPTS_ADVISORY + 1)),
+                slide_id="s1",
+            )
+        )
+        report = lint_deck(deck)
+        assert report.advisory and not report.blocking
+        assert report.blocks_build is False
