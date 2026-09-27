@@ -162,7 +162,8 @@ justified by "foundational" and "accuracy-critical" — which is not the rule.
 ## 9. Preconditions for the next phase
 
 1. **GATE 2 judged on a live run.** Still pending — B27.
-2. **B29 answered.** The post-render manifest depends on it.
+2. ~~B29 answered~~ — **done, 2026-09-27**: A6 promises normalised-comparability, so the
+   post-render manifest and render-determinism test compare digests, not bytes.
 3. The render stage must call `require_safe_to_render`.
 4. **B34's setup run on the machine that renders** — `scripts/setup-dev-env.sh`, not just
    the fonts, must run wherever the render tests are trusted.
