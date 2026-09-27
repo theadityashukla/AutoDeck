@@ -390,6 +390,185 @@ SEPARATOR_RULES: tuple[SeparatorRule, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Quantity nouns — SCAFFOLD (Opus). Bodies marked NotImplementedError are Sonnet's to fill.
+# ---------------------------------------------------------------------------
+#
+# The hole this closes. `UNIT_TABLE` lists the units this corpus writes often, and every
+# word it has no row for normalises to the empty unit, so the strict `(value, unit)`
+# intersection cannot tell these apart — all three pass A2 today with zero findings:
+#
+#     "We handle 412 requests per second."   cited to  "vLLM sustains 412 tokens per second"
+#     "The model has 13B parameters."        cited to  "the model was trained on 13B tokens"
+#     "The cluster uses 40 GPUs."            cited to  "the network has 40 layers"
+#
+# Those are the quantities this corpus is made of, and none needs an adversarial writer.
+#
+# Why not simply make every trailing word part of the key: English puts adjectives and
+# function words after digits constantly. "Across 12 production deployments" against a
+# source's "12 deployments" differs on an adjective; "40 of 50" captures "of". Keying on
+# the raw word would block correct decks, and a rule that false-blocks gets argued down
+# and removed (see `framing_linter.py`'s own docstring on why its lists are closed).
+#
+# So certainty comes from a human-maintained table, exactly as it does for `UNIT_TABLE`:
+#
+#     slide noun   source noun   verdict      severity   meaning
+#     ----------   -----------   ----------   --------   ----------------------------------
+#     known  X     known  X      compatible   —          same quantity; clean match
+#     known  X     known  Y      mismatch     BLOCKING   a listed noun is a certainty
+#     unknown      anything      suspect      advisory   may be an adjective; report it
+#     anything     unknown       suspect      advisory   same
+#     bare/stop    anything      compatible   —          no noun to disagree with
+#
+# Every row added to `QUALIFIER_TABLE` converts a class of "suspect" into a guarantee.
+# `suspect` is a reported match, never a silent one — this module's floor rule (top of
+# the docstring) is that a match wider than the key intersection must be reported.
+#
+# Integration points, all Sonnet's (each with a test in TestQuantityNouns):
+#   1. `_trailing_qualifier` — also capture an optional ` per <word>` so "tokens per
+#      second" and "tokens/s" both reach `normalise_qualifier` as a numerator and a
+#      denominator. A rate and a count of the same noun are different quantities.
+#   2. `_citation_forms` — carry, per key, the set of qualifiers the quote wrote beside
+#      that value, so a strict match can be checked against the span's own noun.
+#   3. `_match_against_citations`, strict tier — after the key intersection succeeds,
+#      compare slide qualifier vs span qualifiers with `compare_qualifiers`. Compatible if
+#      ANY span qualifier for that key is compatible (a quote may state a value twice).
+#   4. The derivation-input branch — same check against the input citation's quote.
+#   5. `_check_table_collisions` — a qualifier surface that is also a unit or scale
+#      surface would be consumed by `_scan_suffix` first and never reach here; refuse at
+#      import, exactly as the other tables do.
+#   6. Two new finding checks: "quantity noun mismatch" (blocking) and "quantity noun
+#      differs from source" (advisory). Both name the two nouns in the message.
+#
+# Known residue, to be stated in the docstring once built, not solved here:
+#   - Derivation *results* carry a free-string `Derivation.unit`; not qualifier-checked.
+#   - Multi-word nouns ("floating point operations") are captured by their first word.
+#   - `tok/s` is a UNIT_TABLE surface while "tokens per second" is a qualifier; the two do
+#     not reconcile, which is a pre-existing false block in the safe direction.
+
+
+@dataclass(frozen=True)
+class QualifierRule:
+    """A noun naming a quantity, and the surfaces a source may write it as.
+
+    A row is a **claim that every surface names the same quantity**, which is why each
+    carries a `why`. Plurals do not need a row — `normalise_qualifier` folds them by rule.
+    A row is only needed for a genuine synonym, and a synonym is a factual claim about how
+    this corpus writes: "params" and "parameters" are interchangeable; "requests" and
+    "queries" may not be, so they stay apart until someone argues otherwise in a `why`.
+    """
+
+    canonical: str
+    surfaces: tuple[str, ...]
+    why: str
+
+
+QUALIFIER_TABLE: tuple[QualifierRule, ...] = (
+    QualifierRule(
+        "token",
+        ("token", "tokens"),
+        "The unit of LLM throughput and context length throughout this corpus. A token "
+        "count and a request count of the same magnitude are different quantities, and "
+        "the review found '412 requests per second' passing against '412 tokens per "
+        "second' with zero findings.",
+    ),
+    QualifierRule(
+        "parameter",
+        ("parameter", "parameters", "param", "params"),
+        "Model size. '13B params' and '13B parameters' are one claim; '13B parameters' "
+        "and '13B tokens' (training-set size) are two different ones.",
+    ),
+    QualifierRule(
+        "request",
+        ("request", "requests"),
+        "Serving throughput is quoted per request as often as per token. Deliberately "
+        "not folded with 'query': the corpus has not established they are interchangeable.",
+    ),
+    QualifierRule(
+        "sequence",
+        ("sequence", "sequences"),
+        "Training throughput in this corpus is quoted in sequences per second.",
+    ),
+    QualifierRule(
+        "gpu",
+        ("gpu", "gpus"),
+        "Hardware counts. '40 GPUs' must not trace to a span about 40 of anything else.",
+    ),
+    QualifierRule(
+        "layer",
+        ("layer", "layers"),
+        "Architecture depth. The review's third example: '40 GPUs' cited to '40 layers'.",
+    ),
+)
+"""Seed rows only. Sonnet may add rows for nouns the seed corpus actually uses, each with
+a `why` in the register above — and must not add a row whose surfaces it cannot argue
+are the same quantity. When in doubt, leave the noun out: an unlisted noun is `suspect`
+(reported), which fails safe; a wrong synonym row is `compatible` (silent), which does not.
+"""
+
+QUALIFIER_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "of",
+        "on",
+        "or",
+        "over",
+        "than",
+        "that",
+        "the",
+        "to",
+        "under",
+        "with",
+        "per",
+    }
+)
+"""Function words that follow a numeral without naming a quantity ("40 of 50", "12 in
+total"). Treated as bare. A closed list: extend it only with a word that can never name
+what was counted."""
+
+QualifierVerdict = Literal["compatible", "suspect", "mismatch"]
+
+
+def normalise_qualifier(word: str) -> tuple[str, bool]:
+    """A captured trailing word → `(canonical, known)`.
+
+    Contract (every line is a test in `TestQuantityNouns`):
+      - Casefold. `"GPUs"` and `"gpus"` normalise identically.
+      - A surface listed in `QUALIFIER_TABLE` returns its row's canonical and `known=True`.
+      - Otherwise fold a regular plural conservatively — strip one trailing "s" when the
+        word is longer than three letters and does not end "ss" — and return
+        `known=True` iff the folded form is a listed canonical or surface.
+      - A rate `"<num>/<den>"` or `"<num> per <den>"` normalises each side independently
+        and returns `"num/den"`; `known` is True only if the numerator is known.
+        Denominators fold a small fixed set of time words (s, sec, second, seconds →
+        "second"; ms → "millisecond"; min, minute(s) → "minute"; h, hr, hour(s) → "hour";
+        day(s), month(s), year(s)) so "tokens/s" and "tokens per second" agree.
+      - A stop word, or the empty string, returns `("", False)` — bare.
+      - Never raises on arbitrary input; a malformed word is `(casefolded, False)`.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
+def compare_qualifiers(slide: str, source: str) -> QualifierVerdict:
+    """The verdict table in the comment block above, as a function.
+
+    Takes raw captured words (normalises both itself). `"compatible"` when either side is
+    bare, or both normalise to the same canonical. `"mismatch"` only when BOTH are known
+    and differ — that is the certainty that justifies blocking. Everything else is
+    `"suspect"`. Symmetric: `compare_qualifiers(a, b) == compare_qualifiers(b, a)`.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
 def _check_table_collisions() -> None:
     """Refuse to import if two rules claim the same surface form.
 
