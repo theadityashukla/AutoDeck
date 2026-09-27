@@ -90,3 +90,7 @@ nine faces the dev token set uses into **both** `fonts/` — where
 face the budgets were computed from. Installing only the first is worse than installing
 neither: budgets in Inter, previews in whatever LibreOffice substitutes, and nothing saying
 so. The binaries stay uncommitted; `.gitignore` still excludes `fonts/*.ttf`.
+
+For the whole dev environment, not just fonts — `libreoffice-impress` and `poppler-utils`
+are needed too, and every render test fails without them — run `./scripts/setup-dev-env.sh`
+instead, which calls this script as one of its steps (B34).

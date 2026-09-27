@@ -259,6 +259,10 @@ resolved model ID, so a dev-built deck is never mistaken for a production one.
 
 ## Working on this
 
+**Fresh environment:** run `./scripts/setup-dev-env.sh` once before trusting a green suite
+— it installs the three dependencies a fresh container lacks (Inter fonts,
+`libreoffice-impress`, `poppler-utils`) and proves the render path end to end (B34).
+
 **Resuming after a context reset — read in this order:**
 
 1. `README.md` — this file.
