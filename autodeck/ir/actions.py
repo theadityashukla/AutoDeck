@@ -29,9 +29,12 @@ What an action may change, exhaustively: `Slide.style`, `Slide.component`,
 an `IconRef`'s `glyph_id`/`concept`/`color_token`. Nothing else.
 
 **Layout pins are honoured structurally.** An action that would change a slide's pinned
-`component`, `communication_mode` or diagram kind is rejected (`PinnedTargetError`), not
-merely discouraged — a pin the aesthetic loop can override teaches the consultant that
-pinning does nothing.
+`component` or `communication_mode` is rejected (`PinnedTargetError`), not merely
+discouraged — a pin the aesthetic loop can override teaches the consultant that pinning
+does nothing. `diagram_kind` pins need no check here because **no action can reach a
+diagram's kind at all** — the geometry is part of the verified content, fingerprinted with
+the rest of the `DiagramSpec`. If an action that re-chooses geometry is ever added, it must
+check `diagram_kind` pins, and its tests must say so.
 
 **Layering.** `autodeck/ir/` must not import the design layer, so the two checks that need
 it — which slots a component has, and which icon concepts exist — are injected as callables
@@ -311,9 +314,10 @@ def apply_action(
       - `SwapGlyph`: `glyph_for(concept)` is `None` → `UnknownAddressError`; else set both
         `concept` and `glyph_id`. The target block must be `kind == "icon"`.
       - `SetIconColour`: target block must be an icon.
-      - Pins: a `SwapComponent` on a slide whose served message has a `component` pin, a
-        `SetCommunicationMode` against a `communication_mode` pin, or any action altering a
-        pinned `diagram_kind` → `PinnedTargetError`. A slide is pinned by a `LayoutPin`
+      - Pins: a `SwapComponent` on a slide whose served message has a `component` pin, or a
+        `SetCommunicationMode` against a `communication_mode` pin → `PinnedTargetError`.
+        (No action can alter a diagram's kind; see the module docstring.) A slide is pinned
+        by a `LayoutPin`
         whose `message_id` is in `slide.message_ids`.
       - After applying: `fact_fingerprint(new) == fact_fingerprint(deck)`, else
         `FactMutationError`. Always checked, never behind a flag.
