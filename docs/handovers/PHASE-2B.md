@@ -114,10 +114,10 @@ convention; the machine-readable record does not survive a new machine. Recorded
   `autodeck/audit/`, `prompts/`, `DECISIONS.md` and `docs/handovers/` drops to Sonnet under
   the budget, with each de-escalation named in §8. Two accuracy-critical modules were
   **split** so the invariant lives inside a guardrail path rather than being de-tiered.
-- **B29** — *open, needs an owner decision.* A6's headline promises "byte-comparable"
-  output. That is not achievable for PPTX, and A6's own "watch for" line contradicts its
-  headline. `docs/INVARIANTS.md` is deliberately **unedited**: changing what an invariant
-  says is the owner's call, not the implementer's (plan §0.4).
+- **B29** — *accepted by the owner, 2026-09-27.* A6's headline promised "byte-comparable"
+  output, which is not achievable for PPTX, and its own "watch for" line contradicted it.
+  A6 now reads "normalised-comparable under a recorded normalisation"; applied to
+  `docs/INVARIANTS.md` by the owner's decision, not the implementer's (plan §0.4).
 - **B30** — *open, needs an owner decision.* An approval is recorded only in
   `runs/<id>/state.json`, which is derived data and not committed. An approval is also the
   one thing in a run that cannot be reproduced. Three options are set out; no code was
@@ -136,11 +136,11 @@ state, after the fixes in §2's second table.
 | A3 validation | partial | **tested**, after the diagram-node fix. Open (owner question): `chart` blocks never receive a verdict, and `ChartSpec.source_citations` is not linked per data point, so "the source table cell is the citation" is not literally satisfiable without an IR change. Also: the supporting-span ceiling is satisfied by any substring of a retrieved element (finding 8) — safe-by-construction against hallucinated quotes, weak against irrelevant ones | `test_verdicts.py` — a valid citation plus a contradicting span elsewhere returns `contradicted`, with every fake model returning `supported` by default |
 | A4 isolation | tested | tested | unchanged. One build, one namespace; both new agents bind the run's index |
 | A5 framing | partial | **downgraded `tested` → `enforced`.** The fence is a closed list of factual phrasings, tested on what it lists; ordinary factual language outside the list passes. Demonstrated: "Quantisation halves serving cost" passes as uncited `section_header` text (no numeral, no superlative, `halves` not in the multiplier list); and the word-numeral gap above. Headers are terse by construction, which is exactly what strips the patterns A5 matches | `test_framing_linter.py` — a framing block carrying a fact is demoted, and the demotion blocks the build |
-| A6 reproducibility | partial | **partial** | `test_manifest.py`. Deliberately not raised: A6's headline claim is unachievable as written (B29), and marking the cell `enforced` against a statement we know to be wrong would be the dishonest kind of green |
+| A6 reproducibility | partial | **enforced** | `test_manifest.py`. Held at `partial` until the owner accepted B29's corrected wording (2026-09-27); now `enforced` — the manifest half is tested, and the render-twice proof needs Phase 3b's renderer |
 | A7 gates | tested | **tested** | `test_cli_gate2.py::test_none_of_the_new_commands_can_record_an_approval` — a banned-parameter check *and* a source scan for `.approve(`, because a parameter check alone misses a command that hard-codes one |
 | A8 uncertainty | enforced | **tested** — A8's averaging hole closed (see §2's second table) | `test_report.py` — `open_risks` resurface in the report; conflicts appear with both spans; `test_validation.py` — a provider failure returns `unverified` with a reason, never a guess |
 
-A4 `tested` and A6 `partial` (B29) are unchanged; A7 `tested` and A8 `tested` are unchanged
+A4 `tested` is unchanged, A6 is `enforced` after B29 was accepted; A7 `tested` and A8 `tested` are unchanged
 in status, with A8's averaging hole now closed. A2 and A3 remain `tested`, corrected in
 place with the gaps above named rather than implied. **A5 alone moves cells**, `tested`
 down to `enforced`.
@@ -224,7 +224,7 @@ implementing the wrapper reported this as an interface finding rather than worki
 it — the right call — and the prompt now asks for **verbatim quotes**, which the system
 resolves back onto real spans, with an unmatched quote being dropped.
 
-### 6.6 "Byte-comparable" is not achievable for PPTX (B29, open)
+### 6.6 "Byte-comparable" is not achievable for PPTX (B29, since accepted)
 
 Measured: two identical `Presentation().save()` calls two seconds apart produce different
 bytes, from at least four causes outside our control, while the canonical digest matches.
@@ -295,8 +295,6 @@ worktrees per agent since.
 **Open items for GATE 2**, replacing the table this section previously carried:
 
 **Owner decisions**
-- **B29 — A6 wording.** A6's headline promises "byte-comparable" output; that is not
-  achievable for PPTX. The invariant is deliberately unedited.
 - **B30 — approvals not durable.** An approval is recorded only in `runs/<id>/state.json`,
   which is not committed, so it is the one thing in a run that is not reproducible.
 - **Should A5 fence `section_header` as a category?** Input from the headers work: lean
@@ -364,8 +362,8 @@ The ledger lives in the session scratchpad.
 1. **GATE 2 judged** on a real claims table. Phase 3a can be *built* without it under B27's
    stacking, but a GATE 2 rejection invalidates whatever was built on top — an accepted cost
    the owner agreed to, stated again here so it is not a surprise.
-2. **B29 answered.** Phase 3b's post-render lint and the final manifest both depend on what
-   A6 actually promises.
+2. ~~B29 answered~~ — **done, 2026-09-27.** A6 promises normalised-comparability; Phase 3b's
+   render determinism test compares digests.
 3. **Aptos confirmed on the owner's machine**, carried from GATE 0. Phase 3a builds fifteen
    component renderers on top of the budgets this phase fixed.
 4. **The icon and theme behaviour checks from GATE 0** — approved on the visual bar only,

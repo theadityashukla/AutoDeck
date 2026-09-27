@@ -67,11 +67,8 @@ content pass sees the rejection and drops a verbatim repeat of it.
 Budget the quota: 20 requests per model per day, roughly one `content` call per slide and
 one `validation` call per six claims, spread across five models (B25).
 
-### Four owner decisions waiting at GATE 2
+### Three owner decisions waiting at GATE 2
 
-- **B29 — A6 promises "byte-comparable" PPTX output, which is measurably impossible.** The
-  manifest implements the achievable property; `docs/INVARIANTS.md` is deliberately unedited
-  because changing what an invariant *says* is yours, not the implementer's.
 - **B30 — a gate approval does not survive the machine.** Approvals live in
   `runs/<id>/state.json`, which is derived data and not committed (B22). The human act
   survives in `DECISIONS.md` only because we write it there by convention, and an approval
@@ -174,9 +171,10 @@ construction, which is exactly what strips the patterns A5 matches.
 extractor ("forty percent", "four times", "quadrupled", "a third"), so A2 passes vacuously
 on them.
 
-**A6 stays `partial` on purpose.** Its headline is unachievable as written (B29), and
-marking it `enforced` against a statement we know to be wrong would be the dishonest kind of
-green.
+**A6 is `enforced`.** Its headline promised "byte-comparable" output, which is not achievable
+for PPTX; the owner accepted the corrected wording on 2026-09-27 (B29) — normalised-comparable
+under a recorded normalisation. The manifest half is tested; the render-twice proof needs
+Phase 3b's renderer.
 
 See the tracker in `docs/INVARIANTS.md`.
 
