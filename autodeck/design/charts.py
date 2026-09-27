@@ -16,7 +16,7 @@ schedule nobody controls.
 `Citation` objects resolved against the document store (`DocumentStore.resolve_cell`,
 task 1.4) — resolving one is not this module's job, and it does not attempt it. What this
 module owns is turning citations that already exist into something a reader in the room can
-act on: `_source_line` formats them into the caption band under the chart, in the same
+act on: `source_line` formats them into the caption band under the chart, in the same
 `doc_id p.N` shape `autodeck.audit.numeric_linter._citation_label` and
 `autodeck.audit.report._ref` already use for the same purpose elsewhere. Three modules
 agreeing on that shape by convention, not by importing one function across a design/audit
@@ -201,7 +201,7 @@ def place_chart(frame: Frame, box: Box, spec: ChartSpec) -> GraphicFrame:
     )
     _style_chart(graphic_frame.chart, canvas, spec)
 
-    frame.caption(caption_area, _source_line(spec.source_citations))
+    frame.caption(caption_area, source_line(spec.source_citations))
     return graphic_frame
 
 
@@ -445,12 +445,21 @@ def _citation_label(citation: Citation) -> str:
     return f"{citation.doc_id} p.{citation.page}"
 
 
-def _source_line(citations: Sequence[Citation]) -> str:
+def source_line(citations: Sequence[Citation]) -> str:
     """Format as "Source: doc1 p.2; doc2 p.5" — every distinct span the chart's data traces to.
 
     Deduplicated but not otherwise summarised: a ten-point series with three distinct
     sources names all three, because "the source table cell is the citation" only holds if
     every cell's actual source stays visible, not just the first one found.
+
+    Public: this is the caption-band formatter for the whole design system, not just charts
+    — `autodeck.render.renderer.source_line` reuses it directly rather than defining a
+    second one (task 3b.1). ``_source_line`` stays as an alias for callers written against
+    the old private name.
     """
     labels = dict.fromkeys(_citation_label(citation) for citation in citations)
     return "Source: " + "; ".join(labels)
+
+
+#: Backward-compatible alias for the pre-promotion private name. Two names, one formatter.
+_source_line = source_line
