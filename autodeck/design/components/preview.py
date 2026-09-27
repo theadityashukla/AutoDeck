@@ -45,6 +45,7 @@ from autodeck.design.components.renderers.before_after import BeforeAfterContent
 from autodeck.design.components.renderers.big_number import BigNumberContent
 from autodeck.design.components.renderers.bullets_supporting import BulletsSupportingContent
 from autodeck.design.components.renderers.callout_takeaway import CalloutTakeawayContent
+from autodeck.design.components.renderers.chart_focus import ChartFocusContent
 from autodeck.design.components.renderers.closing_cta import ClosingCtaContent
 from autodeck.design.components.renderers.data_card_grid import (
     DataCard,
@@ -53,8 +54,10 @@ from autodeck.design.components.renderers.data_card_grid import (
 from autodeck.design.components.renderers.evidence_with_figure import (
     EvidenceWithFigureContent,
 )
+from autodeck.design.components.renderers.framework_diagram import FrameworkDiagramContent
 from autodeck.design.components.renderers.quote import QuoteContent
 from autodeck.design.components.renderers.section_divider import SectionDividerContent
+from autodeck.design.components.renderers.timeline import TimelineContent
 from autodeck.design.components.renderers.title import TitleContent
 from autodeck.design.components.renderers.two_column_compare import (
     ComparisonColumn,
@@ -63,7 +66,42 @@ from autodeck.design.components.renderers.two_column_compare import (
 from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.master_builder import new_presentation, save_themed
 from autodeck.design.theme.tokens import DesignTokens
+from autodeck.ir.models import (
+    ChartSeries,
+    ChartSpec,
+    Citation,
+    Claim,
+    DiagramAxis,
+    DiagramSpec,
+    LabelFraming,
+    ProcessFlowSpec,
+    ProcessStep,
+    QuadrantItem,
+    TwoByTwoSpec,
+)
 from autodeck.render.qa.libreoffice import check_render_fonts, render_pptx
+
+#: One real citation, reused across the two diagram-led examples' single claimed node and
+#: the chart example's `source_citations` — a preview is a visual judgement about real
+#: text (D5), and a fabricated-looking quote would undercut that as much as lorem ipsum
+#: would. `Citation.for_quote` computes the hash, so this is the whole citation.
+_EXAMPLE_CITATION = Citation.for_quote(
+    doc_id="q3-segmentation-report",
+    page=6,
+    bbox=(72.0, 140.0, 360.0, 168.0),
+    quote="Enterprise accounts renewed at 92% across the last four quarters measured.",
+    retrieved_by="validator",
+)
+
+#: The chart example's own citation — a different span, so the gallery does not look like
+#: every number traces back to the same sentence.
+_CHART_CITATION = Citation.for_quote(
+    doc_id="finance-model-q4",
+    page=2,
+    bbox=(48.0, 96.0, 300.0, 118.0),
+    quote="Cost per token fell from $0.71 to $0.42 across the four quarters after the rewrite.",
+    retrieved_by="validator",
+)
 
 _BLANK_LAYOUT = 6
 
@@ -237,6 +275,95 @@ EXAMPLES: dict[str, Any] = {
             DataCard(label="Teams affected", value="8+"),
         ],
         accent="accent1",
+    ),
+    "framework_diagram": FrameworkDiagramContent(
+        headline="Enterprise deals justify the higher cost to serve",
+        diagram=DiagramSpec(
+            relationship="classification",
+            kind="two_by_two",
+            title="Where each engagement model sits",
+            two_by_two=TwoByTwoSpec(
+                x_axis=DiagramAxis(name="Cost to serve", low="Low", high="High"),
+                y_axis=DiagramAxis(name="Adoption speed", low="Slow", high="Fast"),
+                items=[
+                    QuadrantItem(
+                        id="self_serve",
+                        label="Self-serve",
+                        x=0.15,
+                        y=0.85,
+                        framing=LabelFraming(reason="category_name"),
+                    ),
+                    QuadrantItem(
+                        id="enterprise",
+                        label="Enterprise",
+                        x=0.85,
+                        y=0.25,
+                        claim=Claim(
+                            text="Enterprise accounts renewed at 92% across the last four "
+                            "quarters measured.",
+                            citations=[_EXAMPLE_CITATION],
+                        ),
+                    ),
+                    QuadrantItem(
+                        id="mid_market",
+                        label="Mid-market",
+                        x=0.55,
+                        y=0.55,
+                        framing=LabelFraming(reason="category_name"),
+                    ),
+                ],
+            ),
+        ),
+        source="Source: internal segmentation analysis, Q3 2025.",
+        accent="accent2",
+    ),
+    "timeline": TimelineContent(
+        headline="A three-step rollout gets the platform live in one quarter",
+        diagram=DiagramSpec(
+            relationship="sequence",
+            kind="process_flow",
+            title="Rollout sequence",
+            process_flow=ProcessFlowSpec(
+                steps=[
+                    ProcessStep(
+                        id="discover",
+                        label="Discover",
+                        order=1,
+                        transition="Kickoff complete",
+                        framing=LabelFraming(reason="stage_name"),
+                    ),
+                    ProcessStep(
+                        id="build",
+                        label="Build",
+                        order=2,
+                        transition="Pilot signed off",
+                        framing=LabelFraming(reason="stage_name"),
+                    ),
+                    ProcessStep(
+                        id="launch",
+                        label="Launch",
+                        order=3,
+                        framing=LabelFraming(reason="stage_name"),
+                    ),
+                ]
+            ),
+        ),
+        source="Source: engagement plan, approved Q3 2025.",
+        accent="accent3",
+    ),
+    "chart_focus": ChartFocusContent(
+        headline="Cost per token fell every quarter after the rewrite",
+        chart=ChartSpec(
+            chart_type="bar",
+            categories=["Q1", "Q2", "Q3", "Q4"],
+            series=[
+                ChartSeries(name="Cost per token ($)", values=[0.71, 0.58, 0.49, 0.42]),
+            ],
+            y_axis_label="Cost per token ($)",
+            source_citations=[_CHART_CITATION],
+        ),
+        takeaway="Every quarter after the rewrite cost less than the one before it.",
+        accent="accent4",
     ),
 }
 

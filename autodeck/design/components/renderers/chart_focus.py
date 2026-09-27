@@ -1,7 +1,5 @@
 """`chart_focus` — one native chart, a headline that says what it shows, and one line more.
 
-SCAFFOLD (Opus). `render()` is Sonnet's to fill; the contract below is decided.
-
 The narrative job: quantitative evidence where the shape of the data is the argument. The
 design job: a headline band, a native editable chart filling the body via
 `autodeck.design.charts.place_chart`, and an optional one-line takeaway under it. This
@@ -36,8 +34,15 @@ from dataclasses import dataclass
 
 from pptx.slide import Slide
 
-from autodeck.design.layout_kit import Canvas
+from autodeck.design.charts import place_chart
+from autodeck.design.layout_kit import Box, Canvas
 from autodeck.ir.models import ChartSpec
+
+#: The headline band's chrome, copied literally from `bullets_supporting._RULE_WIDTH` /
+#: `_RULE_THICKNESS` — `_chart_focus_slots` (catalog.py) reconstructs the same box from the
+#: same two numbers, so a drift here is a drift there too.
+_RULE_WIDTH = 64.0
+_RULE_THICKNESS = 3.0
 
 
 @dataclass
@@ -53,4 +58,39 @@ class ChartFocusContent:
 
 def render(slide: Slide, canvas: Canvas, content: ChartFocusContent) -> None:
     """Render `content` onto `slide`. See the module docstring for the contract."""
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    frame = canvas.on(slide)
+
+    # No `frame.body_and_caption()` / `frame.caption(...)` here, on purpose: this
+    # component's only source line is `place_chart`'s own, drawn from
+    # `ChartSpec.source_citations`. The region handed to it is `canvas.content` (the whole
+    # content area, minus the headline band below), which `place_chart` splits for its own
+    # chart-plus-caption band itself — exactly the split every other component gets from
+    # `Canvas.body_and_caption`, done once, by the one caller that needs it.
+    region = canvas.content
+
+    headline = frame.stack("chart_focus headline", region.width)
+    headline.text(content.headline, canvas.style("title", face="major", bold=True))
+    headline.rule(
+        width=_RULE_WIDTH,
+        thickness=_RULE_THICKNESS,
+        color=content.accent,
+        gap=canvas.baseline * 3,
+    )
+    body = headline.place(region, gutter=canvas.baseline * 4)
+
+    if content.takeaway:
+        takeaway_style = canvas.style("body", color="dk2")
+        takeaway_height = canvas.measure(content.takeaway, body.width, takeaway_style)
+        # Reserve first, at the bottom, before the chart gets whatever is left — an
+        # over-long takeaway raises `LayoutOverflowError` here rather than the chart being
+        # squeezed to make room for it.
+        takeaway_box = body.reserve(
+            takeaway_height, valign="bottom", what="chart_focus takeaway"
+        )
+        frame.text(takeaway_box, content.takeaway, takeaway_style)
+        gap = canvas.baseline * 3
+        chart_region = Box(body.x, body.y, body.width, max(takeaway_box.y - gap - body.y, 0.0))
+    else:
+        chart_region = body
+
+    place_chart(frame, chart_region, content.chart)

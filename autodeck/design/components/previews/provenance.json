@@ -21,6 +21,10 @@
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },
+    "chart_focus": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
     "closing_cta": {
       "font_major": "Inter Display",
       "font_minor": "Inter"
@@ -33,11 +37,19 @@
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },
+    "framework_diagram": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
     "quote": {
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },
     "section_divider": {
+      "font_major": "Inter Display",
+      "font_minor": "Inter"
+    },
+    "timeline": {
       "font_major": "Inter Display",
       "font_minor": "Inter"
     },

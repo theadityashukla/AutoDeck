@@ -96,11 +96,14 @@ from autodeck.design.components.renderers import (
     big_number,
     bullets_supporting,
     callout_takeaway,
+    chart_focus,
     closing_cta,
     data_card_grid,
     evidence_with_figure,
+    framework_diagram,
     quote,
     section_divider,
+    timeline,
     title,
     two_column_compare,
 )
@@ -123,7 +126,10 @@ from autodeck.design.theme.tokens import DesignTokens
 #: 0.3.0: task 3a.4's first tranche registers `quote`, `bullets_supporting` and
 #: `callout_takeaway` — the set of components a deck may be built from changes, even though
 #: no existing component's geometry moved.
-COMPONENT_LIB_VERSION = "0.3.0"
+#:
+#: 0.4.0: task 3a.4's second tranche registers `framework_diagram`, `timeline` and
+#: `chart_focus` — fifteen components now exist, closing PHASE-3A's exit criterion.
+COMPONENT_LIB_VERSION = "0.4.0"
 
 #: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
 #: so the preview gallery has somewhere to read from; the registry, not this directory, is
@@ -1088,22 +1094,8 @@ def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
 
 
 # ---------------------------------------------------------------------------
-# Components 13-15 — SCAFFOLD (Opus). Sonnet fills the three builders and registers them.
+# Components 13-15
 # ---------------------------------------------------------------------------
-#
-# Registration is deliberately NOT in the scaffold: several tests iterate every registered
-# component, so registering a stub would turn the suite red. The fill adds three
-# `register(...)` calls beside the others, in the same form, with:
-#
-#   name="framework_diagram", narrative_roles=("structural relationship",
-#       "how the parts fit"), content_type=framework_diagram.FrameworkDiagramContent,
-#       slots=_framework_diagram_slots
-#   name="timeline", narrative_roles=("sequence over time", "roadmap"),
-#       content_type=timeline.TimelineContent, slots=_timeline_slots
-#   name="chart_focus", narrative_roles=("quantitative evidence", "trend"),
-#       content_type=chart_focus.ChartFocusContent, slots=_chart_focus_slots
-#
-# each with `renderer=<module>.render` and `preview=PREVIEW_DIR / "<name>.png"`.
 
 
 def _framework_diagram_slots(canvas: Canvas) -> list[ComponentSlot]:
@@ -1112,26 +1104,83 @@ def _framework_diagram_slots(canvas: Canvas) -> list[ComponentSlot]:
     One slot, `headline`, mirroring `_bullets_supporting_slots`' headline exactly (same
     style, same literal gaps — the renderer copies them from `bullets_supporting`). The
     diagram region is **not** a slot: its boxes depend on node count, which a `Canvas`-only
-    builder cannot know. Say in this docstring what protects the diagram's labels instead
-    (IR word budget at construction; physical fit at render) so nobody later adds a fake
-    fixed-size slot to make the table look complete.
+    builder cannot know.
+
+    What protects the diagram's labels instead, since this table cannot: `DiagramSpec`'s
+    word budget (`GEOMETRIES[kind].max_label_words`) rejects an over-long label at IR
+    construction, before any component sees it, and `diagrams.place_diagram` measures every
+    label against the real box its node gets and raises `LayoutOverflowError` at render if
+    it still does not fit physically. A label can be short enough by word count and still
+    overflow at render — that gap is real and is not this table's to close, so nobody should
+    add a fake fixed-size diagram slot here to make the table look complete.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    region, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+
+    gap_headline_to_body = (
+        canvas.baseline * 3 + framework_diagram._RULE_THICKNESS + canvas.baseline * 4
+    )
+    # The diagram region gets whatever is left after the headline; since it is not a slot,
+    # there is no sibling "one line" reservation to make here the way a text slot needs —
+    # the headline may use the whole region below its own one line, same as
+    # `_bullets_supporting_slots`' headline against its points.
+    headline_one_line = _one_line_height(canvas, headline_style, region.width)
+    headline_height = max(region.height - gap_headline_to_body - headline_one_line, 0.0)
+    headline_box = region.resize(height=headline_height)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(name="source", role="caption", box=source_area, required=False),
+    ]
 
 
 def _timeline_slots(canvas: Canvas) -> list[ComponentSlot]:
-    """Identical to `_framework_diagram_slots`; may simply delegate to it, saying why."""
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    """Identical to `_framework_diagram_slots`; delegates to it directly.
+
+    `timeline.render` shares `framework_diagram`'s headline helper (see both renderers'
+    docstrings), so the headline box the catalog has to reconstruct is the same box either
+    way — there is nothing timeline-specific to compute here.
+    """
+    return _framework_diagram_slots(canvas)
 
 
 def _chart_focus_slots(canvas: Canvas) -> list[ComponentSlot]:
     """`headline` (as `_framework_diagram_slots`) and an optional one-line `takeaway`.
 
-    `takeaway` is reserved at the bottom of the body before the chart takes the rest, so
-    its box is known without knowing the chart; cap it to one line, and mark it optional.
-    The chart's own text is measured by `charts.py` at render and is not a slot here.
+    `takeaway` is reserved at the bottom of the body before the chart takes the rest, so its
+    box is known without knowing the chart; capped to one line, the same policy
+    `_two_column_compare_slots`' `point` slots and `_callout_takeaway_slots`' `label` slot
+    use, and marked optional. The chart's own title, axis titles, category labels and series
+    names are measured by `charts.py` at render and are not slots here — the same
+    render-time-only caveat `_framework_diagram_slots` states for diagram labels.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    region = canvas.content
+
+    takeaway_style = canvas.style("body", color="dk2")
+
+    gap_headline_to_body = (
+        canvas.baseline * 3 + chart_focus._RULE_THICKNESS + canvas.baseline * 4
+    )
+    gap_takeaway_to_chart = canvas.baseline * 3
+
+    takeaway_one_line = _one_line_height(canvas, takeaway_style, region.width)
+
+    # Symmetric bound, the same shape `_callout_takeaway_slots` uses for its
+    # takeaway/support pair: `headline` gets the most height it could use while still
+    # leaving room for the headline gap, one line of `takeaway`, and the gap before the
+    # chart — never the whole region, since the chart needs some of it too.
+    reserved_below = gap_headline_to_body + takeaway_one_line + gap_takeaway_to_chart
+    headline_height = max(region.height - reserved_below, 0.0)
+    headline_box = region.resize(height=headline_height)
+
+    _, after_headline = region.split_top(headline_height, gutter=gap_headline_to_body)
+    takeaway_box = after_headline.resize(height=takeaway_one_line)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(name="takeaway", role="body", box=takeaway_box, required=False),
+    ]
 
 
 register(
@@ -1254,6 +1303,33 @@ register(
     content_type=data_card_grid.DataCardGridContent,
     preview=PREVIEW_DIR / "data_card_grid.png",
     slots=_data_card_grid_slots,
+)
+
+register(
+    name="framework_diagram",
+    narrative_roles=("structural relationship", "how the parts fit"),
+    renderer=framework_diagram.render,
+    content_type=framework_diagram.FrameworkDiagramContent,
+    preview=PREVIEW_DIR / "framework_diagram.png",
+    slots=_framework_diagram_slots,
+)
+
+register(
+    name="timeline",
+    narrative_roles=("sequence over time", "roadmap"),
+    renderer=timeline.render,
+    content_type=timeline.TimelineContent,
+    preview=PREVIEW_DIR / "timeline.png",
+    slots=_timeline_slots,
+)
+
+register(
+    name="chart_focus",
+    narrative_roles=("quantitative evidence", "trend"),
+    renderer=chart_focus.render,
+    content_type=chart_focus.ChartFocusContent,
+    preview=PREVIEW_DIR / "chart_focus.png",
+    slots=_chart_focus_slots,
 )
 
 

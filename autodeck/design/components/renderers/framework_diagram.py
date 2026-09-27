@@ -1,13 +1,16 @@
 """`framework_diagram` — one structural idea, drawn as a native diagram under a headline.
 
-SCAFFOLD (Opus). `render()` is Sonnet's to fill; the contract below is decided.
-
 The narrative job: a slide whose argument *is* a relationship — a sequence, a 2x2, a
 stack — rather than a list of points. The design job is almost nothing, deliberately: a
 headline band exactly like `bullets_supporting`'s, then the whole remaining body region
 handed to `autodeck.design.diagrams.place_diagram`. PHASE-3A says diagram-led components
 "delegate geometry to the diagram engine rather than carrying bespoke renderer code", so
 this module must not place a single node itself.
+
+`_render_headline_and_diagram` below is the shared body of both `render()`s in this pair:
+`timeline.render` calls it after checking `content.diagram.kind`, so the headline band's
+geometry — the one thing that actually needs to be identical — has exactly one definition
+rather than two copies drifting apart.
 
 Contract for `render()`:
   - Caption band via `frame.body_and_caption()` / `frame.caption(...)`, as every component.
@@ -39,8 +42,15 @@ from dataclasses import dataclass
 
 from pptx.slide import Slide
 
+from autodeck.design.diagrams import place_diagram
 from autodeck.design.layout_kit import Canvas
 from autodeck.ir.models import DiagramSpec
+
+#: The headline band's chrome, copied literally from `bullets_supporting._RULE_WIDTH` /
+#: `_RULE_THICKNESS` — `_framework_diagram_slots` (catalog.py) reconstructs the same box
+#: from the same two numbers, so a drift here is a drift there too.
+_RULE_WIDTH = 64.0
+_RULE_THICKNESS = 3.0
 
 
 @dataclass
@@ -58,6 +68,46 @@ class FrameworkDiagramContent:
     accent: str = "accent1"
 
 
+def _render_headline_and_diagram(
+    slide: Slide,
+    canvas: Canvas,
+    *,
+    headline: str,
+    diagram: DiagramSpec,
+    source: str,
+    accent: str,
+) -> None:
+    """The headline band (identical to `bullets_supporting.render`'s) plus `place_diagram`
+    on whatever body region is left. Shared by `framework_diagram.render` and
+    `timeline.render` — see this module's own docstring for why a shared helper rather than
+    two copies.
+    """
+    frame = canvas.on(slide)
+    body, caption = frame.body_and_caption()
+    frame.caption(caption, source)
+
+    headline_stack = frame.stack("framework_diagram headline", body.width)
+    headline_stack.text(headline, canvas.style("title", face="major", bold=True))
+    headline_stack.rule(
+        width=_RULE_WIDTH,
+        thickness=_RULE_THICKNESS,
+        color=accent,
+        gap=canvas.baseline * 3,
+    )
+    region = headline_stack.place(body, gutter=canvas.baseline * 4)
+
+    # `content.diagram.title` is never drawn: the headline above is the slide's one voice,
+    # and `place_diagram` never draws a geometry's title either — see the module docstring.
+    place_diagram(frame, region, diagram)
+
+
 def render(slide: Slide, canvas: Canvas, content: FrameworkDiagramContent) -> None:
     """Render `content` onto `slide`. See the module docstring for the contract."""
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    _render_headline_and_diagram(
+        slide,
+        canvas,
+        headline=content.headline,
+        diagram=content.diagram,
+        source=content.source,
+        accent=content.accent,
+    )

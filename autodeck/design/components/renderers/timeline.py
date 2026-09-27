@@ -1,7 +1,5 @@
 """`timeline` — a sequence over time, drawn by the diagram engine's `process_flow`.
 
-SCAFFOLD (Opus). `render()` is Sonnet's to fill; the contract below is decided.
-
 Why this takes a `DiagramSpec` and not a list of date strings — the decision this module
 exists to carry: **a date is a fact.** "Q3 2024: vLLM released" asserts something checkable,
 so each milestone must arrive already decided as a `claim` (with citations) or `framing`
@@ -20,8 +18,9 @@ Contract for `render()`:
     not `"process_flow"`. A timeline that silently drew a 2x2 would be lying about time.
   - Otherwise identical to `framework_diagram.render`: caption band, the same headline
     band with the same literal gaps, then `place_diagram` on the remaining region, never
-    drawing `diagram.title`, never shrinking. Sharing a private helper with
-    `framework_diagram` is fine and probably right — say so in both docstrings if you do.
+    drawing `diagram.title`, never shrinking. This module calls
+    `framework_diagram._render_headline_and_diagram`, the private helper the two share, so
+    the headline geometry has exactly one definition.
 
 The `check_overflow` caveat in `framework_diagram`'s docstring applies here unchanged.
 D13: `diagram_led`.
@@ -33,6 +32,9 @@ from dataclasses import dataclass
 
 from pptx.slide import Slide
 
+from autodeck.design.components.renderers.framework_diagram import (
+    _render_headline_and_diagram,
+)
 from autodeck.design.layout_kit import Canvas
 from autodeck.ir.models import DiagramSpec
 
@@ -49,5 +51,22 @@ class TimelineContent:
 
 
 def render(slide: Slide, canvas: Canvas, content: TimelineContent) -> None:
-    """Render `content` onto `slide`. See the module docstring for the contract."""
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    """Render `content` onto `slide`. See the module docstring for the contract.
+
+    Raises:
+        ValueError: `content.diagram.kind` is not `"process_flow"` — a timeline must never
+            draw any other geometry.
+    """
+    if content.diagram.kind != "process_flow":
+        raise ValueError(
+            f"timeline requires a process_flow diagram, got {content.diagram.kind!r}. A "
+            "timeline that drew any other geometry would be lying about time."
+        )
+    _render_headline_and_diagram(
+        slide,
+        canvas,
+        headline=content.headline,
+        diagram=content.diagram,
+        source=content.source,
+        accent=content.accent,
+    )
