@@ -163,14 +163,14 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | **tested** | tested | **tested** | | | | |
-| A2 numbers | partial | partial | partial | **tested** | | | | |
-| A3 validation | partial | partial | partial | **tested** | | | | |
-| A4 isolation | not-started | **tested** | tested | tested | | | | |
-| A5 framing | not-started | partial | partial | **enforced** | | | | |
-| A6 reproducibility | partial | partial | partial | partial | | | | |
-| A7 gates | **enforced** | **enforced** | **tested** | **tested** | | | | |
-| A8 uncertainty | not-started | partial | **enforced** | **tested** | | | | |
+| A1 citation | **tested** | **tested** | tested | **tested** | tested | | | |
+| A2 numbers | partial | partial | partial | **tested** | tested | | | |
+| A3 validation | partial | partial | partial | **tested** | tested | | | |
+| A4 isolation | not-started | **tested** | tested | tested | tested | | | |
+| A5 framing | not-started | partial | partial | **enforced** | **enforced** | | | |
+| A6 reproducibility | partial | partial | partial | partial | partial | | | |
+| A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | | | |
+| A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | | | |
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
@@ -242,6 +242,14 @@ refuses to name anything `bytes_match`. Marking the cell `enforced` against a st
 know to be wrong would be the dishonest kind of green. **B29 proposes a correction to this
 document's own wording and is waiting on the owner**; changing what an invariant says is not
 the implementer's call (plan §0.4).
+
+**Phase 3a notes.** A1 is **strengthened by construction**: a diagram node cannot hold an
+uncited fact, renderers never compose or resolve citations, and `timeline` takes a
+`DiagramSpec` precisely so no renderer makes an A1 decision. A3's diagram-node claims block
+render. A5 stays `enforced`, for the reason recorded in the Phase 2b notes above, and the
+headers work is where that gap was found. D10/D11/D13 are enforced and tested by
+construction: native shapes, zero grouped shapes, zero baked RGB, zero image parts, blocking
+grammar lints.
 
 Fill each cell as its phase completes. A phase whose brief claims an invariant cannot
 close its gate with that cell below `enforced`.

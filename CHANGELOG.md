@@ -7,6 +7,91 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Phase 3a: design system
+
+All of Phase 3a's shipped work. **PHASE-3A has no owner gate of its own** — the owner
+reviews this work in a rendered deck at GATE 3, and gate status is **pending**; "What the
+owner actually checked" is nothing yet. Suite at tip: **1098 passed, 0 skipped, 10 live
+deselected**, which requires the three environment dependencies in **B34**. See
+`docs/handovers/PHASE-3A.md`.
+
+### Added
+- `layout_kit.py` — composition layer: `Frame`, `Stack`, `Box.reserve`, `measure_block`;
+  nothing shrinks text, over-budget raises. Renderers 186→115 and 208→154 lines.
+- `components/catalog.py` — registry: `register()` with name, roles, slots, renderer,
+  content class, preview together; variants; `components_missing_previews()`.
+- `ir/models.py` — `DiagramSpec` type system: relationship declared before geometry, typed
+  payloads, `GEOMETRIES`; a node must be exactly one of `claim`/`framing`
+  (unconstructible otherwise, mutation-tested).
+- Merge of the 2b accuracy fixes, including an identity check that verdicts written through
+  a `ClaimSite` reach the stored node; later A2 noun fix.
+- `components/preview.py` — golden-preview loop and `autodeck components preview`.
+- 15 components, each with a committed golden PNG: big_number, two_column_compare (spike);
+  quote, bullets_supporting, callout_takeaway; title, section_divider, agenda, closing_cta,
+  before_after, evidence_with_figure, data_card_grid; framework_diagram, timeline,
+  chart_focus.
+- Budgets resolve a real face per weight/style; exact integer prediction-vs-render
+  line-count cross-check.
+- `theme/` — mode (b) from tokens with inheritance proven; mode (a) extraction against a
+  synthetic template only.
+- `icons/` — licence record first (ISC + MIT carve-out, suitable); semantic library, deck
+  consistency checker, `Frame.icon`.
+- `headers/` — profile loader, profile in the content prompt, `--header-style` one-flag
+  switch on `autodeck content`, horizontal-flow QA.
+- `charts.py` — native charts, data in an embedded workbook referenced by formula, no image
+  part ever.
+- `diagrams.py` + `draw.py` — process_flow, two_by_two, layered_stack as ungrouped native
+  shapes with theme colours.
+- `grammar.py` — D13 lints: word budget, ≤1 diagram, icon+chart+diagram pileup (blocking);
+  concept count (advisory); icon adjacency (blocking, uncalibrated).
+- `ContentResult.incomplete_slots` split from `rejections`.
+- `scripts/install-dev-fonts.sh`; CI fonts; vendored geometry reference — infra: installs
+  dev fonts; CI installs fonts; `ISOSCELES` correction to the vendored geometry reference.
+
+### Fixed
+- **Bold budgets were under-predicted by 3–8.5%** (Inter Display 6.1%, Inter 2.8%,
+  Liberation Sans 8.5%), because face resolution always returned the regular file. Caught
+  only by looking at a golden PNG — a rule struck through a wrapped headline — while every
+  automated check stayed green, because `check_overflow` compares a prediction with itself.
+  The flag was dropped in two places (`measure_block`, `ComponentSlot`). Fixed, plus an
+  **exact integer prediction-vs-render cross-check**. `RENDER_TOLERANCE` was the wrong
+  *shape* (1/N of total height: 36% at one line, 3.3% at six) — replaced by a fraction of
+  one line box.
+- `overflow_width` was discarded by `Canvas.measure`: an unbreakable word measured as one
+  line and rendered past the edge. `big_number`'s supporting points had no overflow check.
+- Chevron labels were centred on the bounding box, but the preset's filled region starts at
+  the notch tip: white text landed in the unfilled notch, invisible on white. Caught only by
+  rendering.
+- The vendored authority was wrong: `ISOCELES_TRIANGLE` is not a python-pptx member —
+  corrected to `ISOSCELES_TRIANGLE`.
+- Registering seven components broke seven citation tests, because those names had been
+  unregistered so budgets had been skipped for them — `ContentResult.rejections` mixed "the
+  writer produced something that does not fit" with "the writer produced nothing for this
+  slot"; split into `incomplete_slots` (B33).
+- CI had no fonts: fresh containers lacked Inter, `libreoffice-impress` and
+  `poppler-utils`, so 32 render tests could not run while CI stayed green (B34).
+
+### Changed
+- Opus writes the scaffold; Sonnet writes the code, in guardrail paths too — superseding
+  B28's "guardrail paths hold their tier" for code (**B32**).
+- A missing required slot is its own finding kind, `ContentResult.incomplete_slots`,
+  separate from `rejections` (**B33**).
+- `scripts/setup-dev-env.sh` installs fonts, `libreoffice-impress` and `poppler-utils`; CI
+  installs the fonts only (**B34**).
+
+### Open
+- **The four PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — theme,
+  icons, charts, diagrams — each a numbered procedure the owner can run in one sitting. See
+  `docs/handovers/PHASE-3A.md` §7.
+- `check_overflow`'s sibling-floor policy passes content the renderer then refuses: each
+  slot's budget assumes siblings take one line, and nothing checks both can hold at once.
+- A dated-axis timeline: `timeline` renders the sequence as chevrons and refuses any
+  non-sequence geometry.
+- Theme mode (a) against a real corporate template — Q5 unanswered; synthetic only proves
+  the path runs.
+
+---
+
 ## [Unreleased] — Phase 2b: content, linters, validation
 
 All eleven Phase 2b tasks. **GATE 2 is not closed** — it asks the owner to read the claims

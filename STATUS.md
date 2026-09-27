@@ -7,13 +7,13 @@ every phase handover. If this file disagrees with your memory, this file is righ
 
 | | |
 |---|---|
-| **Current phase** | Phase 2b — content, linters, validation |
-| **Integration branch** | `v2/integration` — **unchanged since Phase 1.** 2a and 2b are stacked and unmerged (B27) |
-| **Active phase branch** | `v2/phase-2b-content-validate`, cut from `v2/phase-2a-plan-outline`'s tip |
+| **Current phase** | Phase 3a — design system |
+| **Integration branch** | `v2/integration` — **unchanged since Phase 1.** 2a, 2b and 3a are stacked and unmerged (B27) |
+| **Active phase branch** | `v2/phase-3a-design-system`, cut from `v2/phase-2b-content-validate`'s tip |
 | **Last gate passed** | **GATE 1** — approved 2026-09-18 (DECISIONS.md G1), at the precision that entry records |
-| **Next gate** | **GATE 2 — open, waiting on the owner** |
-| **Latest handover** | `docs/handovers/PHASE-2B.md` |
-| **Updated** | 2026-09-19 |
+| **Next gate** | **GATE 2 — open**, then GATE 3 after Phase 3b |
+| **Latest handovers** | `docs/handovers/PHASE-2B.md`, `docs/handovers/PHASE-3A.md` |
+| **Updated** | 2026-09-27 |
 
 ## What the adversarial review found
 
@@ -21,11 +21,12 @@ Phase 2b's handover was written from a green suite of 736 tests. An independent 
 review then found holes those tests did not reach — 11 findings, 9 demonstrated by executing
 against the code, with 6 of those reproduced independently by the orchestrator before
 acting — and twelve commits fixed them. The review ran on Opus; the planned Fable 5.1
-returned HTTP 429, "requires usage credits". The suite on the phase branch now stands at
-**839 passed, 0 skipped, 10 live-marked and deselected** — the 13 font-dependent skips are
-gone because fonts are installed, and CI now installs the OFL dev fonts too, since `3cac30e`
-on the 3a branch. See `docs/handovers/PHASE-2B.md` §6.9–§6.13 for what the review found and
-how it was closed.
+returned HTTP 429, "requires usage credits". The suite on the phase branch stood at
+839 passed, 0 skipped, 10 live-marked and deselected at the time — the 13 font-dependent
+skips are gone because fonts are installed, and CI now installs the OFL dev fonts too,
+since `3cac30e` on the 3a branch. The suite at tip, including Phase 3a, is
+**1098 passed, 0 skipped, 10 live-marked and deselected**. See `docs/handovers/PHASE-2B.md`
+§6.9–§6.13 for what the review found and how it was closed.
 
 **The corrected coverage: A2 and A3 stay `tested`, corrected in place; A5 is downgraded from
 `tested` to `enforced`.** A5's fence is a closed list of factual phrasings — ordinary
@@ -36,12 +37,15 @@ percent", "four times"); A3's `chart` blocks never receive a verdict.
 
 ## Next action
 
-**Judge GATE 2 on a real deck.** Phase 2b is code complete — all eleven tasks, 839 tests —
+**Judge GATE 2 on a real deck.** Phase 2b is code complete — all eleven tasks, 1098 tests —
 but **no live milestone run exists**, and that is the invariant working rather than a
 shortfall. `autodeck content` refuses to run without an approved outline, and no flag
 anywhere approves a gate. GATE 1's approval was given against a run whose `runs/` directory
 was derived data on a machine that no longer exists, so the milestone starts from the
-planning session again:
+planning session again.
+
+Before running anything, `./scripts/setup-dev-env.sh` (B34) — without it the render checks
+cannot run.
 
 ```bash
 export GEMINI_API_KEY=...
@@ -88,6 +92,16 @@ one `validation` call per six claims, spread across five models (B25).
   machine without it. Checks #1–#3 still need the owner's machine.
 - **The Claude adapter has never been called live.** The first `sit` run will be its first
   real request.
+
+### New debt from Phase 3a
+
+- **The four PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — see
+  `docs/handovers/PHASE-3A.md` §7.
+- `check_overflow`'s sibling-floor gap: each slot's budget assumes siblings take one line;
+  nothing checks both can hold at once.
+- Diagram and chart labels are protected only at render, not by `check_overflow`.
+- The icon-adjacency threshold is uncalibrated — no component places icons yet.
+- Theme mode (a) is proven against a synthetic template only, not a real corporate one.
 
 ### New debt from Phase 2b
 
@@ -174,14 +188,14 @@ See the tracker in `docs/INVARIANTS.md`.
 | 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | **merged — gate approved** |
 | 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | **gate approved (G1) — unmerged, stacked under 2b** |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | GATE 2 | **code complete — gate open** |
-| 3a — Design system | `v2/phase-3a-design-system` | internal | not started |
+| 3a — Design system | `v2/phase-3a-design-system` | internal | **code complete, internal review pending** |
 | 3b — Renderer & QA | `v2/phase-3b-render-qa` | GATE 3 | not started |
 | 4 — Consulting workflow | `v2/phase-4-workflow` | GATE 4 | not started |
 | 5 — Evals & hardening | `v2/phase-5-evals-hardening` | — | not started |
 
 ## What exists today
 
-Phases 0 through 2b, on `v2/phase-2b-content-validate`. **839 tests pass** (0 skipped, 10
+Phases 0 through 3a, on `v2/phase-3a-design-system`. **1098 tests pass** (0 skipped, 10
 live-marked and deselected — fonts are installed, and CI now installs the OFL dev fonts
 too); ruff and pyright are clean.
 
@@ -190,7 +204,7 @@ too); ruff and pyright are clean.
 - **Providers** (`autodeck/providers/`) — protocol, repair-retry, 429 backoff, resumable
   cache, Gemini/Groq/Claude adapters, `dev`/`sit`/`prod` registry.
 - **Design system** (`autodeck/design/`) — font resolution, glyph-metric budgets, OOXML
-  theme builder, `layout_kit`, two components, SVG→`custGeom` icon converter.
+  theme builder, `layout_kit`, 15 components, SVG→`custGeom` icon converter.
 - **Pipeline** (`autodeck/pipeline/`, `autodeck/audit/`, `autodeck/cli.py`) — run dirs,
   resumable stages, blocking gates, A6 manifest, CLI.
 - **Spike artifacts** (`spikes/gate0/`) — the three PPTX files GATE 0 turns on.
@@ -241,3 +255,26 @@ too); ruff and pyright are clean.
   derivation, conflicts recorded without averaging, a canonical PPTX digest.
 - **GATE 2** (`autodeck/cli.py`, `autodeck/pipeline/send_back.py`) — `content`, `validate`,
   `gate2`, `send-back`. Rejecting a named claim existed nowhere before this phase.
+
+### Added in Phase 3a
+
+- `layout_kit.py` — composition layer: `Frame`, `Stack`, `Box.reserve`, `measure_block`;
+  nothing shrinks text, over-budget raises.
+- `components/catalog.py` — component registry: `register()`, variants,
+  `components_missing_previews()`.
+- `ir/models.py` — `DiagramSpec` type system; a node must be exactly one of `claim`/`framing`.
+- `components/preview.py` — golden-preview loop and `autodeck components preview`.
+- 15 components, each with a committed golden PNG.
+- Budgets resolve a real face per weight/style; exact integer prediction-vs-render line-count
+  cross-check.
+- `theme/` — mode (b) from tokens with inheritance proven; mode (a) against a synthetic
+  template only.
+- `icons/` — licence record, semantic library, deck consistency checker, `Frame.icon`.
+- `headers/` — profile loader, profile in the content prompt, `--header-style` flag on
+  `autodeck content`, horizontal-flow QA.
+- `charts.py` — native charts, data in an embedded workbook referenced by formula, no image
+  part ever.
+- `diagrams.py` + `draw.py` — process_flow, two_by_two, layered_stack as ungrouped native
+  shapes with theme colours.
+- `grammar.py` — D13 lints: word budget, ≤1 diagram, icon+chart+diagram pileup (blocking);
+  concept count (advisory); icon adjacency (blocking, uncalibrated).
