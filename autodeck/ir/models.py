@@ -1375,6 +1375,39 @@ class Block(IRModel):
         return any(site.blocks_render() for site in self.claim_sites())
 
 
+TypeScale = Literal["compact", "standard", "spacious"]
+"""A multiplier on the token type scale, never a point size — a slide cannot leave the
+client's type scale, only choose a step of it."""
+
+AccentToken = Literal["accent1", "accent2", "accent3", "accent4", "accent5", "accent6"]
+"""Theme accent slots. A literal colour is unrepresentable here on purpose (D1)."""
+
+ColumnBalance = Literal["even", "lead_left", "lead_right"]
+"""How a two-column component divides its width. Named, not numeric, so the aesthetic
+loop cannot request geometry — only choose among layouts the component was built for."""
+
+
+class SlideStyle(IRModel):
+    """Presentation decisions for one slide, and the ONLY thing presentation may change.
+
+    Phase 3b's aesthetic loop and art-direction pass act on the IR through the closed
+    action set in `autodeck/ir/actions.py`, and every one of those actions writes here, to
+    `Slide.component` / `Slide.communication_mode`, to a block's `slot`, or to an
+    `IconRef`'s glyph and colour — never to a claim, a citation or any free text. Every
+    field is a closed vocabulary or an id, so there is no field through which an edited
+    sentence could travel. Defaults reproduce the rendering every component had before
+    this model existed, so adding it changes nothing about a deck that never sets it.
+    """
+
+    type_scale: TypeScale = "standard"
+    accent: AccentToken = "accent1"
+    column_balance: ColumnBalance = "even"
+    emphasis_block_id: str | None = Field(
+        default=None,
+        description="The one block given visual emphasis, by id. An address, not content.",
+    )
+
+
 class Slide(IRModel):
     """A single slide: a component assignment plus the blocks filling its slots.
 
@@ -1386,6 +1419,7 @@ class Slide(IRModel):
     narrative_role: str = Field(min_length=1)
     component: str = Field(min_length=1, description="Catalog component name (§6.6).")
     communication_mode: CommunicationMode | None = None
+    style: SlideStyle = Field(default_factory=SlideStyle)
     blocks: list[Block] = Field(default_factory=list)
     speaker_notes: list[Block] = Field(default_factory=list)
 

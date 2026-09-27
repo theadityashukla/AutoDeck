@@ -10,6 +10,12 @@
       "narrative_role": "big_number",
       "component": "big_number",
       "communication_mode": "text_led",
+      "style": {
+        "type_scale": "standard",
+        "accent": "accent1",
+        "column_balance": "even",
+        "emphasis_block_id": null
+      },
       "blocks": [
         {
           "id": "s1-b1",
@@ -138,6 +144,12 @@
       "narrative_role": "evidence",
       "component": "two_column_compare",
       "communication_mode": "icon_anchored",
+      "style": {
+        "type_scale": "standard",
+        "accent": "accent1",
+        "column_balance": "even",
+        "emphasis_block_id": null
+      },
       "blocks": [
         {
           "id": "s2-b1",
