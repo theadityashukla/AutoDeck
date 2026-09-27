@@ -31,6 +31,24 @@ Three checks, each independent:
 PHASE-3B's escalation trigger applies to every finding here: **a discrepancy is not tuned
 away — it means something in the pipeline is rewriting content, and the mechanism must be
 found.** So every finding names the slide, the check, and the expected and actual text.
+
+**Found while building 3b's demo deck, escalated rather than worked around here: a diagram
+node's claim fails claim survival on every clean render where its `claim.text` differs from
+its `label`.** This module's own contract says diagram-node claims are "checked like face
+claims" (`deck.claim_sites()` walks them in), which means against the rendered *face* text.
+But `autodeck.design.diagrams.place_diagram` draws only `node.label` for every geometry
+(`process_flow`, `two_by_two`, `layered_stack`) and never `node.claim.text` — the same
+asymmetry `numeric_linter._diagram_scopes` already treats as two separate scopes because they
+routinely differ. `label != claim.text` is not an edge case; it is the documented shape of
+`preview.EXAMPLES["framework_diagram"]`'s own "enterprise" node (a short label, a longer
+cited sentence backing it), committed as the golden example. So any diagram node built the
+way that example is built — the normal way — gives a "claim altered in render" finding here
+even though nothing rewrote anything: the claim was never printed verbatim anywhere for it to
+survive as. Two fixes are possible and neither is this module's or `diagrams.py`'s alone to
+pick: extend the diagram renderer to make a claimed node's full text reachable somewhere on
+the slide (notes? a tooltip-like caption?), or redefine what "survives" means for a diagram
+node claim — its `label`, not its `claim.text`, mirroring the numeric linter's own treatment.
+Not loosened here; the check as specified is implemented exactly, and this is what it finds.
 """
 
 from __future__ import annotations
