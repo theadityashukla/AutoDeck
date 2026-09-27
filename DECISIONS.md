@@ -856,3 +856,62 @@ the owner with options.
   actually available, including for the review passes the plan reserved for Fable.
 - **Consequence:** the Phase 3a handover's §3 and §7 carry all three gaps, and none of them
   may be quietly closed by a later phase noticing the box is ticked.
+
+### B32 — Opus writes the scaffold; Sonnet writes the code
+- **Date:** 2026-09-27
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active — supersedes B28's "guardrail paths hold their tier" for code
+- **Context:** owner instructions during this batch — "use Sonnet and Haiku" (start), "Why
+  is Opus doing all the work? … use the correct model" (2026-09-20), "Opus should only
+  create the scaffolding. The code can be filled in by sonnet" (2026-09-27). Before the
+  correction the batch had run 10 Opus / 12 Sonnet / 0 Haiku dispatches; two Opus dispatches
+  were outside any guardrail path, justified by "foundational" and "accuracy-critical",
+  which is not the rule.
+- **Decision:** Opus writes design decisions, module layout, types, contracts as
+  docstrings, and tests as named stubs stating exact inputs and expected results; Sonnet
+  implements; Opus verifies against the scaffold. **This applies in guardrail paths too**,
+  superseding B28's "guardrail paths hold their tier" for code. Mechanism: the scaffold is
+  its own commit (so history shows design vs implementation), function bodies raise
+  `NotImplementedError`, test stubs are `xfail(strict=True)` so a passing stub still wearing
+  its marker fails the suite and no marker can survive the fill. Documentation follows the
+  same split: Opus writes a skeleton of every fact and judgement, Sonnet writes the prose.
+- **Rationale:** the owner's correction was explicit and repeated; the previous rule (B28)
+  optimised for which module a task touched, not for who should be deciding versus
+  implementing within it.
+- **Consequences:**
+  - Opus reviews every guardrail-path diff.
+  - First two uses (A2 quantity nouns, components 13–15) landed with the contract intact and
+    one scaffold error found and reported by the implementer.
+
+### B33 — Registering a component is not a local change
+- **Date:** 2026-09-20
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active
+- **Context:** commit 6f2c3ae registered seven components; seven citation-resolution tests
+  in `test_content.py` failed, because those names had been unregistered, so budgets had
+  been skipped for them, and `ContentResult.rejections` mixed "the writer produced something
+  that does not fit" with "the writer produced nothing for this slot".
+- **Decision:** a missing required slot is its own finding kind — `ContentResult.incomplete_slots`
+  — separate from `rejections`.
+- **Rationale:** the two failure kinds need different downstream handling (send-back vs
+  a gap in coverage) and conflating them under `rejections` hid which one had actually
+  occurred.
+- **Consequences:**
+  - A test that needs an unregistered component must use a name guaranteed never to be
+    registered.
+  - `headers/flow.py` and `cli.py`'s content summary also change behaviour on registration
+    (the CLI now under-reports `incomplete_slots` — open).
+
+### B34 — The environment is part of the project
+- **Date:** 2026-09-27
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active
+- **Context:** fresh containers lacked the Inter fonts, `libreoffice-impress` and
+  `poppler-utils`. Without the fonts, budgets are refused (B11); without the other two, 32
+  render tests — every prediction-vs-render check — fail. CI deselects render tests (B10),
+  so CI stayed green while those checks could not run.
+- **Decision:** `scripts/setup-dev-env.sh` installs all three; CI installs the fonts only.
+- **Rationale:** CI has no render path to protect (B10), so only the fonts are worth its
+  time; a developer or render machine needs the full set to trust a green suite at all.
+- **Consequences:**
+  - A green local suite is meaningful only after the setup script has run.
