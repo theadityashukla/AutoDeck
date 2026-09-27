@@ -167,7 +167,7 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 | A2 numbers | partial | partial | partial | **tested** | | | | |
 | A3 validation | partial | partial | partial | **tested** | | | | |
 | A4 isolation | not-started | **tested** | tested | tested | | | | |
-| A5 framing | not-started | partial | partial | **tested** | | | | |
+| A5 framing | not-started | partial | partial | **enforced** | | | | |
 | A6 reproducibility | partial | partial | partial | partial | | | | |
 | A7 gates | **enforced** | **enforced** | **tested** | **tested** | | | | |
 | A8 uncertainty | not-started | partial | **enforced** | **tested** | | | | |
@@ -206,15 +206,28 @@ outline agent refuses an unsigned brief outright.
 A3 stays `partial` — the validator is Phase 2b — but B25 now binds `validation` to a
 different model from the writer, which is the cheap version of the independence A3 wants.
 
-**Phase 2b notes.** Five cells move to `tested`. A2 and A5 gain linters that block rather
-than warn: every numeral must trace to a cited span or a re-executed derivation, and a
-`framing` block carrying a fact is *demoted* to `claim`, where `Claim.citations` refuses to
-construct it. A3 gains the behaviour it had no v1 ancestor for — independent re-retrieval
-with a separate contradiction pass, and a rule ordered so that a contradicting span
-elsewhere in the corpus outranks a perfectly valid citation. A8 becomes `tested` rather than
-`enforced`: `open_risks` resurface in the audit report, conflicting sources appear with both
-spans rather than an average, and a provider failure returns `unverified` with a reason
-instead of a guess.
+**Phase 2b notes.** Four cells move up. A2 and A5 gain linters that block rather than warn:
+every numeral must trace to a cited span or a re-executed derivation, and a `framing` block
+carrying a fact is *demoted* to `claim`, where `Claim.citations` refuses to construct it. A3
+gains the behaviour it had no v1 ancestor for — independent re-retrieval with a separate
+contradiction pass, and a rule ordered so that a contradicting span elsewhere in the corpus
+outranks a perfectly valid citation. A8 becomes `tested` rather than `enforced`:
+`open_risks` resurface in the audit report, conflicting sources appear with both spans
+rather than an average, and a provider failure returns `unverified` with a reason instead of
+a guess.
+
+**Corrected after independent review.** The handover this cell's history is drawn from
+originally marked A2, A3 and A5 `tested`. That was true of the tests and false of the code —
+an independent adversarial review found holes the tests did not reach, and twelve commits
+fixed them (`docs/handovers/PHASE-2B.md` §6.9–§6.13). A2 and A3 are corrected in place and
+remain `tested`, each carrying a named residual gap: A2 cannot see numbers written as words
+("forty percent", "four times", "quadrupled", "a third"); A3's `chart` blocks never receive
+a verdict, and the supporting-span ceiling is satisfied by any substring of a retrieved
+element. **A5 alone moves cells, down from `tested` to `enforced`**: the fence is a closed
+list of factual phrasings, tested on what it lists, and ordinary factual language outside
+that list — "Quantisation halves serving cost" as an uncited `section_header`, no numeral,
+no superlative, "halves" not in the multiplier list — passes uncited. Headers are terse by
+construction, which is exactly what strips the patterns A5 matches.
 
 Two of these are worth reading with their traps attached. **A clean `Deck` is no longer
 sufficient evidence that A1 and A5 hold** — a demoted framing block, and a validation pass
