@@ -1086,6 +1086,54 @@ def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
 # The registrations
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Components 13-15 — SCAFFOLD (Opus). Sonnet fills the three builders and registers them.
+# ---------------------------------------------------------------------------
+#
+# Registration is deliberately NOT in the scaffold: several tests iterate every registered
+# component, so registering a stub would turn the suite red. The fill adds three
+# `register(...)` calls beside the others, in the same form, with:
+#
+#   name="framework_diagram", narrative_roles=("structural relationship",
+#       "how the parts fit"), content_type=framework_diagram.FrameworkDiagramContent,
+#       slots=_framework_diagram_slots
+#   name="timeline", narrative_roles=("sequence over time", "roadmap"),
+#       content_type=timeline.TimelineContent, slots=_timeline_slots
+#   name="chart_focus", narrative_roles=("quantitative evidence", "trend"),
+#       content_type=chart_focus.ChartFocusContent, slots=_chart_focus_slots
+#
+# each with `renderer=<module>.render` and `preview=PREVIEW_DIR / "<name>.png"`.
+
+
+def _framework_diagram_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the headline box `renderers/framework_diagram.py` computes for itself.
+
+    One slot, `headline`, mirroring `_bullets_supporting_slots`' headline exactly (same
+    style, same literal gaps — the renderer copies them from `bullets_supporting`). The
+    diagram region is **not** a slot: its boxes depend on node count, which a `Canvas`-only
+    builder cannot know. Say in this docstring what protects the diagram's labels instead
+    (IR word budget at construction; physical fit at render) so nobody later adds a fake
+    fixed-size slot to make the table look complete.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
+def _timeline_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Identical to `_framework_diagram_slots`; may simply delegate to it, saying why."""
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
+def _chart_focus_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """`headline` (as `_framework_diagram_slots`) and an optional one-line `takeaway`.
+
+    `takeaway` is reserved at the bottom of the body before the chart takes the rest, so
+    its box is known without knowing the chart; cap it to one line, and mark it optional.
+    The chart's own text is measured by `charts.py` at render and is not a slot here.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
 register(
     name="big_number",
     narrative_roles=("headline metric", "single-figure proof point"),
