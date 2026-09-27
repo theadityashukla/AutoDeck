@@ -1,8 +1,6 @@
 """The closed action set through which presentation may change a deck (Phase 3b, task 3b.5).
 
-SCAFFOLD (Opus). The types below are the invariant and are final; `apply_action` and
-`fact_fingerprint` raise `NotImplementedError` and are Sonnet's to implement to their
-docstrings. Tests: `tests/test_actions.py`.
+The types below are the invariant and are final. Tests: `tests/test_actions.py`.
 
 **The defining constraint of Phase 3b: the aesthetic loop may never edit claim text or
 citations, and that must be structural, not a prompt instruction** (PHASE-3B.md). A vision
@@ -50,11 +48,13 @@ from pydantic import Field
 
 from autodeck.ir.models import (
     AccentToken,
+    Block,
     ColumnBalance,
     CommunicationMode,
     Deck,
     IRModel,
     LayoutPin,
+    Slide,
     TypeScale,
 )
 
@@ -228,7 +228,61 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
         re-slots blocks leaves it unchanged, while a block that disappears changes it.
       - Pure; never mutates `deck`.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    claim_entries: list[tuple[tuple[str, str, str | None, bool], object]] = []
+    for site in deck.claim_sites():
+        identity = (site.slide_id, site.block_id, site.node_id, site.in_speaker_notes)
+        claim_entries.append((identity, site.claim.model_dump(mode="python")))
+    claim_entries.sort(
+        key=lambda entry: (entry[0][0], entry[0][1], entry[0][2] or "", entry[0][3])
+    )
+
+    block_entries: list[tuple[tuple[str, str, bool], object]] = []
+    for slide in deck.slides:
+        for in_notes, blocks in ((False, slide.blocks), (True, slide.speaker_notes)):
+            for block in blocks:
+                content = (
+                    block.text,
+                    block.chart.model_dump(mode="python") if block.chart is not None else None,
+                    block.diagram.model_dump(mode="python")
+                    if block.diagram is not None
+                    else None,
+                    block.figure.model_dump(mode="python")
+                    if block.figure is not None
+                    else None,
+                )
+                block_entries.append(((slide.id, block.id, in_notes), content))
+    block_entries.sort(key=lambda entry: (entry[0][0], entry[0][1], entry[0][2]))
+
+    return (tuple(claim_entries), tuple(block_entries))
+
+
+# ---------------------------------------------------------------------------
+# Address lookups — private, shared by `_apply_unchecked`
+# ---------------------------------------------------------------------------
+
+
+def _find_slide(deck: Deck, slide_id: str) -> Slide:
+    for slide in deck.slides:
+        if slide.id == slide_id:
+            return slide
+    raise UnknownAddressError(f"unknown slide_id {slide_id!r}")
+
+
+def _find_icon_block(slide: Slide, block_id: str) -> Block:
+    for block in slide.all_blocks():
+        if block.id == block_id:
+            if block.kind != "icon":
+                raise ActionRejected(
+                    f"block {block_id!r} on slide {slide.id!r} is of kind {block.kind!r}, "
+                    "not 'icon'"
+                )
+            return block
+    raise UnknownAddressError(f"unknown block_id {block_id!r} on slide {slide.id!r}")
+
+
+def _is_pinned(slide: Slide, pins: Sequence[LayoutPin], target: str) -> bool:
+    """Whether a `LayoutPin` on `target` applies to `slide` (its `message_id` is served)."""
+    return any(pin.target == target for pin in pins if pin.message_id in slide.message_ids)
 
 
 def apply_action(
@@ -268,4 +322,107 @@ def apply_action(
         detection works sabotages `_apply_unchecked` to edit a claim and asserts
         `FactMutationError` — a check that has never been seen to fire is not a check.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    new_deck = _apply_unchecked(deck, action, pins=pins, slots_of=slots_of, glyph_for=glyph_for)
+    before = fact_fingerprint(deck)
+    after = fact_fingerprint(new_deck)
+    if before != after:
+        raise FactMutationError(
+            f"applying {action.kind!r} changed a fact; this is a defect in apply_action "
+            "itself, not in the action, since the action's fields cannot address a fact"
+        )
+    return new_deck
+
+
+def _apply_unchecked(
+    deck: Deck,
+    action: SetTypeScale
+    | SetAccent
+    | SetColumnBalance
+    | SetEmphasis
+    | SetCommunicationMode
+    | SwapComponent
+    | SwapGlyph
+    | SetIconColour,
+    *,
+    pins: Sequence[LayoutPin],
+    slots_of: SlotLookup,
+    glyph_for: ConceptLookup,
+) -> Deck:
+    """Apply `action` to a deep copy of `deck` and return it, unchecked.
+
+    Does the actual mutation and the address/pin validation that guards it; the fingerprint
+    check that catches a bug here lives in `apply_action`, one layer up.
+    """
+    new_deck = deck.model_copy(deep=True)
+    slide = _find_slide(new_deck, action.slide_id)
+
+    if isinstance(action, SetTypeScale):
+        slide.style.type_scale = action.scale
+
+    elif isinstance(action, SetAccent):
+        slide.style.accent = action.accent
+
+    elif isinstance(action, SetColumnBalance):
+        slide.style.column_balance = action.balance
+
+    elif isinstance(action, SetEmphasis):
+        if action.block_id is not None and not any(
+            block.id == action.block_id for block in slide.blocks
+        ):
+            raise UnknownAddressError(
+                f"block_id {action.block_id!r} is not on the face of slide {action.slide_id!r}"
+            )
+        slide.style.emphasis_block_id = action.block_id
+
+    elif isinstance(action, SetCommunicationMode):
+        if _is_pinned(slide, pins, "communication_mode"):
+            raise PinnedTargetError(
+                f"slide {action.slide_id!r} has a pinned communication_mode"
+            )
+        slide.communication_mode = action.mode
+
+    elif isinstance(action, SwapComponent):
+        target_slots = slots_of(action.component)
+        if target_slots is None:
+            raise UnknownAddressError(f"unknown component {action.component!r}")
+        if _is_pinned(slide, pins, "component"):
+            raise PinnedTargetError(f"slide {action.slide_id!r} has a pinned component")
+
+        face_slots = {block.slot for block in slide.blocks}
+        unmapped = sorted(slot for slot in face_slots if slot not in action.slot_map)
+        if unmapped:
+            raise ActionRejected(
+                f"slot_map does not cover slot(s) {', '.join(unmapped)} on slide "
+                f"{action.slide_id!r}; an unmapped block would be orphaned"
+            )
+        unknown_targets = sorted(
+            {dst for dst in action.slot_map.values() if dst not in target_slots}
+        )
+        if unknown_targets:
+            raise ActionRejected(
+                f"slot_map maps to slot(s) {', '.join(unknown_targets)} that component "
+                f"{action.component!r} does not have"
+            )
+
+        slide.component = action.component
+        for block in slide.blocks:
+            block.slot = action.slot_map[block.slot]
+
+    elif isinstance(action, SwapGlyph):
+        block = _find_icon_block(slide, action.block_id)
+        glyph_id = glyph_for(action.concept)
+        if glyph_id is None:
+            raise UnknownAddressError(f"unknown icon concept {action.concept!r}")
+        assert block.icon is not None  # guaranteed by Block's kind/payload agreement
+        block.icon.concept = action.concept
+        block.icon.glyph_id = glyph_id
+
+    elif isinstance(action, SetIconColour):
+        block = _find_icon_block(slide, action.block_id)
+        assert block.icon is not None  # guaranteed by Block's kind/payload agreement
+        block.icon.color_token = action.color_token
+
+    else:  # pragma: no cover - Action is a closed, exhaustively-handled union
+        raise AssertionError(f"unhandled action kind: {action.kind!r}")
+
+    return new_deck
