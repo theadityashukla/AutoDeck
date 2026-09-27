@@ -117,12 +117,14 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
 
 > Every deck ships the frozen IR, an audit report (slide → claim → verdict → doc/page →
 > verbatim quote), and a build manifest (model IDs, prompt hashes, knowledge git commit,
-> component library version). Same manifest + IR re-renders byte-comparable output.
+> component library version). Same manifest + IR re-renders normalised-comparable output
+> under a recorded normalisation.
 
 - **Enforced by:** `autodeck/audit/report.py`, `autodeck/audit/manifest.py`.
 - **Owning phases:** Phase 2b (report + manifest), Phase 3b (render determinism),
   Phase 4 (client-presentable PDF).
-- **Proves it:** render twice from one manifest+IR and diff, excluding timestamps.
+- **Proves it:** render twice from one manifest+IR and compare `canonical_pptx_digest`
+  under the recorded normalisation (`PPTX_NORMALISATION`); raw bytes are never compared.
 - **Watch for:** PPTX zip entry order and embedded creation timestamps will break naive
   byte comparison — normalise before comparing, and record the normalisation.
 
@@ -168,7 +170,7 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 | A3 validation | partial | partial | partial | **tested** | tested | | | |
 | A4 isolation | not-started | **tested** | tested | tested | tested | | | |
 | A5 framing | not-started | partial | partial | **enforced** | **enforced** | | | |
-| A6 reproducibility | partial | partial | partial | partial | partial | | | |
+| A6 reproducibility | partial | partial | partial | **enforced** | enforced | | | |
 | A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | | | |
 | A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | | | |
 
@@ -235,13 +237,14 @@ that failed outright, both leave `Deck.blocking_blocks()` empty. `require_safe_t
 the single place that knows what "safe" means, and the cells above are `tested` on that
 function, not on the deck validating.
 
-**A6 deliberately stays `partial`.** Its headline promises "byte-comparable" output, which
-is not achievable for PPTX — measured, not assumed (DECISIONS.md **B29**). The manifest
-implements the achievable property, a canonical digest over normalised package contents, and
-refuses to name anything `bytes_match`. Marking the cell `enforced` against a statement we
-know to be wrong would be the dishonest kind of green. **B29 proposes a correction to this
-document's own wording and is waiting on the owner**; changing what an invariant says is not
-the implementer's call (plan §0.4).
+**A6's wording was corrected by the owner on 2026-09-27 (DECISIONS.md B29, accepted).** The
+headline used to promise "byte-comparable" output, which is not achievable for PPTX —
+measured, not assumed: two identical saves differ in bytes while the canonical digest
+matches. It now promises normalised-comparability under a recorded normalisation, which is
+what the "watch for" line always said and what `canonical_pptx_digest` implements. This is a
+correction of the statement, not a relaxation of the guarantee. The P2b cell moves from
+`partial` to `enforced`: the report and manifest halves exist and are tested, and the proof
+the invariant names — render twice and compare digests — needs Phase 3b's renderer to run.
 
 **Phase 3a notes.** A1 is **strengthened by construction**: a diagram node cannot hold an
 uncited fact, renderers never compose or resolve citations, and `timeline` takes a

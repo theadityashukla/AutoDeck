@@ -731,10 +731,12 @@ the owner with options.
   - Spend is tracked per dispatch. At ~$40 the current task is finished, committed and
     pushed, and the batch stops and reports rather than starting the next one.
 
-### B29 — A6 says "byte-comparable"; that is not achievable for PPTX. Owner decision needed.
+### B29 — A6 says "byte-comparable"; that is not achievable for PPTX
 - **Date:** 2026-09-19
 - **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
-- **Status:** **open — proposed correction, not applied.** `docs/INVARIANTS.md` is unedited.
+- **Status:** **accepted by the owner, 2026-09-27, and applied.** The owner's answer: "Okay,
+  no problem." `docs/INVARIANTS.md` A6 now reads "re-renders normalised-comparable output
+  under a recorded normalisation", and its "proves it" line compares digests, never bytes.
 - **Context:** A6's headline says *"Same manifest + IR re-renders byte-comparable output."*
   Implementing task 2b.10 established that no PPTX can satisfy that, for reasons outside
   AutoDeck's control. Measured directly in this container: **two `Presentation().save()`
@@ -772,6 +774,8 @@ the owner with options.
   normalised-comparability, and Phase 3b's render determinism test targets the digest rather
   than raw bytes. **If it is rejected**, A6 is unsatisfiable as written and Phase 3b cannot
   close against it — which is the reason this is flagged now rather than at GATE 3.
+- **Applied:** the accepted branch above holds. Phase 3b's render determinism test compares
+  `canonical_pptx_digest` across two renders of one manifest+IR.
 
 ### B30 — A gate approval does not survive the machine. Owner decision needed.
 - **Date:** 2026-09-19
