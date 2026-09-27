@@ -21,19 +21,24 @@ from decimal import Decimal
 
 import pytest
 
+from autodeck.audit import numeric_linter
 from autodeck.audit.numeric_linter import (
     ALLOWLIST,
     DATE_TABLE,
     MAX_FORMULA_NODES,
+    QUALIFIER_TABLE,
     SCALE_TABLE,
     SEPARATOR_RULES,
     UNIT_TABLE,
     AllowedNumeral,
     FormulaError,
     LintScope,
+    QualifierRule,
     _canonical_unit,
+    _check_table_collisions,
     check_derivation_inputs,
     check_derivation_reconciles_sources,
+    compare_qualifiers,
     evaluate_formula,
     extract_numerals,
     input_keys,
@@ -41,6 +46,7 @@ from autodeck.audit.numeric_linter import (
     lint_rendered_slides,
     lint_scope,
     match_numerals,
+    normalise_qualifier,
     re_execute_derivation,
     suffix_allows_a_space,
 )
@@ -1477,3 +1483,222 @@ def test_every_claim_site_in_the_ir_is_scoped_by_a2_too() -> None:
         "A2 scopes no text against the evidence at these claim sites, so a numeral there "
         f"can neither match nor be traced: {missing}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Quantity nouns — same number, different noun
+# ---------------------------------------------------------------------------
+
+
+class TestQuantityNouns:
+    """Catches: the same number with a different noun passing A2 as a clean match.
+
+    Before this, `UNIT_TABLE` had no row for tokens, requests, parameters, GPUs or layers,
+    so all of them normalised to the empty unit and matched each other by value alone.
+    """
+
+    # -- the three attacks the review found, end to end through `lint_scope` ----------
+
+    @pytest.mark.parametrize(
+        ("text", "quote", "slide_noun", "source_noun"),
+        [
+            (
+                "We handle 412 requests per second.",
+                "vLLM sustains 412 tokens per second",
+                "requests",
+                "tokens",
+            ),
+            (
+                "The model has 13B parameters.",
+                "the model was trained on 13B tokens",
+                "parameters",
+                "tokens",
+            ),
+            (
+                "The cluster uses 40 GPUs.",
+                "the network has 40 layers",
+                "GPUs",
+                "layers",
+            ),
+        ],
+    )
+    def test_a_known_noun_that_differs_from_the_sources_blocks(
+        self, text: str, quote: str, slide_noun: str, source_noun: str
+    ) -> None:
+        """Each pair: `lint_scope` does not pass, with one BLOCKING finding whose check is
+        "quantity noun mismatch" and whose message names both nouns."""
+        report = lint_scope(LintScope(location="slide s1", text=text, citations=(cite(quote),)))
+        assert not report.passes, report.render()
+        assert [f.check for f in report.blocking] == ["quantity noun mismatch"]
+        detail = report.blocking[0].detail.casefold()
+        assert slide_noun.casefold() in detail
+        assert source_noun.casefold() in detail
+
+    def test_the_same_noun_in_a_synonym_is_a_clean_match(self) -> None:
+        """ "The model has 13B params." cited to "a model with 13B parameters" passes with
+        zero findings of any severity — `params` is a listed surface of `parameter`."""
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="The model has 13B params.",
+                citations=(cite("a model with 13B parameters"),),
+            )
+        )
+        assert report.passes, report.render()
+        assert not report.findings, report.render()
+
+    def test_a_rate_and_a_count_of_the_same_noun_are_different(self) -> None:
+        """ "We process 412 tokens." cited to "it sustains 412 tokens per second" does not
+        match cleanly: "token" vs "token/second" is a mismatch (both numerators known)."""
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="We process 412 tokens.",
+                citations=(cite("it sustains 412 tokens per second"),),
+            )
+        )
+        assert not report.passes
+        assert [f.check for f in report.blocking] == ["quantity noun mismatch"]
+
+    def test_the_two_ways_of_writing_a_rate_agree(self) -> None:
+        """ "412 requests/s" and "412 requests per second" normalise to the same qualifier,
+        and a slide using one against a span using the other passes with zero findings.
+
+        `tokens/s` is deliberately not used here: it is itself a `UNIT_TABLE` surface (the
+        `tok/s` row), so `412 tokens/s` never reaches `normalise_qualifier` at all — see the
+        residue this module's docstring names for that pair.
+        """
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="Throughput is 412 requests/s.",
+                citations=(cite("The workload sustains 412 requests per second."),),
+            )
+        )
+        assert report.passes, report.render()
+        assert not report.findings, report.render()
+
+    # -- the false-block guard: an unknown word is suspicion, not certainty ------------
+
+    def test_an_adjective_after_the_numeral_is_advisory_not_blocking(self) -> None:
+        """ "Across 12 production deployments." cited to "we ran 12 deployments": passes
+        (A2 `passes` is True) with exactly one ADVISORY finding, "quantity noun differs
+        from source". Blocking here would stop a correct deck."""
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="Across 12 production deployments.",
+                citations=(cite("we ran 12 deployments"),),
+            )
+        )
+        assert report.passes, report.render()
+        assert [f.check for f in report.advisory] == ["quantity noun differs from source"]
+
+    @pytest.mark.parametrize(
+        ("text", "quote"),
+        [
+            (
+                "It improved 40 of 50 benchmarks.",
+                "Across 40 configurations, the team also covered 50 benchmarks.",
+            ),
+            ("12 in total.", "The suite covers 12 datasets."),
+        ],
+    )
+    def test_a_function_word_after_the_numeral_is_bare(self, text: str, quote: str) -> None:
+        """A stop word is not a noun: the numeral matches a span stating the same value
+        with any noun, with zero findings."""
+        report = lint_scope(LintScope(location="slide s1", text=text, citations=(cite(quote),)))
+        assert report.passes, report.render()
+        assert not report.findings, report.render()
+
+    def test_a_quote_stating_the_value_twice_matches_either_noun(self) -> None:
+        """Span "412 requests arrive and 412 tokens leave": a slide saying "412 tokens"
+        is a clean match. Compatible with ANY qualifier the span wrote beside that key."""
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="The system handles 412 tokens.",
+                citations=(cite("412 requests arrive and 412 tokens leave"),),
+            )
+        )
+        assert report.passes, report.render()
+        assert not report.findings, report.render()
+
+    # -- the pure functions, pinned directly -------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("word", "expected"),
+        [
+            ("GPUs", ("gpu", True)),
+            ("params", ("parameter", True)),
+            ("tokens/s", ("token/second", True)),
+            ("tokens per second", ("token/second", True)),
+            ("deployments", ("deployment", False)),
+            ("glass", ("glass", False)),
+            ("of", ("", False)),
+            ("", ("", False)),
+        ],
+    )
+    def test_normalise_qualifier(self, word: str, expected: tuple[str, bool]) -> None:
+        """The contract in `normalise_qualifier`'s docstring, row by row. "glass" keeps its
+        final s (ends "ss"); "deployments" folds but is not listed, so `known` is False."""
+        assert normalise_qualifier(word) == expected
+
+    @pytest.mark.parametrize(
+        ("a", "b", "verdict"),
+        [
+            ("tokens", "token", "compatible"),
+            ("tokens", "requests", "mismatch"),
+            ("production", "deployments", "suspect"),
+            ("", "tokens", "compatible"),
+            ("of", "layers", "compatible"),
+        ],
+    )
+    def test_compare_qualifiers_is_the_verdict_table_and_is_symmetric(
+        self, a: str, b: str, verdict: str
+    ) -> None:
+        """Both `compare_qualifiers(a, b)` and `compare_qualifiers(b, a)` equal `verdict`."""
+        assert compare_qualifiers(a, b) == verdict
+        assert compare_qualifiers(b, a) == verdict
+
+    # -- the table is checked at import like the others --------------------------------
+
+    def test_a_qualifier_surface_colliding_with_a_unit_surface_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Monkeypatch a `QualifierRule` whose surface is also a `UNIT_TABLE` surface (e.g.
+        "ms") into the table and assert `_check_table_collisions()` raises. Such a surface
+        would be consumed by `_scan_suffix` first and never reach `normalise_qualifier`."""
+        bad_table = (
+            *QUALIFIER_TABLE,
+            QualifierRule("millisecond-count", ("ms",), "deliberately colliding"),
+        )
+        monkeypatch.setattr(numeric_linter, "QUALIFIER_TABLE", bad_table)
+        with pytest.raises(RuntimeError):
+            _check_table_collisions()
+
+    def test_every_seed_row_carries_a_reason(self) -> None:
+        """Every `QUALIFIER_TABLE` row has a non-empty `why` — same bar as the other tables."""
+        assert QUALIFIER_TABLE
+        assert all(rule.why.strip() for rule in QUALIFIER_TABLE)
+
+    # -- the defence, disabled ---------------------------------------------------------
+
+    def test_disabling_the_noun_check_lets_the_requests_attack_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Monkeypatch `compare_qualifiers` to always return "compatible" and assert the
+        412-requests-vs-tokens pair then passes A2 with zero findings. Proves the green
+        above comes from the check, not from some other tier happening to block it."""
+        monkeypatch.setattr(
+            numeric_linter, "compare_qualifiers", lambda slide, source: "compatible"
+        )
+        report = lint_scope(
+            LintScope(
+                location="slide s1",
+                text="We handle 412 requests per second.",
+                citations=(cite("vLLM sustains 412 tokens per second"),),
+            )
+        )
+        assert report.passes, report.render()
+        assert not report.findings, report.render()

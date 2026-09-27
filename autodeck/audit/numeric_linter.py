@@ -74,6 +74,14 @@ locale and 1.234 in another; a numeral can match numerals in two different cited
 Both are advisory findings naming the ambiguity, because a linter that silently picks a
 reading is a linter whose green result means nothing.
 
+**It does not qualifier-check every surface.** `QUALIFIER_TABLE` closes the gap where a
+same-magnitude, different-noun figure (`412 requests` vs `412 tokens`) matched cleanly on
+`(value, unit)` alone, but three surfaces are known residue rather than solved: a
+derivation *result*'s free-string `Derivation.unit` is never qualifier-checked; a
+multi-word noun ("floating point operations") is captured by its first word only; and
+`tok/s` (a `UNIT_TABLE` suffix) and "tokens per second" (a qualifier) do not reconcile with
+each other, which is a pre-existing false block in the safe direction.
+
 Owning phase: 2b (task 2b.5). Opus tier — `autodeck/audit/` is a path guardrail.
 """
 
@@ -164,6 +172,15 @@ class NumeralMatch:
     produces and confirms exactly that, so a future fallback matching on something looser
     than a shared key has nothing truthful to put here and the suite goes red.
     """
+    qualifier_verdict: QualifierVerdict = "compatible"
+    """The verdict from `compare_qualifiers` between the numeral's trailing word and the
+    noun its matched source wrote beside that value. `"compatible"` by construction for a
+    match with nothing to compare — a derivation result, or a tier of `_match_against_*`
+    that does not check qualifiers. Never silently dropped: `lint_scope` turns a
+    `"mismatch"` into a blocking finding and a `"suspect"` into an advisory one."""
+    qualifier_source: str = ""
+    """The raw source-side word `qualifier_verdict` was computed against, for the finding
+    message. Empty when no qualifier check ran."""
 
 
 @dataclass
@@ -390,6 +407,249 @@ SEPARATOR_RULES: tuple[SeparatorRule, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Quantity nouns — same number, different noun
+# ---------------------------------------------------------------------------
+#
+# The hole this closes. `UNIT_TABLE` lists the units this corpus writes often, and every
+# word it has no row for normalises to the empty unit, so the strict `(value, unit)`
+# intersection cannot tell these apart — all three pass A2 today with zero findings:
+#
+#     "We handle 412 requests per second."   cited to  "vLLM sustains 412 tokens per second"
+#     "The model has 13B parameters."        cited to  "the model was trained on 13B tokens"
+#     "The cluster uses 40 GPUs."            cited to  "the network has 40 layers"
+#
+# Those are the quantities this corpus is made of, and none needs an adversarial writer.
+#
+# Why not simply make every trailing word part of the key: English puts adjectives and
+# function words after digits constantly. "Across 12 production deployments" against a
+# source's "12 deployments" differs on an adjective; "40 of 50" captures "of". Keying on
+# the raw word would block correct decks, and a rule that false-blocks gets argued down
+# and removed (see `framing_linter.py`'s own docstring on why its lists are closed).
+#
+# So certainty comes from a human-maintained table, exactly as it does for `UNIT_TABLE`:
+#
+#     slide noun   source noun   verdict      severity   meaning
+#     ----------   -----------   ----------   --------   ----------------------------------
+#     known  X     known  X      compatible   —          same quantity; clean match
+#     known  X     known  Y      mismatch     BLOCKING   a listed noun is a certainty
+#     unknown      anything      suspect      advisory   may be an adjective; report it
+#     anything     unknown       suspect      advisory   same
+#     bare/stop    anything      compatible   —          no noun to disagree with
+#
+# Every row added to `QUALIFIER_TABLE` converts a class of "suspect" into a guarantee.
+# `suspect` is a reported match, never a silent one — this module's floor rule (top of
+# the docstring) is that a match wider than the key intersection must be reported.
+#
+# Integration points (each with a test in TestQuantityNouns):
+#   1. `_trailing_qualifier` also captures an optional ` per <word>` so "tokens per
+#      second" and "tokens/s" both reach `normalise_qualifier` as a numerator and a
+#      denominator. A rate and a count of the same noun are different quantities.
+#   2. `_citation_forms` carries, per key, the set of qualifiers the quote wrote beside
+#      that value, so a strict match can be checked against the span's own noun.
+#   3. `_match_against_citations`, strict tier — after the key intersection succeeds,
+#      slide qualifier vs span qualifiers is compared with `compare_qualifiers`. Compatible
+#      if ANY span qualifier for that key is compatible (a quote may state a value twice).
+#   4. The derivation-input branch runs the same check against the input citation's quote.
+#   5. `_check_table_collisions` also refuses a qualifier surface that is also a unit or
+#      scale surface — such a surface would be consumed by `_scan_suffix` first and never
+#      reach `normalise_qualifier`.
+#   6. Two finding checks: "quantity noun mismatch" (blocking) and "quantity noun differs
+#      from source" (advisory). Both name the two nouns in the message.
+#
+# Known residue (also stated in the module docstring's list of what A2 does not catch):
+#   - Derivation *results* carry a free-string `Derivation.unit`; not qualifier-checked.
+#   - Multi-word nouns ("floating point operations") are captured by their first word.
+#   - `tok/s` is a UNIT_TABLE surface while "tokens per second" is a qualifier; the two do
+#     not reconcile, which is a pre-existing false block in the safe direction.
+
+
+@dataclass(frozen=True)
+class QualifierRule:
+    """A noun naming a quantity, and the surfaces a source may write it as.
+
+    A row is a **claim that every surface names the same quantity**, which is why each
+    carries a `why`. Plurals do not need a row — `normalise_qualifier` folds them by rule.
+    A row is only needed for a genuine synonym, and a synonym is a factual claim about how
+    this corpus writes: "params" and "parameters" are interchangeable; "requests" and
+    "queries" may not be, so they stay apart until someone argues otherwise in a `why`.
+    """
+
+    canonical: str
+    surfaces: tuple[str, ...]
+    why: str
+
+
+QUALIFIER_TABLE: tuple[QualifierRule, ...] = (
+    QualifierRule(
+        "token",
+        ("token", "tokens"),
+        "The unit of LLM throughput and context length throughout this corpus. A token "
+        "count and a request count of the same magnitude are different quantities, and "
+        "the review found '412 requests per second' passing against '412 tokens per "
+        "second' with zero findings.",
+    ),
+    QualifierRule(
+        "parameter",
+        ("parameter", "parameters", "param", "params"),
+        "Model size. '13B params' and '13B parameters' are one claim; '13B parameters' "
+        "and '13B tokens' (training-set size) are two different ones.",
+    ),
+    QualifierRule(
+        "request",
+        ("request", "requests"),
+        "Serving throughput is quoted per request as often as per token. Deliberately "
+        "not folded with 'query': the corpus has not established they are interchangeable.",
+    ),
+    QualifierRule(
+        "sequence",
+        ("sequence", "sequences"),
+        "Training throughput in this corpus is quoted in sequences per second.",
+    ),
+    QualifierRule(
+        "gpu",
+        ("gpu", "gpus"),
+        "Hardware counts. '40 GPUs' must not trace to a span about 40 of anything else.",
+    ),
+    QualifierRule(
+        "layer",
+        ("layer", "layers"),
+        "Architecture depth. The review's third example: '40 GPUs' cited to '40 layers'.",
+    ),
+)
+"""Seed rows only. Sonnet may add rows for nouns the seed corpus actually uses, each with
+a `why` in the register above — and must not add a row whose surfaces it cannot argue
+are the same quantity. When in doubt, leave the noun out: an unlisted noun is `suspect`
+(reported), which fails safe; a wrong synonym row is `compatible` (silent), which does not.
+"""
+
+QUALIFIER_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "of",
+        "on",
+        "or",
+        "over",
+        "than",
+        "that",
+        "the",
+        "to",
+        "under",
+        "with",
+        "per",
+    }
+)
+"""Function words that follow a numeral without naming a quantity ("40 of 50", "12 in
+total"). Treated as bare. A closed list: extend it only with a word that can never name
+what was counted."""
+
+QualifierVerdict = Literal["compatible", "suspect", "mismatch"]
+
+_QUALIFIER_SURFACES: dict[str, str] = {
+    surface: rule.canonical for rule in QUALIFIER_TABLE for surface in rule.surfaces
+}
+_QUALIFIER_CANONICALS: frozenset[str] = frozenset(rule.canonical for rule in QUALIFIER_TABLE)
+
+#: The closed set of denominator words a rate may be written against, folded to one
+#: canonical spelling per unit of time so "tokens/s" and "tokens per second" agree.
+_QUALIFIER_RATE_DENOMINATORS: dict[str, str] = {
+    "s": "second",
+    "sec": "second",
+    "second": "second",
+    "seconds": "second",
+    "ms": "millisecond",
+    "min": "minute",
+    "mins": "minute",
+    "minute": "minute",
+    "minutes": "minute",
+    "h": "hour",
+    "hr": "hour",
+    "hrs": "hour",
+    "hour": "hour",
+    "hours": "hour",
+    "day": "day",
+    "days": "day",
+    "month": "month",
+    "months": "month",
+    "year": "year",
+    "years": "year",
+}
+
+#: A trailing rate written as a slash or the word "per" between numerator and denominator.
+_QUALIFIER_RATE = re.compile(r"^(?P<num>.+?)(?:/|\s+per\s+)(?P<den>[^/\s]+)$")
+
+
+def normalise_qualifier(word: str) -> tuple[str, bool]:
+    """A captured trailing word → `(canonical, known)`.
+
+    Contract (every line is a test in `TestQuantityNouns`):
+      - Casefold. `"GPUs"` and `"gpus"` normalise identically.
+      - A surface listed in `QUALIFIER_TABLE` returns its row's canonical and `known=True`.
+      - Otherwise fold a regular plural conservatively — strip one trailing "s" when the
+        word is longer than three letters and does not end "ss" — and return
+        `known=True` iff the folded form is a listed canonical or surface.
+      - A rate `"<num>/<den>"` or `"<num> per <den>"` normalises each side independently
+        and returns `"num/den"`; `known` is True only if the numerator is known.
+        Denominators fold a small fixed set of time words (s, sec, second, seconds →
+        "second"; ms → "millisecond"; min, minute(s) → "minute"; h, hr, hour(s) → "hour";
+        day(s), month(s), year(s)) so "tokens/s" and "tokens per second" agree.
+      - A stop word, or the empty string, returns `("", False)` — bare.
+      - Never raises on arbitrary input; a malformed word is `(casefolded, False)`.
+    """
+    folded = word.strip().casefold()
+    if not folded:
+        return "", False
+
+    rate = _QUALIFIER_RATE.match(folded)
+    if rate:
+        num_canonical, num_known = normalise_qualifier(rate.group("num"))
+        den = rate.group("den")
+        den_canonical = _QUALIFIER_RATE_DENOMINATORS.get(den, den)
+        return f"{num_canonical}/{den_canonical}", num_known
+
+    if folded in QUALIFIER_STOPWORDS:
+        return "", False
+
+    canonical = _QUALIFIER_SURFACES.get(folded)
+    if canonical is not None:
+        return canonical, True
+
+    if len(folded) > 3 and not folded.endswith("ss") and folded.endswith("s"):
+        singular = folded[:-1]
+        known = singular in _QUALIFIER_SURFACES or singular in _QUALIFIER_CANONICALS
+        return _QUALIFIER_SURFACES.get(singular, singular), known
+
+    return folded, False
+
+
+def compare_qualifiers(slide: str, source: str) -> QualifierVerdict:
+    """The verdict table in the comment block above, as a function.
+
+    Takes raw captured words (normalises both itself). `"compatible"` when either side is
+    bare, or both normalise to the same canonical. `"mismatch"` only when BOTH are known
+    and differ — that is the certainty that justifies blocking. Everything else is
+    `"suspect"`. Symmetric: `compare_qualifiers(a, b) == compare_qualifiers(b, a)`.
+    """
+    slide_canonical, slide_known = normalise_qualifier(slide)
+    source_canonical, source_known = normalise_qualifier(source)
+    if not slide_canonical or not source_canonical:
+        return "compatible"
+    if slide_canonical == source_canonical:
+        return "compatible"
+    if slide_known and source_known:
+        return "mismatch"
+    return "suspect"
+
+
 def _check_table_collisions() -> None:
     """Refuse to import if two rules claim the same surface form.
 
@@ -409,6 +669,14 @@ def _check_table_collisions() -> None:
     for unit in UNIT_TABLE:
         for surface in unit.surfaces:
             owner = f"unit:{unit.canonical}"
+            if surface in seen:
+                raise RuntimeError(
+                    f"normalisation surface {surface!r}: {seen[surface]} vs {owner}"
+                )
+            seen[surface] = owner
+    for qualifier in QUALIFIER_TABLE:
+        for surface in qualifier.surfaces:
+            owner = f"qualifier:{qualifier.canonical}"
             if surface in seen:
                 raise RuntimeError(
                     f"normalisation surface {surface!r}: {seen[surface]} vs {owner}"
@@ -685,6 +953,10 @@ def _plain_numeral(text: str, match: re.Match[str]) -> Numeral:
 #: A word written against the digits, after any recognised prefix and suffix are consumed.
 _QUALIFIER = re.compile(r"[ \t]?([A-Za-z][A-Za-z/_-]*)")
 
+#: An optional ` per <word>` tail following the qualifier word, so "tokens per second"
+#: reaches `normalise_qualifier` as one rate rather than the numerator alone.
+_QUALIFIER_PER_TAIL = re.compile(r"[ \t]+per[ \t]+([A-Za-z]+)")
+
 
 def _trailing_qualifier(text: str, end: int) -> str:
     """The word immediately after the numeral, when the tables did not claim it.
@@ -693,9 +965,19 @@ def _trailing_qualifier(text: str, end: int) -> str:
     row for — see `Numeral.qualifier`. Anything the scale and unit tables recognised has
     already been consumed by `_scan_suffix` before this is called, so what is left is by
     construction a qualifier the normalisation table does not know about.
+
+    Also captures an optional trailing ` per <word>`, so "tokens per second" and
+    "tokens/s" both reach `normalise_qualifier` as a numerator and a denominator — a rate
+    and a count of the same noun are different quantities.
     """
     match = _QUALIFIER.match(text, end)
-    return match.group(1) if match else ""
+    if not match:
+        return ""
+    word = match.group(1)
+    tail = _QUALIFIER_PER_TAIL.match(text, match.end())
+    if tail:
+        return f"{word} per {tail.group(1)}"
+    return word
 
 
 def _forms_for(
@@ -1136,6 +1418,22 @@ def _keys_for_value(quote: str, value: float) -> frozenset[NormalKey]:
     )
 
 
+@lru_cache(maxsize=2048)
+def _qualifiers_for_value(quote: str, value: float) -> frozenset[str]:
+    """Every raw qualifier word `quote` wrote beside a numeral giving `value`.
+
+    The derivation-input analogue of the qualifiers `_citation_forms` gathers for a plain
+    citation — `DerivationInput` has no qualifier field of its own (see `input_keys`), so
+    this reads it back out of the span the same way the unit half of the key already is.
+    """
+    wanted = Decimal(str(value))
+    return frozenset(
+        numeral.qualifier
+        for numeral in extract_numerals(quote)
+        if any(key[0] == wanted for key in numeral.forms | numeral.ambiguous_forms)
+    )
+
+
 def input_keys(item: DerivationInput) -> frozenset[NormalKey]:
     """The normalised keys the cited span attaches to this input's value.
 
@@ -1458,11 +1756,15 @@ def match_numerals(
     return matches, unmatched
 
 
-#: A citation's numerals as `(leading keys, minority-reading keys)`. The two are kept apart
-#: so that a slide numeral matching a quote only because *the quote* is locale-ambiguous is
-#: reported, exactly as one matching because the slide is. Merging them would hide half the
-#: ambiguity — and it is the same ambiguity either way.
-CitationForms = tuple[Citation, frozenset[NormalKey], frozenset[NormalKey]]
+#: A citation's numerals as `(leading keys, minority-reading keys, qualifiers by key)`. The
+#: first two are kept apart so that a slide numeral matching a quote only because *the
+#: quote* is locale-ambiguous is reported, exactly as one matching because the slide is.
+#: Merging them would hide half the ambiguity — and it is the same ambiguity either way.
+#: The third carries, per key, every raw qualifier word the quote wrote beside a numeral
+#: that produced that key, so a strict match can be checked against the span's own noun.
+CitationForms = tuple[
+    Citation, frozenset[NormalKey], frozenset[NormalKey], Mapping[NormalKey, frozenset[str]]
+]
 
 
 def _citation_forms(citations: Sequence[Citation]) -> list[CitationForms]:
@@ -1474,7 +1776,13 @@ def _citation_forms(citations: Sequence[Citation]) -> list[CitationForms]:
         loose = (
             frozenset(key for numeral in numerals for key in numeral.ambiguous_forms) - strict
         )
-        resolved.append((citation, strict, loose))
+        qualifiers: dict[NormalKey, set[str]] = {}
+        for numeral in numerals:
+            for key in numeral.forms | numeral.ambiguous_forms:
+                qualifiers.setdefault(key, set()).add(numeral.qualifier)
+        resolved.append(
+            (citation, strict, loose, {key: frozenset(v) for key, v in qualifiers.items()})
+        )
     return resolved
 
 
@@ -1510,22 +1818,29 @@ def _match_against_citations(
     instruction unenforceable.
     """
     strict = [
-        (c, shared) for c, forms, _ in citation_forms if (shared := forms & numeral.forms)
+        (c, shared, quals)
+        for c, forms, _, quals in citation_forms
+        if (shared := forms & numeral.forms)
     ]
     if strict:
+        citation, shared_keys, quals = strict[0]
+        span_qualifiers = {q for key in shared_keys for q in quals.get(key, ())}
+        verdict, span_qualifier = _quantity_noun_verdict(numeral.qualifier, span_qualifiers)
         return NumeralMatch(
             numeral=numeral,
             source="citation",
-            detail=f"normalises onto a numeral in {_citation_label(strict[0][0])}",
+            detail=f"normalises onto a numeral in {_citation_label(citation)}",
             location=location,
-            other_sources=tuple(_citation_label(c) for c, _ in strict[1:]),
-            matched_on=_preferred_key(strict[0][1]),
+            other_sources=tuple(_citation_label(c) for c, _, _ in strict[1:]),
+            matched_on=_preferred_key(shared_keys),
+            qualifier_verdict=verdict,
+            qualifier_source=span_qualifier,
         )
 
     everything = numeral.forms | numeral.ambiguous_forms
     loose = [
         (c, shared)
-        for c, forms, alt in citation_forms
+        for c, forms, alt, _ in citation_forms
         if (shared := (forms | alt) & everything)
     ]
     if loose:
@@ -1559,7 +1874,7 @@ def _match_against_citations(
     if bare_values and not numeral.qualifier:
         unqualified = [
             (c, shared)
-            for c, forms, alt in citation_forms
+            for c, forms, alt, _ in citation_forms
             if (shared := {key for key in (forms | alt) if key[0] in bare_values})
         ]
         if unqualified:
@@ -1587,6 +1902,33 @@ def _preferred_key(shared: frozenset[NormalKey] | set[NormalKey]) -> NormalKey:
     the floor test flap, and a flapping invariant test is one somebody eventually deletes.
     """
     return min(shared, key=lambda key: (key[0], key[1]))
+
+
+def _quantity_noun_verdict(
+    slide_qualifier: str, span_qualifiers: Iterable[str]
+) -> tuple[QualifierVerdict, str]:
+    """`compare_qualifiers(slide, ·)` against every noun the span wrote beside a matched key.
+
+    "Compatible if ANY span qualifier for that key is compatible" (a quote may state a
+    value twice, once against each noun — see `test_a_quote_stating_the_value_twice_
+    matches_either_noun`). Absent a compatible reading, a known disagreement is reported as
+    `"mismatch"` over a merely unlisted one, because it is the more certain finding.
+    Deterministic: candidates are tried in sorted order, so which qualifier is named in the
+    finding does not flap from one run to the next.
+    """
+    candidates = sorted(span_qualifiers)
+    if not candidates:
+        return "compatible", ""
+    verdicts: list[tuple[QualifierVerdict, str]] = [
+        (compare_qualifiers(slide_qualifier, q), q) for q in candidates
+    ]
+    for verdict, q in verdicts:
+        if verdict == "compatible":
+            return verdict, q
+    for verdict, q in verdicts:
+        if verdict == "mismatch":
+            return verdict, q
+    return verdicts[0]
 
 
 def _match_against_derivations(
@@ -1670,6 +2012,10 @@ def _match_against_derivations(
             shared = input_keys(item) & numeral.forms
             if shared:
                 key = _preferred_key(shared)
+                span_qualifiers = _qualifiers_for_value(item.citation.quote, item.value)
+                verdict, span_qualifier = _quantity_noun_verdict(
+                    numeral.qualifier, span_qualifiers
+                )
                 return NumeralMatch(
                     numeral=numeral,
                     source="derivation_input",
@@ -1679,6 +2025,8 @@ def _match_against_derivations(
                     ),
                     location=location,
                     matched_on=key,
+                    qualifier_verdict=verdict,
+                    qualifier_source=span_qualifier,
                 )
     return None
 
@@ -1752,7 +2100,63 @@ def lint_scope(
         for numeral in unmatched
     )
     report.findings.extend(_ambiguity_findings(matches, scope.location))
+    report.findings.extend(_qualifier_findings(matches, scope.location))
     return report
+
+
+def _qualifier_findings(matches: Sequence[NumeralMatch], location: str) -> list[NumericFinding]:
+    """The quantity-noun verdict table, turned into findings.
+
+    A match against a citation or a derivation input already proved the (value, unit) key
+    lines up; this is the second, narrower question of whether the noun beside the number
+    does too. `"mismatch"` is blocking — both sides named a listed noun and they disagree,
+    which is the certainty `QUALIFIER_TABLE` exists to manufacture. `"suspect"` is advisory
+    — at least one side is an unlisted word, which may be an adjective rather than a
+    different quantity, so it is reported rather than blocked (see the false-block guard in
+    `TestQuantityNouns`). Aggregated into one finding per severity, like `_ambiguity_findings`.
+    """
+    findings: list[NumericFinding] = []
+
+    mismatched = [m for m in matches if m.qualifier_verdict == "mismatch"]
+    if mismatched:
+        findings.append(
+            NumericFinding(
+                check="quantity noun mismatch",
+                severity="blocking",
+                detail=(
+                    "; ".join(
+                        f"{m.numeral.describe()} is qualified "
+                        f"{m.numeral.qualifier or '(nothing)'!r} but the source it matches "
+                        f"on value qualifies the same figure {m.qualifier_source!r} — "
+                        "both are listed nouns and they name different quantities"
+                        for m in mismatched
+                    )
+                ),
+                location=location,
+            )
+        )
+
+    suspect = [m for m in matches if m.qualifier_verdict == "suspect"]
+    if suspect:
+        findings.append(
+            NumericFinding(
+                check="quantity noun differs from source",
+                severity="advisory",
+                detail=(
+                    "; ".join(
+                        f"{m.numeral.describe()} is qualified "
+                        f"{m.numeral.qualifier or '(nothing)'!r}, the source qualifies it "
+                        f"{m.qualifier_source!r}"
+                        for m in suspect
+                    )
+                    + ". At least one of the two is not a noun `QUALIFIER_TABLE` knows, so "
+                    "this may be an adjective rather than a different quantity — reported, "
+                    "not blocked."
+                ),
+                location=location,
+            )
+        )
+    return findings
 
 
 def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[NumericFinding]:
@@ -2051,4 +2455,5 @@ def lint_rendered_slides(
             for numeral in unmatched
         )
         report.findings.extend(_ambiguity_findings(matches, scope.location))
+        report.findings.extend(_qualifier_findings(matches, scope.location))
     return report
