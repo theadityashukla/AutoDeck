@@ -77,6 +77,59 @@ outline, and no flag anywhere approves a gate. See `docs/handovers/PHASE-2B.md` 
   guardrail path rather than being de-tiered with its plumbing.
 - Five invariant cells move to `tested`; **A6 deliberately does not** (see below).
 
+### Fixed (after independent review)
+
+`docs/handovers/PHASE-2B.md` was written from a green suite of 736 tests. An independent
+adversarial review then found holes those tests did not reach — 11 findings, 9 demonstrated
+by executing against the code, 6 of those reproduced independently by the orchestrator
+before acting (run on Opus; the planned Fable 5.1 returned HTTP 429, "requires usage
+credits") — and these twelve commits fixed them. The suite now stands at **839 passed, 0
+skipped, 10 live-marked and deselected**.
+
+- `9ca17d1` — A2 verbatim match was a substring search; branch **dropped** not fenced.
+  `40%` used to source to a span saying `140%`; `12` inside `3,120`; `29` in `1029`; `3x` in
+  `13x`.
+- `a29138c` — A2 derivation rounding had no bound. A computed `0.51×` used to print as `1×`
+  (+96%).
+- `b154ad6` — A2 derivation-input match discarded the unit. `40 ms` used to print as `40%`,
+  `40×`, `$40`.
+- `0864101` — A2/A8 averaging laundered through a derivation, now blocking when the formula
+  re-executes to the exact mean of inputs citing different documents that differ materially
+  (other in-between formulas stay advisory). 412 and 671 from two papers used to average to
+  541.5 and show as audited working with green ticks.
+- `382aed9` — A2 an unrecognised unit word was treated as no unit. `3.2 million requests`
+  used to match `3.2 million dollars` in the bare-numeral tier.
+- `8632609` — A3 a claim on a diagram node was invisible to every blocking check. A
+  `contradicted` node claim used to render while GATE 2 printed `[PASS]` beside a claims row
+  reading `contradicted`.
+- `e8fa666` — A3 a test derived from the pydantic model graph now fails if any place that
+  can hold a `Claim` is not visited by the blocking walk (regression insurance; verified it
+  bites by adding a field).
+- `cacb5d2` — A3/A5 render guard now takes only the deck and recomputes the linters itself;
+  `require_safe_to_render` had no production caller and `cli._gate2_checks` re-implemented 3
+  of its 4 conditions — now one `assess_render_safety` both use. Passing empty reports, or
+  another deck's clean reports, used to clear the guard.
+- `f4a2649` — A5 fence now applies to any block's free text.
+  `"The fastest stack available, proven to outperform every competitor."` used to pass as
+  `text` on a `claim` block.
+- `86ae385` — A2 test pins the linter's own deck walk to the IR claim-site walk.
+- `b555a5f` + `06b54c4` — A2 same number, different noun: a `QUALIFIER_TABLE` of quantity
+  nouns; both listed and different → blocking; unlisted → advisory; stop words → bare.
+  Scaffolded by Opus, implemented by Sonnet (B32 on the 3a branch). `412 requests per
+  second` used to source to `412 tokens per second`; `13B parameters` to `13B tokens`;
+  `40 GPUs` to `40 layers`.
+
+Corpus check on the A2 noun fix: all 16 curated claims → 0 mismatches, 1 advisory ("76%
+model-FLOPS utilisation" vs source "MFU" — same quantity, abbreviated; correctly reported
+not blocked; no table row added from one occurrence).
+
+**Corrected coverage: A5 downgraded `tested` → `enforced`.** The fence is a closed list of
+factual phrasings, tested on what it lists; ordinary factual language outside the list
+passes — demonstrated with "Quantisation halves serving cost" as an uncited
+`section_header`. A2 and A3 are corrected in place and remain `tested`, each with a named
+residual gap (numbers written as words for A2; `chart` blocks never receiving a verdict for
+A3). See `docs/handovers/PHASE-2B.md` §5 and §6.9–§6.13.
+
 ### Open
 - **B29 — A6 promises "byte-comparable" PPTX output, which is measurably impossible.** Two
   identical saves two seconds apart differ in bytes from four causes outside our control,

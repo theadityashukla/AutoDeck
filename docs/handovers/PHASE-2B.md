@@ -21,6 +21,17 @@
 Seventeen commits, 30 files, +13,065 / −51. The suite goes **432 → 736 passing** (13
 skipped for missing local tooling, 10 live-marked and deselected).
 
+**Corrected after independent review.** This handover was written from that green suite,
+against the code as it stood at `15f0880`. An independent adversarial review then found
+holes the tests did not reach — nine of eleven findings demonstrated by executing against
+the code, six of those reproduced independently by the orchestrator before acting — and
+twelve further commits fixed them. The suite on this branch now stands at **839 passed, 0
+skipped, 10 live-marked and deselected** (fonts are installed here, and CI installs the same
+OFL dev fonts since `3cac30e` on the 3a branch, so the 13 font-skips are gone for good). The
+review ran on Opus; the planned Fable 5.1 returned HTTP 429, "requires usage credits". §2,
+§5, §7 and §8 below are corrected in place; §6.9–§6.13 record what the review found and how
+it was closed. **A5 is downgraded from `tested` to `enforced`** — see §5.
+
 ## 2. What shipped
 
 | Path | What it does | Tests |
@@ -39,6 +50,29 @@ skipped for missing local tooling, 10 live-marked and deselected).
 | `autodeck/audit/report.py` | The working shown for every derivation, per-input traceability, conflicts recorded **without** averaging | `tests/test_report.py` |
 | `autodeck/audit/manifest.py` | `canonical_pptx_digest`, `knowledge_commit`, `knowledge_dirty`, `Manifest.reproducible()`. Nothing named `bytes_match` (§6.6) | `tests/test_manifest.py` |
 | `autodeck/pipeline/send_back.py` + `autodeck/cli.py` | `content`, `validate`, `gate2`, `send-back`. GATE 2's second half — rejecting named claims — existed nowhere before | `tests/test_cli_gate2.py` |
+
+### What shipped since — fixes from the independent review
+
+The original table above is otherwise unchanged; these commits landed after `15f0880` and
+close the holes the review found.
+
+| commit | fix | the input that used to pass |
+|---|---|---|
+| `9ca17d1` | A2 verbatim match was a substring search; branch **dropped** not fenced | `40%` sourced to a span saying `140%`; `12` inside `3,120`; `29` in `1029`; `3x` in `13x` |
+| `a29138c` | A2 derivation rounding had no bound | a computed `0.51×` printed as `1×` (+96%) |
+| `b154ad6` | A2 derivation-input match discarded the unit | `40 ms` printed as `40%`, `40×`, `$40` |
+| `0864101` | A2/A8 averaging laundered through a derivation — now blocking when the formula re-executes to the exact mean of inputs citing different documents that differ materially; other in-between formulas advisory | 412 and 671 from two papers averaged to 541.5 and shown as audited working with green ticks |
+| `382aed9` | A2 an unrecognised unit word was treated as no unit | `3.2 million requests` vs `3.2 million dollars` in the bare-numeral tier |
+| `8632609` | A3 a claim on a diagram node was invisible to every blocking check | a `contradicted` node claim rendered while GATE 2 printed `[PASS]` beside a claims row reading `contradicted` |
+| `e8fa666` | A3 test derived from the pydantic model graph fails if any place that can hold a `Claim` is not visited by the blocking walk | — (regression insurance; verified it bites by adding a field) |
+| `cacb5d2` | A3/A5 render guard now takes only the deck and recomputes the linters itself; `require_safe_to_render` had no production caller and `cli._gate2_checks` re-implemented 3 of its 4 conditions — now one `assess_render_safety` both use | passing empty reports, or another deck's clean reports, cleared the guard |
+| `f4a2649` | A5 fence now applies to any block's free text | `"The fastest stack available, proven to outperform every competitor."` as `text` on a `claim` block |
+| `86ae385` | A2 test pins the linter's own deck walk to the IR claim-site walk | — |
+| `b555a5f` + `06b54c4` | A2 same number, different noun: `QUALIFIER_TABLE` of quantity nouns; both listed and different → blocking; unlisted → advisory; stop words → bare. Scaffolded by Opus, implemented by Sonnet (B32 on the 3a branch) | `412 requests per second` sourced to `412 tokens per second`; `13B parameters` to `13B tokens`; `40 GPUs` to `40 layers` |
+
+Corpus check on the A2 noun fix: all 16 curated claims → 0 mismatches, 1 advisory ("76%
+model-FLOPS utilisation" vs source "MFU" — same quantity, abbreviated; correctly reported
+not blocked; no table row added from one occurrence).
 
 ## 3. What did not ship
 
@@ -89,20 +123,27 @@ convention; the machine-readable record does not survive a new machine. Recorded
   one thing in a run that cannot be reproduced. Three options are set out; no code was
   changed on the strength of the entry.
 
-## 5. Invariant coverage delta
+## 5. Invariant coverage delta — corrected after independent review
+
+**The original table below marked A2, A3 and A5 `tested`. That was true of the tests and
+false of the code** — the review found holes the tests never reached. This is the corrected
+state, after the fixes in §2's second table.
 
 | Invariant | Before (P2a) | After (P2b) | Test that proves it |
 |---|---|---|---|
-| A1 citation | tested | **tested** | `test_content.py` — a quote that does not resolve drops the claim rather than producing an uncited block; `test_framing_linter.py` — a demotion's `materialise()` raises from `Claim.citations` |
-| A2 numbers | partial | **tested** | `test_numeric_linter.py` — every numeral traces or blocks; derivations re-execute; `test_report.py` asserts an averaged conflict figure is *absent* |
-| A3 validation | partial | **tested** | `test_verdicts.py` — a valid citation plus a contradicting span elsewhere returns `contradicted`, with every fake model returning `supported` by default |
+| A1 citation | tested | **tested** — unchanged. Open: nothing re-verifies a stored citation against the document store after construction (review finding 9) — a hand-edited IR or a re-ingested corpus is not caught | `test_content.py` — a quote that does not resolve drops the claim rather than producing an uncited block; `test_framing_linter.py` — a demotion's `materialise()` raises from `Claim.citations` |
+| A2 numbers | partial | **tested**, after the fixes above. **Named gap: numbers written as words are invisible** ("forty percent", "four times", "quadrupled", "a third") — the extractor sees only digits, so A2 passes vacuously on them. Also residue: derivation *results* carry an unchecked free-string unit; `tok/s` vs "tokens per second" is a false block (safe direction) | `test_numeric_linter.py` — every numeral traces or blocks; derivations re-execute; `test_report.py` asserts an averaged conflict figure is *absent* |
+| A3 validation | partial | **tested**, after the diagram-node fix. Open (owner question): `chart` blocks never receive a verdict, and `ChartSpec.source_citations` is not linked per data point, so "the source table cell is the citation" is not literally satisfiable without an IR change. Also: the supporting-span ceiling is satisfied by any substring of a retrieved element (finding 8) — safe-by-construction against hallucinated quotes, weak against irrelevant ones | `test_verdicts.py` — a valid citation plus a contradicting span elsewhere returns `contradicted`, with every fake model returning `supported` by default |
 | A4 isolation | tested | tested | unchanged. One build, one namespace; both new agents bind the run's index |
-| A5 framing | partial | **tested** | `test_framing_linter.py` — a framing block carrying a fact is demoted, and the demotion blocks the build |
+| A5 framing | partial | **downgraded `tested` → `enforced`.** The fence is a closed list of factual phrasings, tested on what it lists; ordinary factual language outside the list passes. Demonstrated: "Quantisation halves serving cost" passes as uncited `section_header` text (no numeral, no superlative, `halves` not in the multiplier list); and the word-numeral gap above. Headers are terse by construction, which is exactly what strips the patterns A5 matches | `test_framing_linter.py` — a framing block carrying a fact is demoted, and the demotion blocks the build |
 | A6 reproducibility | partial | **partial** | `test_manifest.py`. Deliberately not raised: A6's headline claim is unachievable as written (B29), and marking the cell `enforced` against a statement we know to be wrong would be the dishonest kind of green |
 | A7 gates | tested | **tested** | `test_cli_gate2.py::test_none_of_the_new_commands_can_record_an_approval` — a banned-parameter check *and* a source scan for `.approve(`, because a parameter check alone misses a command that hard-codes one |
-| A8 uncertainty | enforced | **tested** | `test_report.py` — `open_risks` resurface in the report; conflicts appear with both spans; `test_validation.py` — a provider failure returns `unverified` with a reason, never a guess |
+| A8 uncertainty | enforced | **tested** — A8's averaging hole closed (see §2's second table) | `test_report.py` — `open_risks` resurface in the report; conflicts appear with both spans; `test_validation.py` — a provider failure returns `unverified` with a reason, never a guess |
 
-Five invariants move to `tested` this phase; A6 deliberately does not, and A4 is untouched.
+A4 `tested` and A6 `partial` (B29) are unchanged; A7 `tested` and A8 `tested` are unchanged
+in status, with A8's averaging hole now closed. A2 and A3 remain `tested`, corrected in
+place with the gaps above named rather than implied. **A5 alone moves cells**, `tested`
+down to `enforced`.
 
 **A3's ceiling is the design to understand before changing anything here.** Borrowed from
 `evidence_gap.py`: retrieval is deterministic and separate, the model returns a judgement,
@@ -210,19 +251,78 @@ geometry imported from the renderers rather than retyped. The catalog's stated r
 capping `point` to one line was checked against the renderer and does not hold; the comment
 is corrected.
 
-## 7. Known gaps, risks, and debt carried forward
+### 6.9 The review's headline: every A2 matcher defect was a fallback wider than the path it backed up
 
-| Gap | Why it matters | Owner |
-|---|---|---|
-| **No live Phase 2b milestone** | Everything is fixture-verified; the real corpus and a real model have not met this code | **Owner, §10** |
-| **A gate approval does not survive the machine (B30)** | `runs/<id>/state.json` is not committed, so who approved what and when is ephemeral. An approval is the one thing in a run that is *not* reproducible | **Owner decision at GATE 2** |
-| **B29 open** | A6's headline is unachievable as written; the invariant is deliberately unedited | **Owner decision at GATE 2** |
-| **Should A5 fence `section_header`?** | A section header is framing by nature, but nothing stops one carrying a fact | **Owner decision at GATE 2** |
-| **The seed corpus is still synthetic** | Public papers, fictional clients. Fine for building; the first real deliverable needs real folders | Phase 4 |
-| **All four key messages are `unprobed`** | The evidence-gap classifier hit the daily quota mid-run at GATE 1 and has never completed on a full brief. Phase 2b's validator is the next chance to catch what it would have found | Owner, at the milestone run |
-| **Dev capacity is 20 requests/day/model** | A ten-slide deck costs roughly one `content` call per slide plus one `validation` call per six claims. Roles are spread across five models (B25), and it is still tight | Ongoing |
-| **Nobody has typed into `autodeck plan`** | Carried from Phase 2a, and now on the critical path: the milestone run starts with that REPL | Owner, §10 |
-| **Aptos is a hard prerequisite** | Budgets are wrong-by-default on a machine without it. `LINE_HEIGHT_FACTOR` is engine-level and holds, but per-glyph widths are not | Phase 3a |
+All four A2 matcher defects fixed by `9ca17d1`, `a29138c`, `b154ad6` and `382aed9` were in a
+**fallback** added to prevent a false block, each looser than the path it backed up. The fix
+is a rule, not four patches: *a fallback may be wider than the key intersection only if
+every match it makes is reported as a finding*, with a test that walks every match.
+
+### 6.10 The §6.4 trap recurred a third time — diagram nodes — and the guard built to close it did not close it
+
+§6.4 above records a clean `Deck` not being sufficient evidence for A1 and A5. `8632609`
+found the same shape a third time: a `contradicted` node claim on a diagram rendered while
+GATE 2 printed `[PASS]` beside a claims row reading `contradicted`. Closed now by one
+claim-site walk plus `e8fa666`, a test derived from the pydantic model graph rather than a
+hand-written list.
+
+### 6.11 The render guard was defending against the wrong risk
+
+`cacb5d2`: the guard was defending against omission — a check silently not being run.
+Omission could not actually happen, because there are no defaults that would let a check be
+skipped unnoticed. The real risk was the *value* passed in: an empty report, or another
+deck's clean reports, cleared the guard. `assess_render_safety` now takes only the deck and
+recomputes the linters itself, rather than trusting whatever reports it is handed.
+
+### 6.12 Green meant less than it appeared, three ways
+
+**Tests the review showed never reached their paths.** The A2 fallback defects above all
+had passing tests that exercised a different branch than the one with the bug.
+**Font-dependent tests that *skipped* in CI**, so CI green meant "not exercised" rather than
+"passed" — 13 of the original 736 passes were this shape. **A test
+(`test_an_overbudget_block_is_rejected_before_render`) passing only because every finding
+happened to be prefixed `"overflow:"`** — it was asserting on a string prefix that every
+fixture in the suite produced, not on the actual rejection logic.
+
+### 6.13 Concurrent agents in one working tree raced on the shared git index
+
+A commit from one agent swept another agent's staged files while both worked in the same
+checkout. Caught by a post-commit `git show --stat` and unwound non-destructively. Isolated
+worktrees per agent since.
+
+## 7. Known gaps, risks, and debt carried forward — corrected after independent review
+
+**Open items for GATE 2**, replacing the table this section previously carried:
+
+**Owner decisions**
+- **B29 — A6 wording.** A6's headline promises "byte-comparable" output; that is not
+  achievable for PPTX. The invariant is deliberately unedited.
+- **B30 — approvals not durable.** An approval is recorded only in `runs/<id>/state.json`,
+  which is not committed, so it is the one thing in a run that is not reproducible.
+- **Should A5 fence `section_header` as a category?** Input from the headers work: lean
+  yes, narrowly — it is where A5's closed list is weakest.
+- **Chart verdict / per-cell citations.** `chart` blocks never receive a verdict, and
+  `ChartSpec.source_citations` is not linked per data point. Needs an IR change.
+
+**Known gaps**
+- **Numbers written as words are invisible to A2 and A5** ("forty percent", "four times",
+  "quadrupled", "a third") — the extractor sees only digits, so both linters pass
+  vacuously on them.
+- **A5 plain declaratives** — ordinary factual language outside the closed list of
+  phrasings A5 matches passes uncited.
+- **Two spellings of one claim id**: `s1:b1:n1` in validation vs. `s1:b1/n1` in the report
+  and send-back — a send-back and a judgement about the same node cannot be joined across
+  rounds.
+- **No store re-verification of citations** — nothing re-checks a stored citation against
+  the document store after construction; a hand-edited IR or a re-ingested corpus is not
+  caught.
+- **`require_safe_to_render` must be called by Phase 3b's render stage.**
+- **`autodeck content` under-reports `incomplete_slots`** (landed on the 3a branch).
+
+**Unchanged**
+- **No live Phase 2b milestone run exists** — §3 above still correct.
+- **The seed corpus is still synthetic** — public papers, fictional clients.
+- **All four key messages are `unprobed`.**
 
 ## 8. Model routing: planned vs actual
 
@@ -245,6 +345,9 @@ accuracy-critical path.
 | 2b.9 audit report + 2b.10 manifest | **Sonnet** | **Opus** | *Escalated.* `autodeck/audit/` is a guardrail path, and B28's rule is that the path wins over the tag |
 | 2b.11 GATE 2 surface | Sonnet | Sonnet | `cli.py`, outside the guardrails. The A7 property it must not break is asserted by a test rather than trusted to the tier |
 | This handover, `DECISIONS.md` | Opus | Opus | `docs/handovers/` and `DECISIONS.md` are guardrail paths |
+| review of accuracy core | planned Fable | **Opus** | Fable 429, requires usage credits |
+| A2/A3/A5 fixes, merge | Opus | Opus | guardrail paths |
+| A2 quantity nouns | — | **Opus scaffold, Sonnet fill** | owner instruction (B32) |
 
 **One de-escalation, two escalations, one split.** 2b.1 is the only Opus-tagged task that
 dropped a tier — it touches no guardrail path, and §6.1's bug was caught on review rather
@@ -273,7 +376,7 @@ The ledger lives in the session scratchpad.
 ```bash
 uv sync
 uv run ruff check . && uv run ruff format --check . && uv run pyright
-uv run pytest -q -m "not live"        # 736 passed, 13 skipped, 10 deselected
+uv run pytest -q -m "not live"        # 839 passed, 0 skipped, 10 deselected
 ```
 
 Each linter ships a "disable the defence, confirm red" test, so the claims above can be
