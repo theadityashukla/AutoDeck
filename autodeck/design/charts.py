@@ -452,14 +452,16 @@ def source_line(citations: Sequence[Citation]) -> str:
     sources names all three, because "the source table cell is the citation" only holds if
     every cell's actual source stays visible, not just the first one found.
 
+    Empty `citations` returns `""`, not the bare prefix `"Source: "` — a caller with nothing
+    to cite (a slide with no face claim) should draw no caption line at all, and
+    `layout_kit.Frame.caption` already treats an empty string as "draw nothing"; a bare
+    prefix would instead draw a caption that names no source, which is worse than none.
+
     Public: this is the caption-band formatter for the whole design system, not just charts
     — `autodeck.render.renderer.source_line` reuses it directly rather than defining a
-    second one (task 3b.1). ``_source_line`` stays as an alias for callers written against
-    the old private name.
+    second one (task 3b.1).
     """
+    if not citations:
+        return ""
     labels = dict.fromkeys(_citation_label(citation) for citation in citations)
     return "Source: " + "; ".join(labels)
-
-
-#: Backward-compatible alias for the pre-promotion private name. Two names, one formatter.
-_source_line = source_line

@@ -23,8 +23,13 @@ from autodeck.ir.models import (
     Citation,
     Claim,
     Deck,
+    DiagramAxis,
+    DiagramSpec,
+    LabelFraming,
+    QuadrantItem,
     Slide,
     SlideStyle,
+    TwoByTwoSpec,
     Verdict,
 )
 from autodeck.render.extract import ExtractionError
@@ -112,7 +117,7 @@ def _sample_deck() -> Deck:
     slide2 = _slide(
         "s2",
         "callout_takeaway",
-        [_claim_block("takeaway", TAKEAWAY)],
+        [_framing_block("label", "Takeaway"), _claim_block("takeaway", TAKEAWAY)],
         speaker_notes=[_claim_block("note", NOTES)],
     )
     return _deck(slide1, slide2)
@@ -321,3 +326,190 @@ def test_disabling_claim_survival_lets_the_word_change_through(
     report = post_render_audit(deck, pptx)
 
     assert report.passes
+
+
+# ---------------------------------------------------------------------------
+# A2's caption exemption is exact, not a prefix
+# ---------------------------------------------------------------------------
+
+SOURCE_CLAIM = "Source: internal figures show a 40% improvement."
+
+
+def _source_claim_deck() -> Deck:
+    return _deck(
+        _slide(
+            "s1",
+            "callout_takeaway",
+            [_framing_block("label", "Takeaway"), _claim_block("takeaway", SOURCE_CLAIM)],
+        )
+    )
+
+
+def test_a_clean_render_of_a_claim_beginning_with_source_passes(tmp_path: Path) -> None:
+    deck = _source_claim_deck()
+    report = post_render_audit(deck, _render(deck, tmp_path))
+    assert report.passes
+
+
+def test_a_claim_beginning_with_source_is_still_caught_by_a2(tmp_path: Path) -> None:
+    """A claim whose own text begins "Source: " and whose number changes after render is
+    still caught. A prefix match on "Source: " would have removed this whole line from the
+    numeric linter's input; only the slide's real computed caption is exempt."""
+    deck = _source_claim_deck()
+    pptx = _render(deck, tmp_path)
+    _tamper_part(pptx, "ppt/slides/slide1.xml", "40%", "45%")
+
+    report = post_render_audit(deck, pptx)
+
+    assert not report.numeric.passes
+    assert any("45" in finding.detail for finding in report.numeric.blocking)
+
+
+def test_the_old_prefix_strip_would_have_let_that_tamper_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Swap the exact-match strip for the prefix match it replaced; the same tamper then
+    passes A2. Proves the catch above comes from the exact match."""
+    deck = _source_claim_deck()
+    pptx = _render(deck, tmp_path)
+    _tamper_part(pptx, "ppt/slides/slide1.xml", "40%", "45%")
+
+    def prefix_strip(_slide: Slide, text: str) -> str:
+        return "\n".join(line for line in text.split("\n") if not line.startswith("Source: "))
+
+    monkeypatch.setattr(post_render, "_strip_caption_lines", prefix_strip)
+
+    assert post_render_audit(deck, pptx).numeric.passes
+
+
+# ---------------------------------------------------------------------------
+# A diagram node survives in two parts: its label on the face, its claim in the notes
+# ---------------------------------------------------------------------------
+
+NODE_CLAIM = "Enterprise accounts renewed at 92% across the last four quarters measured."
+
+
+def _node_claim_deck() -> Deck:
+    citation = _citation(NODE_CLAIM, doc_id="q3-segmentation-report", page=6)
+    diagram = DiagramSpec(
+        relationship="classification",
+        kind="two_by_two",
+        two_by_two=TwoByTwoSpec(
+            x_axis=DiagramAxis(name="Cost to serve", low="Low", high="High"),
+            y_axis=DiagramAxis(name="Adoption speed", low="Slow", high="Fast"),
+            items=[
+                QuadrantItem(
+                    id="self_serve",
+                    label="Self-serve",
+                    x=0.15,
+                    y=0.85,
+                    framing=LabelFraming(reason="category_name"),
+                ),
+                QuadrantItem(
+                    id="enterprise",
+                    label="Enterprise",
+                    x=0.85,
+                    y=0.25,
+                    claim=Claim(text=NODE_CLAIM, citations=[citation], verdict="supported"),
+                ),
+            ],
+        ),
+    )
+    return _deck(
+        _slide(
+            "s1",
+            "framework_diagram",
+            [
+                _framing_block("headline", "Deals justify the higher cost to serve"),
+                _payload_block("diagram", "diagram", diagram=diagram),
+            ],
+        )
+    )
+
+
+def test_a_clean_render_of_a_diagram_node_claim_has_no_findings(tmp_path: Path) -> None:
+    """The case that failed on every clean render before: label != claim text. Now the label
+    is checked on the face and the claim in the notes, and the slide's real caption
+    ("Source: q3-segmentation-report p.6") is exempt from A2 as chrome."""
+    deck = _node_claim_deck()
+    report = post_render_audit(deck, _render(deck, tmp_path))
+
+    assert report.findings == ()
+    assert report.numeric.passes
+
+
+def test_a_diagram_node_claim_changed_in_the_notes_is_caught(tmp_path: Path) -> None:
+    deck = _node_claim_deck()
+    pptx = _render(deck, tmp_path)
+    _tamper_part(pptx, "ppt/notesSlides/notesSlide1.xml", "renewed", "churned")
+
+    report = post_render_audit(deck, pptx)
+
+    matching = [f for f in report.findings if f.check == "claim altered in render"]
+    assert len(matching) == 1
+    assert NODE_CLAIM in matching[0].detail
+    assert "notes" in matching[0].detail
+
+
+def test_a_diagram_node_label_changed_on_the_face_is_caught(tmp_path: Path) -> None:
+    deck = _node_claim_deck()
+    pptx = _render(deck, tmp_path)
+    _tamper_part(pptx, "ppt/slides/slide1.xml", "<a:t>Enterprise</a:t>", "<a:t>Corporate</a:t>")
+
+    report = post_render_audit(deck, pptx)
+
+    matching = [f for f in report.findings if f.check == "claim altered in render"]
+    assert len(matching) == 1
+    assert "'Enterprise'" in matching[0].detail
+    assert "face" in matching[0].detail
+
+
+# ---------------------------------------------------------------------------
+# An agenda's numbers are list formatting, so a clean agenda render passes outright
+# ---------------------------------------------------------------------------
+
+
+def _agenda_deck() -> Deck:
+    return _deck(
+        _slide(
+            "s1",
+            "agenda",
+            [
+                _framing_block("headline", "Three sessions outline the full analysis"),
+                _framing_block("items", "Where the original architecture left headroom."),
+                _framing_block("items", "The rewrite: what changed, and what stayed."),
+                _framing_block("items", "The impact by the numbers."),
+            ],
+        )
+    )
+
+
+def test_a_clean_agenda_render_passes_the_whole_audit(tmp_path: Path) -> None:
+    """Before the numbers became native list formatting, this failed A2 on "1", "2", "3":
+    digits the renderer had composed into the text and no IR block held."""
+    deck = _agenda_deck()
+    report = post_render_audit(deck, _render(deck, tmp_path))
+
+    assert report.numeric.passes
+    assert report.numeric.blocking == []
+    assert report.findings == ()
+    assert report.passes
+
+
+def test_typed_digits_added_to_an_agenda_item_after_render_are_still_caught(
+    tmp_path: Path,
+) -> None:
+    """Native numbering is not a blind spot for real digits: a number typed into the text is
+    text, and A2 sees it."""
+    deck = _agenda_deck()
+    pptx = _render(deck, tmp_path)
+    _tamper_part(
+        pptx,
+        "ppt/slides/slide1.xml",
+        "The impact by the numbers.",
+        "The impact by the numbers: 73%.",
+    )
+
+    report = post_render_audit(deck, pptx)
+
+    assert not report.numeric.passes

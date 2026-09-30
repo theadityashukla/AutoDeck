@@ -172,12 +172,14 @@ def test_check_overflow_catches_too_many_points_even_if_each_fits_alone() -> Non
 
 def _max_items_for_test(slot: object) -> int:
     """A local, obviously-correct re-derivation, kept independent of the catalog's own
-    `_max_items` so a bug in that private helper cannot hide behind reusing it here."""
+    `_max_items` so a bug in that private helper cannot hide behind reusing it here. The
+    `1e-6` is the same float tolerance the catalog's checks carry: an exact-fit stack of
+    six items divides to 5.999999... otherwise."""
     item_box = slot.item_box  # type: ignore[attr-defined]
     row_gap = slot.row_gap  # type: ignore[attr-defined]
     box = slot.box  # type: ignore[attr-defined]
     row = item_box.height + row_gap
-    return max(int((box.height + row_gap) // row), 0)
+    return max(int((box.height + row_gap + 1e-6) // row), 0)
 
 
 @requires_test_font
@@ -497,3 +499,90 @@ def test_render_budgets_marks_optional_slots() -> None:
     assert "optional" in support_line
     headline_line = next(line for line in block.splitlines() if line.startswith("- headline"))
     assert "optional" not in headline_line
+
+
+# ---------------------------------------------------------------------------
+# data_card_grid's cards are budgeted, not just its headline
+# ---------------------------------------------------------------------------
+
+
+def _cards(n: int) -> dict[str, str | list[str]]:
+    return {
+        "headline": "Four metrics that matter",
+        "card_label": [f"Metric {i}" for i in range(n)],
+        "card_value": [f"{i}%" for i in range(n)],
+    }
+
+
+@requires_test_font
+def test_data_card_grid_declares_its_card_slots_as_repeatable() -> None:
+    """Before 3b the catalog declared only `headline` for this component, so
+    `check_overflow` could not protect a single card's text. Declared here as repeatable
+    slots, the way `bullets_supporting.points` is, and capped at six cards — the densest
+    grid (2x3) the renderer's own docstring commits to."""
+    spec = spec_for("data_card_grid", tokens_for())
+    for name in ("card_label", "card_value"):
+        slot = spec.slot(name)
+        assert slot.repeatable
+        assert slot.item_box is not None
+        assert _max_items_for_test(slot) == 6
+
+
+@requires_test_font
+def test_an_over_budget_card_label_is_rejected_before_render() -> None:
+    blocks = _cards(4)
+    labels = list(blocks["card_label"])
+    labels[2] = "word " * 60
+    blocks["card_label"] = labels
+
+    findings = check_overflow(blocks, "data_card_grid", tokens_for())
+
+    assert any("card_label[2]" in finding for finding in findings)
+    assert not any("card_label[0]" in finding for finding in findings)
+
+
+@requires_test_font
+def test_an_over_budget_card_value_is_rejected_before_render() -> None:
+    blocks = _cards(4)
+    values = list(blocks["card_value"])
+    values[1] = "9" * 80
+    blocks["card_value"] = values
+
+    findings = check_overflow(blocks, "data_card_grid", tokens_for())
+
+    assert any("card_value[1]" in finding for finding in findings)
+
+
+@requires_test_font
+def test_more_cards_than_the_grid_is_budgeted_for_are_rejected() -> None:
+    findings = check_overflow(_cards(7), "data_card_grid", tokens_for())
+    assert any("item(s) need" in finding for finding in findings)
+
+
+@requires_test_font
+def test_a_reasonable_set_of_cards_is_clean() -> None:
+    assert check_overflow(_cards(6), "data_card_grid", tokens_for()) == []
+
+
+@requires_test_font
+def test_a_data_card_grid_with_no_cards_is_reported_missing() -> None:
+    findings = check_overflow({"headline": "No cards"}, "data_card_grid", tokens_for())
+    assert any("card_label" in f for f in findings)
+    assert any("card_value" in f for f in findings)
+
+
+@requires_test_font
+def test_agenda_items_are_budgeted_at_the_width_the_numbered_text_really_gets() -> None:
+    """The auto-number hangs in a margin, so each item's text is `number_indent` narrower
+    than the region. Budgeting at the full width would pass an item that then wraps to one
+    more line than predicted."""
+    from autodeck.design.components.renderers import agenda
+
+    tokens = tokens_for()
+    canvas = Canvas(tokens)
+    body, _ = canvas.body_and_caption()
+    slot = spec_for("agenda", tokens).slot("items")
+
+    assert slot.item_box is not None
+    assert slot.item_box.width == pytest.approx(body.width - agenda.number_indent(canvas))
+    assert slot.box.x == pytest.approx(body.x + agenda.number_indent(canvas))

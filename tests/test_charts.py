@@ -218,6 +218,18 @@ class TestCitationCaption:
         place_chart(frame, frame.canvas.content, spec)
         assert any("Source:" in (_text_of(s) or "") for s in frame.slide.shapes)
 
+    def test_source_line_with_nothing_to_cite_is_empty_never_a_bare_prefix(self) -> None:
+        """`Frame.caption` draws nothing for `""`, so an empty citation set must produce
+        `""` — a bare `"Source: "` would draw a caption that names no source at all."""
+        assert charts.source_line([]) == ""
+
+    def test_source_line_is_the_one_public_formatter(self) -> None:
+        """One name, no private alias left behind to drift from it."""
+        assert not hasattr(charts, "_source_line")
+        assert charts.source_line([_citation(doc_id="a", page=2, quote=QUOTE_A)]) == (
+            "Source: a p.2"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Overflow — raise, never shrink

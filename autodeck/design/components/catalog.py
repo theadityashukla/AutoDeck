@@ -129,7 +129,12 @@ from autodeck.design.theme.tokens import DesignTokens
 #:
 #: 0.4.0: task 3a.4's second tranche registers `framework_diagram`, `timeline` and
 #: `chart_focus` — fifteen components now exist, closing PHASE-3A's exit criterion.
-COMPONENT_LIB_VERSION = "0.4.0"
+#:
+#: 0.5.0: 3b's render stage found components composing text the IR never held. `agenda`'s
+#: items are now one natively auto-numbered box, so each item is `number_indent` narrower;
+#: `data_card_grid` gains budgeted `card_label`/`card_value` slots; `callout_takeaway`'s
+#: `label` loses its silent "Takeaway" default. Slot boxes and the slot set both moved.
+COMPONENT_LIB_VERSION = "0.5.0"
 
 #: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
 #: so the preview gallery has somewhere to read from; the registry, not this directory, is
@@ -930,7 +935,13 @@ def _section_divider_slots(canvas: Canvas) -> list[ComponentSlot]:
 
 
 def _agenda_slots(canvas: Canvas) -> list[ComponentSlot]:
-    """Reconstruct the boxes `renderers/agenda.py` computes for itself."""
+    """Reconstruct the boxes `renderers/agenda.py` computes for itself.
+
+    The items are one natively auto-numbered text box, so each item's text is
+    `number_indent` narrower than the region — the number hangs in that margin as paragraph
+    formatting, not as characters. Budgeting at the full width would let an item through that
+    then wraps to one more line than predicted, which is the defect class 3a.6 fixed.
+    """
     body, _source_area = canvas.body_and_caption()
 
     headline_style = canvas.style("title", face="major", bold=True)
@@ -941,13 +952,15 @@ def _agenda_slots(canvas: Canvas) -> list[ComponentSlot]:
     gap_headline_to_body = canvas.baseline * 3 + agenda._RULE_THICKNESS + canvas.baseline * 4
 
     # Items area — reserve space for up to 5 items
-    item_one_line = _one_line_height(canvas, items_style, body.width)
+    indent = agenda.number_indent(canvas)
+    item_one_line = _one_line_height(canvas, items_style, body.width - indent)
     max_items = 5
     items_height = item_one_line * max_items + canvas.baseline * 2.5 * (max_items - 1)
 
     headline_height = max(body.height - gap_headline_to_body - items_height, headline_one_line)
     headline_box = body.resize(height=headline_height)
     _, items_area = body.split_top(headline_height, gutter=gap_headline_to_body)
+    items_area = items_area.inset(left=indent)
 
     return [
         ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
@@ -1065,26 +1078,81 @@ def _evidence_with_figure_slots(canvas: Canvas) -> list[ComponentSlot]:
 
 
 def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
-    """Reconstruct the boxes `renderers/data_card_grid.py` computes for itself."""
+    """Reconstruct the boxes `renderers/data_card_grid.py` computes for itself.
+
+    `render()`'s grid shape depends on the real card count (1-2 cards -> one row; 3-4 ->
+    2x2; 5-6 -> 2x3; 7+ grows further), which a `Canvas`-only builder cannot know — the same
+    gap `_framework_diagram_slots` names for its diagram region. Unlike that region, a card
+    genuinely is small stacked text (a value, then a label) that a writer can overflow, and
+    the carried finding from reviewing 2b.2 was exactly this: nothing here protected card
+    text at all. So `card_value`/`card_label` are budgeted, conservatively, against the
+    densest shape the component's own docstring commits to — "typically four to six ... in a
+    2x2 or 2x3 grid" — using the renderer's own `region.grid(2, 3, ...)` call for one card's
+    box, the same way every other slot in this module reads its geometry off the renderer's
+    own arithmetic rather than inventing it.
+
+    The repeatable-slot model (`box` = the whole stack, `item_box` = one item, both stacked
+    vertically) does not literally describe a 2-D grid, so `box` is not "the grid region" —
+    that would undercount how many cards fit by treating three side-by-side cards as one row
+    of a vertical stack, and reject decks `render()` would draw perfectly well. Instead `box`
+    is sized so `_max_items` (this module's own "how many fit" formula) comes out to exactly
+    six — the same kind of explicit policy cap `_agenda_slots` uses (`max_items = 5`) rather
+    than a geometric fact, and named here for the same reason: a cap this module commits to,
+    not a number `check_overflow` reverse-engineers from a box no one asked for.
+    """
     body, _source_area = canvas.body_and_caption()
 
     headline_style = canvas.style("title", face="major", bold=True)
-
-    # Headline block
     headline_one_line = _one_line_height(canvas, headline_style, body.width)
     gap_headline_to_body = canvas.baseline * 4
-
-    # Grid of 2x3 (6 cards)
-    _, _body_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
-
-    # Cards are not treated as a repeatable slot in the budget sense — they are part of a
-    # grid structure that the renderer handles entirely. Each card is small and fixed-size,
-    # so the slot just reserves the whole region for the grid.
     headline_box = body.resize(height=headline_one_line)
 
-    # Create slots for the headline and the grid region
+    _, grid_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
+
+    # One card's box under the densest "typical" grid (2 rows x 3 columns) — the same call
+    # `render()` makes, so this is a read of its arithmetic, not a fresh guess.
+    card_box = grid_region.grid(2, 3, gutter=canvas.gutter)[0][0]
+    inner = card_box.pad(data_card_grid._CARD_PADDING)
+
+    value_style = canvas.style(
+        "title", face="major", scale=data_card_grid._VALUE_SCALE, bold=True
+    )
+    label_style = canvas.style("caption")
+
+    value_one_line = _one_line_height(canvas, value_style, inner.width)
+    label_one_line = _one_line_height(canvas, label_style, inner.width)
+
+    value_item_box = inner.resize(height=value_one_line)
+    label_item_box = inner.resize(height=label_one_line)
+
+    max_cards = 6
+    row_gap = canvas.baseline
+
+    def stacked_box(item_box: Box) -> Box:
+        height = max_cards * item_box.height + (max_cards - 1) * row_gap
+        return item_box.resize(height=height)
+
     return [
         ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(
+            name="card_value",
+            role="title",
+            box=stacked_box(value_item_box),
+            face="major",
+            size_scale=data_card_grid._VALUE_SCALE,
+            bold=True,
+            repeatable=True,
+            item_box=value_item_box,
+            row_gap=row_gap,
+        ),
+        ComponentSlot(
+            name="card_label",
+            role="caption",
+            box=stacked_box(label_item_box),
+            repeatable=True,
+            item_box=label_item_box,
+            row_gap=row_gap,
+        ),
     ]
 
 

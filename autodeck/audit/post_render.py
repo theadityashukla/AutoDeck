@@ -10,20 +10,33 @@ template with a number baked in, a renderer bug that truncates a sentence.
 Three checks, each independent:
 
 1. **A2 on rendered text** — `numeric_linter.lint_rendered_slides` over each slide's face and
-   notes text. A numeral that reached the page without reaching the IR blocks. The caption
-   band's own "Source: doc p.N" line is excluded first: `numeric_linter.ALLOWLIST`'s own
-   docstring names exactly this gap — "Phase 3b's post-render run will meet slide numbers and
-   footer chrome, and the right fix there is for the text extractor to hand over body text
-   rather than for this linter to guess which '7' was a page number" — and a page number is
-   never itself quoted verbatim inside the citation it labels, so every clean render would
-   otherwise fail A2 on its own citation captions. `_strip_caption_lines` is that fix's
-   landing point, applied only to the numeric-lint input; claim survival and the shape checks
-   below still see the caption, since neither of them asks whether a number traces anywhere.
-2. **Claim survival** — every claim site's `claim.text` appears in its slide's rendered text
-   (face for face claims, notes for notes claims), compared with
-   `autodeck.ingest.provenance.normalise_for_match`, which tolerates whitespace, case and
+   notes text. A numeral that reached the page without reaching the IR blocks. Every caption
+   line the IR actually implies for that slide is excluded first:
+   `numeric_linter.ALLOWLIST`'s own docstring names exactly this gap — "Phase 3b's post-render
+   run will meet slide numbers and footer chrome, and the right fix there is for the text
+   extractor to hand over body text rather than for this linter to guess which '7' was a page
+   number" — and a page number is never itself quoted verbatim inside the citation it labels,
+   so every clean render would otherwise fail A2 on its own citation captions.
+   `renderer.expected_caption_lines(slide)` recomputes each slide's real caption(s) from the
+   IR with the same `source_line` the render used, and only an **exact** match is dropped —
+   never a prefix match, which would let a claim whose own text happens to begin `"Source: "`
+   escape A2 (see `test_a_claim_beginning_with_source_is_still_caught_by_a2`). Applied only to
+   the numeric-lint input; claim survival and the shape checks below still see the caption,
+   since neither of them asks whether a number traces anywhere.
+2. **Claim survival** — every claim site's text appears in its slide's rendered text, compared
+   with `autodeck.ingest.provenance.normalise_for_match`, which tolerates whitespace, case and
    unicode form and nothing else. This catches what A2 cannot: a sentence changed without
-   touching a number ("reduces" → "eliminates").
+   touching a number ("reduces" → "eliminates"). A face claim checks `claim.text` against the
+   face; a notes claim checks it against the notes. **A diagram-node claim is neither of
+   those, by construction**: `autodeck.design.diagrams.place_diagram` draws only `node.label`
+   on the slide, for every geometry, never `node.claim.text` — the two routinely differ, the
+   same asymmetry `numeric_linter._diagram_scopes` already treats as two separate scopes, and
+   `preview.EXAMPLES["framework_diagram"]`'s own "enterprise" node is built exactly this way.
+   So a node claim is checked in two parts, mirroring that split: its `label` must survive on
+   the **face** (what the audience sees), and its `claim.text` must survive in the **notes**
+   (`renderer._write_notes` writes every face diagram-node claim there, full text and source
+   line, precisely so this has somewhere real to check it against — the presenter holds the
+   evidence the slide only gestures at).
 3. **Shape of the file** — every IR slide rendered exactly once and no extra slides; and no
    `ppt/media/` image part unless the deck has a `figure` block (D10/D11: charts, diagrams
    and icons are native, so an image part anywhere else is a fallback that should not exist).
@@ -31,24 +44,6 @@ Three checks, each independent:
 PHASE-3B's escalation trigger applies to every finding here: **a discrepancy is not tuned
 away — it means something in the pipeline is rewriting content, and the mechanism must be
 found.** So every finding names the slide, the check, and the expected and actual text.
-
-**Found while building 3b's demo deck, escalated rather than worked around here: a diagram
-node's claim fails claim survival on every clean render where its `claim.text` differs from
-its `label`.** This module's own contract says diagram-node claims are "checked like face
-claims" (`deck.claim_sites()` walks them in), which means against the rendered *face* text.
-But `autodeck.design.diagrams.place_diagram` draws only `node.label` for every geometry
-(`process_flow`, `two_by_two`, `layered_stack`) and never `node.claim.text` — the same
-asymmetry `numeric_linter._diagram_scopes` already treats as two separate scopes because they
-routinely differ. `label != claim.text` is not an edge case; it is the documented shape of
-`preview.EXAMPLES["framework_diagram"]`'s own "enterprise" node (a short label, a longer
-cited sentence backing it), committed as the golden example. So any diagram node built the
-way that example is built — the normal way — gives a "claim altered in render" finding here
-even though nothing rewrote anything: the claim was never printed verbatim anywhere for it to
-survive as. Two fixes are possible and neither is this module's or `diagrams.py`'s alone to
-pick: extend the diagram renderer to make a claimed node's full text reachable somewhere on
-the slide (notes? a tooltip-like caption?), or redefine what "survives" means for a diagram
-node claim — its `label`, not its `claim.text`, mirroring the numeric linter's own treatment.
-Not loosened here; the check as specified is implemented exactly, and this is what it finds.
 """
 
 from __future__ import annotations
@@ -60,8 +55,9 @@ from typing import Literal
 
 from autodeck.audit.numeric_linter import NumericReport, lint_rendered_slides
 from autodeck.ingest.provenance import normalise_for_match
-from autodeck.ir.models import Deck
+from autodeck.ir.models import ClaimSite, Deck, Slide
 from autodeck.render.extract import SlideText, extract_slide_text
+from autodeck.render.renderer import expected_caption_lines
 
 PostRenderCheck = Literal[
     "claim altered in render",
@@ -92,15 +88,20 @@ class PostRenderReport:
         return self.numeric.passes and not self.findings
 
 
-def _strip_caption_lines(text: str) -> str:
-    """Drop every "Source: ..." caption line before handing text to the numeric linter.
+def _strip_caption_lines(slide: Slide, text: str) -> str:
+    """Drop exactly `slide`'s own caption line(s) before handing text to the numeric linter.
 
-    `renderer.source_line` (via `charts.source_line`) writes the citation caption as its own
-    line, always starting `"Source: "`. Its page numbers are chrome the linter cannot tell
-    from content — see the module docstring's note on `numeric_linter.ALLOWLIST`. Claim
-    survival and the shape checks still see the caption; only this input is filtered.
+    Recomputes them from the IR with `renderer.expected_caption_lines`, the same
+    `source_line` the render used — an **exact** line match, never a prefix — so a page
+    number the caption names is chrome the linter never sees (the gap
+    `numeric_linter.ALLOWLIST`'s own docstring names), while a claim whose own text happens
+    to start `"Source: "` is still handed over untouched, numbers and all. Claim survival
+    and the shape checks still see the caption; only this input is filtered.
     """
-    return "\n".join(line for line in text.split("\n") if not line.startswith("Source: "))
+    expected = expected_caption_lines(slide)
+    if not expected:
+        return text
+    return "\n".join(line for line in text.split("\n") if line not in expected)
 
 
 def _claim_survives(claim_text: str, rendered_text: str) -> bool:
@@ -117,19 +118,20 @@ def post_render_audit(deck: Deck, pptx: Path) -> PostRenderReport:
     Contract: uses `autodeck.render.extract.extract_slide_text`; an `ExtractionError`
     propagates (an unattributable file is not auditable, so it is not "no findings"). Walks
     claims through `deck.claim_sites()` — the one enumeration — so diagram-node claims and
-    notes claims are checked like face claims. Pure apart from reading the file.
+    notes claims are checked (a node claim against the label on the face and its own text in
+    the notes; see the module docstring). Pure apart from reading the file.
     """
     rendered = extract_slide_text(pptx)
+    slide_by_id = {slide.id: slide for slide in deck.slides}
 
     findings: list[PostRenderFinding] = []
     findings.extend(_shape_findings(deck, rendered))
-    findings.extend(_claim_survival_findings(deck, rendered))
+    findings.extend(_claim_survival_findings(deck, rendered, slide_by_id))
     findings.extend(_image_part_findings(deck, pptx))
 
-    deck_ids = {slide.id for slide in deck.slides}
-    lintable = {sid: text for sid, text in rendered.items() if sid in deck_ids}
+    lintable = {sid: text for sid, text in rendered.items() if sid in slide_by_id}
     rendered_text = {
-        sid: _strip_caption_lines(f"{text.face}\n{text.notes}")
+        sid: _strip_caption_lines(slide_by_id[sid], f"{text.face}\n{text.notes}")
         for sid, text in lintable.items()
     }
     numeric = lint_rendered_slides(deck, rendered_text)
@@ -161,14 +163,39 @@ def _shape_findings(deck: Deck, rendered: dict[str, SlideText]) -> list[PostRend
     return findings
 
 
+def _diagram_node_label(slide: Slide, site: ClaimSite) -> str:
+    """The label a diagram-node claim site's own node shows on the face.
+
+    `ClaimSite` carries the `Claim`, not the `DiagramNode` it sits on — by design
+    (`ir/models.py`'s own docstring: a claim site's setter writes a verdict back through the
+    node, but never hands the node itself to a caller). So finding the label means the one
+    walk `DiagramSpec.nodes()` already provides, not a second one.
+    """
+    for block in slide.blocks:
+        if block.id == site.block_id and block.diagram is not None:
+            for node in block.diagram.nodes:
+                if node.id == site.node_id:
+                    return node.label
+    raise AssertionError(
+        f"claim site {site.claim_id!r} names no diagram node on slide {slide.id!r}; "
+        "deck.claim_sites() and DiagramSpec.nodes() have disagreed about where it lives"
+    )
+
+
 def _claim_survival_findings(
-    deck: Deck, rendered: dict[str, SlideText]
+    deck: Deck, rendered: dict[str, SlideText], slide_by_id: dict[str, Slide]
 ) -> list[PostRenderFinding]:
     findings: list[PostRenderFinding] = []
     for site in deck.claim_sites():
         slide_text = rendered.get(site.slide_id)
         if slide_text is None:
             continue  # already reported as "slide missing from render"
+
+        if site.node_id is not None:
+            findings.extend(
+                _node_claim_survival_findings(site, slide_by_id[site.slide_id], slide_text)
+            )
+            continue
 
         haystack = slide_text.notes if site.in_speaker_notes else slide_text.face
         if not _claim_survives(site.claim.text, haystack):
@@ -183,6 +210,39 @@ def _claim_survival_findings(
                     ),
                 )
             )
+    return findings
+
+
+def _node_claim_survival_findings(
+    site: ClaimSite, slide: Slide, slide_text: SlideText
+) -> list[PostRenderFinding]:
+    """A diagram-node claim survives in two parts — see the module docstring's check 2."""
+    findings: list[PostRenderFinding] = []
+
+    label = _diagram_node_label(slide, site)
+    if not _claim_survives(label, slide_text.face):
+        findings.append(
+            PostRenderFinding(
+                check="claim altered in render",
+                slide_id=site.slide_id,
+                detail=(
+                    f"expected diagram node label {label!r} to appear in the rendered face "
+                    f"text; rendered face text was {slide_text.face!r}"
+                ),
+            )
+        )
+
+    if not _claim_survives(site.claim.text, slide_text.notes):
+        findings.append(
+            PostRenderFinding(
+                check="claim altered in render",
+                slide_id=site.slide_id,
+                detail=(
+                    f"expected diagram node claim {site.claim.text!r} to appear in the "
+                    f"rendered notes text; rendered notes text was {slide_text.notes!r}"
+                ),
+            )
+        )
     return findings
 
 
