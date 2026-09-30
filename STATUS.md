@@ -44,25 +44,8 @@ anywhere approves a gate. GATE 1's approval was given against a run whose `runs/
 was derived data on a machine that no longer exists, so the milestone starts from the
 planning session again.
 
-Before running anything, `./scripts/setup-dev-env.sh` (B34) — without it the render checks
-cannot run.
-
-```bash
-export GEMINI_API_KEY=...
-uv run autodeck plan northwind-milestone --client northwind-retail --project llm-inference-efficiency
-#   a conversation. `/brief` shows the draft; `/sign <your name>` ends it. There is no flag.
-uv run autodeck outline  northwind-milestone --client northwind-retail --project llm-inference-efficiency
-uv run autodeck approve  northwind-milestone outline
-uv run autodeck content  northwind-milestone --client northwind-retail --project llm-inference-efficiency
-uv run autodeck validate northwind-milestone --client northwind-retail --project llm-inference-efficiency
-uv run autodeck gate2    northwind-milestone
-```
-
-`gate2` prints the audit report, a stable `slide_id:block_id` per claim and six checkable
-criteria, exiting non-zero on a failure. **A clean run there is not the gate.** The six are
-what a machine can check; whether the deck's argument is honest is what you are being asked.
-Reject named claims with `autodeck send-back <run> --claim s3:b2 --reason "..."` — the next
-content pass sees the rejection and drops a verbatim repeat of it.
+**The owner's step-by-step is `docs/OWNER-GUIDE.md`** (commands, what you will see, how to sign, what to
+send back). It is the only copy of those instructions; start with its "Before you start".
 
 Budget the quota: 20 requests per model per day, roughly one `content` call per slide and
 one `validation` call per six claims, spread across five models (B25).
