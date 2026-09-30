@@ -17,7 +17,7 @@ import pytest
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
 
-from autodeck.design.charts import _source_line
+from autodeck.design.charts import source_line
 from autodeck.design.components import preview
 from autodeck.design.components.catalog import (
     check_overflow,
@@ -236,7 +236,7 @@ def test_chart_focus_draws_one_chart_and_one_source_line() -> None:
     chart_shapes = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART]
     assert len(chart_shapes) == 1
 
-    expected_source = _source_line(preview.EXAMPLES["chart_focus"].chart.source_citations)
+    expected_source = source_line(preview.EXAMPLES["chart_focus"].chart.source_citations)
     texts = _all_shape_text(slide)
     occurrences = [t for t in texts if expected_source in t]
     assert len(occurrences) == 1
