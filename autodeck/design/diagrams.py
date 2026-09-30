@@ -246,8 +246,16 @@ def _render_process_flow(frame: Frame, box: Box, spec: DiagramSpec) -> None:
         # draws each one on top of its left-hand neighbour — the overlap covers the
         # previous chevron's point rather than being covered by it.
 
+        # Both ends pull in by `notch_depth`: the notch tip on the left (as before), and the
+        # point's own base on the right — the CHEVRON preset's point is the same triangular
+        # cut mirrored onto the right edge, so it starts protruding `notch_depth` in from
+        # `node_box.right`, exactly where the *next* chevron's overlap begins. A label box
+        # that ran all the way to `node_box.right` (task 3b.2's deterministic QA, finding
+        # against this golden preview) reached into that overlap and collided with the next
+        # step's own label box — a catalog geometry defect, not a QA false positive: the
+        # bounding box genuinely extended past this node's own filled region.
         text_x0 = node_box.x + notch_depth + _CHEVRON_TEXT_PAD
-        text_x1 = node_box.right - _CHEVRON_TEXT_PAD
+        text_x1 = node_box.right - notch_depth - _CHEVRON_TEXT_PAD
         text_box = Box(text_x0, node_box.y, max(text_x1 - text_x0, 0.0), node_box.height)
         style = label_style.with_(color="lt1" if is_destination else "dk1")
         _place_label(
@@ -451,30 +459,92 @@ def _render_two_by_two(frame: Frame, box: Box, spec: DiagramSpec) -> None:
             _DOT_DIAMETER, _DOT_DIAMETER, item_x, item_y, halign="center", valign="middle"
         )
         add_autoshape(frame.slide, dot_box, "OVAL", fill="accent1")
+        _place_two_by_two_item_label(
+            frame, canvas, plot, item_x, item_y, item.id, item.label, item_style
+        )
 
-        # A point past the axis midline gets its label on the side with more room to the
-        # box edge, rather than always to the right — otherwise an item near x=1 would be
-        # asked to fit a label past the diagram's own right edge.
-        on_left = item.x > 0.5
+
+def _label_crosses_axis(label_box: Box, plot: Box) -> bool:
+    """Whether `label_box` straddles the vertical or horizontal axis line. Both axis lines
+    span the whole plot (construction.md: "the axes are the geometry"), so a label crosses
+    one exactly when its extent on that line's axis includes the line's own coordinate,
+    whatever the label's position on the other axis."""
+    crosses_vertical = label_box.x < plot.center_x < label_box.right
+    crosses_horizontal = label_box.y < plot.center_y < label_box.bottom
+    return crosses_vertical or crosses_horizontal
+
+
+def _place_two_by_two_item_label(
+    frame: Frame,
+    canvas: Canvas,
+    plot: Box,
+    item_x: float,
+    item_y: float,
+    item_id: str,
+    item_label: str,
+    style: TextStyle,
+) -> None:
+    """Place `item_label` beside the dot at `(item_x, item_y)`, on whichever side keeps it
+    clear of both axis lines.
+
+    The default side is the one with more room to the plot edge (`item_x` past the plot's
+    centre gets its label to the left, as before) — but an item close enough to the centre
+    that its label reaches back across an axis is unreadable regardless of the bounding-box
+    overlap check, struck through by the very line the diagram plots it against
+    (deterministic QA's overlap check does not catch this: it compares text-bearing shapes
+    only, and an axis is a connector). When the default side crosses, the other side is
+    tried; when neither does, this raises rather than drawing over the axis — the same
+    "never shrink text to fit" rule as everywhere else in this module.
+
+    Raises:
+        LayoutOverflowError: `item_label` does not fit either side without wrapping past
+            what `_measure` can rescue, or crosses an axis on both.
+    """
+    default_on_left = item_x > plot.center_x
+    overflow: LayoutOverflowError | None = None
+    for on_left in (default_on_left, not default_on_left):
         edge_x = (
             item_x - _DOT_DIAMETER / 2 - _ITEM_LABEL_GAP
             if on_left
             else item_x + _DOT_DIAMETER / 2 + _ITEM_LABEL_GAP
         )
-        available = (edge_x - box.x) if on_left else (box.right - edge_x)
-        block = _measure(
-            canvas, item.label, available, item_style, what=f"two_by_two item {item.id!r} label"
-        )
+        available = (edge_x - plot.x) if on_left else (plot.right - edge_x)
+        try:
+            block = _measure(
+                canvas, item_label, available, style, what=f"two_by_two item {item_id!r} label"
+            )
+        except LayoutOverflowError as error:
+            overflow = error
+            continue
+
+        # The box the label's own glyphs occupy — their measured width when the label fits
+        # on one line, `available` (the wrap ceiling) only when it does not — not the full
+        # span reserved out to the plot edge, which is the room the label is *allowed*, not
+        # the room it *uses*. Checking against the wider span flags crossings the rendered
+        # slide never shows, and would miss the real one this function exists to catch.
+        natural_width = _text_width(style, item_label)
+        content_width = min(natural_width, available) if block.line_count <= 1 else available
         label_box = _anchor(
-            available,
+            content_width,
             block.height,
             edge_x,
             item_y,
             halign="right" if on_left else "left",
             valign="middle",
         )
-        style = item_style.with_(align="right" if on_left else "left")
-        frame.text(label_box, item.label, style)
+        if _label_crosses_axis(label_box, plot):
+            continue
+
+        frame.text(label_box, item_label, style.with_(align="right" if on_left else "left"))
+        return
+
+    if overflow is not None:
+        raise overflow
+    raise LayoutOverflowError(
+        f"two_by_two: item {item_id!r}'s label crosses an axis line on both sides "
+        f"available to it in a {plot.width:.0f}x{plot.height:.0f}pt plot. Move the item, "
+        "shorten the label, or give the diagram a bigger slot."
+    )
 
 
 # ---------------------------------------------------------------------------
