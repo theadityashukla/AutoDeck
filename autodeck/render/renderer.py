@@ -23,7 +23,11 @@ What this module guarantees, regardless of what any component does:
    action changed nothing rather than repeating it.
 
 Speaker notes are written to each slide's notes page, one block per paragraph, each
-followed by its source line — A1 applies to notes exactly as to the face.
+followed by its source line — A1 applies to notes exactly as to the face. A diagram node's
+claim is written there too, even though the node itself lives on the face: its box draws
+only `node.label`, never the full `claim.text` behind it, so the claim's full text and
+source line go to notes instead — see `_write_notes` and `autodeck.audit.post_render`'s
+module docstring for what that means for claim survival.
 
 ## The generic rule, and where it stops
 
@@ -160,21 +164,38 @@ def render_deck(deck: Deck, *, tokens: DesignTokens, out_path: Path) -> Rendered
 
 
 def _write_notes(pptx_slide: Any, ir_slide: Slide) -> None:
-    """One paragraph per notes block, each claim's followed by its source line."""
-    if not ir_slide.speaker_notes:
+    """One paragraph per notes block (a claim's followed by its source line), then every
+    face diagram-node claim's full text and source line.
+
+    A diagram node's box shows only `node.label`; `node.claim.text` — the full assertion the
+    label stands for — never appears anywhere on the face (`diagrams.place_diagram` draws
+    labels only, for every geometry). So it is written here instead, exactly like a notes
+    claim, which is what makes it checkable at all: `post_render._claim_survival_findings`
+    checks a node claim's text against the notes page rather than the face, for the same
+    reason it checks any other notes claim there.
+    """
+    entries: list[tuple[str, str]] = [
+        (_block_text(block), source_line(block.claim.citations) if block.claim else "")
+        for block in ir_slide.speaker_notes
+    ]
+    entries.extend(
+        (site.claim.text, source_line(site.claim.citations))
+        for site in ir_slide.claim_sites()
+        if site.node_id is not None and not site.in_speaker_notes
+    )
+    if not entries:
         return
 
     text_frame = pptx_slide.notes_slide.notes_text_frame
     first = True
-    for block in ir_slide.speaker_notes:
-        text = _block_text(block)
+    for text, source in entries:
         if first:
             text_frame.text = text
             first = False
         else:
             text_frame.add_paragraph().text = text
-        if block.claim is not None:
-            text_frame.add_paragraph().text = source_line(block.claim.citations)
+        if source:
+            text_frame.add_paragraph().text = source
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +216,11 @@ def adapt_slide(slide: Slide, content_type: type) -> tuple[object, list[StyleNot
         More than one block → `RenderStageError`.
       - `list[str]` field: every face block with that slot, in block order, same rule.
       - `DiagramSpec` / `ChartSpec` field: the block's payload, unchanged.
-      - `source`: `source_line(...)` over the citations of every claim block on the face,
-        in first-appearance order, de-duplicated.
+      - `source`: `source_line(_face_claim_citations(slide))` — every citation on every face
+        claim (`slide.claim_sites()`, not `block.claim is not None`, so a diagram node's
+        claim is pooled in too), first-appearance order, de-duplicated. Empty when the face
+        has no claim: `source_line` returns `""` rather than a bare `"Source: "`, and no
+        block ever fills a `source` slot directly — it is always computed, never authored.
       - `accent`: `slide.style.accent`. `column_balance` / `emphasis` fields, where a
         component has them, from `slide.style`; where it does not and the style field is
         not its default, return a `StyleNotHonoured`.
@@ -214,8 +238,8 @@ def adapt_slide(slide: Slide, content_type: type) -> tuple[object, list[StyleNot
 
 def source_line(citations: list[Citation]) -> str:
     """The caption-band source text. **Reuse** the formatter in `autodeck.design.charts`
-    (`_source_line`, promoted to a public name) rather than writing a second one — two
-    descriptions of one format is the defect this project keeps finding."""
+    (`source_line`) rather than writing a second one — two descriptions of one format is the
+    defect this project keeps finding. `""` for an empty citation set: no caption at all."""
     return _design_source_line(citations)
 
 
@@ -263,19 +287,48 @@ def _block_text(block: Block) -> str:
     )
 
 
-def _claim_citations(blocks: list[Block]) -> list[Citation]:
-    """Every citation on every claim block in `blocks`, first-appearance order, deduped."""
+def _face_claim_citations(slide: Slide) -> list[Citation]:
+    """Every citation on every face claim, first-appearance order, deduped.
+
+    Walks `slide.claim_sites()` — the one enumeration (`ir/models.py`'s own words) — rather
+    than re-deriving claims from `block.claim is not None`, which is exactly the walk that
+    missed a diagram node's claim: `Block.claim_sites()` reaches a node's claim through
+    `DiagramSpec.claim_nodes()`, a second payload a naive `Block.claim` check never sees.
+    Restricted to the face (`not site.in_speaker_notes`): a notes claim's citation belongs on
+    the notes page via `source_line(block.claim.citations)` in `_write_notes`, not pooled
+    into the slide's visible caption.
+    """
     citations: list[Citation] = []
     seen: set[tuple[str, int, str]] = set()
-    for block in blocks:
-        if block.claim is None:
+    for site in slide.claim_sites():
+        if site.in_speaker_notes:
             continue
-        for citation in block.claim.citations:
+        for citation in site.claim.citations:
             key = citation.identity()
             if key not in seen:
                 seen.add(key)
                 citations.append(citation)
     return citations
+
+
+def expected_caption_lines(slide: Slide) -> frozenset[str]:
+    """Every literal caption line this slide's render could draw: the content's own `source`
+    text (pooled from every face claim, including a diagram node's) and each chart block's
+    own caption — each recomputed from the IR with this same `source_line`.
+
+    Public so `autodeck.audit.post_render` can strip exactly these lines from the text it
+    hands the numeric linter, rather than matching any line that merely starts `"Source: "`
+    — a prefix match would let a claim whose own text happens to begin that way escape A2.
+    An empty result is possible (a slide with no face claim and no chart draws no caption at
+    all) and callers should not special-case it: stripping a line that was never drawn is a
+    no-op.
+    """
+    lines = {source_line(_face_claim_citations(slide))}
+    lines.update(
+        source_line(block.chart.source_citations) for block in slide.blocks if block.chart
+    )
+    lines.discard("")
+    return frozenset(lines)
 
 
 def _has_default(f: dataclasses.Field[Any]) -> bool:
@@ -378,7 +431,7 @@ def _adapt_generic(slide: Slide, content_type: type) -> tuple[object, list[Style
         consumed.add(block.id)
 
     if "source" in hints:
-        kwargs["source"] = source_line(_claim_citations(slide.blocks))
+        kwargs["source"] = source_line(_face_claim_citations(slide))
 
     content = content_type(**kwargs)
     _raise_unplaced(consumed, slide.blocks)
@@ -452,7 +505,7 @@ def _adapt_two_column_compare(
     if slide.style.column_balance != "even":
         warnings.append(StyleNotHonoured(slide.id, "column_balance", "two_column_compare"))
 
-    source = source_line(_claim_citations(slide.blocks))
+    source = source_line(_face_claim_citations(slide))
     content = TwoColumnCompareContent(headline=headline, left=left, right=right, source=source)
     _raise_unplaced(consumed, slide.blocks)
     return content, warnings

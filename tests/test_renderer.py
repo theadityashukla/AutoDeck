@@ -26,12 +26,15 @@ from autodeck.ir.models import (
     Citation,
     Claim,
     Deck,
+    DiagramAxis,
     DiagramSpec,
     LabelFraming,
     ProcessFlowSpec,
     ProcessStep,
+    QuadrantItem,
     Slide,
     SlideStyle,
+    TwoByTwoSpec,
     Verdict,
 )
 from autodeck.pipeline.orchestrator import RenderBlocked
@@ -40,6 +43,7 @@ from autodeck.render.renderer import (
     StyleNotHonoured,
     UnplacedBlockError,
     adapt_slide,
+    expected_caption_lines,
     render_deck,
     scaled_tokens,
     source_line,
@@ -522,6 +526,145 @@ def test_no_image_part_is_written_for_a_deck_without_figures(tmp_path: Path) -> 
     with zipfile.ZipFile(out_path) as archive:
         media = [name for name in archive.namelist() if name.startswith("ppt/media/")]
     assert media == []
+
+
+# ---------------------------------------------------------------------------
+# 8. The source line: one walk, real or absent — never a bare "Source:"
+# ---------------------------------------------------------------------------
+
+NODE_CLAIM = "Enterprise accounts renewed at 92% across the last four quarters measured."
+
+
+def _node_claim_diagram(citation: Citation) -> DiagramSpec:
+    """A 2x2 whose ONLY claim is on the "Enterprise" node; every other label is framing."""
+    return DiagramSpec(
+        relationship="classification",
+        kind="two_by_two",
+        two_by_two=TwoByTwoSpec(
+            x_axis=DiagramAxis(name="Cost to serve", low="Low", high="High"),
+            y_axis=DiagramAxis(name="Adoption speed", low="Slow", high="Fast"),
+            items=[
+                QuadrantItem(
+                    id="self_serve",
+                    label="Self-serve",
+                    x=0.15,
+                    y=0.85,
+                    framing=LabelFraming(reason="category_name"),
+                ),
+                QuadrantItem(
+                    id="enterprise",
+                    label="Enterprise",
+                    x=0.85,
+                    y=0.25,
+                    claim=Claim(text=NODE_CLAIM, citations=[citation], verdict="supported"),
+                ),
+            ],
+        ),
+    )
+
+
+def _node_claim_slide(citation: Citation) -> Slide:
+    return _slide(
+        "s1",
+        "framework_diagram",
+        [
+            _framing_block("headline", "Enterprise deals justify the higher cost to serve"),
+            _payload_block("diagram", "diagram", diagram=_node_claim_diagram(citation)),
+        ],
+    )
+
+
+def _face_text(presentation: Any, index: int = 0) -> str:
+    return "\n".join(
+        _shape_text(shape)
+        for shape in presentation.slides[index].shapes
+        if shape.has_text_frame
+    )
+
+
+def test_a_slide_whose_only_claim_is_on_a_diagram_node_gets_a_real_source_line(
+    tmp_path: Path,
+) -> None:
+    """The source line pools citations from `slide.claim_sites()`, not from
+    `Block.kind == "claim"` — which never sees a claim one level down inside a diagram, and
+    is how this slide rendered a bare "Source:" before."""
+    citation = _citation(quote=NODE_CLAIM, doc_id="q3-segmentation-report", page=6)
+    slide = _node_claim_slide(citation)
+
+    content, _ = adapt_slide(slide, catalog.registration("framework_diagram").content_type)
+    assert cast(Any, content).source == "Source: q3-segmentation-report p.6"
+
+    out_path = tmp_path / "deck.pptx"
+    render_deck(_deck(slide), tokens=tokens_for(), out_path=out_path)
+    face = _face_text(Presentation(str(out_path)))
+
+    assert "Source: q3-segmentation-report p.6" in face.splitlines()
+    assert "Source:" not in [line.strip() for line in face.splitlines()]
+
+
+def test_a_diagram_nodes_full_claim_is_written_to_the_notes_not_the_face(
+    tmp_path: Path,
+) -> None:
+    """The node's box draws its label only. The full assertion behind the label goes to the
+    notes page, text then source line, like any notes claim."""
+    citation = _citation(quote=NODE_CLAIM, doc_id="q3-segmentation-report", page=6)
+    out_path = tmp_path / "deck.pptx"
+    render_deck(_deck(_node_claim_slide(citation)), tokens=tokens_for(), out_path=out_path)
+
+    presentation = Presentation(str(out_path))
+    face = _face_text(presentation)
+    assert "Enterprise" in face
+    assert NODE_CLAIM not in face
+
+    frame = presentation.slides[0].notes_slide.notes_text_frame
+    assert frame is not None
+    assert frame.text.splitlines() == [NODE_CLAIM, "Source: q3-segmentation-report p.6"]
+
+
+def test_node_claims_follow_the_authored_speaker_notes(tmp_path: Path) -> None:
+    """Authored speaker notes keep their place first; the diagram-node claims follow."""
+    citation = _citation(quote=NODE_CLAIM, doc_id="q3-segmentation-report", page=6)
+    slide = _node_claim_slide(citation)
+    slide.speaker_notes.append(_framing_block("note", "Say this first."))
+
+    out_path = tmp_path / "deck.pptx"
+    render_deck(_deck(slide), tokens=tokens_for(), out_path=out_path)
+
+    frame = Presentation(str(out_path)).slides[0].notes_slide.notes_text_frame
+    assert frame is not None
+    assert frame.text.splitlines() == [
+        "Say this first.",
+        NODE_CLAIM,
+        "Source: q3-segmentation-report p.6",
+    ]
+
+
+def test_a_slide_with_no_face_claim_draws_no_source_line_at_all(tmp_path: Path) -> None:
+    """Nothing to cite means no caption — not a "Source:" that names no source."""
+    slide = _slide(
+        "s1",
+        "bullets_supporting",
+        [
+            _framing_block("headline", "A plain framing headline"),
+            _framing_block("points", "One."),
+        ],
+    )
+    content, _ = adapt_slide(slide, catalog.registration("bullets_supporting").content_type)
+    assert cast(Any, content).source == ""
+
+    out_path = tmp_path / "deck.pptx"
+    render_deck(_deck(slide), tokens=tokens_for(), out_path=out_path)
+    face = _face_text(Presentation(str(out_path)))
+    assert "Source" not in face
+
+
+def test_expected_caption_lines_are_exactly_what_the_slide_draws() -> None:
+    citation = _citation(quote=NODE_CLAIM, doc_id="q3-segmentation-report", page=6)
+    assert expected_caption_lines(_node_claim_slide(citation)) == frozenset(
+        {"Source: q3-segmentation-report p.6"}
+    )
+    claimless = _slide("s1", "bullets_supporting", [_framing_block("headline", "Plain")])
+    assert expected_caption_lines(claimless) == frozenset()
 
 
 # ---------------------------------------------------------------------------
