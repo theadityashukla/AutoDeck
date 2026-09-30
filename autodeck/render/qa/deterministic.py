@@ -42,6 +42,8 @@ is closed by `_decor_exempt`'s other half: a `decor:` shape whose text contains 
 a digit is *itself* an "insufficient contrast" finding, routed `catalog_gap` (a naming
 mistake or a real caption dressed up as decoration is a component fix, never a token one).
 Overlap and safe area still apply to a `decor:` shape exactly as to any other.
+
+See also `count_decor_exempt`, which counts how many shapes were exempted from check 4.
 """
 
 from __future__ import annotations
@@ -101,6 +103,39 @@ class QAFinding:
 #: A shape named with this prefix declares itself pure decoration (WCAG 1.4.3) — exempt
 #: from check 4, not from the other three. See the module docstring.
 DECOR_PREFIX: Final = "decor:"
+
+
+def _decor_exempt(text: str) -> bool:
+    """Whether `text` is pure decoration — contains no letter or digit.
+
+    Used by both `run_deterministic_qa` (skip the contrast check) and
+    `count_decor_exempt` (count the shapes exempted).
+    """
+    return not any(character.isalnum() for character in text)
+
+
+def count_decor_exempt(pptx: Path) -> int:
+    """How many shapes in `pptx` were exempted from the contrast check as pure decoration —
+    named `decor:*` with no letter or digit in their text. Pure; same shape walk and the
+    same exemption predicate as `run_deterministic_qa` (reuse it — do not write a second
+    copy of the rule)."""
+    presentation = Presentation(str(pptx))
+    count = 0
+    for slide in presentation.slides:
+        for shape in slide.shapes:
+            if not shape.name.startswith(DECOR_PREFIX):
+                continue
+            if not shape.has_text_frame:
+                continue
+            frame = _text_frame(shape)
+            # Collect all text from the shape
+            all_text = "".join(
+                run.text for paragraph in frame.paragraphs for run in paragraph.runs
+            )
+            # Count the shape as exempt if all its text is pure decoration
+            if all_text and _decor_exempt(all_text):
+                count += 1
+    return count
 
 
 def run_deterministic_qa(
@@ -253,7 +288,7 @@ def run_deterministic_qa(
                     threshold = _contrast_threshold(size_pt, bool(run.font.bold))
 
                     if is_decor:
-                        if not any(character.isalnum() for character in run.text):
+                        if _decor_exempt(run.text):
                             continue  # pure decoration — check 4 does not apply to it
                         # The escape hatch closes here: a `decor:` shape whose text is not
                         # pure decoration is itself a finding, regardless of its actual

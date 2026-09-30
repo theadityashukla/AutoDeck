@@ -30,6 +30,7 @@ from autodeck.render.qa.deterministic import (
     CONTRAST_NORMAL,
     OVERLAP_TOLERANCE_PT,
     contrast_ratio,
+    count_decor_exempt,
     run_deterministic_qa,
 )
 from autodeck.render.renderer import SLIDE_TAG_PREFIX
@@ -498,3 +499,56 @@ def test_qa_is_pure(tmp_path: Path) -> None:
 
     assert first == second
     assert path.read_bytes() == before
+
+
+def test_count_decor_exempt_quote_preview(tmp_path: Path) -> None:
+    """The `quote` component's preview slide has one pure-decoration shape."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    canvas = Canvas(tokens)
+
+    # Render the quote component's preview
+    renderer = catalog.renderer_for("quote")
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    renderer(slide, canvas, EXAMPLES["quote"])
+    _tag(slide, "quote_preview")
+
+    path = _save(presentation, tmp_path, "quote_preview.pptx")
+
+    # The quote component has one decor shape (the opening mark) that is exempt
+    assert count_decor_exempt(path) == 1
+
+
+def test_count_decor_exempt_no_decor_shapes(tmp_path: Path) -> None:
+    """A slide with no `decor:` shapes counts 0."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+    panel = Box(100.0, 100.0, 300.0, 150.0)
+    _add_rect(slide, panel, fill="lt2")
+    _add_text(slide, panel.pad(10.0), "Regular text", color="dk1")
+
+    path = _save(presentation, tmp_path)
+    assert count_decor_exempt(path) == 0
+
+
+def test_count_decor_exempt_decor_with_text_not_counted(tmp_path: Path) -> None:
+    """A `decor:` shape containing "40%" is NOT counted as exempt (it is a finding)."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+    box = Box(100.0, 100.0, 300.0, 150.0)
+    shape = _add_text(slide, box, "40%", color="dk1")
+    shape.name = "decor:percentage"  # Name it as decoration, but contains a digit
+
+    path = _save(presentation, tmp_path)
+    # The shape is NOT counted as exempt because its text contains "40%"
+    assert count_decor_exempt(path) == 0
+    # Verify it's a finding in deterministic QA
+    findings = run_deterministic_qa(path, tokens)
+    assert any(
+        f.check == "insufficient contrast" and f.shapes[0] == "decor:percentage"
+        for f in findings
+    )
