@@ -21,7 +21,7 @@ from pptx.util import Pt
 
 from autodeck.design.components import catalog
 from autodeck.design.components.preview import EXAMPLES
-from autodeck.design.draw import theme_color
+from autodeck.design.draw import add_connector, theme_color
 from autodeck.design.layout_kit import Box, Canvas
 from autodeck.design.theme.master_builder import new_presentation
 from autodeck.design.theme.tokens import DesignTokens
@@ -169,6 +169,44 @@ def test_text_over_its_own_panel_is_not_an_overlap(tmp_path: Path) -> None:
     assert findings == []
 
 
+def test_a_text_box_crossing_a_connector_is_flagged(tmp_path: Path) -> None:
+    """A text box crossing a straight connector: an "overlap" finding, remedy `slot` — the
+    check compares text-bearing shapes against a line's own visual footprint too, not only
+    against each other (a two_by_two axis or a process_flow arrow reads exactly as struck
+    through as another label would)."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+
+    connector = add_connector(slide, (100.0, 150.0), (300.0, 150.0), color="dk2", width=1.5)
+    shape = _add_text(slide, Box(150.0, 140.0, 100.0, 20.0), "Struck through")
+
+    findings = run_deterministic_qa(_save(presentation, tmp_path), tokens)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.check == "overlap"
+    assert finding.remedy == "slot"
+    assert set(finding.shapes) == {shape.name, connector.name}
+    assert finding.threshold == OVERLAP_TOLERANCE_PT
+
+
+def test_a_text_box_beside_a_connector_is_not_flagged(tmp_path: Path) -> None:
+    """A text box well clear of a straight connector's line: no "overlap" finding."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+
+    add_connector(slide, (100.0, 150.0), (300.0, 150.0), color="dk2", width=1.5)
+    _add_text(slide, Box(150.0, 200.0, 100.0, 20.0), "Clear of the line")
+
+    findings = run_deterministic_qa(_save(presentation, tmp_path), tokens)
+
+    assert findings == []
+
+
 # ---------------------------------------------------------------------------
 # Safe area
 # ---------------------------------------------------------------------------
@@ -201,9 +239,35 @@ def test_a_shape_outside_the_safe_area_is_found(tmp_path: Path) -> None:
     assert finding.measured == pytest.approx(overshoot)
     assert finding.threshold == 0.0
     assert finding.remedy == "slot"
-    # Some registered component declares a slot at this geometry (the shifted `title.title`
-    # box itself, at minimum) — which one is not the point under test.
-    assert "." in finding.remedy_detail
+    # No `components` map was given, so the finding can say a registered component declares
+    # a slot here (the shifted `title.title` box itself, at minimum) without naming which —
+    # naming one anyway would be attributing to a component that might only coincide by
+    # geometry. See test_slot_is_named_when_the_component_is_known for the other half.
+    assert finding.remedy_detail == "slot (component unknown)"
+
+
+def test_slot_is_named_when_the_component_is_known(tmp_path: Path) -> None:
+    """The same overshoot, but with `components={"s1": "title"}`: the remedy names
+    `"title.title"` instead of the component-unknown placeholder."""
+    tokens = _tokens()
+    canvas = Canvas(tokens)
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+
+    slot_box = catalog.spec_for("title", tokens).slot("title").box
+    overshoot = 10.0
+    shift = (canvas.safe.right + overshoot) - slot_box.right
+    box = slot_box.offset(dx=shift).resize(height=40.0)
+    _add_text(slide, box, "Past the margin")
+
+    findings = run_deterministic_qa(
+        _save(presentation, tmp_path), tokens, components={"s1": "title"}
+    )
+
+    assert len(findings) == 1
+    assert findings[0].remedy == "slot"
+    assert findings[0].remedy_detail == "title.title"
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +401,66 @@ def test_large_bold_text_uses_the_large_threshold(tmp_path: Path) -> None:
     assert "normal" in by_slide
     assert by_slide["normal"].threshold == CONTRAST_NORMAL
     assert "large_bold" not in by_slide
+
+
+# ---------------------------------------------------------------------------
+# Decoration exemption (WCAG 1.4.3)
+# ---------------------------------------------------------------------------
+
+
+def test_a_decor_shape_is_exempt_from_contrast(tmp_path: Path) -> None:
+    """A `decor:`-named shape with no letters or digits: no "insufficient contrast" finding,
+    however bad its actual ratio (here, white on white — 1.0:1)."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+
+    box = Box(100.0, 100.0, 100.0, 100.0)
+    shape = slide.shapes.add_textbox(*box.as_emu())
+    frame = shape.text_frame
+    frame.word_wrap = True
+    run = frame.paragraphs[0].add_run()
+    run.text = "“"  # an opening curly quote — pure decoration, no letters or digits
+    run.font.size = Pt(54.0)
+    run.font.bold = True
+    run.font.color.rgb = RGBColor.from_string("FFFFFF")  # white on the white slide background
+    shape.name = "decor:quote-mark"
+
+    findings = run_deterministic_qa(_save(presentation, tmp_path), tokens)
+
+    assert findings == []
+
+
+def test_a_decor_shape_with_real_text_is_flagged(tmp_path: Path) -> None:
+    """A `decor:`-named shape whose text is "40%": the escape hatch is closed — an
+    "insufficient contrast" finding, remedy `catalog_gap`, naming the shape."""
+    tokens = _tokens()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    _tag(slide, "s1")
+
+    box = Box(100.0, 100.0, 100.0, 100.0)
+    shape = slide.shapes.add_textbox(*box.as_emu())
+    frame = shape.text_frame
+    frame.word_wrap = True
+    run = frame.paragraphs[0].add_run()
+    run.text = "40%"
+    run.font.size = Pt(54.0)
+    run.font.bold = True
+    run.font.color.rgb = RGBColor.from_string("FFFFFF")  # low contrast, so this would also
+    # fail the ordinary check — the point is that it is flagged regardless, as catalog_gap
+    shape.name = "decor:fake"
+
+    findings = run_deterministic_qa(_save(presentation, tmp_path), tokens)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.check == "insufficient contrast"
+    assert finding.shapes == (shape.name,)
+    assert finding.remedy == "catalog_gap"
+    assert "decor:fake" in finding.remedy_detail
+    assert "40%" in finding.remedy_detail
 
 
 # ---------------------------------------------------------------------------

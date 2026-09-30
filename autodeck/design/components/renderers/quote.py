@@ -76,6 +76,10 @@ def render(slide: Slide, canvas: Canvas, content: QuoteContent) -> None:
         canvas.style(
             "display", face="major", color=content.accent, bold=True, line_spacing=0.9
         ),
+        # Pure decoration (WCAG 1.4.3 does not apply to it): one oversized typographic
+        # glyph, never words or numbers. Named so deterministic QA (task 3b.2) can tell it
+        # apart from real text set in the same accent colour.
+        name="decor:quote-mark",
     )
     block.text(
         content.quote,

@@ -556,12 +556,19 @@ class Frame:
         """Draw text in `box`, measured nowhere — prefer a `Stack` unless the box is fixed."""
         return add_text(self.slide, box, text, style)
 
-    def caption(self, box: Box, text: str, *, color: str = "accent6") -> Shape | None:
+    def caption(self, box: Box, text: str, *, color: str = "dk2") -> Shape | None:
         """The source line at the foot of a slide; nothing at all when there is no source.
 
         Every component that cites anything ends this way, and the `if content.source:`
         guard around it was copied between the first two renderers verbatim. Returning
         `None` for empty text puts that guard in one place.
+
+        `dk2` by default, never an accent: caption text is a text role (OOXML's own
+        secondary-text convention for a light background), not a decoration a client's
+        palette happens to supply. `accent6` carried no readability guarantee — a client
+        free to set it to anything gave the caption band no contrast floor, and the dev
+        palette's own `accent6` (7A8B99) measured 3.51:1 on white, below WCAG AA's 4.5:1
+        for text this size (deterministic QA, task 3b.2).
         """
         if not text:
             return None
@@ -658,6 +665,7 @@ class Stack:
         marker: str | None = None,
         marker_style: TextStyle | None = None,
         marker_inset: float = MARKER_INSET,
+        name: str | None = None,
     ) -> Stack:
         """Add a run of text, `gap` points below whatever precedes it.
 
@@ -668,6 +676,13 @@ class Stack:
         `marker` hangs a dash (or any short glyph) in the left margin and insets the text
         past it; the marker is not measured, since it is one glyph on the item's first line
         by construction.
+
+        `name`, when given, is set on the drawn shape (`cSld`'s shape name, not the slide's)
+        — the one way a renderer can mark a shape as something deterministic QA should treat
+        specially, e.g. `"decor:quote-mark"` for the `quote` component's oversized opening
+        mark (task 3b.2's decoration exemption: WCAG 1.4.3 does not apply to pure
+        decoration, and the `decor:` prefix is that declaration, made in the file itself
+        rather than inferred from the shape's content).
 
         Raises:
             LayoutOverflowError: a word in `text` is wider than the stack, so no amount of
@@ -693,7 +708,9 @@ class Stack:
                     marker,
                     marker_style or style,
                 )
-            self._frame.text(box.inset(left=inset), text, style)
+            shape = self._frame.text(box.inset(left=inset), text, style)
+            if name is not None:
+                shape.name = name
 
         self._items.append(_Item(gap_before=gap, height=height, paint=paint))
         return self

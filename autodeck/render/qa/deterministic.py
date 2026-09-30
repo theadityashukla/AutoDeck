@@ -31,11 +31,23 @@ The four checks:
    `schemeClr` resolves through the tokens palette; `sysClr` through its `lastClr` — note
    PHASE-3A §6.5: LibreOffice renders `sysClr` literally, so the rendered PNG and this check
    may disagree for `dk1`/`lt1` text, and the check follows the file.
+
+**Decoration is exempt from check 4, not from the other three.** WCAG 1.4.3 does not apply
+to text that is pure decoration, and a renderer declares that exemption in the file, by
+naming the shape `"decor:<...>"` (`quote`'s oversized opening mark is the first user of
+this) — deterministic QA does not guess "does this look decorative" from a shape's size or
+style, which would be exactly the kind of judgement call §6.9 keeps out of arithmetic. The
+escape hatch this would otherwise open — rename any low-contrast text box `"decor:..."` —
+is closed by `_decor_exempt`'s other half: a `decor:` shape whose text contains a letter or
+a digit is *itself* an "insufficient contrast" finding, routed `catalog_gap` (a naming
+mistake or a real caption dressed up as decoration is a component fix, never a token one).
+Overlap and safe area still apply to a `decor:` shape exactly as to any other.
 """
 
 from __future__ import annotations
 
 import colorsys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -86,7 +98,14 @@ class QAFinding:
     fixes it."""
 
 
-def run_deterministic_qa(pptx: Path, tokens: DesignTokens) -> list[QAFinding]:
+#: A shape named with this prefix declares itself pure decoration (WCAG 1.4.3) — exempt
+#: from check 4, not from the other three. See the module docstring.
+DECOR_PREFIX: Final = "decor:"
+
+
+def run_deterministic_qa(
+    pptx: Path, tokens: DesignTokens, *, components: Mapping[str, str] | None = None
+) -> list[QAFinding]:
     """All four checks over every tagged slide in `pptx`, in slide then shape order.
 
     Contract: pure — reads the file, writes nothing, no model, no LibreOffice. Deterministic
@@ -94,10 +113,18 @@ def run_deterministic_qa(pptx: Path, tokens: DesignTokens) -> list[QAFinding]:
     (`typography.minimum` or the role's size); outside safe area and overlap → `slot` when
     the shapes belong to a component slot the catalog declares, else `catalog_gap`.
     Untagged slides raise `ValueError` — findings must be attributable.
+
+    `components` (optional): slide id → the component name that actually drew it. This
+    function otherwise has no `Deck`/IR and so no way to know which one — without it, a
+    "slot" remedy can say only that *some* registered component declares a slot at that
+    geometry, never which, so `remedy_detail` reads `"slot (component unknown)"` rather
+    than naming one that may only coincide by chance. Given the map, a slide's slot/
+    catalog_gap decision is attributed against that component's own declared slots only.
     """
     presentation = Presentation(str(pptx))
     canvas = Canvas(tokens)
-    catalog_boxes = _catalog_slot_boxes(tokens)
+    any_catalog_boxes = _catalog_slot_boxes(tokens)
+    component_boxes: dict[str, list[tuple[str, Box]]] = {}
 
     findings: list[QAFinding] = []
     for slide in presentation.slides:
@@ -106,13 +133,33 @@ def run_deterministic_qa(pptx: Path, tokens: DesignTokens) -> list[QAFinding]:
         boxes = [_shape_box(shape) for shape in shapes]
         text_indices = [index for index, shape in enumerate(shapes) if _is_text_bearing(shape)]
 
-        # 1. Overlap — text-bearing shapes only (module docstring: a filled non-text shape
-        # under text is intended and is check 4's business).
+        component = components.get(slide_id) if components is not None else None
+        if component is None:
+            slot_candidates = any_catalog_boxes
+        else:
+            if component not in component_boxes:
+                component_boxes[component] = _catalog_slot_boxes_for(component, tokens)
+            slot_candidates = component_boxes[component]
+        name_slot = component is not None
+
+        # 1. Overlap — text-bearing shapes against each other (module docstring: a filled
+        # non-text shape under text is intended and is check 4's business), and against any
+        # connector/line shape whose *visual* footprint crosses it — a two_by_two axis or a
+        # process_flow transition arrow is exactly as unreadable struck through a label as
+        # another label would be, and the module docstring's four-check list never said this
+        # check only ever compares two text shapes, only that it compares *text-bearing*
+        # shapes against something. `_visual_box` is what makes this detectable at all: a
+        # straight connector's python-pptx bounding box is degenerate (zero-width or
+        # zero-height) for exactly the horizontal/vertical lines this codebase draws, so the
+        # plain `_intersection` this loop already uses would never see it.
         for i, j in combinations(text_indices, 2):
             dx, dy = _intersection(boxes[i], boxes[j])
             if dx > OVERLAP_TOLERANCE_PT and dy > OVERLAP_TOLERANCE_PT:
                 remedy, detail = _slot_remedy(
-                    (boxes[i], boxes[j]), catalog_boxes, shapes[i].name, shapes[j].name
+                    (boxes[i], boxes[j]),
+                    slot_candidates,
+                    name_slot=name_slot,
+                    names=(shapes[i].name, shapes[j].name),
                 )
                 findings.append(
                     QAFinding(
@@ -126,11 +173,47 @@ def run_deterministic_qa(pptx: Path, tokens: DesignTokens) -> list[QAFinding]:
                     )
                 )
 
+        line_indices = [
+            index
+            for index, shape in enumerate(shapes)
+            if shape.shape_type == MSO_SHAPE_TYPE.LINE
+        ]
+        visual_line_boxes = {
+            index: _visual_box(shapes[index], boxes[index]) for index in line_indices
+        }
+        for text_index in text_indices:
+            for line_index in line_indices:
+                dx, dy = _intersection(boxes[text_index], visual_line_boxes[line_index])
+                if dx > OVERLAP_TOLERANCE_PT and dy > OVERLAP_TOLERANCE_PT:
+                    # A text/line collision is always a positioning fix (the line is drawn
+                    # by the same geometry that placed the label), never a new catalog slot
+                    # — "slot" regardless of whether a declared slot's box happens to cover
+                    # this spot; `_slot_remedy` still names one when it can, for the detail.
+                    _, detail = _slot_remedy(
+                        (boxes[text_index],),
+                        slot_candidates,
+                        name_slot=name_slot,
+                        names=(shapes[text_index].name, shapes[line_index].name),
+                    )
+                    findings.append(
+                        QAFinding(
+                            check="overlap",
+                            slide_id=slide_id,
+                            shapes=(shapes[text_index].name, shapes[line_index].name),
+                            measured=min(dx, dy),
+                            threshold=OVERLAP_TOLERANCE_PT,
+                            remedy="slot",
+                            remedy_detail=detail,
+                        )
+                    )
+
         # 2. Safe area — every shape, text-bearing or not.
         for shape, box in zip(shapes, boxes, strict=True):
             overshoot = _safe_area_overshoot(box, canvas.safe)
             if overshoot is not None:
-                remedy, detail = _slot_remedy((box,), catalog_boxes, shape.name)
+                remedy, detail = _slot_remedy(
+                    (box,), slot_candidates, name_slot=name_slot, names=(shape.name,)
+                )
                 findings.append(
                     QAFinding(
                         check="outside safe area",
@@ -146,6 +229,7 @@ def run_deterministic_qa(pptx: Path, tokens: DesignTokens) -> list[QAFinding]:
         # 3 & 4: minimum size and contrast, run by run, within each text-bearing shape.
         for index in text_indices:
             shape = shapes[index]
+            is_decor = shape.name.startswith(DECOR_PREFIX)
             background_hex = _background_for(index, shapes, boxes, tokens, slide)
             for paragraph in _text_frame(shape).paragraphs:
                 for run in paragraph.runs:
@@ -166,8 +250,36 @@ def run_deterministic_qa(pptx: Path, tokens: DesignTokens) -> list[QAFinding]:
                             )
                         )
 
-                    foreground = _resolve_color(run.font.color, tokens)
                     threshold = _contrast_threshold(size_pt, bool(run.font.bold))
+
+                    if is_decor:
+                        if not any(character.isalnum() for character in run.text):
+                            continue  # pure decoration — check 4 does not apply to it
+                        # The escape hatch closes here: a `decor:` shape whose text is not
+                        # pure decoration is itself a finding, regardless of its actual
+                        # ratio — routed `catalog_gap` because the fix is a rename or a
+                        # real caption slot, never a token.
+                        foreground = _resolve_color(run.font.color, tokens)
+                        ratio = contrast_ratio(foreground.hex, background_hex)
+                        findings.append(
+                            QAFinding(
+                                check="insufficient contrast",
+                                slide_id=slide_id,
+                                shapes=(shape.name,),
+                                measured=round(ratio, 2),
+                                threshold=threshold,
+                                remedy="catalog_gap",
+                                remedy_detail=(
+                                    f"{shape.name!r} ({run.text!r}) is named as decoration "
+                                    "but contains a letter or a digit — decoration may not "
+                                    "carry words or numbers, so it cannot claim WCAG 1.4.3's "
+                                    "exemption."
+                                ),
+                            )
+                        )
+                        continue
+
+                    foreground = _resolve_color(run.font.color, tokens)
                     ratio = contrast_ratio(foreground.hex, background_hex)
                     if ratio < threshold:
                         detail = (
@@ -258,6 +370,42 @@ def _intersection(a: Box, b: Box) -> tuple[float, float]:
     return dx, dy
 
 
+#: A stroke width to assume for a connector whose `line.width` is unset (`Emu(0)` — never
+#: true for anything `draw.add_connector` draws, which always sets one explicitly; only a
+#: guard against a hand-built fixture that does not).
+_DEFAULT_LINE_STROKE_PT: Final = 1.0
+
+
+def _line_stroke_pt(shape: BaseShape) -> float:
+    """`shape`'s own line width in points — the actual stroke this connector draws with,
+    read from the file rather than assumed."""
+    width = shape.line.width  # pyright: ignore[reportAttributeAccessIssue]
+    if not width:
+        return _DEFAULT_LINE_STROKE_PT
+    return emu_to_points(int(width))
+
+
+def _visual_box(shape: BaseShape, box: Box) -> Box:
+    """`box`, widened to the thin rectangle a straight connector's stroke actually occupies.
+
+    python-pptx reports a connector's *bounding box* — degenerate (zero-width or
+    zero-height) for exactly the horizontal and vertical lines every diagram in this
+    codebase draws, since a perfectly horizontal line is zero pixels tall by definition of
+    its own two endpoints. A plain `_intersection` against that box could never register an
+    overlap with anything, which is not the same claim as "nothing crosses this line" — it
+    is the box, not the geometry, being too thin to answer the question. Only a
+    `MSO_SHAPE_TYPE.LINE` shape is widened; every other shape's box is its own, unchanged.
+    """
+    if shape.shape_type != MSO_SHAPE_TYPE.LINE:
+        return box
+    stroke = _line_stroke_pt(shape)
+    if box.width == 0:
+        return Box(box.x - stroke / 2, box.y, stroke, box.height)
+    if box.height == 0:
+        return Box(box.x, box.y - stroke / 2, box.width, stroke)
+    return box
+
+
 def _safe_area_overshoot(box: Box, safe: Box) -> float | None:
     """How far `box` extends past `safe`, or `None` when it is inside (within `Box.contains`'s
     own sub-point tolerance — the exact check that docstring names as built for this)."""
@@ -277,37 +425,55 @@ def _safe_area_overshoot(box: Box, safe: Box) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-def _catalog_slot_boxes(tokens: DesignTokens) -> list[tuple[str, Box]]:
-    """Every declared slot box across every registered component and every one of its
-    variants, labelled `"<component>.<slot>"` — what `_slot_remedy` matches a finding's
-    geometry against. `run_deterministic_qa` has no IR and so no idea which component drew
-    a given slide; this asks the whole catalog rather than one component, which is exactly
-    the check the module docstring calls for ("belongs to a component slot the catalog
-    declares", not "belongs to *this slide's* component")."""
+def _catalog_slot_boxes_for(component: str, tokens: DesignTokens) -> list[tuple[str, Box]]:
+    """Every declared slot box for one component, across all its variants, labelled
+    `"<component>.<slot>"`. Used when the caller has told `run_deterministic_qa` which
+    component drew a slide (its `components` map), so a "slot" remedy can safely name one —
+    see `_catalog_slot_boxes` for the case where it has not."""
     boxes: list[tuple[str, Box]] = []
     canvas = Canvas(tokens)
-    for component in catalog.known_components():
-        entry = catalog.registration(component)
-        for variant in entry.variants:
-            for slot in variant.slots(canvas):
-                label = f"{component}.{slot.name}"
-                boxes.append((label, slot.box))
-                if slot.item_box is not None:
-                    boxes.append((label, slot.item_box))
+    entry = catalog.registration(component)
+    for variant in entry.variants:
+        for slot in variant.slots(canvas):
+            label = f"{component}.{slot.name}"
+            boxes.append((label, slot.box))
+            if slot.item_box is not None:
+                boxes.append((label, slot.item_box))
     return boxes
 
 
+def _catalog_slot_boxes(tokens: DesignTokens) -> list[tuple[str, Box]]:
+    """Every declared slot box across every registered component — what a "slot" remedy
+    matches a finding's geometry against when the caller has not said which component drew
+    the slide. This can only answer "some registered component declares a slot here", never
+    "the slide's own component does": `_slot_remedy` reports that distinction rather than
+    naming a slot that may only coincide by chance."""
+    boxes: list[tuple[str, Box]] = []
+    for component in catalog.known_components():
+        boxes.extend(_catalog_slot_boxes_for(component, tokens))
+    return boxes
+
+
+_SLOT_COMPONENT_UNKNOWN: Final = "slot (component unknown)"
+
+
 def _slot_remedy(
-    boxes: tuple[Box, ...], catalog_boxes: list[tuple[str, Box]], *names: str
+    boxes: tuple[Box, ...],
+    catalog_boxes: list[tuple[str, Box]],
+    *,
+    name_slot: bool,
+    names: tuple[str, ...],
 ) -> tuple[RemedyKind, str]:
-    """`slot` naming the first catalog-declared slot any of `boxes` overlaps, else
-    `catalog_gap` — the shapes sit where no registered component ever puts a slot, so a
-    token or a slot edit cannot be the fix; the catalog needs a new one."""
+    """`slot` — naming the first catalog-declared slot any of `boxes` overlaps when
+    `name_slot` is true (the caller identified the component), else the geometric fact alone
+    (`_SLOT_COMPONENT_UNKNOWN`) — or `catalog_gap` when nothing declared matches at all: the
+    shapes sit where no registered component ever puts a slot, so a token or a slot edit
+    cannot be the fix; the catalog needs a new one."""
     for box in boxes:
         for label, slot_box in catalog_boxes:
             dx, dy = _intersection(box, slot_box)
             if dx > 0 and dy > 0:
-                return "slot", label
+                return "slot", (label if name_slot else _SLOT_COMPONENT_UNKNOWN)
     joined = " and ".join(repr(name) for name in names)
     return "catalog_gap", (
         f"{joined} occupies geometry no registered component slot declares — this is a "
