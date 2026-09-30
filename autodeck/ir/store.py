@@ -75,6 +75,11 @@ class RunPaths:
         return self.root / "llm_cache"
 
     @property
+    def deck_pptx(self) -> Path:
+        """The rendered deck. The final-render gate's fingerprint is taken from this file."""
+        return self.root / "deck.pptx"
+
+    @property
     def state_file(self) -> Path:
         return self.root / "state.json"
 

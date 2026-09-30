@@ -31,6 +31,7 @@ render guard in Phase 2b (task 2b.8).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -43,7 +44,7 @@ from autodeck.audit.framing_linter import FramingReport, lint_framing
 from autodeck.audit.numeric_linter import NumericReport, lint_deck
 from autodeck.audit.verdicts import ClaimBlock, blocking_blocks, unverified_claims
 from autodeck.ir.models import Deck
-from autodeck.ir.store import IRStore, RunPaths, run_paths
+from autodeck.ir.store import IRStore, IRStoreError, RunPaths, run_paths
 
 DEFAULT_RUNS_ROOT = Path("runs")
 
@@ -53,16 +54,55 @@ class GateBlocked(RuntimeError):
 
     Raised, never logged. This is the mechanism behind A7, and a caught-and-ignored
     exception here would make the pipeline look compliant while approving its own work.
+
+    `reason` is for the cases where an approval exists on disk but does not count: it was
+    recorded before approvals were bound to an artifact, or the artifact changed after it
+    was given. Either way the remedy is the same — look at what is there now and approve it.
     """
 
-    def __init__(self, gate: Gate, run_id: str) -> None:
+    def __init__(self, gate: Gate, run_id: str, *, reason: str | None = None) -> None:
+        lead = (
+            f"GATE '{gate.value}' is not approved for run {run_id!r}: {reason} "
+            if reason
+            else f"GATE '{gate.value}' requires human approval before run {run_id!r} "
+            "continues. "
+        )
         super().__init__(
-            f"GATE '{gate.value}' requires human approval before run {run_id!r} continues. "
-            f"Review the artifacts under runs/{run_id}/ and record approval with "
+            lead + f"Review the artifacts under runs/{run_id}/ and record approval with "
             f"`autodeck approve {run_id} {gate.value}`. The pipeline never self-approves "
             "(A7)."
         )
         self.gate = gate
+        self.run_id = run_id
+        self.reason = reason
+
+
+class ArtifactMissing(RuntimeError):
+    """A gate was asked to cover an artifact that does not exist yet.
+
+    An approval is a statement about a specific thing. `approve` on a gate whose stage has
+    not run would record a statement about nothing, which a later stage would then read as
+    permission.
+    """
+
+    def __init__(self, gate: Gate, run_id: str, what: str) -> None:
+        super().__init__(
+            f"cannot approve GATE '{gate.value}' for run {run_id!r}: {what}. Nothing was "
+            "recorded."
+        )
+        self.what = what
+        self.gate = gate
+        self.run_id = run_id
+
+
+class UnknownRunError(RuntimeError):
+    """A command that works on an existing run was given an id with no run directory."""
+
+    def __init__(self, run_id: str, runs_root: Path) -> None:
+        super().__init__(
+            f"no such run {run_id!r} under {runs_root}. Runs are created by `autodeck "
+            "plan`; check the id with `ls` on the runs directory."
+        )
         self.run_id = run_id
 
 
@@ -93,6 +133,10 @@ class StageRecord:
     status: StageStatus = StageStatus.PENDING
     detail: str = ""
     finished_at: str | None = None
+    ir_version: int | None = None
+    """The IR version this stage wrote, when it wrote one. A gate's fingerprint is taken
+    from this file, so it names the version the stage produced rather than whichever is
+    newest by the time somebody approves."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +144,7 @@ class StageRecord:
             "status": self.status.value,
             "detail": self.detail,
             "finished_at": self.finished_at,
+            "ir_version": self.ir_version,
         }
 
     @classmethod
@@ -109,6 +154,7 @@ class StageRecord:
             status=StageStatus(payload.get("status", "pending")),
             detail=payload.get("detail", ""),
             finished_at=payload.get("finished_at"),
+            ir_version=payload.get("ir_version"),
         )
 
 
@@ -125,7 +171,10 @@ class RunState:
     env: str = "dev"
     stages: dict[str, StageRecord] = field(default_factory=dict)
     approvals: dict[str, str] = field(default_factory=dict)
-    """Gate value -> ISO timestamp of approval."""
+    """Gate value -> "<ISO timestamp> by <approver>"."""
+    fingerprints: dict[str, str] = field(default_factory=dict)
+    """Gate value -> sha256 of the artifact that was approved. An approval with no entry
+    here is from before approvals were bound to an artifact, and does not count."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -133,6 +182,7 @@ class RunState:
             "env": self.env,
             "stages": {name: record.to_dict() for name, record in self.stages.items()},
             "approvals": dict(self.approvals),
+            "fingerprints": dict(self.fingerprints),
         }
 
     @classmethod
@@ -145,6 +195,7 @@ class RunState:
                 for name, record in (payload.get("stages") or {}).items()
             },
             approvals=dict(payload.get("approvals") or {}),
+            fingerprints=dict(payload.get("fingerprints") or {}),
         )
 
     def is_complete(self, stage: str) -> bool:
@@ -152,23 +203,73 @@ class RunState:
         return record is not None and record.status is StageStatus.COMPLETED
 
     def is_approved(self, gate: Gate) -> bool:
-        return gate.value in self.approvals
+        """Whether an approval *bound to an artifact* is on record.
+
+        Says nothing about whether that artifact is still the current one — only
+        `Orchestrator.require_gate` compares against the disk. An approval without a
+        fingerprint (an old `state.json`) is "approved, fingerprint unknown", and unknown
+        is not approved.
+        """
+        return gate.value in self.approvals and gate.value in self.fingerprints
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+class ApprovalState(StrEnum):
+    """Where one gate stands, as the disk says it does right now."""
+
+    PENDING = "pending"
+    """Nothing approved."""
+    CURRENT = "current"
+    """Approved, and the artifact is byte-for-byte what was approved."""
+    CHANGED = "changed"
+    """Approved, but the artifact is not what was approved any more."""
+    UNBOUND = "unbound"
+    """An approval from before approvals named an artifact. Counts as not approved."""
+    NO_ARTIFACT = "no-artifact"
+    """Approved, but the artifact it covered is not there to compare against."""
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 class Orchestrator:
     """Runs stages in order, persisting state and stopping at unapproved gates."""
 
     def __init__(
-        self, run_id: str, *, runs_root: Path = DEFAULT_RUNS_ROOT, env: str = "dev"
+        self,
+        run_id: str,
+        *,
+        runs_root: Path = DEFAULT_RUNS_ROOT,
+        env: str = "dev",
+        create: bool = True,
     ) -> None:
+        """Open a run.
+
+        Args:
+            create: make the run directory if it is absent. Only the commands that *start*
+                a run (`plan`, the Phase 0 stub) pass True; every other command passes
+                False, so a mistyped run id is an error rather than a new empty run that
+                `status` then reports as "not started" and `approve` then accepts.
+
+        Raises:
+            UnknownRunError: `create` is False and there is no such run.
+        """
         self.run_id = run_id
-        self.paths: RunPaths = run_paths(runs_root, run_id).ensure()
+        try:
+            self.paths: RunPaths = run_paths(runs_root, run_id)
+        except IRStoreError:
+            raise UnknownRunError(run_id, Path(runs_root)) from None
+        if create:
+            self.paths.ensure()
+        elif not self.paths.root.is_dir():
+            raise UnknownRunError(run_id, Path(runs_root))
         self.ir = IRStore(runs_root, run_id)
         self.state = self._load_state(env)
+        self._produced_ir: int | None = None
 
     # -- state -------------------------------------------------------------
 
@@ -186,6 +287,17 @@ class Orchestrator:
 
     # -- stages ------------------------------------------------------------
 
+    def save_ir(self, deck: Deck, *, overwrite: bool = False) -> Path:
+        """Save an IR version on behalf of the stage that is running.
+
+        The stage's record remembers which version it wrote, and that is the file a gate's
+        fingerprint is taken from. A stage that saves through `self.ir` directly still
+        works, but the gate that covers it will report its artifact as missing.
+        """
+        path = self.ir.save(deck, overwrite=overwrite)
+        self._produced_ir = deck.version
+        return path
+
     def run_stage(self, name: str, work: Callable[[], str], *, force: bool = False) -> bool:
         """Run one stage unless it has already completed.
 
@@ -202,6 +314,7 @@ class Orchestrator:
 
         record = StageRecord(name=name)
         self.state.stages[name] = record
+        self._produced_ir = None
         try:
             record.detail = work()
         except Exception as exc:
@@ -212,34 +325,140 @@ class Orchestrator:
             raise
 
         record.status = StageStatus.COMPLETED
+        record.ir_version = self._produced_ir
         record.finished_at = _now()
         self.save_state()
         return True
 
     # -- gates -------------------------------------------------------------
 
-    def require_gate(self, gate: Gate) -> None:
-        """Stop unless `gate` has been approved by a human.
+    def current_fingerprint(self, gate: Gate) -> str:
+        """sha256 of the artifact `gate` covers, as it is on disk now.
+
+        - brief: the latest brief file.
+        - outline: the IR version the outline stage wrote.
+        - claims: the IR version the validate stage wrote — and only while that is still
+          the newest IR. A later content pass makes the table the owner reviewed stale.
+        - final_render: `canonical_pptx_digest` of `runs/<run>/deck.pptx`.
 
         Raises:
-            GateBlocked: the gate is not approved.
+            ArtifactMissing: there is nothing to fingerprint yet.
         """
-        if not self.state.is_approved(gate):
+        run = self.run_id
+        if gate is Gate.BRIEF:
+            version = self.ir.latest_brief_version()
+            if version is None:
+                raise ArtifactMissing(
+                    gate, run, f"the run has no brief. Run `autodeck plan {run}` first"
+                )
+            return _sha256_file(self.ir.brief_version_path(version))
+
+        if gate is Gate.FINAL_RENDER:
+            pptx = self.paths.deck_pptx
+            if not pptx.exists():
+                raise ArtifactMissing(
+                    gate, run, f"there is no rendered deck at {pptx}. Render it first"
+                )
+            from autodeck.audit.manifest import canonical_pptx_digest
+
+            return canonical_pptx_digest(pptx)
+
+        stage = "outline" if gate is Gate.OUTLINE else "validate"
+        command = f"autodeck {stage} {run}"
+        record = self.state.stages.get(stage)
+        if record is None or record.status is not StageStatus.COMPLETED:
+            raise ArtifactMissing(
+                gate, run, f"the {stage} stage has not completed. Run `{command}` first"
+            )
+        if record.ir_version is None or not self.ir.version_path(record.ir_version).exists():
+            raise ArtifactMissing(
+                gate,
+                run,
+                f"the {stage} stage did not record the IR version it wrote (a run from "
+                f"before approvals were bound to artifacts). Re-run `{command}`",
+            )
+        if gate is Gate.CLAIMS:
+            latest = self.ir.latest_version()
+            if latest != record.ir_version:
+                raise ArtifactMissing(
+                    gate,
+                    run,
+                    f"IR v{latest} was written after validation produced v"
+                    f"{record.ir_version}, so the claims table you reviewed is not the "
+                    f"latest. Re-run `{command}`",
+                )
+        return _sha256_file(self.ir.version_path(record.ir_version))
+
+    def approval_state(self, gate: Gate) -> tuple[ApprovalState, str]:
+        """Whether `gate`'s approval counts, and if not, why. Reads the disk; writes nothing."""
+        if gate.value not in self.state.approvals:
+            return ApprovalState.PENDING, "not approved"
+        recorded = self.state.fingerprints.get(gate.value)
+        if recorded is None:
+            return (
+                ApprovalState.UNBOUND,
+                "this approval was recorded before approvals named the artifact they "
+                "cover, so it cannot be checked against anything and does not count. "
+                "Re-approve it",
+            )
+        try:
+            current = self.current_fingerprint(gate)
+        except ArtifactMissing as missing:
+            return ApprovalState.NO_ARTIFACT, missing.what
+        if current != recorded:
+            return (
+                ApprovalState.CHANGED,
+                f"the {_ARTIFACT_NAMES[gate]} changed after it was approved; review what "
+                "is there now and re-approve it",
+            )
+        return ApprovalState.CURRENT, "approved"
+
+    def require_gate(self, gate: Gate) -> None:
+        """Stop unless `gate` has been approved by a human **for the artifact as it is now**.
+
+        Raises:
+            GateBlocked: the gate is not approved, the approval predates fingerprints, or
+                the artifact it covered has changed since. Re-running a stage therefore
+                invalidates the approval by itself; no code has to remember to clear it.
+        """
+        state, detail = self.approval_state(gate)
+        if state is ApprovalState.CURRENT:
+            return
+        if state is ApprovalState.PENDING:
             raise GateBlocked(gate, self.run_id)
+        raise GateBlocked(gate, self.run_id, reason=f"{detail}.")
 
     def approve(self, gate: Gate, *, approver: str = "owner") -> None:
-        """Record a human approval.
+        """Record a human approval of the artifact `gate` covers, as it is right now.
 
         Deliberately a separate operation from running the pipeline. A build cannot call
         this on its own behalf mid-run without that being visible in the code as an
         explicit approval — which is the point.
+
+        The fingerprint is taken here, at approval time, so the approval is a statement
+        about these bytes and not about whatever a later stage leaves in their place.
+
+        Raises:
+            ArtifactMissing: the gate's artifact does not exist. Nothing is written.
         """
+        fingerprint = self.current_fingerprint(gate)
         self.state.approvals[gate.value] = f"{_now()} by {approver}"
+        self.state.fingerprints[gate.value] = fingerprint
         self.save_state()
 
     def pending_gates(self) -> list[Gate]:
-        """Gates still awaiting approval, in order."""
-        return [gate for gate in Gate if not self.state.is_approved(gate)]
+        """Gates without a *current* approval, in order."""
+        return [
+            gate for gate in Gate if self.approval_state(gate)[0] is not ApprovalState.CURRENT
+        ]
+
+
+_ARTIFACT_NAMES: dict[Gate, str] = {
+    Gate.BRIEF: "brief",
+    Gate.OUTLINE: "outline",
+    Gate.CLAIMS: "validated claims table",
+    Gate.FINAL_RENDER: "rendered deck",
+}
 
 
 # ---------------------------------------------------------------------------

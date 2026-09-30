@@ -24,9 +24,12 @@ from autodeck.ir.store import IRStore, diff_decks
 from autodeck.pipeline.orchestrator import (
     DEFAULT_RUNS_ROOT,
     STAGE_SEQUENCE,
+    ApprovalState,
+    ArtifactMissing,
     Gate,
     GateBlocked,
     Orchestrator,
+    UnknownRunError,
 )
 from autodeck.providers.registry import ModelRegistry
 
@@ -78,6 +81,20 @@ def _echo_error(message: str) -> None:
     typer.secho(message, fg=typer.colors.RED, err=True)
 
 
+def _open_run(run_id: str, runs_root: Path, env: str = "dev") -> Orchestrator:
+    """Open a run that must already exist.
+
+    Every command except `plan` (and the Phase 0 stub, which starts a run by design) goes
+    through here, so a mistyped run id ends in an error instead of a new empty run that
+    `status` then reports as not started and `approve` would once have accepted.
+    """
+    try:
+        return Orchestrator(run_id, runs_root=runs_root, env=env, create=False)
+    except UnknownRunError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
 # ---------------------------------------------------------------------------
 # models
 # ---------------------------------------------------------------------------
@@ -126,12 +143,14 @@ def run(
         _echo_error("Only `--stub` is implemented in Phase 0. Real stages land in Phase 2a.")
         raise typer.Exit(code=2)
 
+    # The one command besides `plan` that starts a run: the Phase 0 milestone is a fresh id
+    # running to the first gate.
     orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
     registry = ModelRegistry.load(env)
 
     def write_stub_ir() -> str:
         deck = _stub_deck(run_id)
-        path = orchestrator.ir.save(deck, overwrite=True)
+        path = orchestrator.save_ir(deck, overwrite=True)
         return f"wrote {path}"
 
     def write_manifest() -> str:
@@ -205,11 +224,18 @@ def approve(
     """Record a human approval for one of the four A7 gates.
 
     Separate from `run` on purpose: there is no flag on `run` that approves a gate, and
-    there must never be one.
+    there must never be one. The approval is bound to the artifact as it is now (its
+    sha256 is stored beside your name), and it is refused when that artifact does not exist
+    yet.
     """
-    orchestrator = Orchestrator(run_id, runs_root=runs_root)
-    orchestrator.approve(gate, approver=approver)
+    orchestrator = _open_run(run_id, runs_root)
+    try:
+        orchestrator.approve(gate, approver=approver)
+    except ArtifactMissing as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
     typer.secho(f"approved {gate.value} for {run_id}", fg=typer.colors.GREEN)
+    typer.echo(f"  covers sha256 {orchestrator.state.fingerprints[gate.value][:16]}...")
 
     remaining = orchestrator.pending_gates()
     if remaining:
@@ -221,7 +247,7 @@ def status(
     run_id: Annotated[str, typer.Argument()], runs_root: RunsRoot = DEFAULT_RUNS_ROOT
 ) -> None:
     """Show stage completion and gate approvals for a run."""
-    orchestrator = Orchestrator(run_id, runs_root=runs_root)
+    orchestrator = _open_run(run_id, runs_root)
     state = orchestrator.state
 
     typer.secho(f"run {run_id} (env={state.env})", bold=True)
@@ -232,8 +258,16 @@ def status(
 
     typer.echo("gates:")
     for gate in Gate:
-        approval = state.approvals.get(gate.value)
-        typer.echo(f"  {gate.value:<14} {approval or 'PENDING'}")
+        approval_state, detail = orchestrator.approval_state(gate)
+        if approval_state is ApprovalState.PENDING:
+            typer.echo(f"  {gate.value:<14} PENDING")
+        elif approval_state is ApprovalState.CURRENT:
+            typer.echo(f"  {gate.value:<14} {state.approvals[gate.value]}")
+        else:
+            typer.secho(
+                f"  {gate.value:<14} NOT CURRENT ({state.approvals[gate.value]}) — {detail}",
+                fg=typer.colors.YELLOW,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +280,7 @@ def ir_versions(
     run_id: Annotated[str, typer.Argument()], runs_root: RunsRoot = DEFAULT_RUNS_ROOT
 ) -> None:
     """List the IR versions saved for a run."""
+    _open_run(run_id, runs_root)
     versions = IRStore(runs_root, run_id).versions()
     typer.echo(" ".join(f"v{v}" for v in versions) if versions else "no IR versions")
 
@@ -258,6 +293,7 @@ def ir_diff(
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
 ) -> None:
     """Diff two IR versions — the gate-review surface."""
+    _open_run(run_id, runs_root)
     store = IRStore(runs_root, run_id)
     changes = diff_decks(store.load(before), store.load(after))
     if not changes:
@@ -865,15 +901,15 @@ def outline(
     Blocks unless the brief gate is approved (A7). The GATE 1 report that follows checks
     only what a machine can check — whether the outline *makes the argument* is yours.
     """
-    from autodeck.agents.outline import OutlineError, build_outline
+    from autodeck.agents.outline import OutlineError, OutlineResult, build_outline
     from autodeck.audit.gate1 import review_outline
     from autodeck.ir.store import IRStoreError
     from autodeck.knowledge.context_assembler import ContextAssembler
     from autodeck.knowledge.loader import KnowledgeError
-    from autodeck.pipeline.orchestrator import Gate, GateBlocked, Orchestrator
+    from autodeck.pipeline.orchestrator import Gate, GateBlocked
     from autodeck.providers.registry import ModelRegistry
 
-    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    orchestrator = _open_run(run_id, runs_root, env)
     try:
         orchestrator.require_gate(Gate.BRIEF)
     except GateBlocked as blocked:
@@ -887,21 +923,33 @@ def outline(
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
 
-    try:
+    outline_model = ModelRegistry.load(env).provider_for("outline")
+    built: list[OutlineResult] = []
+
+    def do_outline() -> str:
         result = build_outline(
             brief_doc,
-            ModelRegistry.load(env).provider_for("outline"),  # type: ignore[arg-type]
+            outline_model,  # type: ignore[arg-type]
             client=client,
             project=project,
             theme_ref=str(tokens),
             component_lib_version=COMPONENT_LIB_VERSION,
             context=context.to_prompt_context(),
         )
+        built.append(result)
+        # Re-running replaces v1, and the bytes change with it: that is what invalidates
+        # an outline approval given to the previous run (the gate compares fingerprints).
+        path = orchestrator.save_ir(result.deck, overwrite=True)
+        return f"wrote {path}"
+
+    try:
+        orchestrator.run_stage("outline", do_outline, force=True)
     except OutlineError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
 
-    path = orchestrator.ir.save(result.deck, overwrite=True)
+    [result] = built
+    path = orchestrator.ir.version_path(result.deck.version)
     typer.secho(f"wrote {path}", fg=typer.colors.GREEN)
 
     for slide in result.deck.slides:
@@ -990,12 +1038,12 @@ def content(
     from autodeck.ir.store import IRStoreError
     from autodeck.knowledge.context_assembler import ContextAssembler
     from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
-    from autodeck.pipeline.orchestrator import Gate, GateBlocked, Orchestrator
+    from autodeck.pipeline.orchestrator import Gate, GateBlocked
     from autodeck.pipeline.send_back import SendBackRecord, load_send_backs
     from autodeck.providers.registry import ModelRegistry
     from autodeck.retrieval.hybrid import build_index
 
-    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    orchestrator = _open_run(run_id, runs_root, env)
     try:
         orchestrator.require_gate(Gate.OUTLINE)
     except GateBlocked as blocked:
@@ -1100,7 +1148,7 @@ def content(
         new_deck = deck.model_copy(
             update={"version": orchestrator.ir.next_version(), "slides": new_slides}
         )
-        path = orchestrator.ir.save(new_deck)
+        path = orchestrator.save_ir(new_deck)
         return f"wrote {path}"
 
     try:
@@ -1164,11 +1212,10 @@ def validate(
     from autodeck.agents.validation import ValidationAgentError, ValidationResult, validate_deck
     from autodeck.ingest.document_store import DocumentStore
     from autodeck.ir.store import IRStoreError
-    from autodeck.pipeline.orchestrator import Orchestrator
     from autodeck.providers.registry import ModelRegistry
     from autodeck.retrieval.hybrid import build_index
 
-    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    orchestrator = _open_run(run_id, runs_root, env)
     if not orchestrator.state.is_complete("content"):
         _echo_error(
             f"run {run_id!r} has no content yet. Run `autodeck content {run_id}` first."
@@ -1199,7 +1246,7 @@ def validate(
         nonlocal result
         deck_to_validate = deck.model_copy(update={"version": next_version})
         result = validate_deck(deck_to_validate, index=index, store=store, model=model)
-        path = orchestrator.ir.save(result.deck)
+        path = orchestrator.save_ir(result.deck)
         return f"wrote {path} · {result.provider_calls} provider call(s)"
 
     try:
@@ -1230,10 +1277,10 @@ def gate2(
     """
     from autodeck.audit.report import build_audit_report, render
     from autodeck.ir.store import IRStoreError
-    from autodeck.pipeline.orchestrator import Orchestrator, assess_render_safety
+    from autodeck.pipeline.orchestrator import assess_render_safety
     from autodeck.pipeline.send_back import load_send_backs
 
-    orchestrator = Orchestrator(run_id, runs_root=runs_root)
+    orchestrator = _open_run(run_id, runs_root)
     if not orchestrator.state.is_complete("validate"):
         _echo_error(
             f"run {run_id!r} has not been validated yet. Run `autodeck validate {run_id}` "
@@ -1441,7 +1488,6 @@ def send_back(
     """
     from autodeck.audit.report import build_audit_report
     from autodeck.ir.store import IRStoreError
-    from autodeck.pipeline.orchestrator import Orchestrator
     from autodeck.pipeline.send_back import SendBackRecord, append_send_backs
 
     if len(claim) != len(reason):
@@ -1454,7 +1500,7 @@ def send_back(
         _echo_error("at least one --claim is required.")
         raise typer.Exit(code=2)
 
-    orchestrator = Orchestrator(run_id, runs_root=runs_root)
+    orchestrator = _open_run(run_id, runs_root)
     try:
         deck = orchestrator.ir.load()
     except IRStoreError as exc:
