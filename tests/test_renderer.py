@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import re
 import zipfile
 from pathlib import Path
 from typing import Any, cast, get_type_hints
@@ -18,6 +19,8 @@ from pptx import Presentation
 
 from autodeck.audit.manifest import canonical_pptx_digest
 from autodeck.design.components import catalog, preview
+from autodeck.design.layout_kit import Canvas
+from autodeck.design.theme.master_builder import new_presentation, save_themed
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.models import (
     Block,
@@ -38,8 +41,10 @@ from autodeck.ir.models import (
     Verdict,
 )
 from autodeck.pipeline.orchestrator import RenderBlocked
+from autodeck.render.extract import extract_slide_text
 from autodeck.render.renderer import (
     SLIDE_TAG_PREFIX,
+    RenderStageError,
     StyleNotHonoured,
     UnplacedBlockError,
     adapt_slide,
@@ -245,7 +250,7 @@ def test_claim_text_reaches_the_slide_character_for_character(tmp_path: Path) ->
         _slide(
             "s1",
             "callout_takeaway",
-            [_claim_block("takeaway", claim_text)],
+            [_framing_block("label", "Takeaway"), _claim_block("takeaway", claim_text)],
         )
     )
     out_path = tmp_path / "deck.pptx"
@@ -359,7 +364,7 @@ def test_style_accent_and_type_scale_are_applied(tmp_path: Path) -> None:
     slide = _slide(
         "s1",
         "callout_takeaway",
-        [_claim_block("takeaway", "A takeaway.")],
+        [_framing_block("label", "Takeaway"), _claim_block("takeaway", "A takeaway.")],
         style=SlideStyle(accent="accent3"),
     )
     content, _ = adapt_slide(slide, content_type)
@@ -665,6 +670,180 @@ def test_expected_caption_lines_are_exactly_what_the_slide_draws() -> None:
     )
     claimless = _slide("s1", "bullets_supporting", [_framing_block("headline", "Plain")])
     assert expected_caption_lines(claimless) == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# 9. Components copy content and never compose it
+# ---------------------------------------------------------------------------
+
+
+def _strings_in(value: Any) -> list[str]:
+    """Every string (and float, as `repr` — how charts write them) reachable from `value`."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, float):
+        return [repr(value)]
+    if isinstance(value, int) and not isinstance(value, bool):
+        return [str(value)]
+    if isinstance(value, dict):
+        return [t for v in value.values() for t in _strings_in(v)]
+    if isinstance(value, list | tuple):
+        return [t for v in value for t in _strings_in(v)]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _strings_in(dataclasses.asdict(value))
+    dump = getattr(value, "model_dump", None)
+    if dump is not None:
+        return _strings_in(dump())
+    return []
+
+
+def _citations_in(value: Any) -> list[Citation]:
+    """Every `Citation` object reachable from `value` (a chart's, a diagram node's)."""
+    if isinstance(value, Citation):
+        return [value]
+    if isinstance(value, list | tuple):
+        return [c for v in value for c in _citations_in(v)]
+    if isinstance(value, dict):
+        return [c for v in value.values() for c in _citations_in(v)]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return [
+            c for f in dataclasses.fields(value) for c in _citations_in(getattr(value, f.name))
+        ]
+    fields = getattr(type(value), "model_fields", None)
+    if fields is not None:
+        return [c for name in fields for c in _citations_in(getattr(value, name))]
+    return []
+
+
+def _words(text: str) -> set[str]:
+    return {token.casefold() for token in re.findall(r"\w+", text)}
+
+
+@pytest.mark.parametrize("name", catalog.known_components())
+def test_no_component_renders_a_word_or_number_its_content_did_not_hold(
+    name: str, tmp_path: Path
+) -> None:
+    """Render each component's golden example and require that every word and number on the
+    rendered face was already in the content. This is the class of bug the agenda had
+    (`f"{index}. {item}"` put "1", "2", "3" on the slide that no block held) and the
+    callout's silent "Takeaway" default: a component composing text the IR never saw, which
+    a claim-survival check cannot see and only a numeral audit catches sometimes.
+
+    Glyph-only ornaments (bullet dashes, the quote mark) have no word characters and so are
+    out of scope here by construction — they cannot carry a fact. They are listed in the
+    handover instead.
+    """
+    example = preview.EXAMPLES[name]
+    tokens = tokens_for()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.name = f"{SLIDE_TAG_PREFIX}only"
+    catalog.renderer_for(name)(slide, Canvas(tokens), example)
+    path = save_themed(presentation, tokens, tmp_path / f"{name}.pptx")
+
+    face = extract_slide_text(path)["only"].face
+    # The one sanctioned composition: the caption `source_line` builds from the content's own
+    # citations ("Source: doc p.N"). Nothing else may add a word.
+    caption = source_line(_citations_in(example))
+    held = _words(" ".join(_strings_in(example))) | _words(caption)
+    invented = sorted(_words(face) - held)
+
+    assert invented == [], f"{name} rendered words/numbers no content held: {invented}"
+
+
+def _agenda_deck(*items: str) -> Deck:
+    return _deck(
+        _slide(
+            "s1",
+            "agenda",
+            [_framing_block("headline", "Three sessions outline the analysis")]
+            + [_framing_block("items", item) for item in items],
+        )
+    )
+
+
+AGENDA_ITEMS = (
+    "Where the original architecture left headroom.",
+    "The rewrite: what changed, and what stayed.",
+    "The impact by the numbers.",
+)
+
+
+def test_agenda_numbers_are_native_list_formatting_not_text(tmp_path: Path) -> None:
+    """One text box, one paragraph per item, each `a:buAutoNum` — so the numbers are
+    paragraph formatting the application generates, never a run of text."""
+    out_path = tmp_path / "deck.pptx"
+    render_deck(_agenda_deck(*AGENDA_ITEMS), tokens=tokens_for(), out_path=out_path)
+
+    with zipfile.ZipFile(out_path) as archive:
+        xml = archive.read("ppt/slides/slide1.xml").decode("utf-8")
+    assert xml.count('<a:buAutoNum type="arabicPeriod"/>') == len(AGENDA_ITEMS)
+
+    presentation = Presentation(str(out_path))
+    list_shapes = [
+        shape
+        for shape in presentation.slides[0].shapes
+        if shape.has_text_frame and AGENDA_ITEMS[0] in _shape_text(shape)
+    ]
+    assert len(list_shapes) == 1, "the list must be ONE box, or every item would read '1.'"
+    paragraphs = [p.text for p in _text_frame(list_shapes[0]).paragraphs]
+    assert paragraphs == list(AGENDA_ITEMS)
+
+
+def test_extraction_does_not_read_auto_numbers_as_text(tmp_path: Path) -> None:
+    """Auto-numbers are formatting, so the extractor hands over the item text alone. That is
+    the point: the digits exist in no IR block, and must not reach the numeric audit."""
+    out_path = tmp_path / "deck.pptx"
+    render_deck(_agenda_deck(*AGENDA_ITEMS), tokens=tokens_for(), out_path=out_path)
+
+    face = extract_slide_text(out_path)["s1"].face.splitlines()
+
+    assert face == ["Three sessions outline the analysis", *AGENDA_ITEMS]
+    assert not any(re.match(r"\s*\d+[.)]", line) for line in face)
+
+
+def test_agenda_items_with_a_newline_are_refused_not_renumbered() -> None:
+    from autodeck.design.components.renderers import agenda
+
+    tokens = tokens_for()
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    with pytest.raises(ValueError, match="newline"):
+        agenda.render(
+            slide,
+            Canvas(tokens),
+            agenda.AgendaContent(headline="H", items=["one\ntwo"]),
+        )
+
+
+def test_a_callout_without_a_label_is_refused_not_given_a_word_nobody_wrote() -> None:
+    slide = _slide("s1", "callout_takeaway", [_claim_block("takeaway", "A takeaway.")])
+    with pytest.raises(RenderStageError, match="label"):
+        adapt_slide(slide, catalog.registration("callout_takeaway").content_type)
+
+
+def test_title_presenter_and_date_are_two_lines_with_no_invented_separator(
+    tmp_path: Path,
+) -> None:
+    deck = _deck(
+        _slide(
+            "s1",
+            "title",
+            [
+                _framing_block("title", "A Deck Title"),
+                _framing_block("presenter", "Engineering leadership"),
+                _claim_block("date", "Q3 2025"),
+            ],
+        )
+    )
+    out_path = tmp_path / "deck.pptx"
+    render_deck(deck, tokens=tokens_for(), out_path=out_path)
+
+    lines = extract_slide_text(out_path)["s1"].face.splitlines()
+
+    assert "Engineering leadership" in lines
+    assert "Q3 2025" in lines
+    assert not any("·" in line for line in lines)
 
 
 # ---------------------------------------------------------------------------

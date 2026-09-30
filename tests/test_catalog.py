@@ -569,3 +569,20 @@ def test_a_data_card_grid_with_no_cards_is_reported_missing() -> None:
     findings = check_overflow({"headline": "No cards"}, "data_card_grid", tokens_for())
     assert any("card_label" in f for f in findings)
     assert any("card_value" in f for f in findings)
+
+
+@requires_test_font
+def test_agenda_items_are_budgeted_at_the_width_the_numbered_text_really_gets() -> None:
+    """The auto-number hangs in a margin, so each item's text is `number_indent` narrower
+    than the region. Budgeting at the full width would pass an item that then wraps to one
+    more line than predicted."""
+    from autodeck.design.components.renderers import agenda
+
+    tokens = tokens_for()
+    canvas = Canvas(tokens)
+    body, _ = canvas.body_and_caption()
+    slot = spec_for("agenda", tokens).slot("items")
+
+    assert slot.item_box is not None
+    assert slot.item_box.width == pytest.approx(body.width - agenda.number_indent(canvas))
+    assert slot.box.x == pytest.approx(body.x + agenda.number_indent(canvas))

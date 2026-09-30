@@ -129,7 +129,12 @@ from autodeck.design.theme.tokens import DesignTokens
 #:
 #: 0.4.0: task 3a.4's second tranche registers `framework_diagram`, `timeline` and
 #: `chart_focus` — fifteen components now exist, closing PHASE-3A's exit criterion.
-COMPONENT_LIB_VERSION = "0.4.0"
+#:
+#: 0.5.0: 3b's render stage found components composing text the IR never held. `agenda`'s
+#: items are now one natively auto-numbered box, so each item is `number_indent` narrower;
+#: `data_card_grid` gains budgeted `card_label`/`card_value` slots; `callout_takeaway`'s
+#: `label` loses its silent "Takeaway" default. Slot boxes and the slot set both moved.
+COMPONENT_LIB_VERSION = "0.5.0"
 
 #: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
 #: so the preview gallery has somewhere to read from; the registry, not this directory, is
@@ -930,7 +935,13 @@ def _section_divider_slots(canvas: Canvas) -> list[ComponentSlot]:
 
 
 def _agenda_slots(canvas: Canvas) -> list[ComponentSlot]:
-    """Reconstruct the boxes `renderers/agenda.py` computes for itself."""
+    """Reconstruct the boxes `renderers/agenda.py` computes for itself.
+
+    The items are one natively auto-numbered text box, so each item's text is
+    `number_indent` narrower than the region — the number hangs in that margin as paragraph
+    formatting, not as characters. Budgeting at the full width would let an item through that
+    then wraps to one more line than predicted, which is the defect class 3a.6 fixed.
+    """
     body, _source_area = canvas.body_and_caption()
 
     headline_style = canvas.style("title", face="major", bold=True)
@@ -941,13 +952,15 @@ def _agenda_slots(canvas: Canvas) -> list[ComponentSlot]:
     gap_headline_to_body = canvas.baseline * 3 + agenda._RULE_THICKNESS + canvas.baseline * 4
 
     # Items area — reserve space for up to 5 items
-    item_one_line = _one_line_height(canvas, items_style, body.width)
+    indent = agenda.number_indent(canvas)
+    item_one_line = _one_line_height(canvas, items_style, body.width - indent)
     max_items = 5
     items_height = item_one_line * max_items + canvas.baseline * 2.5 * (max_items - 1)
 
     headline_height = max(body.height - gap_headline_to_body - items_height, headline_one_line)
     headline_box = body.resize(height=headline_height)
     _, items_area = body.split_top(headline_height, gutter=gap_headline_to_body)
+    items_area = items_area.inset(left=indent)
 
     return [
         ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),

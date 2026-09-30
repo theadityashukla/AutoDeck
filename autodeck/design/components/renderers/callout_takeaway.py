@@ -36,9 +36,15 @@ class CalloutTakeawayContent:
 
     takeaway: str
     """The one sentence the slide exists to deliver."""
-    label: str = "Takeaway"
+    label: str
     """A short eyebrow tag above the takeaway. Kept short on purpose (catalog caps it to
-    one line) — this is a tag, not a second headline."""
+    one line) — this is a tag, not a second headline.
+
+    **Required, with no default.** It used to default to the word "Takeaway", which put text
+    on the slide that no IR block held whenever the slot was left empty; the catalog already
+    declares `label` required, so a slide without one is an incomplete slide, and
+    `adapt_slide` now says so (`RenderStageError` naming the slot) instead of drawing a word
+    nobody wrote."""
     support: str = ""
     """One optional line of elaboration under the takeaway."""
     source: str = ""

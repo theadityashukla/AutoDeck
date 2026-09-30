@@ -55,15 +55,16 @@ def render(slide: Slide, canvas: Canvas, content: TitleContent) -> None:
         )
     region = main.place(body.pad(_PANEL_PADDING), valign="middle")
 
-    # Presenter/date line at the foot if provided
+    # Presenter and date at the foot if provided.
+    #
+    # Presenter and date are two IR fields and stay two lines. They used to be joined into one
+    # string with a hard-coded " · ": a component composing text the IR never held. A
+    # separator is not a number, but "components copy content and never compose it" has no
+    # exception for glyphs, and two lines need no invention at all.
     if content.presenter or content.date:
-        footer_parts = []
-        if content.presenter:
-            footer_parts.append(content.presenter)
-        if content.date:
-            footer_parts.append(content.date)
-        footer_text = " · ".join(footer_parts)
-
         footer = frame.stack("title footer", region.width)
-        footer.text(footer_text, canvas.style("body", color="dk2", valign="bottom"))
+        footer_style = canvas.style("body", color="dk2", valign="bottom")
+        parts = [part for part in (content.presenter, content.date) if part]
+        for index, part in enumerate(parts):
+            footer.text(part, footer_style, gap=0.0 if index == 0 else canvas.baseline)
         footer.place(region, valign="bottom")

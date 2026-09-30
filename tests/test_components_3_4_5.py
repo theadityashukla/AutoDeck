@@ -229,6 +229,7 @@ def test_callout_takeaway_renders_label_takeaway_and_panel() -> None:
         frame.canvas,
         callout_takeaway.CalloutTakeawayContent(
             takeaway="The rewrite pays for itself in six weeks.",
+            label="Takeaway",
             support="Every week after that is margin.",
         ),
     )
@@ -243,13 +244,17 @@ def test_callout_takeaway_without_support_draws_fewer_shapes() -> None:
     callout_takeaway.render(
         frame.slide,
         frame.canvas,
-        callout_takeaway.CalloutTakeawayContent(takeaway="One sentence.", support="A line."),
+        callout_takeaway.CalloutTakeawayContent(
+            takeaway="One sentence.", label="Takeaway", support="A line."
+        ),
     )
     with_support = len(frame.slide.shapes)
 
     frame2 = _frame(tokens)
     callout_takeaway.render(
-        frame2.slide, frame2.canvas, callout_takeaway.CalloutTakeawayContent(takeaway="One.")
+        frame2.slide,
+        frame2.canvas,
+        callout_takeaway.CalloutTakeawayContent(takeaway="One.", label="Takeaway"),
     )
     assert len(frame2.slide.shapes) == with_support - 1
 
@@ -263,7 +268,7 @@ def test_callout_takeaway_too_long_raises_rather_than_shrinking() -> None:
             frame.slide,
             frame.canvas,
             callout_takeaway.CalloutTakeawayContent(
-                takeaway="A very long sentence that keeps going. " * 30
+                takeaway="A very long sentence that keeps going. " * 30, label="Takeaway"
             ),
         )
 

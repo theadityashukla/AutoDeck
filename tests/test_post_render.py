@@ -117,7 +117,7 @@ def _sample_deck() -> Deck:
     slide2 = _slide(
         "s2",
         "callout_takeaway",
-        [_claim_block("takeaway", TAKEAWAY)],
+        [_framing_block("label", "Takeaway"), _claim_block("takeaway", TAKEAWAY)],
         speaker_notes=[_claim_block("note", NOTES)],
     )
     return _deck(slide1, slide2)
@@ -336,7 +336,13 @@ SOURCE_CLAIM = "Source: internal figures show a 40% improvement."
 
 
 def _source_claim_deck() -> Deck:
-    return _deck(_slide("s1", "callout_takeaway", [_claim_block("takeaway", SOURCE_CLAIM)]))
+    return _deck(
+        _slide(
+            "s1",
+            "callout_takeaway",
+            [_framing_block("label", "Takeaway"), _claim_block("takeaway", SOURCE_CLAIM)],
+        )
+    )
 
 
 def test_a_clean_render_of_a_claim_beginning_with_source_passes(tmp_path: Path) -> None:
@@ -456,3 +462,54 @@ def test_a_diagram_node_label_changed_on_the_face_is_caught(tmp_path: Path) -> N
     assert len(matching) == 1
     assert "'Enterprise'" in matching[0].detail
     assert "face" in matching[0].detail
+
+
+# ---------------------------------------------------------------------------
+# An agenda's numbers are list formatting, so a clean agenda render passes outright
+# ---------------------------------------------------------------------------
+
+
+def _agenda_deck() -> Deck:
+    return _deck(
+        _slide(
+            "s1",
+            "agenda",
+            [
+                _framing_block("headline", "Three sessions outline the full analysis"),
+                _framing_block("items", "Where the original architecture left headroom."),
+                _framing_block("items", "The rewrite: what changed, and what stayed."),
+                _framing_block("items", "The impact by the numbers."),
+            ],
+        )
+    )
+
+
+def test_a_clean_agenda_render_passes_the_whole_audit(tmp_path: Path) -> None:
+    """Before the numbers became native list formatting, this failed A2 on "1", "2", "3":
+    digits the renderer had composed into the text and no IR block held."""
+    deck = _agenda_deck()
+    report = post_render_audit(deck, _render(deck, tmp_path))
+
+    assert report.numeric.passes
+    assert report.numeric.blocking == []
+    assert report.findings == ()
+    assert report.passes
+
+
+def test_typed_digits_added_to_an_agenda_item_after_render_are_still_caught(
+    tmp_path: Path,
+) -> None:
+    """Native numbering is not a blind spot for real digits: a number typed into the text is
+    text, and A2 sees it."""
+    deck = _agenda_deck()
+    pptx = _render(deck, tmp_path)
+    _tamper_part(
+        pptx,
+        "ppt/slides/slide1.xml",
+        "The impact by the numbers.",
+        "The impact by the numbers: 73%.",
+    )
+
+    report = post_render_audit(deck, pptx)
+
+    assert not report.numeric.passes
