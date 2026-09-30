@@ -1065,26 +1065,81 @@ def _evidence_with_figure_slots(canvas: Canvas) -> list[ComponentSlot]:
 
 
 def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
-    """Reconstruct the boxes `renderers/data_card_grid.py` computes for itself."""
+    """Reconstruct the boxes `renderers/data_card_grid.py` computes for itself.
+
+    `render()`'s grid shape depends on the real card count (1-2 cards -> one row; 3-4 ->
+    2x2; 5-6 -> 2x3; 7+ grows further), which a `Canvas`-only builder cannot know — the same
+    gap `_framework_diagram_slots` names for its diagram region. Unlike that region, a card
+    genuinely is small stacked text (a value, then a label) that a writer can overflow, and
+    the carried finding from reviewing 2b.2 was exactly this: nothing here protected card
+    text at all. So `card_value`/`card_label` are budgeted, conservatively, against the
+    densest shape the component's own docstring commits to — "typically four to six ... in a
+    2x2 or 2x3 grid" — using the renderer's own `region.grid(2, 3, ...)` call for one card's
+    box, the same way every other slot in this module reads its geometry off the renderer's
+    own arithmetic rather than inventing it.
+
+    The repeatable-slot model (`box` = the whole stack, `item_box` = one item, both stacked
+    vertically) does not literally describe a 2-D grid, so `box` is not "the grid region" —
+    that would undercount how many cards fit by treating three side-by-side cards as one row
+    of a vertical stack, and reject decks `render()` would draw perfectly well. Instead `box`
+    is sized so `_max_items` (this module's own "how many fit" formula) comes out to exactly
+    six — the same kind of explicit policy cap `_agenda_slots` uses (`max_items = 5`) rather
+    than a geometric fact, and named here for the same reason: a cap this module commits to,
+    not a number `check_overflow` reverse-engineers from a box no one asked for.
+    """
     body, _source_area = canvas.body_and_caption()
 
     headline_style = canvas.style("title", face="major", bold=True)
-
-    # Headline block
     headline_one_line = _one_line_height(canvas, headline_style, body.width)
     gap_headline_to_body = canvas.baseline * 4
-
-    # Grid of 2x3 (6 cards)
-    _, _body_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
-
-    # Cards are not treated as a repeatable slot in the budget sense — they are part of a
-    # grid structure that the renderer handles entirely. Each card is small and fixed-size,
-    # so the slot just reserves the whole region for the grid.
     headline_box = body.resize(height=headline_one_line)
 
-    # Create slots for the headline and the grid region
+    _, grid_region = body.split_top(headline_one_line, gutter=gap_headline_to_body)
+
+    # One card's box under the densest "typical" grid (2 rows x 3 columns) — the same call
+    # `render()` makes, so this is a read of its arithmetic, not a fresh guess.
+    card_box = grid_region.grid(2, 3, gutter=canvas.gutter)[0][0]
+    inner = card_box.pad(data_card_grid._CARD_PADDING)
+
+    value_style = canvas.style(
+        "title", face="major", scale=data_card_grid._VALUE_SCALE, bold=True
+    )
+    label_style = canvas.style("caption")
+
+    value_one_line = _one_line_height(canvas, value_style, inner.width)
+    label_one_line = _one_line_height(canvas, label_style, inner.width)
+
+    value_item_box = inner.resize(height=value_one_line)
+    label_item_box = inner.resize(height=label_one_line)
+
+    max_cards = 6
+    row_gap = canvas.baseline
+
+    def stacked_box(item_box: Box) -> Box:
+        height = max_cards * item_box.height + (max_cards - 1) * row_gap
+        return item_box.resize(height=height)
+
     return [
         ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(
+            name="card_value",
+            role="title",
+            box=stacked_box(value_item_box),
+            face="major",
+            size_scale=data_card_grid._VALUE_SCALE,
+            bold=True,
+            repeatable=True,
+            item_box=value_item_box,
+            row_gap=row_gap,
+        ),
+        ComponentSlot(
+            name="card_label",
+            role="caption",
+            box=stacked_box(label_item_box),
+            repeatable=True,
+            item_box=label_item_box,
+            row_gap=row_gap,
+        ),
     ]
 
 
