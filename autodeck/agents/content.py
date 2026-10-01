@@ -548,6 +548,12 @@ def _resolve_block(
 # ---------------------------------------------------------------------------
 
 
+def _excerpt(text: str, width: int = 60) -> str:
+    """The first `width` characters of a sentence, for naming a dropped block."""
+    collapsed = " ".join(text.split())
+    return f"“{collapsed[:width]}{'…' if len(collapsed) > width else ''}”"
+
+
 def _block_text(block: Block) -> str:
     if block.claim is not None:
         return block.claim.text
@@ -589,16 +595,25 @@ def _check_budgets(
     overflow_findings = [f for f in findings if not is_missing_slot_finding(f)]
     incomplete_slots = [f for f in findings if is_missing_slot_finding(f)]
 
-    overflowing_slots = {
-        finding.split(":", 1)[0].rsplit(".", 1)[-1].split("[")[0]
-        for finding in overflow_findings
-    }
-    rejections = [f"overflow: {finding}" for finding in overflow_findings]
-    kept = [
-        block
-        for block in blocks
-        if block.chart is not None or block.slot not in overflowing_slots
-    ]
+    findings_by_slot: dict[str, list[str]] = {}
+    for finding in overflow_findings:
+        slot = finding.split(":", 1)[0].rsplit(".", 1)[-1].split("[")[0]
+        findings_by_slot.setdefault(slot, []).append(finding)
+
+    # One rejection per block that is actually dropped. A finding is per *slot*, and a slot
+    # can hold several blocks, all of which go — counting findings would report one drop
+    # where two sentences vanished, and the writer would have no way to know which.
+    rejections: list[str] = []
+    kept: list[Block] = []
+    for block in blocks:
+        if block.chart is not None or block.slot not in findings_by_slot:
+            kept.append(block)
+            continue
+        rejections.append(
+            f"dropped block {block.id!r} (slot {block.slot!r}): "
+            f"{_excerpt(_block_text(block))} — overflow: "
+            f"{'; '.join(findings_by_slot[block.slot])}"
+        )
     return kept, rejections, incomplete_slots, True
 
 

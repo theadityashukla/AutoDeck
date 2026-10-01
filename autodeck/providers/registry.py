@@ -159,6 +159,11 @@ class ModelRegistry:
         return sorted(name for name in needed if not os.environ.get(name))
 
 
+def api_key_env(provider: str) -> str:
+    """The environment variable that holds `provider`'s API key."""
+    return _api_key_env(provider)
+
+
 def _api_key_env(provider: str) -> str:
     return {
         "gemini": "GEMINI_API_KEY",

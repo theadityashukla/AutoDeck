@@ -11,8 +11,10 @@ Owning phase: 0 (task 0.7); the real `plan` and `build` commands land in Phases 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, NoReturn
 
 import typer
 
@@ -31,6 +33,8 @@ from autodeck.pipeline.orchestrator import (
     Orchestrator,
     UnknownRunError,
 )
+from autodeck.providers.cache import ResponseCache
+from autodeck.providers.guard import ProviderFailureRecord, ProviderGuard
 from autodeck.providers.registry import ModelRegistry
 
 if TYPE_CHECKING:
@@ -79,6 +83,71 @@ DEFAULT_CORPUS_ROOT = Path("corpus")
 
 def _echo_error(message: str) -> None:
     typer.secho(message, fg=typer.colors.RED, err=True)
+
+
+#: Exit code for a provider failure that ends a command: a spent quota or a missing or
+#: rejected API key. Distinct from 1 (something is wrong with the input) and 3 (a gate)
+#: because the remedy is different — wait, or set a key, then run the same command again.
+EXIT_PROVIDER_FAILURE = 5
+
+
+def _cache_note(orchestrator: Orchestrator) -> str:
+    """How much of this run's provider work is saved, for the end-of-failure message."""
+    cache = ResponseCache(orchestrator.paths.llm_cache)
+    saved = len(cache)
+    return (
+        f"{saved} completed provider call(s) are saved under {cache.directory}; a re-run "
+        "replays them at no cost and only pays for what did not finish."
+        if saved
+        else "No provider call had completed yet, so there is nothing cached."
+    )
+
+
+def _provider_failure_message(
+    failure: ProviderFailureRecord, *, command: str, saved: str
+) -> str:
+    who = f"role '{failure.role}' ({failure.provider}, model {failure.model})"
+    if failure.kind == "rate_limit":
+        what = (
+            f"STOPPED: {who} was rate limited.\n"
+            "  The provider refused the call (HTTP 429) and waiting inside the command did "
+            "not clear it.\n"
+            "  On a free tier this is almost always that model's daily quota: it resets "
+            "daily, so running the command again sooner will not help."
+        )
+    elif failure.kind == "missing_key":
+        what = (
+            f"STOPPED: {who} has no API key.\n"
+            f"  The environment variable {failure.env_var} is not set. Set it in this "
+            "shell, then run the command again."
+        )
+    else:
+        what = (
+            f"STOPPED: {who} was refused: the provider rejected the credentials.\n"
+            f"  Check that {failure.env_var} holds a valid key for {failure.provider}, then "
+            "run the command again."
+        )
+    return f"{what}\n  Saved: {saved}\n  Then run `autodeck {command}` again."
+
+
+@contextmanager
+def _ends_on_provider_failure(
+    guard: ProviderGuard, *, command: str, saved: Callable[[], str]
+) -> Iterator[None]:
+    """End the command with a short message and exit code 5 if a provider failure caused it.
+
+    Looks through the exception's cause chain, because the agents wrap provider errors in
+    their own (`ContentError`, `OutlineError`) and the role is gone by the time they surface.
+    Anything else propagates untouched.
+    """
+    try:
+        yield
+    except Exception as exc:
+        failure = guard.failure_behind(exc)
+        if failure is None:
+            raise
+        _echo_error(_provider_failure_message(failure, command=command, saved=saved()))
+        raise typer.Exit(code=EXIT_PROVIDER_FAILURE) from None
 
 
 def _open_run(run_id: str, runs_root: Path, env: str = "dev") -> Orchestrator:
@@ -255,6 +324,12 @@ def status(
     for name in STAGE_SEQUENCE:
         record = state.stages.get(name)
         typer.echo(f"  {name:<14} {record.status.value if record else 'not-started'}")
+
+    if orchestrator.paths.draft_brief.exists() and not state.is_complete("plan"):
+        typer.echo(
+            f"  (an unsigned draft brief is saved at {orchestrator.paths.draft_brief}; "
+            "`autodeck plan` resumes it)"
+        )
 
     typer.echo("gates:")
     for gate in Gate:
@@ -761,7 +836,9 @@ def plan(
     is no flag that approves a brief and the planner cannot approve its own.
 
     Commands during a session: `/brief` shows the draft, `/sign <name>` signs it off,
-    `/quit` leaves without signing (the transcript is kept and the draft is not).
+    `/quit` (or `/exit`, Ctrl-C, Ctrl-D) leaves without signing. The transcript **and the
+    draft** are kept: run `plan` again with the same run id and it picks the draft up. A
+    provider failure (spent quota, missing key) also ends the session with the draft kept.
     """
     from autodeck.agents.evidence_gap import CLASSIFIER_ROLE, EvidenceProbe
     from autodeck.agents.planner import (
@@ -796,33 +873,66 @@ def plan(
 
     registry = ModelRegistry.load(env)
     index = assembler.use_index(build_index(documents, project=project))
-    session = PlannerSession(
-        Orchestrator(run_id, runs_root=runs_root, env=env),
-        model=registry.provider_for("planner"),  # type: ignore[arg-type]
-        probe=EvidenceProbe(
-            index=index,  # type: ignore[arg-type]
-            store=store,
-            claims=knowledge.claims,
-            classifier=registry.provider_for(CLASSIFIER_ROLE),  # type: ignore[arg-type]
-        ),
-        context=context,
-    )
+    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    guard = ProviderGuard(registry, cache=ResponseCache(orchestrator.paths.llm_cache))
+    resume_command = f"plan {run_id} --client {client} --project {project}"
+
+    def draft_note() -> str:
+        if orchestrator.paths.draft_brief.exists():
+            return (
+                f"your draft brief is kept at {orchestrator.paths.draft_brief}; "
+                "running the same command again resumes it. Nothing is approved."
+            )
+        return "no draft had been started. Nothing is approved."
+
+    with _ends_on_provider_failure(guard, command=resume_command, saved=draft_note):
+        session = PlannerSession(
+            orchestrator,
+            model=guard.provider("planner"),
+            probe=EvidenceProbe(
+                index=index,  # type: ignore[arg-type]
+                store=store,
+                claims=knowledge.claims,
+                classifier=guard.provider(CLASSIFIER_ROLE),
+            ),
+            context=context,
+        )
 
     typer.secho(f"Planning {run_id} for {client} / {project} (env={env})", bold=True)
+    if session.resumed:
+        typer.secho(
+            f"Resumed the unsigned draft from an earlier session "
+            f"({len(session.draft.key_messages)} key message(s)); /brief shows it. "
+            "Nothing is approved until you /sign.",
+            fg=typer.colors.YELLOW,
+        )
     typer.echo(
         "Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.\n"
     )
 
+    def leave_unsigned() -> NoReturn:
+        kept = session.save_draft()
+        typer.secho(
+            "\nleft without signing; transcript kept"
+            + (
+                f", draft kept at {kept} (run `autodeck {resume_command}` to resume it)"
+                if kept
+                else " (there was no draft to keep)"
+            ),
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
     while True:
         try:
             said = typer.prompt("you", prompt_suffix=" > ").strip()
-        except (EOFError, KeyboardInterrupt):
-            typer.echo("\nleft without signing; transcript kept")
-            raise typer.Exit(code=1) from None
+        except (EOFError, KeyboardInterrupt, typer.Abort):
+            # click turns Ctrl-C and Ctrl-D at a prompt into `Abort`; the other two are
+            # kept for a caller that supplies its own input.
+            leave_unsigned()
 
         if said in ("/quit", "/exit"):
-            typer.secho("left without signing; transcript kept", fg=typer.colors.YELLOW)
-            raise typer.Exit(code=1)
+            leave_unsigned()
 
         if said == "/brief":
             typer.echo(render_draft(session.draft))
@@ -863,7 +973,8 @@ def plan(
             continue
 
         try:
-            reply = session.turn(said)
+            with _ends_on_provider_failure(guard, command=resume_command, saved=draft_note):
+                reply = session.turn(said)
         except PlannerError as exc:
             _echo_error(str(exc))
             raise typer.Exit(code=1) from None
@@ -923,13 +1034,15 @@ def outline(
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
 
-    outline_model = ModelRegistry.load(env).provider_for("outline")
+    guard = ProviderGuard(
+        ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
+    )
     built: list[OutlineResult] = []
 
     def do_outline() -> str:
         result = build_outline(
             brief_doc,
-            outline_model,  # type: ignore[arg-type]
+            guard.provider("outline"),
             client=client,
             project=project,
             theme_ref=str(tokens),
@@ -943,7 +1056,14 @@ def outline(
         return f"wrote {path}"
 
     try:
-        orchestrator.run_stage("outline", do_outline, force=True)
+        with _ends_on_provider_failure(
+            guard,
+            command=f"outline {run_id} --client {client} --project {project}",
+            saved=lambda: (
+                "the previous outline, if any, is unchanged. " + _cache_note(orchestrator)
+            ),
+        ):
+            orchestrator.run_stage("outline", do_outline, force=True)
     except OutlineError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
@@ -1083,7 +1203,19 @@ def content(
     index = build_index(documents, project=deck.project)
 
     design_tokens = DesignTokens.load(Path(deck.theme_ref))
-    model = ModelRegistry.load(env).provider_for("content")
+    guard = ProviderGuard(
+        ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
+    )
+    content_command = f"content {run_id}"
+
+    def content_saved() -> str:
+        latest = orchestrator.ir.latest_version()
+        return f"no IR version was written (the latest is still v{latest}). " + _cache_note(
+            orchestrator
+        )
+
+    with _ends_on_provider_failure(guard, command=content_command, saved=content_saved):
+        model = guard.provider("content")
 
     send_backs = load_send_backs(orchestrator.paths.root)
     if send_backs:
@@ -1114,6 +1246,7 @@ def content(
 
     new_slides: list[Slide] = []
     rejections: list[str] = []
+    incomplete: list[str] = []
     send_back_drops: list[str] = []
     new_deck: Deck | None = None
 
@@ -1136,6 +1269,9 @@ def content(
             )
             send_back_drops.extend(block_drops + note_drops)
             rejections.extend(f"slide {slide.id}: {reason}" for reason in result.rejections)
+            incomplete.extend(
+                f"slide {slide.id}: {finding}" for finding in result.incomplete_slots
+            )
 
             new_slides.append(
                 slide.model_copy(update={"blocks": kept_blocks, "speaker_notes": kept_notes})
@@ -1152,7 +1288,8 @@ def content(
         return f"wrote {path}"
 
     try:
-        orchestrator.run_stage("content", do_content, force=True)
+        with _ends_on_provider_failure(guard, command=content_command, saved=content_saved):
+            orchestrator.run_stage("content", do_content, force=True)
     except ContentError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
@@ -1162,11 +1299,21 @@ def content(
 
     if rejections:
         typer.secho(
-            f"\n{len(rejections)} block(s) dropped during citation/budget resolution:",
+            f"\n{len(rejections)} block(s) dropped during citation/budget resolution "
+            "(one line each; a dropped block is gone from the deck, not shortened):",
             fg=typer.colors.YELLOW,
         )
         for reason in rejections:
             typer.echo(f"  {reason}")
+
+    if incomplete:
+        typer.secho(
+            f"\n{len(incomplete)} required slot(s) have no block — nothing was written for "
+            "them, so nothing was dropped, but a render cannot proceed with them empty:",
+            fg=typer.colors.YELLOW,
+        )
+        for finding in incomplete:
+            typer.echo(f"  {finding}")
 
     if send_back_drops:
         typer.secho(
@@ -1237,7 +1384,19 @@ def validate(
         )
         raise typer.Exit(code=2)
     index = build_index(documents, project=deck.project)
-    model = ModelRegistry.load(env).provider_for("validation")
+    guard = ProviderGuard(
+        ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
+    )
+    validate_command = f"validate {run_id}"
+
+    def validate_saved() -> str:
+        return (
+            "the validate stage is marked failed, so `gate2` and `approve ... claims` stay "
+            f"closed until it completes. {_cache_note(orchestrator)}"
+        )
+
+    with _ends_on_provider_failure(guard, command=validate_command, saved=validate_saved):
+        model = guard.provider("validation")
 
     next_version = orchestrator.ir.next_version()
     result: ValidationResult | None = None
@@ -1247,10 +1406,17 @@ def validate(
         deck_to_validate = deck.model_copy(update={"version": next_version})
         result = validate_deck(deck_to_validate, index=index, store=store, model=model)
         path = orchestrator.save_ir(result.deck)
+        if guard.failures:
+            # The validation pass swallows a provider failure on purpose (an unjudged claim
+            # is reported unjudged), so the pass "succeeds" with claims nobody judged. That
+            # must not read as a finished validation: fail the stage, so the claims gate
+            # cannot be approved over it, and let the re-run replay what did complete.
+            raise guard.failures[0].exception
         return f"wrote {path} · {result.provider_calls} provider call(s)"
 
     try:
-        orchestrator.run_stage("validate", do_validate, force=True)
+        with _ends_on_provider_failure(guard, command=validate_command, saved=validate_saved):
+            orchestrator.run_stage("validate", do_validate, force=True)
     except ValidationAgentError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
@@ -1308,7 +1474,12 @@ def gate2(
         deck, brief=brief_doc, numeric=safety.numeric, framing=safety.framing
     )
 
-    typer.echo(render(report))
+    rendered_report = render(report)
+    # A6: every deck ships an audit report. Written every time `gate2` runs, so the file on
+    # disk is always the report for the latest IR — not whatever somebody remembered to save.
+    orchestrator.paths.audit_report.write_text(rendered_report + "\n", encoding="utf-8")
+
+    typer.echo(rendered_report)
     typer.echo("=" * 78)
     typer.secho(
         "GATE 2 checkable criteria (docs/phases/PHASE-2B.md)", bold=True, fg=typer.colors.CYAN
@@ -1340,6 +1511,10 @@ def gate2(
                 f"  {record.claim_id} (v{record.ir_version}, by {record.by}): {record.reason}"
             )
 
+    typer.secho(
+        f"\nAudit report written to {orchestrator.paths.audit_report}",
+        fg=typer.colors.GREEN,
+    )
     typer.secho(
         f"\nA clean run above is not the gate — {run_id} is ready for the owner to read the "
         "claims table, not to ship. Approve with `autodeck approve "
