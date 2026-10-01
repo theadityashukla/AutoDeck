@@ -46,14 +46,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 
 from pydantic import Field
 
+from autodeck.design import grammar
+from autodeck.design.components.catalog import known_components, registration
 from autodeck.design.grammar import GrammarFinding
+from autodeck.design.icons.library import available_concepts
+from autodeck.design.layout_kit import LayoutOverflowError
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.ir.actions import ArtAction, ConceptLookup, SlotLookup
-from autodeck.ir.models import CommunicationMode, Deck, DeckBrief, IRModel, Slide
+from autodeck.ir.actions import (
+    ActionRejected,
+    ArtAction,
+    ConceptLookup,
+    SetCommunicationMode,
+    SlotLookup,
+    apply_action,
+)
+from autodeck.ir.models import (
+    AccentToken,
+    Block,
+    CommunicationMode,
+    Deck,
+    DeckBrief,
+    IRModel,
+    Slide,
+    TypeScale,
+)
+from autodeck.providers.base import ProviderError
+from autodeck.render import trial
+from autodeck.render.qa.aesthetic import catalog_slot_lookup, library_concept_lookup
+from autodeck.render.renderer import RenderStageError, render_deck
 
 PROMPT_PATH = Path("prompts/art_direction.md")
 
@@ -124,7 +148,12 @@ def derive_mode(slide: Slide) -> CommunicationMode:
     `"diagram_led"`; any `kind == "icon"` → `"icon_anchored"`; otherwise `"text_led"`.
     Pure. Speaker notes never decide a mode — they are not drawn.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    kinds = {block.kind for block in slide.blocks}
+    if "diagram" in kinds:
+        return "diagram_led"
+    if "icon" in kinds:
+        return "icon_anchored"
+    return "text_led"
 
 
 def run_art_direction(
@@ -165,7 +194,125 @@ def run_art_direction(
       - Invariant on every path (tests assert it): `fact_fingerprint(result.deck) ==
         fact_fingerprint(deck)` — icon blocks are not facts (B36), so `AssignIcons` keeps it.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    system = _read_prompt(prompt_path)
+    slots_of = slots_of if slots_of is not None else catalog_slot_lookup()
+    glyph_for = glyph_for if glyph_for is not None else library_concept_lookup()
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    plan: ArtDirectionPlan | None = None
+    stopped: Literal["ok", "model_error"] = "ok"
+    detail = ""
+    try:
+        plan = model.complete_structured(
+            _art_direction_prompt(deck, brief, slots_of=slots_of),
+            ArtDirectionPlan,
+            system=system,
+        )
+    except ProviderError as exc:
+        stopped, detail = "model_error", f"{type(exc).__name__}: {exc}"
+
+    current = deck
+    applied: list[ArtAction] = []
+    rejected: list[RejectedArtAction] = []
+    for action in plan.actions if plan is not None else ():
+        try:
+            current = trial.try_action(
+                current,
+                action,
+                tokens=tokens,
+                scratch=work_dir / "trial.pptx",
+                pins=brief.layout_pins,
+                slots_of=slots_of,
+                glyph_for=glyph_for,
+            )
+        except ActionRejected as exc:  # incl. DoesNotRender, GrammarRegression
+            rejected.append(RejectedArtAction(action=action, reason=str(exc)))
+        else:
+            applied.append(action)
+
+    modes: dict[str, ModeDecision] = {}
+    for slide in current.slides:
+        decision = _decide_mode(slide, brief)
+        modes[slide.id] = decision
+        # `pins=()` on purpose: a pinned mode is what the pin asks for, so applying it is
+        # honouring the pin, not overriding it; `apply_action` would otherwise refuse the very
+        # value the pin names. The fingerprint check still runs.
+        current = apply_action(
+            current,
+            SetCommunicationMode(slide_id=slide.id, mode=decision.mode),
+            pins=(),
+            slots_of=slots_of,
+            glyph_for=glyph_for,
+        )
+
+    render_error = ""
+    try:
+        render_deck(current, tokens=tokens, out_path=work_dir / "art_directed.pptx")
+    except (RenderStageError, LayoutOverflowError) as exc:
+        render_error = f"{type(exc).__name__}: {exc}"
+
+    return ArtDirectionResult(
+        deck=current,
+        modes=modes,
+        applied=applied,
+        rejected=rejected,
+        rationale=plan.rationale if plan is not None else "",
+        grammar=grammar.lint_deck(current).findings,
+        stopped=stopped,
+        detail=detail,
+        render_error=render_error,
+    )
+
+
+_MODES: tuple[str, ...] = get_args(CommunicationMode)
+
+
+def _decide_mode(slide: Slide, brief: DeckBrief) -> ModeDecision:
+    """A `communication_mode` pin on any message the slide serves, else the rule."""
+    rule = derive_mode(slide)
+    pins = [
+        pin
+        for pin in brief.layout_pins
+        if pin.target == "communication_mode" and pin.message_id in slide.message_ids
+    ]
+    if not pins:
+        return ModeDecision(mode=rule, source="rule")
+
+    pin = pins[0]
+    if pin.value not in _MODES:
+        return ModeDecision(
+            mode=rule,
+            source="rule",
+            note=(
+                f"the pin on message {pin.message_id!r} names {pin.value!r}, which is not a "
+                f"communication mode ({', '.join(_MODES)}); the rule's answer was used"
+            ),
+        )
+    notes: list[str] = []
+    if pin.value != rule:
+        notes.append(f"pinned {pin.value!r} but the slide's content reads as {rule!r}")
+    conflicting = sorted({other.value for other in pins[1:] if other.value != pin.value})
+    if conflicting:
+        notes.append(
+            f"other pins on this slide name {', '.join(map(repr, conflicting))}; "
+            f"the first ({pin.message_id!r}) was honoured"
+        )
+    return ModeDecision(
+        mode=pin.value,  # type: ignore[arg-type]  # checked against _MODES above
+        source="pin",
+        note="; ".join(notes),
+    )
+
+
+def _read_prompt(path: Path) -> str:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"art direction prompt not found at {path}. Prompts are versioned files "
+            "(plan §0.5) and their hashes go into the build manifest — there is no inline "
+            "fallback."
+        )
+    return path.read_text(encoding="utf-8")
 
 
 def _art_direction_prompt(deck: Deck, brief: DeckBrief, *, slots_of: SlotLookup) -> str:
@@ -183,4 +330,83 @@ def _art_direction_prompt(deck: Deck, brief: DeckBrief, *, slots_of: SlotLookup)
       - The icon concepts (`available_concepts()`) and the accent / type-scale vocabularies.
       Same inputs → identical string.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    lines: list[str] = [
+        "Art direction for one deck. Propose presentation actions only; you cannot write or "
+        "change any text. Communication mode is derived from content, not proposed.",
+        "",
+        "BRIEF",
+        f"  objective: {_one_line(brief.objective)}",
+        "  key messages (id: text):",
+    ]
+    for message in brief.key_messages:
+        lines.append(f"    {message.id}: {_one_line(message.text)}")
+    lines.append("  layout pins (message  target  value):")
+    if brief.layout_pins:
+        for pin in brief.layout_pins:
+            lines.append(f"    {pin.message_id}  {pin.target}  {pin.value}")
+    else:
+        lines.append("    none")
+
+    lines += ["", "SLIDES (in order)"]
+    for slide in deck.slides:
+        style = slide.style
+        lines.append(f"slide {slide.id}")
+        lines.append(f"  narrative_role: {_one_line(slide.narrative_role)}")
+        lines.append(f"  intent: {_one_line(slide.intent) if slide.intent else 'none'}")
+        lines.append(f"  message_ids: {', '.join(slide.message_ids) or 'none'}")
+        lines.append(f"  component: {slide.component}")
+        lines.append(
+            f"  style: type_scale={style.type_scale} accent={style.accent} "
+            f"column_balance={style.column_balance} "
+            f"emphasis_block_id={style.emphasis_block_id or 'none'}"
+        )
+        lines.append("  blocks (id  kind  slot  content):")
+        for block in slide.blocks:
+            content = _block_content(block)
+            lines.append(
+                f"    {block.id}  {block.kind}  {block.slot}"
+                + (f"  {content}" if content else "")
+            )
+
+    lines += ["", "COMPONENTS (name | narrative roles | slots)"]
+    for name in known_components():
+        slots = slots_of(name)
+        if slots is None:
+            continue
+        roles = "; ".join(registration(name).narrative_roles)
+        lines.append(f"  {name} | {roles} | {', '.join(sorted(slots))}")
+
+    lines += [
+        "",
+        "ICON CONCEPTS: " + ", ".join(available_concepts()),
+        "",
+        "VOCABULARIES",
+        "  type_scale: " + ", ".join(get_args(TypeScale)),
+        "  accent / color_token: " + ", ".join(get_args(AccentToken)),
+    ]
+    return "\n".join(lines)
+
+
+def _one_line(text: str) -> str:
+    """Collapse whitespace so one block is one line of the prompt."""
+    return " ".join(text.split())
+
+
+def _block_content(block: Block) -> str:
+    """What the art director may read of a block: words for judging meaning, never edited."""
+    if block.claim is not None:
+        return _one_line(block.claim.text)
+    if block.text is not None:
+        return _one_line(block.text)
+    if block.chart is not None:
+        title = _one_line(block.chart.title) if block.chart.title else "untitled"
+        return f"chart: {title}"
+    if block.diagram is not None:
+        labels = "; ".join(_one_line(node.label) for node in block.diagram.nodes)
+        return f"diagram ({block.diagram.kind}): {labels}"
+    if block.icon is not None:
+        return f"icon: {block.icon.concept}"
+    if block.figure is not None:
+        caption = _one_line(block.figure.caption) if block.figure.caption else "no caption"
+        return f"figure {block.figure.asset_id}: {caption}"
+    return ""  # pragma: no cover - Block's validator guarantees one payload
