@@ -41,9 +41,16 @@ from dataclasses import dataclass, field
 from autodeck.design.components.catalog import UnknownComponentError, spec_for
 from autodeck.design.headers.profile import HeaderStyleProfile
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.ir.models import Block, Deck, Slide
+from autodeck.ir.models import Block, Deck, DeckBrief, Slide
 
 _HEADER_ROLE = "title"
+
+#: Repeated syntax (3b.9): a header "opening" is its first `OPENING_WORDS` words, lowercased,
+#: with surrounding punctuation stripped. When `REPEATED_OPENING_THRESHOLD` or more headers
+#: share one, the deck reads as a template being filled in ("Costs fall…", "Costs rise…",
+#: "Costs stabilise…"). Two is a parallel pair, often deliberate; three is a pattern.
+OPENING_WORDS = 2
+REPEATED_OPENING_THRESHOLD = 3
 
 
 @dataclass(frozen=True)
@@ -151,13 +158,26 @@ def _header_text(block: Block | None) -> tuple[str, str]:
 
 
 def flow_report(
-    deck: Deck, tokens: DesignTokens, profile: HeaderStyleProfile
+    deck: Deck,
+    tokens: DesignTokens,
+    profile: HeaderStyleProfile,
+    *,
+    brief: DeckBrief | None = None,
 ) -> HeaderFlowReport:
     """Assemble the header sequence and its mechanical compliance, in slide order.
 
     `tokens` must be the same `DesignTokens` the deck was written against — slot geometry
     (and therefore which slot carries the `title` role) is resolved per theme, the same as
     every other read of `autodeck.design.components.catalog`.
+
+    3b.9 additions (scaffold — Sonnet wires these in after the existing per-slide loop):
+      - `findings.extend(_repeated_opening_findings(report.lines))` always.
+      - `findings.extend(_storyline_findings(deck, brief))` when `brief` is given; without
+        a brief there is no order to check against, and nothing is reported for it.
+    Run this on the **final** deck — after art direction and the aesthetic loop — not only
+    after content: a `SwapComponent` can move a block out of the title-role slot, so the
+    header a reader sees is a property of the deck as rendered, not as written. The render
+    stage (3b.10) calls it; `autodeck content` keeps calling it as an early read.
     """
     report = HeaderFlowReport()
     seen: dict[str, str] = {}
@@ -209,3 +229,50 @@ def flow_report(
         seen[normalised] = slide.id
 
     return report
+
+
+def _opening(text: str) -> str:
+    """The first `OPENING_WORDS` words of `text`, lowercased, each stripped of surrounding
+    punctuation (`string.punctuation` plus typographic quotes and the ellipsis character),
+    joined by one space. Empty
+    words after stripping are dropped before counting."""
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
+def _repeated_opening_findings(lines: list[HeaderLine]) -> list[FlowFinding]:
+    """One advisory `FlowFinding` per opening shared by `REPEATED_OPENING_THRESHOLD` or more
+    non-empty headers.
+
+    Contract: attributed to the slide where the count first reaches the threshold; `detail`
+    names the opening and every slide id sharing it, in deck order, and says it reads as a
+    template. Headers with fewer than `OPENING_WORDS` words are skipped (a one-word header
+    has no syntax to repeat). Exact repeats are counted too — they are also repeated syntax,
+    and the existing verbatim finding says something different. Deterministic order:
+    findings in order of the attributed slide.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
+def _storyline_findings(deck: Deck, brief: DeckBrief) -> list[FlowFinding]:
+    """Advisory findings where the header sequence walks backwards through the brief.
+
+    The mechanical proxy for a storyline break. Whether the headers *argue* well stays a
+    human judgement (module docstring); whether they visit the signed brief's key messages
+    in the order the owner agreed is checkable, and a deck that returns to message 1 after
+    message 3 is either a break or a deliberate recap — worth a human's glance either way.
+
+    Contract:
+      - A slide's rank is the lowest index in `brief.key_messages` among its `message_ids`.
+        Slides with no `message_ids` (title, agenda, dividers) are skipped entirely — they
+        neither advance nor break the order.
+      - A `message_id` not in the brief → one finding on that slide naming the id (the IR
+        refers to a message the signed brief does not have).
+      - Walking in deck order with `furthest` = the highest rank seen so far: a slide whose
+        rank < `furthest` → one finding naming both messages by id and their 1-based
+        positions, phrased as a question ("a storyline break, or a deliberate recap?").
+        `furthest` is not lowered by a backwards step.
+      - Coverage (a key message no slide serves) is **not** checked here: GATE 1's report
+        already checks it (`autodeck/audit/gate1.py`), and two descriptions of one rule is
+        the defect this project keeps finding.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
