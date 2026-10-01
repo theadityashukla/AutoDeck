@@ -77,6 +77,7 @@ from autodeck.design.icons.library import (
     available_concepts,
     resolve_icon,
 )
+from autodeck.design.layout_kit import LayoutOverflowError
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.actions import (
     Action,
@@ -97,10 +98,14 @@ from autodeck.ir.models import (
 from autodeck.providers.base import ImageInput, ProviderError
 from autodeck.render.qa.deterministic import QAFinding, run_deterministic_qa
 from autodeck.render.qa.libreoffice import render_pptx
-from autodeck.render.renderer import render_deck
+from autodeck.render.renderer import (
+    RenderStageError,
+    UnknownComponentError,
+    placeable_slots,
+    render_deck,
+)
 
 PROMPT_PATH = Path("prompts/aesthetic_critique.md")
-DEFAULT_TOKENS = Path("config/tokens/dev.json")
 
 StopReason = Literal[
     "target_reached",
@@ -203,7 +208,14 @@ def catalog_slot_lookup() -> SlotLookup:
     measurement, not placement — they omit chart/diagram slots and include the computed
     `source`, and building them needs a `Canvas` with installed fonts.)
     """
-    raise NotImplementedError("scaffold: Sonnet re-fills this against placeable_slots")
+
+    def slots_of(component: str) -> frozenset[str] | None:
+        try:
+            return placeable_slots(component)
+        except UnknownComponentError:
+            return None
+
+    return slots_of
 
 
 def library_concept_lookup() -> ConceptLookup:
@@ -293,7 +305,7 @@ def run_aesthetic_loop(
         return render_pptx(pptx, output_dir, tokens).images
 
     rasterise = rasterise if rasterise is not None else default_rasterise
-    slots_of = slots_of if slots_of is not None else catalog_slot_lookup(tokens)
+    slots_of = slots_of if slots_of is not None else catalog_slot_lookup()
     glyph_for = glyph_for if glyph_for is not None else library_concept_lookup()
 
     iterations: list[Iteration] = []
@@ -384,12 +396,17 @@ def run_aesthetic_loop(
         rejected: list[RejectedAction] = []
         for action in reply.actions:
             try:
-                candidate = apply_action(
+                trial = apply_action(
                     candidate, action, pins=pins, slots_of=slots_of, glyph_for=glyph_for
                 )
+                render_deck(trial, tokens=tokens, out_path=iteration_dir / "trial.pptx")
             except ActionRejected as exc:
                 rejected.append(RejectedAction(action=action, reason=str(exc)))
+            except (RenderStageError, LayoutOverflowError) as exc:
+                reason = f"does not render: {type(exc).__name__}: {exc}"
+                rejected.append(RejectedAction(action=action, reason=reason))
             else:
+                candidate = trial
                 applied.append(action)
         iterations.append(replace(look, applied=tuple(applied), rejected=tuple(rejected)))
         if not applied:

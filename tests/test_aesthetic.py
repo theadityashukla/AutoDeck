@@ -28,7 +28,9 @@ from pydantic import ValidationError
 from autodeck.audit.numeric_linter import NumericReport
 from autodeck.audit.post_render import PostRenderFinding, PostRenderReport
 from autodeck.design.components import catalog
+from autodeck.design.fonts import FontNotFoundError
 from autodeck.design.icons.library import available_concepts, resolve_icon
+from autodeck.design.layout_kit import LayoutOverflowError
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir import actions
 from autodeck.ir.actions import (
@@ -67,7 +69,7 @@ from autodeck.render.qa.aesthetic import (
     run_aesthetic_loop,
 )
 from autodeck.render.qa.deterministic import QAFinding
-from autodeck.render.renderer import render_deck
+from autodeck.render.renderer import placeable_slots, render_deck
 
 TOKENS_DIR = Path(__file__).resolve().parents[1] / "config" / "tokens"
 
@@ -648,7 +650,7 @@ def test_the_prompt_lists_addresses_but_never_claim_text_or_citations() -> None:
     component with its slots, and the concept list; it contains **no** claim text, no
     citation quote, no doc id, and no notes-block id. Same inputs -> identical string."""
     deck = _deck()
-    slots_of = catalog_slot_lookup(tokens_for())
+    slots_of = catalog_slot_lookup()
 
     def build() -> str:
         return _critique_prompt(
@@ -742,21 +744,18 @@ def test_the_model_is_shown_one_image_per_slide_of_the_current_render(
 
 
 def test_catalog_slot_lookup_matches_the_registry_and_returns_none_for_unknowns() -> None:
-    tokens = tokens_for()
-    slots_of = catalog_slot_lookup(tokens)
+    slots_of = catalog_slot_lookup()
 
     for name in catalog.known_components():
-        expected = frozenset(
-            slot.name
-            for variant in catalog.registration(name).variants
-            for slot in catalog.spec_for(name, tokens, variant=variant.name).slots
-        )
-        assert slots_of(name) == expected
-        assert expected, name
+        assert slots_of(name) == placeable_slots(name)
+        assert slots_of(name), name
 
     assert slots_of("no_such_component") is None
     assert slots_of("") is None
-    assert slots_of("bullets_supporting") == frozenset({"headline", "points", "source"})
+    assert slots_of("bullets_supporting") == frozenset({"headline", "points"})
+    # The lookup knows the slots a block can actually be placed in: payload slots, no `source`.
+    assert "chart" in (slots_of("chart_focus") or frozenset())
+    assert "source" not in (slots_of("quote") or frozenset())
 
 
 def test_library_concept_lookup_resolves_concepts_but_not_bare_filenames() -> None:
@@ -811,20 +810,71 @@ def test_one_real_iteration_renders_true_pngs_and_keeps_facts(tmp_path: Path) ->
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
-def test_an_action_that_does_not_render_is_rejected_not_fatal() -> None:
+def test_an_action_that_does_not_render_is_rejected_not_fatal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prompt_file: Path
+) -> None:
     """A critic proposing [SwapComponent onto a slot the target cannot place, a valid
-    SetAccent] → the swap is in `rejected` with a reason starting "does not render:", the
+    SetAccent] -> the swap is in `rejected` with a reason starting "does not render:", the
     accent is applied, the loop continues to the next look. Same for a `SetTypeScale` that
     makes a slide overflow (monkeypatch `render_deck` in aesthetic's namespace to raise
     `LayoutOverflowError` for that candidate only). Fingerprint equal."""
-    raise NotImplementedError
+    real_render = aesthetic.render_deck
+
+    def overflowing(deck: Deck, *, tokens: DesignTokens, out_path: Path) -> Any:
+        if any(slide.style.type_scale == "spacious" for slide in deck.slides):
+            raise LayoutOverflowError("headline does not fit")
+        return real_render(deck, tokens=tokens, out_path=out_path)
+
+    monkeypatch.setattr(aesthetic, "render_deck", overflowing)
+
+    deck = _deck()
+    # Both blocks of the `points` slot would land in `quote`, which holds exactly one.
+    swap = SwapComponent(
+        slide_id="s1", component="quote", slot_map={"headline": "headline", "points": "quote"}
+    )
+    # `source` is computed by the renderer, so no block can sit in it: refused up front.
+    onto_computed = SwapComponent(
+        slide_id="s1", component="quote", slot_map={"headline": "headline", "points": "source"}
+    )
+    spacious = SetTypeScale(slide_id="s1", scale="spacious")
+    accent = SetAccent(slide_id="s1", accent="accent2")
+    critic = FakeCritic(reply(5.0, swap, onto_computed, spacious, accent), reply(9.0))
+
+    result = _run(deck, critic, tmp_path, prompt_file)
+
+    first = result.iterations[0]
+    assert first.applied == (accent,)
+    assert [rejection.action for rejection in first.rejected] == [swap, onto_computed, spacious]
+    reasons = [rejection.reason for rejection in first.rejected]
+    assert reasons[0].startswith("does not render: ")
+    assert "RenderStageError" in reasons[0] or "UnplacedBlockError" in reasons[0]
+    assert not reasons[1].startswith("does not render:") and "source" in reasons[1]
+    assert reasons[2] == "does not render: LayoutOverflowError: headline does not fit"
+    assert result.stopped == "target_reached"
+    assert critic.calls == 2
+    assert _accent(result.deck) == "accent2"
+    assert _type_scale(result.deck) == "standard"
+    assert result.deck.slides[0].component == "bullets_supporting"
+    assert fact_fingerprint(result.deck) == fact_fingerprint(deck)
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
 def test_environment_failures_during_a_trial_render_propagate(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prompt_file: Path
 ) -> None:
     """`FontNotFoundError` raised by the trial render escapes `run_aesthetic_loop`; it is not
     recorded as a rejected action."""
-    raise NotImplementedError
+    real_render = aesthetic.render_deck
+    calls: list[Path] = []
+
+    def render_then_lose_the_font(deck: Deck, *, tokens: DesignTokens, out_path: Path) -> Any:
+        calls.append(out_path)
+        if len(calls) > 1:  # the iteration's own render succeeded; the trial one fails
+            raise FontNotFoundError("the regular face of font family 'Inter' was not found")
+        return real_render(deck, tokens=tokens, out_path=out_path)
+
+    monkeypatch.setattr(aesthetic, "render_deck", render_then_lose_the_font)
+    critic = FakeCritic(reply(5.0, SetAccent(slide_id="s1", accent="accent2")))
+
+    with pytest.raises(FontNotFoundError):
+        _run(_deck(), critic, tmp_path, prompt_file)
+    assert critic.calls == 1
