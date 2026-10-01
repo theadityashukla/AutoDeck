@@ -12,13 +12,15 @@ stops the build.
 
 ## What the fence is applied to
 
-`block.text`, on a block of **any** kind — not only `framing`. `text` is not one of the
-payload fields `Block._payload_matches_kind` polices, so a `claim` block can carry a
-`Claim` and a line of free text at the same time, and that free text has no citation
-behind it on any kind. The fence used to return at a `block.kind != "framing"` guard, which
-left every superlative, named study and "proven to" outside it for every other kind,
-`section_header` included. A5's patterns are about the language; the language does not care
-which field carried it.
+`block.text`, on a block of **any** kind — not only `framing`. Since B36 the IR closes the
+hole by construction: `Block._payload_matches_kind` refuses `text` on every kind except
+`framing` and `section_header`, so a `claim` block can no longer carry a `Claim` and a line
+of free text at once. The lint does not rely on that. It reads `block.text` whatever the
+kind, as defence in depth: a block built around validation (`Block.model_construct`, a
+future kind added to the text set, a bug in the validator) still meets the whole fence. It
+used to return at a `block.kind != "framing"` guard, which left every superlative, named
+study and "proven to" outside it for every other kind. A5's patterns are about the
+language; the language does not care which field carried it.
 
 What is *not* linted is `claim.text` — that sentence has a resolved span behind it, and
 running these patterns over it would demote most of a good deck for saying "faster than"
@@ -498,25 +500,16 @@ def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
     """Check one block's free text. Returns the demotion it earned, or None.
 
     **`block.text`, on a block of any kind — and never `claim.text`.** That distinction is
-    the whole of it, and it is not the one this function used to make. A `Claim`'s text has
-    a resolved span behind it, which is why running these patterns over claims would demote
-    every correctly cited sentence in the deck for saying 'faster than'. `block.text` has
-    nothing behind it on any kind: there is no citation anywhere on that path. A `claim`
-    block constructs perfectly happily carrying both —
+    the whole of it. A `Claim`'s text has a resolved span behind it, which is why running
+    these patterns over claims would demote every correctly cited sentence in the deck for
+    saying 'faster than'. `block.text` has nothing behind it on any kind: there is no
+    citation anywhere on that path.
 
-        Block(id="b1", kind="claim", slot="body", claim=Claim(...),
-              text="The fastest stack available, proven to outperform every competitor.")
-
-    — because `Block._payload_matches_kind` fences the *payload* fields and `text` is not
-    one of them. That sentence used to meet no part of A5, because this function returned
-    `None` at a `block.kind != "framing"` guard. A2 caught its numerals, and nothing caught
-    its superlatives, its named studies or its "proven to".
-
-    The alternative was to forbid `text` outright on a non-`framing` block. It is the
-    narrower fix: `section_header` is a text kind too, so a construction ban would have had
-    to permit it and would have left "The fastest stack, proven to win" unfenced as a
-    heading. A5's rules are about the language, and the language does not care which field
-    carried it.
+    Since B36 the IR refuses `text` on a non-text kind at construction, so a `claim` block
+    carrying free text cannot be built by validated means. This function deliberately does
+    not lean on that: it lints `block.text` on every kind so that a block assembled around
+    the validator (`Block.model_construct`) is still demoted. `section_header` is a text
+    kind and was always permitted `text`; it is fenced here like `framing`.
     """
     if not block.text or not block.text.strip():
         return None

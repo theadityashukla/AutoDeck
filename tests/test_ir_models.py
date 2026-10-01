@@ -8,6 +8,7 @@ an invariant to make a test pass.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from types import UnionType
 from typing import Union, cast, get_args, get_origin
 
@@ -27,6 +28,7 @@ from autodeck.ir.models import (
     DiagramAxis,
     DiagramEdge,
     DiagramSpec,
+    FigureRef,
     IconRef,
     LabelFraming,
     LayeredStackSpec,
@@ -563,3 +565,64 @@ def test_every_claim_site_carries_where_it_was_found_and_how_to_write_it_back() 
     assert all(
         site.in_speaker_notes == site.block_id.startswith("n") for site in deck.claim_sites()
     )
+
+
+def _payload_for(kind: str) -> dict[str, object]:
+    """The correct payload for a non-text block kind, as `Block` keyword arguments."""
+    if kind == "claim":
+        return {"claim": make_claim()}
+    if kind == "chart":
+        return {
+            "chart": ChartSpec(
+                chart_type="bar",
+                categories=["Q1", "Q2"],
+                series=[ChartSeries(name="Revenue", values=[10.0, 20.0])],
+                source_citations=[make_citation()],
+            )
+        }
+    if kind == "figure":
+        return {"figure": FigureRef(asset_id="fig-1", citation=make_citation())}
+    if kind == "diagram":
+        return {
+            "diagram": DiagramSpec(
+                relationship="sequence",
+                kind="process_flow",
+                process_flow=ProcessFlowSpec(
+                    steps=[step("n1", "Ingest", 1), step("n2", "Serve", 2)]
+                ),
+            )
+        }
+    if kind == "icon":
+        return {
+            "icon": IconRef(concept="growth", glyph_id="trending-up", color_token="accent1")
+        }
+    raise AssertionError(kind)  # pragma: no cover
+
+
+@pytest.mark.parametrize("kind", ["claim", "chart", "figure", "diagram", "icon"])
+def test_only_text_kinds_may_carry_text(kind: str) -> None:
+    """B36: a non-text block with `text` set, even alongside its correct payload, is a
+    `ValidationError` naming the block and kind; the same block without `text` is fine."""
+    payload = _payload_for(kind)
+    Block(id="b1", kind=cast(BlockKind, kind), slot="body", **payload)  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError, match=rf"block 'b1' of kind '{kind}' carries text"):
+        Block(
+            id="b1",
+            kind=cast(BlockKind, kind),
+            slot="body",
+            text="Revenue up 40%",
+            **payload,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("kind", ["framing", "section_header"])
+def test_text_kinds_still_carry_text(kind: str) -> None:
+    block = Block(id="b1", kind=cast(BlockKind, kind), slot="body", text="Kept as is")
+    assert block.text == "Kept as is"
+
+
+def test_the_golden_fixture_still_loads() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "sample_ir.json"
+    deck = Deck.model_validate_json(fixture.read_text(encoding="utf-8"))
+    assert deck.slides

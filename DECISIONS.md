@@ -945,3 +945,39 @@ the owner with options.
   - 3b.7 is sequenced after this component lands.
   - The golden preview for the new component is reviewed by the owner with the rest of
     GATE 3; it is not self-approved.
+
+### B36 — Art direction: modes by rule, taste by model, no automatic section dividers
+- **Date:** 2026-10-01
+- **Phase / branch:** Phase 3b / `v2/phase-3b-art-direction`
+- **Status:** active
+- **Context:** task 3b.7 asks for deck-level rhythm, component swaps, communication-mode
+  decisions and section dividers, honouring pins, without being able to alter a fact.
+  Designing it surfaced three IR facts: (1) `Block` let any kind carry `text`, so an icon or
+  claim block could hold an uncited sentence that nothing renders and nothing lints;
+  (2) `fact_fingerprint` keyed every block, so adding an icon block — the only way an
+  `icon_pillars` slide gets icons (B35) — would trip the fact-mutation detector; (3) art
+  direction is not one of plan §6.2's six model roles.
+- **Decision:**
+  1. `text` is permitted only on text kinds (`framing`, `section_header`).
+  2. Given (1), icon blocks hold no fact (their `IconRef` was already excluded) and are
+     excluded from `fact_fingerprint`; every other block kind stays keyed in.
+  3. New action `AssignIcons` (art direction only), in a separate vocabulary `ArtAction`
+     that excludes mode-setting and glyph restyling.
+  4. Communication mode is derived by rule from face content (diagram → diagram_led; icons →
+     icon_anchored; else text_led); a brief `communication_mode` pin overrides it.
+  5. The model proposes taste only, through `ArtAction`, accepted per action by the shared
+     `render/trial.try_action` (applies, renders, no new grammar finding) — which the
+     aesthetic loop now also uses.
+  6. Art direction runs on the `outline` role's binding.
+  7. Section dividers are not inserted automatically: a divider's title is slide copy with
+     no fact-safe source. The model may recommend them in its rationale, for a human.
+- **Rationale:** plan §6.11.2 already describes mode as a function of content shape and
+  asks for taste as checkable rules wherever possible; a rule is reproducible (A6) and makes
+  every slide's mode explicit with a recorded source (D13). Closing the `text` hole is what
+  makes excluding icon blocks from the fingerprint safe rather than a new blind spot.
+- **Consequences:**
+  - A deck that relied on `text` on a non-text block now fails to load; none in the repo
+    does (golden fixture checked).
+  - The plan's "section dividers" item is partially delivered; dividers remain a human edit
+    or a future, separately designed, fact-safe mechanism.
+  - The `outline` role's daily quota now also covers one art-direction call per deck.

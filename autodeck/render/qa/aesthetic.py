@@ -77,7 +77,6 @@ from autodeck.design.icons.library import (
     available_concepts,
     resolve_icon,
 )
-from autodeck.design.layout_kit import LayoutOverflowError
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.actions import (
     Action,
@@ -85,7 +84,6 @@ from autodeck.ir.actions import (
     ActionRejected,
     ConceptLookup,
     SlotLookup,
-    apply_action,
 )
 from autodeck.ir.models import (
     AccentToken,
@@ -96,10 +94,10 @@ from autodeck.ir.models import (
     TypeScale,
 )
 from autodeck.providers.base import ImageInput, ProviderError
+from autodeck.render import trial
 from autodeck.render.qa.deterministic import QAFinding, run_deterministic_qa
 from autodeck.render.qa.libreoffice import render_pptx
 from autodeck.render.renderer import (
-    RenderStageError,
     UnknownComponentError,
     placeable_slots,
     render_deck,
@@ -281,6 +279,11 @@ def run_aesthetic_loop(
         slots_of=..., glyph_for=...)`, threading the result; an `ActionRejected` is recorded
         and the next action is tried against the unchanged candidate. `FactMutationError`
         propagates (never caught — module docstring). If nothing applied → `all_rejected`.
+      - **Amended for 3b.7 (B36):** the per-action acceptance
+        below lives in `autodeck.render.trial.try_action`, shared with art direction,
+        and also rejects a new grammar finding (`GrammarRegression`). Call it instead of
+        inlining apply → render; keep this loop's reason strings and stop reasons as they
+        are (`DOES_NOT_RENDER_PREFIX` matches the existing wording).
       - **Trial render per action.** After `apply_action` succeeds, `render_deck` the
         candidate to a scratch path in the iteration's directory (pure python-pptx, ~10 ms a
         slide — no LibreOffice). `RenderStageError` (incl. `UnplacedBlockError`,
@@ -396,17 +399,19 @@ def run_aesthetic_loop(
         rejected: list[RejectedAction] = []
         for action in reply.actions:
             try:
-                trial = apply_action(
-                    candidate, action, pins=pins, slots_of=slots_of, glyph_for=glyph_for
+                accepted = trial.try_action(
+                    candidate,
+                    action,
+                    tokens=tokens,
+                    scratch=iteration_dir / "trial.pptx",
+                    pins=tuple(pins),
+                    slots_of=slots_of,
+                    glyph_for=glyph_for,
                 )
-                render_deck(trial, tokens=tokens, out_path=iteration_dir / "trial.pptx")
-            except ActionRejected as exc:
+            except ActionRejected as exc:  # incl. DoesNotRender, GrammarRegression
                 rejected.append(RejectedAction(action=action, reason=str(exc)))
-            except (RenderStageError, LayoutOverflowError) as exc:
-                reason = f"does not render: {type(exc).__name__}: {exc}"
-                rejected.append(RejectedAction(action=action, reason=reason))
             else:
-                candidate = trial
+                candidate = accepted
                 applied.append(action)
         iterations.append(replace(look, applied=tuple(applied), rejected=tuple(rejected)))
         if not applied:

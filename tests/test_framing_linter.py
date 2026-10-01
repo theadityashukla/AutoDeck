@@ -202,29 +202,43 @@ FABRICATED = "The fastest stack available, proven to outperform every competitor
 
 
 class TestTheFenceAppliesToAnyBlocksFreeText:
-    """The defect: `lint_block` returned at a `block.kind != "framing"` guard, so the whole
-    A5 fence — superlatives, named studies, "proven to" — was bypassed for every other
-    kind. `text` is not one of the payload fields `Block._payload_matches_kind` polices, so
-    a `claim` block carrying both a cited `Claim` and that sentence constructs fine."""
+    """The original defect: `lint_block` returned at a `block.kind != "framing"` guard, so
+    the whole A5 fence was bypassed for every other kind. B36 closed the shape at
+    construction (`Block` refuses `text` on a non-text kind). The fence still reads
+    `block.text` on any kind, as defence in depth: these tests rebuild the forbidden block
+    with `Block.model_construct`, which skips validation, and require the linter to catch
+    it without help from the model validator."""
 
     def claim_block_with_free_text(self, text: str = FABRICATED) -> Block:
-        return Block(
+        """The forbidden shape, assembled around the validator."""
+        return Block.model_construct(
             id="b1",
             kind="claim",
             slot="body",
             text=text,
             claim=Claim(text="It is faster.", citations=[cited_comparison()]),
+            chart=None,
+            figure=None,
+            diagram=None,
+            icon=None,
         )
 
-    def test_the_block_that_used_to_slip_through_still_constructs(self) -> None:
-        """Not fixed by forbidding the shape — so the lint has to catch it."""
-        block = self.claim_block_with_free_text()
-
-        assert block.kind == "claim"
-        assert block.text == FABRICATED
+    def test_the_ir_refuses_a_claim_block_with_free_text_at_construction(self) -> None:
+        """B36: the hole is closed by construction, so the shape is unrepresentable."""
+        with pytest.raises(ValidationError, match="block 'b1' of kind 'claim' carries text"):
+            Block(
+                id="b1",
+                kind="claim",
+                slot="body",
+                text=FABRICATED,
+                claim=Claim(text="It is faster.", citations=[cited_comparison()]),
+            )
 
     def test_a_superlative_in_a_claim_blocks_text_is_demoted(self) -> None:
-        demotion = lint_block(self.claim_block_with_free_text(), slide_id="s1")
+        block = self.claim_block_with_free_text()
+        assert block.text == FABRICATED, "the unvalidated block does carry the sentence"
+
+        demotion = lint_block(block, slide_id="s1")
 
         assert demotion is not None
         assert demotion.from_kind == "claim"
@@ -266,7 +280,9 @@ class TestTheFenceAppliesToAnyBlocksFreeText:
     def test_it_blocks_the_render_through_the_report(self) -> None:
         """End to end: the demotion reaches `blocks_build`, which is what the render guard
         and GATE 2 both read."""
-        deck = deck_with(self.claim_block_with_free_text())
+        # `Slide` revalidates its blocks, so the forbidden block is swapped in afterwards.
+        deck = deck_with(framing_block("Serve better before you buy more.", block_id="b1"))
+        deck.slides[0].blocks[0] = self.claim_block_with_free_text()
 
         report = lint_framing(deck)
 
