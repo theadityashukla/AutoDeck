@@ -534,6 +534,15 @@ def lint_framing(deck: Deck) -> FramingReport:
     reason a framing block on the face is, and it is fenced for the same reason — "nobody
     reads notes in the room" cuts both ways, and an unsourced superlative is worse in the
     place the presenter is reading from.
+
+    Scaffold (B37) — Sonnet adds: for every block with a `diagram`, run `lint_framing_text`
+    over each site of `block.diagram.framing_texts()` (title, framed node labels, transition
+    labels). A finding there is a demotion of that diagram block exactly as for a framing
+    block: it counts in `demotions`, `blocking`, and `blocks_build`, with a location naming
+    the slide, block and text site. `DiagramSpec.framing_texts()`'s docstring calls this "the
+    A5 surface of a diagram"; until now nothing called it, so a label like "40% cheaper"
+    declared `category_name` would have reached a slide uncited. `text_blocks_checked`
+    counts each such diagram once.
     """
     report = FramingReport()
     for slide in deck.slides:

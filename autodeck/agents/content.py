@@ -113,7 +113,9 @@ from autodeck.ir.models import (
     DeckBrief,
     Derivation,
     DerivationInput,
+    DiagramSpec,
     KeyMessage,
+    LabelReason,
     OpenRisk,
     Slide,
 )
@@ -230,11 +232,52 @@ class ProposedChart(BaseModel):
     source_citations: list[ProposedCitation] = Field(min_length=1)
 
 
-BlockKindDraft = Literal["claim", "framing", "chart", "section_header"]
-"""The block kinds this task authors. `figure`, `diagram` and `icon` are out of scope for
-2b.4 — the phase table names `claim`/`framing`/`chart` explicitly — and are left for the
-phase that actually assigns those components. Nothing here would need to change to add
-them: a proposed payload resolves through the same evidence pool either way."""
+BlockKindDraft = Literal["claim", "framing", "chart", "section_header", "diagram"]
+"""The block kinds the writer authors. `diagram` was added by B37: the outline could
+already assign `framework_diagram` and `timeline`, and nothing could fill them, so no
+pipeline-built deck could carry the native diagram GATE 3 requires. `figure` and `icon`
+remain out of scope here — icons are art direction's (`AssignIcons`, B36)."""
+
+
+class ProposedStep(BaseModel):
+    """One step of a proposed process flow (B37). Flat and fully required, per B26.
+
+    `status` says which of the two A1 cases this label is, before anything else: a label
+    that asserts a fact carries `claim`; a label that names a stage, party, artefact,
+    category or question carries `framing_reason`. Exactly one is meaningful for the status
+    given — the other must be empty (`claim: null`, `framing_reason: ""`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    order: int = Field(ge=1)
+    label: str = Field(min_length=1, description="At most four words. What the box says.")
+    transition: str = Field(
+        default="", description="Label on the arrow leaving this step, or ''. Never decor."
+    )
+    status: Literal["claim", "framing"]
+    claim: ProposedClaim | None = Field(default=None, description="For status='claim'.")
+    framing_reason: LabelReason | Literal[""] = Field(
+        default="", description="For status='framing'. '' otherwise."
+    )
+
+
+class ProposedDiagram(BaseModel):
+    """A proposed diagram (B37). **process_flow only in this round** — the geometry the
+    `timeline` component requires and the plan's own example ("how the algorithm works"
+    becomes a slide). `two_by_two` and `layered_stack` follow once this one is proven live;
+    each adds schema the B26 flat-schema rule makes costly to get wrong.
+
+    `relationship` precedes the payload for the reason `DiagramSpec` gives: the model states
+    what the points have to do with each other before it is offered a shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    relationship: Literal["sequence"]
+    title: str = Field(default="", description="Uncited framing; '' for none.")
+    steps: list[ProposedStep] = Field(min_length=2, max_length=6)
 
 
 class ProposedBlock(BaseModel):
@@ -258,6 +301,7 @@ class ProposedBlock(BaseModel):
     )
     claim: ProposedClaim | None = Field(default=None, description="For kind='claim'.")
     chart: ProposedChart | None = Field(default=None, description="For kind='chart'.")
+    diagram: ProposedDiagram | None = Field(default=None, description="For kind='diagram'.")
 
 
 class ContentDraft(BaseModel):
@@ -502,6 +546,32 @@ def _resolve_chart(
     )
 
 
+def _resolve_diagram(
+    proposed: ProposedDiagram,
+    *,
+    store: DocumentStore,
+    claims: Sequence[CachedClaim],
+    spans: Sequence[RetrievedSpan],
+) -> DiagramSpec:
+    """Resolve a proposed process flow into a `DiagramSpec`, or raise so the block drops.
+
+    Scaffold (B37) — Sonnet fills. Contract:
+      - Each step with `status="claim"`: `claim` must be set (else
+        `CitationResolutionError` naming the step) and resolves through `_resolve_claim` —
+        the same path as a claim block, no second resolver. `framing_reason` must be ''.
+      - Each step with `status="framing"`: `framing_reason` must be a `LabelReason` (not '')
+        and `claim` must be None; it becomes `LabelFraming(reason=...)`.
+      - **Any step failing drops the whole diagram**, never just the step: a flow missing a
+        step is a different sequence, which is a changed fact, not a smaller one.
+      - Build `DiagramSpec(relationship="sequence", kind="process_flow", title=title or
+        None, process_flow=ProcessFlowSpec(steps=[ProcessStep(...)]))`, with `transition`
+        '' → None. The IR's own validators (contiguous orders, label/claim status) are the
+        last check; their errors drop the block like any other (`_resolve_block` already
+        catches them).
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
 def _resolve_block(
     proposed: ProposedBlock,
     *,
@@ -528,6 +598,9 @@ def _resolve_block(
                 raise CitationResolutionError("kind='chart' with no chart payload")
             chart = _resolve_chart(proposed.chart, store=store, claims=claims, spans=spans)
             return Block(id=proposed.id, kind="chart", slot=proposed.slot, chart=chart)
+        # Scaffold (B37) — Sonnet adds the `diagram` branch here: kind='diagram' with no
+        # payload → CitationResolutionError; else `_resolve_diagram(...)` into
+        # `Block(kind="diagram", diagram=...)`.
         # framing / section_header: plain text, no citation to resolve (A5's exemption).
         if not proposed.text.strip():
             raise CitationResolutionError(f"kind={proposed.kind!r} with no text")
