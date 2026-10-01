@@ -53,7 +53,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, get_args, get_origin, get_type_hints
+from typing import Any, Final, Literal, get_args, get_origin, get_type_hints
 
 from autodeck.design.charts import source_line as _design_source_line
 from autodeck.design.components import catalog
@@ -257,7 +257,19 @@ def placeable_slots(component: str) -> frozenset[str]:
       - Unknown component → `UnknownComponentError`.
       - Pure, no `Canvas`, no tokens, no fonts: slot names do not depend on the theme.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    try:
+        entry = catalog.registration(component)
+    except catalog.UnknownComponentError as exc:
+        raise UnknownComponentError(str(exc)) from exc
+
+    adapter_slots = ADAPTER_SLOTS.get(entry.content_type)
+    if adapter_slots is not None:
+        return adapter_slots
+    return frozenset(
+        rule.field.name
+        for rule in _generic_rules(entry.content_type)
+        if rule.kind != "computed"
+    )
 
 
 def source_line(citations: list[Citation]) -> str:
@@ -395,23 +407,59 @@ def _style_field_warnings(slide: Slide, content_type: type) -> list[StyleNotHono
 # ---------------------------------------------------------------------------
 
 
+_COMPUTED_FIELDS: Final = frozenset({"source", "accent"})
+"""Content fields `_adapt_generic` fills from the deck itself (`source` from the face claims'
+citations, `accent` from `SlideStyle`), never from a block."""
+
+FieldKind = Literal["computed", "payload", "list", "text"]
+
+
+@dataclass(frozen=True)
+class _FieldRule:
+    field: dataclasses.Field[Any]
+    kind: FieldKind
+    """`computed` — not block-fed; `payload` — a `DiagramSpec`/`ChartSpec` taken from exactly
+    one block; `list` — a `list[str]` fed by every block in the slot; `text` — a `str` fed
+    by exactly one block."""
+    hint: object
+
+
+def _generic_rules(content_type: type) -> list[_FieldRule]:
+    """The one classification of a content dataclass's fields, shared by `_adapt_generic`
+    (which fills them) and `placeable_slots` (which names the block-fed ones)."""
+    hints = get_type_hints(content_type)
+    rules: list[_FieldRule] = []
+    for f in dataclasses.fields(content_type):
+        hint = hints[f.name]
+        kind: FieldKind
+        if f.name in _COMPUTED_FIELDS:
+            kind = "computed"
+        elif hint in (DiagramSpec, ChartSpec):
+            kind = "payload"
+        elif _is_list_str(hint):
+            kind = "list"
+        else:
+            kind = "text"
+        rules.append(_FieldRule(field=f, kind=kind, hint=hint))
+    return rules
+
+
 def _adapt_generic(slide: Slide, content_type: type) -> tuple[object, list[StyleNotHonoured]]:
     hints = get_type_hints(content_type)
     by_slot = _group_by_slot(slide.blocks)
     consumed: set[str] = set()
     kwargs: dict[str, Any] = {}
 
-    for f in dataclasses.fields(content_type):
+    for rule in _generic_rules(content_type):
+        f, hint = rule.field, rule.hint
         name = f.name
-        if name == "source":
-            continue
         if name == "accent":
             kwargs[name] = slide.style.accent
             continue
+        if rule.kind == "computed":
+            continue
 
-        hint = hints[name]
-
-        if hint in (DiagramSpec, ChartSpec):
+        if rule.kind == "payload":
             blocks = by_slot.get(name, [])
             if not blocks:
                 if _has_default(f):
@@ -430,7 +478,7 @@ def _adapt_generic(slide: Slide, content_type: type) -> tuple[object, list[Style
             consumed.add(block.id)
             continue
 
-        if _is_list_str(hint):
+        if rule.kind == "list":
             blocks = by_slot.get(name, [])
             kwargs[name] = [_block_text(block) for block in blocks]
             consumed.update(block.id for block in blocks)
@@ -580,3 +628,21 @@ ADAPTERS: dict[type, Adapter] = {
     TwoColumnCompareContent: _adapt_two_column_compare,
     DataCardGridContent: _adapt_data_card_grid,
 }
+
+ADAPTER_SLOTS: dict[type, frozenset[str]] = {
+    TwoColumnCompareContent: frozenset(
+        {
+            "headline",
+            "left_title",
+            "left_points",
+            "left_point",
+            "right_title",
+            "right_points",
+            "right_point",
+        }
+    ),
+    DataCardGridContent: frozenset({"headline", "card_label", "card_value"}),
+}
+"""Every slot name each `ADAPTERS` entry places a block in — kept beside `ADAPTERS` so a new
+adapter has one obvious place to declare it. `placeable_slots` reads this;
+`tests/test_renderer.py` checks each adapter consumes exactly these and refuses the rest."""
