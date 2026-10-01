@@ -761,6 +761,31 @@ class Stack:
         self._items.append(_Item(gap_before=gap, height=thickness, paint=paint))
         return self
 
+    def icon(
+        self,
+        glyph: str,
+        *,
+        size: float,
+        color: ThemeColor = "accent1",
+        gap: float = 0.0,
+    ) -> Stack:
+        """Add a square icon `size` points on a side, centred across the stack's width.
+
+        Measured as its box height (`size`), so the item below it is placed by arithmetic
+        rather than by guessing where the glyph ended. `glyph` goes through `Frame.icon`,
+        so it may be a concept or a vendored filename; a renderer drawing an IR's resolved
+        glyph passes the glyph id. Putting the icon in the stack, not beside it, is what makes
+        "this icon sits directly above that label" a fact of construction.
+        """
+
+        def paint(box: Box) -> None:
+            self._frame.icon(
+                Box(box.x + (box.width - size) / 2, box.y, size, size), glyph, color=color
+            )
+
+        self._items.append(_Item(gap_before=gap, height=size, paint=paint))
+        return self
+
     def space(self, height: float, *, gap: float = 0.0) -> Stack:
         """Reserve `height` for nothing.
 

@@ -24,10 +24,12 @@ Owning phase: 3a catalog, added during 3b per B35.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast, get_args
 
 from pptx.slide import Slide
 
-from autodeck.design.layout_kit import Canvas
+from autodeck.design.draw import ThemeColor
+from autodeck.design.layout_kit import Canvas, Frame, Stack
 
 #: Fewer than three is not a set; more than four will not fit an icon, a label and a point
 #: per column at the client's type scale. Enforced by the adapter and the slot budget.
@@ -87,4 +89,61 @@ def render(slide: Slide, canvas: Canvas, content: IconPillarsContent) -> None:
       - `len(pillars)` outside `MIN_PILLARS..MAX_PILLARS` → `ValueError` naming the count.
       - Overflow raises `LayoutOverflowError` like every other component; no shrinking.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    count = len(content.pillars)
+    if not MIN_PILLARS <= count <= MAX_PILLARS:
+        raise ValueError(
+            f"icon_pillars needs {MIN_PILLARS} to {MAX_PILLARS} pillars, got {count}"
+        )
+    for pillar in content.pillars:
+        if pillar.icon.color not in get_args(ThemeColor):
+            raise ValueError(
+                f"icon_pillars: icon colour {pillar.icon.color!r} is not a theme colour "
+                f"({', '.join(get_args(ThemeColor))}); icons take a theme slot, never a literal"
+            )
+
+    frame = canvas.on(slide)
+    body, caption = frame.body_and_caption()
+
+    headline = frame.stack("icon_pillars headline", body.width)
+    headline.text(content.headline, canvas.style("title", face="major", bold=True))
+    region = headline.place(body, gutter=canvas.baseline * 4)
+
+    columns = region.grid(1, count, gutter=canvas.gutter)[0]
+
+    # Every column's stack is declared before any is placed, so the row can be one band as
+    # tall as its tallest pillar: icons then share a top edge across the slide, and the
+    # whole row is centred in the space under the headline as a unit.
+    stacks = [
+        _pillar_stack(frame, canvas, index, pillar, column.width)
+        for index, (pillar, column) in enumerate(zip(content.pillars, columns, strict=True))
+    ]
+    band_height = max(stack.height for stack in stacks)
+    band = region.reserve(band_height, valign="middle", what="icon_pillars pillars")
+    for stack, column in zip(stacks, columns, strict=True):
+        stack.place(column.resize(height=band.height).offset(dy=band.y - column.y))
+
+    frame.caption(caption, content.source)
+
+
+def _pillar_stack(
+    frame: Frame, canvas: Canvas, index: int, pillar: Pillar, width: float
+) -> Stack:
+    """One column: icon, then label directly beneath, then the optional point."""
+    stack = frame.stack(f"icon_pillars pillar {index}", width)
+    stack.icon(
+        pillar.icon.glyph,
+        size=_ICON_BASELINES * canvas.baseline,
+        color=cast(ThemeColor, pillar.icon.color),
+    )
+    stack.text(
+        pillar.label,
+        canvas.style("body", bold=True, align="center"),
+        gap=canvas.baseline * 2,
+    )
+    if pillar.point:
+        stack.text(
+            pillar.point,
+            canvas.style("body", align="center"),
+            gap=canvas.baseline,
+        )
+    return stack

@@ -55,6 +55,11 @@ from autodeck.design.components.renderers.evidence_with_figure import (
     EvidenceWithFigureContent,
 )
 from autodeck.design.components.renderers.framework_diagram import FrameworkDiagramContent
+from autodeck.design.components.renderers.icon_pillars import (
+    IconPillarsContent,
+    Pillar,
+    PillarIcon,
+)
 from autodeck.design.components.renderers.quote import QuoteContent
 from autodeck.design.components.renderers.section_divider import SectionDividerContent
 from autodeck.design.components.renderers.timeline import TimelineContent
@@ -274,6 +279,33 @@ EXAMPLES: dict[str, Any] = {
             DataCard(label="Time to deploy", value="3 weeks"),
             DataCard(label="Teams affected", value="8+"),
         ],
+        accent="accent1",
+    ),
+    "icon_pillars": IconPillarsContent(
+        headline="Four capabilities build lasting advantage",
+        pillars=[
+            Pillar(
+                icon=PillarIcon(glyph="users", color="accent1"),
+                label="Embedded teams",
+                point="Teams in each region",
+            ),
+            Pillar(
+                icon=PillarIcon(glyph="shield-check", color="accent1"),
+                label="Built-in security",
+                point="Scanned each release",
+            ),
+            Pillar(
+                icon=PillarIcon(glyph="zap", color="accent1"),
+                label="Faster delivery",
+                point="Weeks cut to days",
+            ),
+            Pillar(
+                icon=PillarIcon(glyph="trending-up", color="accent1"),
+                label="Compounding growth",
+                point="Gains build on gains",
+            ),
+        ],
+        source="Source: internal programme review, Q3 2025.",
         accent="accent1",
     ),
     "framework_diagram": FrameworkDiagramContent(

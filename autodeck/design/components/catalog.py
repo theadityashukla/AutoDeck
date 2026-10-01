@@ -101,6 +101,7 @@ from autodeck.design.components.renderers import (
     data_card_grid,
     evidence_with_figure,
     framework_diagram,
+    icon_pillars,
     quote,
     section_divider,
     timeline,
@@ -134,7 +135,11 @@ from autodeck.design.theme.tokens import DesignTokens
 #: items are now one natively auto-numbered box, so each item is `number_indent` narrower;
 #: `data_card_grid` gains budgeted `card_label`/`card_value` slots; `callout_takeaway`'s
 #: `label` loses its silent "Takeaway" default. Slot boxes and the slot set both moved.
-COMPONENT_LIB_VERSION = "0.5.0"
+#:
+#: 0.6.0: B35 registers `icon_pillars`, the first component with a face icon, and `Stack`
+#: gains an `icon` item. The set of components and the set of placeable slots both moved
+#: (`pillar_icon`, `pillar_label`, `pillar_point`); no existing component's geometry did.
+COMPONENT_LIB_VERSION = "0.6.0"
 
 #: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
 #: so the preview gallery has somewhere to read from; the registry, not this directory, is
@@ -1089,7 +1094,53 @@ def _icon_pillars_slots(canvas: Canvas) -> list[ComponentSlot]:
     and diagrams do not; their slot (`pillar_icon`) is declared in the renderer's
     `ADAPTER_SLOTS`, which is the placement authority (`renderer.placeable_slots`).
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    body, source_area = canvas.body_and_caption()
+
+    headline_style = canvas.style("title", face="major", bold=True)
+    headline_one_line = _one_line_height(canvas, headline_style, body.width)
+    headline_box = body.resize(height=headline_one_line)
+
+    _, region = body.split_top(headline_one_line, gutter=canvas.baseline * 4)
+
+    # One column's width under the densest layout (MAX_PILLARS across) — the same
+    # `grid(1, n, ...)` call `render()` makes, so this is a read of its arithmetic.
+    column = region.grid(1, icon_pillars.MAX_PILLARS, gutter=canvas.gutter)[0][0]
+
+    label_style = canvas.style("body", bold=True, align="center")
+    point_style = canvas.style("body", align="center")
+    label_item_box = column.resize(height=_one_line_height(canvas, label_style, column.width))
+    point_item_box = column.resize(height=_one_line_height(canvas, point_style, column.width))
+
+    # The renderer's gaps between a column's items: label under icon, point under label.
+    label_gap = canvas.baseline * 2
+    point_gap = canvas.baseline
+
+    def stacked_box(item_box: Box, row_gap: float) -> Box:
+        count = icon_pillars.MAX_PILLARS
+        return item_box.resize(height=count * item_box.height + (count - 1) * row_gap)
+
+    return [
+        ComponentSlot(name="headline", role="title", box=headline_box, face="major", bold=True),
+        ComponentSlot(
+            name="pillar_label",
+            role="body",
+            box=stacked_box(label_item_box, label_gap),
+            bold=True,
+            repeatable=True,
+            item_box=label_item_box,
+            row_gap=label_gap,
+        ),
+        ComponentSlot(
+            name="pillar_point",
+            role="body",
+            box=stacked_box(point_item_box, point_gap),
+            required=False,
+            repeatable=True,
+            item_box=point_item_box,
+            row_gap=point_gap,
+        ),
+        ComponentSlot(name="source", role="caption", box=source_area, required=False),
+    ]
 
 
 def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
@@ -1386,6 +1437,15 @@ register(
     content_type=data_card_grid.DataCardGridContent,
     preview=PREVIEW_DIR / "data_card_grid.png",
     slots=_data_card_grid_slots,
+)
+
+register(
+    name="icon_pillars",
+    narrative_roles=("capability pillars", "parallel ideas"),
+    renderer=icon_pillars.render,
+    content_type=icon_pillars.IconPillarsContent,
+    preview=PREVIEW_DIR / "icon_pillars.png",
+    slots=_icon_pillars_slots,
 )
 
 register(

@@ -461,6 +461,29 @@ def test_items_stack_a_list_with_its_own_row_gap() -> None:
     assert len(frame.slide.shapes) == 6
 
 
+@requires_test_font
+def test_a_stack_icon_is_measured_as_its_height_and_centred_across_the_width() -> None:
+    """The icon is a stack item: it takes `size` of height, the item below it starts right
+    under it (plus its gap), and the glyph is centred in the stack's width."""
+    frame = _frame()
+    stack = frame.stack("pillar", 200)
+    stack.icon("zap", size=48, color="accent2")
+    stack.text("Label", frame.canvas.style("body"), gap=10)
+    assert stack.item_heights[0] == 48
+    assert stack.height == pytest.approx(48 + 10 + stack.item_heights[1])
+
+    stack.place(Box(100, 50, 200, 400))
+
+    icons = [s for s in frame.slide.shapes if s.name.startswith("icon:")]
+    label = next(s for s in frame.slide.shapes if not s.name.startswith("icon:"))
+    assert icons
+    for shape in icons:
+        assert shape.left == pytest.approx(pt_to_emu(100 + (200 - 48) / 2), abs=2)
+        assert shape.top == pytest.approx(pt_to_emu(50), abs=2)
+        assert shape.width == pytest.approx(pt_to_emu(48), abs=2)
+    assert label.top == pytest.approx(pt_to_emu(50 + 48 + 10), abs=2)
+
+
 def test_the_caption_strip_and_the_body_come_from_one_split() -> None:
     """Two definitions of where the body ends is how the catalog's `source` budget and the
     renderer's source line would come to disagree."""

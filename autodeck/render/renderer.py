@@ -62,7 +62,11 @@ from autodeck.design.components.renderers.data_card_grid import (
     DataCardGridContent,
 )
 from autodeck.design.components.renderers.icon_pillars import (
+    MAX_PILLARS,
+    MIN_PILLARS,
     IconPillarsContent,
+    Pillar,
+    PillarIcon,
 )
 from autodeck.design.components.renderers.two_column_compare import (
     ComparisonColumn,
@@ -648,12 +652,76 @@ def _adapt_icon_pillars(slide: Slide) -> tuple[IconPillarsContent, list[StyleNot
     `ADAPTER_SLOTS[IconPillarsContent] = {"headline", "pillar_icon", "pillar_label",
     "pillar_point"}`.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    by_slot = _group_by_slot(slide.blocks)
+    consumed: set[str] = set()
+
+    headline_blocks = by_slot.get("headline", [])
+    if len(headline_blocks) != 1:
+        raise RenderStageError(
+            f"icon_pillars needs exactly one 'headline' block, got {len(headline_blocks)}"
+        )
+    headline_block = headline_blocks[0]
+    consumed.add(headline_block.id)
+    headline = _block_text(headline_block)
+
+    icon_blocks = by_slot.get("pillar_icon", [])
+    for block in icon_blocks:
+        if block.kind != "icon" or block.icon is None:
+            raise RenderStageError(
+                f"icon_pillars: block {block.id!r} in slot 'pillar_icon' is a {block.kind!r} "
+                "block; only 'icon' blocks can be drawn as a pillar's icon"
+            )
+    labels = by_slot.get("pillar_label", [])
+    points = by_slot.get("pillar_point", [])
+
+    if len(icon_blocks) != len(labels):
+        raise RenderStageError(
+            f"icon_pillars has {len(icon_blocks)} 'pillar_icon' block(s) but {len(labels)} "
+            "'pillar_label' block(s); each pillar needs exactly one of each, paired by order"
+        )
+    if points and len(points) != len(labels):
+        raise RenderStageError(
+            f"icon_pillars has {len(points)} 'pillar_point' block(s) for {len(labels)} "
+            "pillar(s); give every pillar a point or none, since a partial set cannot be "
+            "paired with its pillars without guessing"
+        )
+    if not MIN_PILLARS <= len(labels) <= MAX_PILLARS:
+        raise RenderStageError(
+            f"icon_pillars needs {MIN_PILLARS} to {MAX_PILLARS} pillars, got {len(labels)}"
+        )
+
+    pillars: list[Pillar] = []
+    for index, (icon_block, label_block) in enumerate(zip(icon_blocks, labels, strict=True)):
+        assert icon_block.icon is not None  # checked above; narrows the type
+        pillars.append(
+            Pillar(
+                icon=PillarIcon(
+                    glyph=icon_block.icon.glyph_id, color=icon_block.icon.color_token
+                ),
+                label=_block_text(label_block),
+                point=_block_text(points[index]) if points else None,
+            )
+        )
+    consumed.update(block.id for block in (*icon_blocks, *labels, *points))
+
+    warnings: list[StyleNotHonoured] = []
+    if slide.style.column_balance != "even":
+        warnings.append(StyleNotHonoured(slide.id, "column_balance", "icon_pillars"))
+    if slide.style.emphasis_block_id is not None:
+        warnings.append(StyleNotHonoured(slide.id, "emphasis_block_id", "icon_pillars"))
+
+    source = source_line(_face_claim_citations(slide))
+    content = IconPillarsContent(
+        headline=headline, pillars=pillars, source=source, accent=slide.style.accent
+    )
+    _raise_unplaced(consumed, slide.blocks)
+    return content, warnings
 
 
 ADAPTERS: dict[type, Adapter] = {
     TwoColumnCompareContent: _adapt_two_column_compare,
     DataCardGridContent: _adapt_data_card_grid,
+    IconPillarsContent: _adapt_icon_pillars,
 }
 
 ADAPTER_SLOTS: dict[type, frozenset[str]] = {
@@ -669,6 +737,7 @@ ADAPTER_SLOTS: dict[type, frozenset[str]] = {
         }
     ),
     DataCardGridContent: frozenset({"headline", "card_label", "card_value"}),
+    IconPillarsContent: frozenset({"headline", "pillar_icon", "pillar_label", "pillar_point"}),
 }
 """Every slot name each `ADAPTERS` entry places a block in — kept beside `ADAPTERS` so a new
 adapter has one obvious place to declare it. `placeable_slots` reads this;
