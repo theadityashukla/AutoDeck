@@ -339,7 +339,8 @@ def test_all_fifteen_components_are_registered_and_previewed() -> None:
         "title",
         "two_column_compare",
     }
-    assert set(known_components()) == expected
+    # B35 added `icon_pillars` after the phase closed; the fifteen are still all present.
+    assert set(known_components()) == expected | {"icon_pillars"}
     assert len(expected) == 15
     assert components_missing_previews() == []
 

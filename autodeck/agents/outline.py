@@ -51,6 +51,10 @@ PROMPT_PATH = Path("prompts/outline.md")
 #: The initial catalog (§6.6). The outline may only assign from here — a component the
 #: renderer does not have produces a deck that fails at render time, three phases later,
 #: with an error about a missing template rather than about a bad outline.
+#:
+#: `icon_pillars` (B35) is listed because it is registered, but nothing yet creates the icon
+#: blocks it needs (task 3b.7). An outline that picks it before then fails loudly at render
+#: (`RenderStageError`) rather than drawing a slide without icons.
 CATALOG: tuple[str, ...] = (
     "title",
     "section_divider",
@@ -63,6 +67,7 @@ CATALOG: tuple[str, ...] = (
     "framework_diagram",
     "timeline",
     "data_card_grid",
+    "icon_pillars",
     "chart_focus",
     "before_after",
     "callout_takeaway",

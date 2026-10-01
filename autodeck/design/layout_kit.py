@@ -761,6 +761,41 @@ class Stack:
         self._items.append(_Item(gap_before=gap, height=thickness, paint=paint))
         return self
 
+    def icon(
+        self,
+        glyph: str,
+        *,
+        size: float,
+        color: ThemeColor = "accent1",
+        gap: float = 0.0,
+    ) -> Stack:
+        """Add a square icon `size` points on a side, centred across the stack's width.
+
+        Measured as its box height (`size`), so the item below it is placed by arithmetic
+        rather than by guessing where the glyph ended. `glyph` is a vendored icon **file name**,
+        loaded directly with `load_icon` and never passed through the concept table: a caller
+        that holds a resolved glyph (an IR's `IconRef.glyph_id`) gets exactly that file, even
+        if the same string is also a concept that maps elsewhere. An unknown glyph raises
+        `IconNotFoundError` here, when the item is declared. Putting the icon in the stack,
+        not beside it, is what makes "this icon sits directly above that label" a fact of
+        construction.
+        """
+        from autodeck.design.icons.custgeom import place_icon
+        from autodeck.design.icons.library import load_icon
+
+        icon = load_icon(glyph)
+
+        def paint(box: Box) -> None:
+            place_icon(
+                self._frame.slide,
+                Box(box.x + (box.width - size) / 2, box.y, size, size),
+                icon,
+                color=color,
+            )
+
+        self._items.append(_Item(gap_before=gap, height=size, paint=paint))
+        return self
+
     def space(self, height: float, *, gap: float = 0.0) -> Stack:
         """Reserve `height` for nothing.
 
