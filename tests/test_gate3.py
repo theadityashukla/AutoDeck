@@ -35,6 +35,9 @@ from autodeck.design.headers.prompt import resolve_profile
 from autodeck.ir.actions import AssignIcons, SetAccent, apply_action, facts_digest
 from autodeck.ir.models import (
     Block,
+    ChartSeries,
+    ChartSpec,
+    Citation,
     Deck,
     DeckBrief,
     DiagramSpec,
@@ -63,32 +66,18 @@ from tests.test_knowledge import build_knowledge
 
 runner = CliRunner()
 
-#: `assess_final` cannot count diagrams from the rendered file: the diagram engine writes no
-#: shape-name prefix to count (see `gate3._count_diagrams`). Every test that reaches it is
-#: marked, and goes green the moment the contract is settled.
-DIAGRAM_COUNT_UNRESOLVED = pytest.mark.xfail(
-    strict=True,
-    raises=NotImplementedError,
-    reason="the diagram engine writes no shape-name prefix for assess_final to count",
-)
-
 
 def _invoke(runs_root: Path, *args: str) -> Result:
     return runner.invoke(app, [*args, "--runs-root", str(runs_root)])
 
 
 def _gate3(runs_root: Path, knowledge: Path) -> Result:
-    """`autodeck gate3`, re-raising `NotImplementedError` so `DIAGRAM_COUNT_UNRESOLVED` sees
-    it (the CLI runner would otherwise turn it into exit code 1)."""
-    result = _invoke(runs_root, "gate3", "r1", "--knowledge-root", str(knowledge))
-    if isinstance(result.exception, NotImplementedError):
-        raise result.exception
-    return result
+    return _invoke(runs_root, "gate3", "r1", "--knowledge-root", str(knowledge))
 
 
 def _fixture_deck() -> Deck:
-    """Three slides that render for real: a cited claim with bullets, a native diagram, and
-    an `icon_pillars` slide whose icons only art direction can supply."""
+    """Four slides that render for real: a cited claim with bullets, a native diagram, an
+    `icon_pillars` slide whose icons only art direction can supply, and a native chart."""
     diagram = DiagramSpec(
         relationship="sequence",
         kind="process_flow",
@@ -102,6 +91,20 @@ def _fixture_deck() -> Deck:
                 ),
             ]
         ),
+    )
+    chart = ChartSpec(
+        chart_type="bar",
+        categories=["Q4"],
+        series=[ChartSeries(name="Cost per token ($)", values=[0.42])],
+        source_citations=[
+            Citation.for_quote(
+                quote="Cost per token fell to $0.42 in Q4.",
+                doc_id="finance",
+                page=2,
+                bbox=(10.0, 20.0, 300.0, 44.0),
+                retrieved_by="validator",
+            )
+        ],
     )
     return Deck(
         run_id="r1",
@@ -135,6 +138,16 @@ def _fixture_deck() -> Deck:
                     _framing_block("pillar_label", "Fast", block_id="s3-l1"),
                     _framing_block("pillar_label", "Safe", block_id="s3-l2"),
                     _framing_block("pillar_label", "Cheap", block_id="s3-l3"),
+                ],
+            ),
+            Slide(
+                id="s4",
+                narrative_role="evidence",
+                component="chart_focus",
+                message_ids=["m1"],
+                blocks=[
+                    _framing_block("headline", "Cost per token fell", block_id="s4-h"),
+                    Block(id="s4-c", kind="chart", slot="chart", chart=chart),
                 ],
             ),
         ],
@@ -325,6 +338,7 @@ def _assessment(
     post_render_findings: tuple[PostRenderFinding, ...] = (),
     qa: tuple[QAFinding, ...] = (),
     grammar_findings: tuple[GrammarFinding, ...] = (),
+    charts: int = 1,
     diagrams: int = 1,
     icons: int = 3,
 ) -> FinalAssessment:
@@ -335,6 +349,7 @@ def _assessment(
         qa=list(qa),
         grammar=list(grammar_findings),
         flow=HeaderFlowReport(),
+        chart_count=charts,
         diagram_count=diagrams,
         icon_count=icons,
     )
@@ -367,11 +382,11 @@ def test_checkable_criteria_and_their_order() -> None:
         "Post-render audit passes (every claim on its slide, every number traced)",
         "No deterministic QA findings",
         "No blocking grammar findings",
-        "At least one native diagram and one theme-recolourable icon",
+        "At least one native chart, one native diagram and one theme-recolourable icon",
     ]
     assert [passed for _label, passed, _detail in results] == [True] * 4
     assert clean.passes
-    assert results[3][2] == "1 diagram(s), 3 icon(s)"
+    assert results[3][2] == "1 chart(s), 1 diagram(s), 3 icon(s)"
 
     broken = {
         0: _assessment(post_render_findings=(_POST_RENDER,)),
@@ -379,6 +394,9 @@ def test_checkable_criteria_and_their_order() -> None:
         2: _assessment(grammar_findings=(_BLOCKING_GRAMMAR,)),
         3: _assessment(icons=0),
     }
+    # Each of the three milestone counts fails the same line, naming all three counts.
+    for missing in (_assessment(charts=0), _assessment(diagrams=0), _assessment(icons=0)):
+        assert [ok for _l, ok, _d in missing.checkable()] == [True, True, True, False]
     for index, assessment in broken.items():
         passed = [ok for _label, ok, _detail in assessment.checkable()]
         assert passed == [position != index for position in range(4)], index
@@ -386,12 +404,12 @@ def test_checkable_criteria_and_their_order() -> None:
     assert "expected 'A', found 'B'" in broken[0].checkable()[0][2]
     assert "below minimum size" in broken[1].checkable()[1][2]
     assert "far from text" in broken[2].checkable()[2][2]
-    assert broken[3].checkable()[3][2] == "1 diagram(s), 0 icon(s)"
+    assert broken[3].checkable()[3][2] == "1 chart(s), 1 diagram(s), 0 icon(s)"
+    assert _assessment(charts=0).checkable()[3][2] == "0 chart(s), 1 diagram(s), 3 icon(s)"
 
     # Advisory grammar findings and header-flow findings are reported, never a criterion.
     advisory = _assessment(grammar_findings=(_ADVISORY_GRAMMAR,))
     assert advisory.passes
-    assert _assessment(diagrams=0).passes is False
 
 
 def test_the_report_lists_human_checks_unticked_and_says_nothing_checked_them() -> None:
@@ -471,8 +489,9 @@ def make_two_slide_deck_for_rendering() -> Deck:
     return _fixture_deck().model_copy(update={"slides": _fixture_deck().slides[:2]})
 
 
-@DIAGRAM_COUNT_UNRESOLVED
-def test_assess_final_counts_diagrams_and_icons_from_the_rendered_file(tmp_path: Path) -> None:
+def test_assess_final_counts_charts_diagrams_and_icons_from_the_rendered_file(
+    tmp_path: Path,
+) -> None:
     tokens = tokens_for()
     deck = _deck_with_icons()
     pptx = tmp_path / "deck.pptx"
@@ -482,11 +501,40 @@ def test_assess_final_counts_diagrams_and_icons_from_the_rendered_file(tmp_path:
         deck, pptx, tokens=tokens, brief=None, profile=resolve_profile(None)
     )
 
-    assert assessment.icon_count == 3
-    assert assessment.diagram_count == 1
+    assert (assessment.chart_count, assessment.diagram_count, assessment.icon_count) == (
+        1,
+        1,
+        3,
+    )
     assert assessment.deck_digest == canonical_pptx_digest(pptx)
     assert assessment.post_render.passes
     assert assessment.passes
+    assert assessment.checkable()[3][2] == "1 chart(s), 1 diagram(s), 3 icon(s)"
+
+
+def test_a_deck_without_a_native_chart_fails_only_the_milestone_criterion(
+    tmp_path: Path,
+) -> None:
+    tokens = tokens_for()
+    full = _deck_with_icons()
+    deck = full.model_copy(update={"slides": [s for s in full.slides if s.id != "s4"]})
+    pptx = tmp_path / "deck.pptx"
+    render_deck(deck, tokens=tokens, out_path=pptx)
+
+    assessment = assess_final(
+        deck, pptx, tokens=tokens, brief=None, profile=resolve_profile(None)
+    )
+
+    assert (assessment.chart_count, assessment.diagram_count, assessment.icon_count) == (
+        0,
+        1,
+        3,
+    )
+    assert [ok for _label, ok, _detail in assessment.checkable()] == [True, True, True, False]
+    assert not assessment.passes
+    assert "0 chart(s), 1 diagram(s), 3 icon(s)" in render_final_report(
+        assessment, audit_report="audit"
+    )
 
 
 def _approved_run_with_models(
@@ -517,7 +565,7 @@ def test_render_writes_the_deck_and_previews_and_keeps_the_claims_approval(
     assert result.exit_code == 0, result.output
     run_dir = runs_root / "r1"
     assert (run_dir / "deck.pptx").exists()
-    assert len(list((run_dir / "previews" / "final").glob("*.png"))) == 3
+    assert len(list((run_dir / "previews" / "final").glob("*.png"))) == 4
     assert "Art direction" in result.output
     assert "s3" in result.output and "icon_anchored" in result.output
     assert "applied  assign_icons" in result.output
@@ -534,6 +582,7 @@ def test_render_writes_the_deck_and_previews_and_keeps_the_claims_approval(
         "text_led",
         "diagram_led",
         "icon_anchored",
+        "text_led",
     ]
 
     # The point of binding the approval to facts: the render did not void it.
@@ -619,7 +668,6 @@ def test_a_model_that_never_answers_validly_is_reported_not_fatal(
     assert (runs_root / "r1" / "deck.pptx").exists()
 
 
-@DIAGRAM_COUNT_UNRESOLVED
 @pytest.mark.render
 def test_render_then_gate3_produces_deck_report_and_manifest_together(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -663,7 +711,6 @@ def test_render_then_gate3_produces_deck_report_and_manifest_together(
     assert canonical_pptx_digest(deck_path) in report_path.read_text(encoding="utf-8")
 
 
-@DIAGRAM_COUNT_UNRESOLVED
 @pytest.mark.render
 def test_gate3_exits_4_and_says_so_when_the_rendered_deck_fails_a_criterion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

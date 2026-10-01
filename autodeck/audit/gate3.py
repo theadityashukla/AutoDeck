@@ -21,9 +21,9 @@ will record (A7) — not a deck that existed earlier in the session.
   adjacency on the rendered presentation.
 - **Header flow** (`design/headers/flow.py`) on the final deck, with the brief, so the owner
   reads the headers as the client will see them after art direction and critique.
-- **Milestone shape** (PHASE-3B.md): at least one native diagram and at least one
-  theme-recolourable icon in the rendered file — the two things checks 1 and 2 need to
-  exist before a person can try them.
+- **Milestone shape** (PHASE-3B.md): at least one native chart, one native diagram and one
+  theme-recolourable icon in the rendered file — the three things checks 1-3 need to exist
+  before a person can try them.
 
 ## What is not checked here
 
@@ -46,6 +46,7 @@ from pptx.presentation import Presentation as PresentationType
 from autodeck.audit.manifest import canonical_pptx_digest
 from autodeck.audit.post_render import PostRenderReport, post_render_audit
 from autodeck.design import grammar
+from autodeck.design.diagrams import DIAGRAM_NAME_PREFIX, diagram_placement
 from autodeck.design.grammar import GrammarFinding
 from autodeck.design.headers.flow import HeaderFlowReport, flow_report
 from autodeck.design.headers.profile import HeaderStyleProfile
@@ -76,8 +77,10 @@ class FinalAssessment:
     qa: list[QAFinding] = field(default_factory=list)
     grammar: list[GrammarFinding] = field(default_factory=list)
     flow: HeaderFlowReport = field(default_factory=HeaderFlowReport)
+    chart_count: int = 0
+    """Native charts in the rendered file (graphic frames holding a chart part)."""
     diagram_count: int = 0
-    """Native diagrams in the rendered file (shapes the diagram engine named)."""
+    """Native diagrams in the rendered file: distinct `diagram:<kind>:<placement>` groups."""
     icon_count: int = 0
     """Theme-coloured icon shapes in the rendered file (`ICON_NAME_PREFIX`)."""
 
@@ -88,8 +91,9 @@ class FinalAssessment:
            `post_render.passes`; detail: first findings.
         2. "No deterministic QA findings" — `not qa`; detail: count and first finding.
         3. "No blocking grammar findings" — no `severity == "blocking"`; detail likewise.
-        4. "At least one native diagram and one theme-recolourable icon" — both counts > 0;
-           detail: the two counts. (Without them, human checks 1 and 2 cannot be tried.)
+        4. "At least one native chart, one native diagram and one theme-recolourable icon" —
+           all three counts > 0; detail: the three counts. (Without them, human checks 1-3
+           cannot be tried.)
         Header-flow findings are advisory (flow.py) and are reported, never a criterion.
         """
         post_render_lines = _post_render_lines(self.post_render)
@@ -115,9 +119,10 @@ class FinalAssessment:
                 else "no blocking findings",
             ),
             (
-                "At least one native diagram and one theme-recolourable icon",
-                self.diagram_count > 0 and self.icon_count > 0,
-                f"{self.diagram_count} diagram(s), {self.icon_count} icon(s)",
+                "At least one native chart, one native diagram and one theme-recolourable icon",
+                self.chart_count > 0 and self.diagram_count > 0 and self.icon_count > 0,
+                f"{self.chart_count} chart(s), {self.diagram_count} diagram(s), "
+                f"{self.icon_count} icon(s)",
             ),
         ]
 
@@ -158,6 +163,7 @@ def assess_final(
         qa=qa,
         grammar=grammar_findings,
         flow=flow_report(deck, tokens, profile, brief=brief),
+        chart_count=_count_charts(prs),
         diagram_count=_count_diagrams(prs),
         icon_count=_count_icons(prs),
     )
@@ -189,16 +195,25 @@ def _count_icons(prs: PresentationType) -> int:
 
 
 def _count_diagrams(prs: PresentationType) -> int:
-    """Native diagrams in the rendered file.
+    """Native diagrams in the rendered file: distinct `(slide, kind, placement)` groups among
+    shapes named `diagram:<kind>:<placement>:<n>` by `diagrams.place_diagram`."""
+    placements: set[tuple[int, str, int]] = set()
+    for slide_index, slide in enumerate(prs.slides):
+        for shape in slide.shapes:
+            if shape.name.startswith(DIAGRAM_NAME_PREFIX):
+                kind, placement = diagram_placement(shape.name)
+                placements.add((slide_index, kind, placement))
+    return len(placements)
 
-    SCAFFOLD CONTRADICTION: the contract says to count diagrams from shape names "the
-    diagram engine already writes". It writes none — `autodeck/design/diagrams.py` draws
-    plain autoshapes and connectors through `draw.add_autoshape` / `add_connector` with
-    python-pptx's default names ("Chevron 3", "Rectangle 7"). Only icons carry a name hook
-    (`icon:`). Counting diagrams from the file needs a prefix the engine does not yet write,
-    which this module may not invent. Left for the caller to decide; see the report.
-    """
-    raise NotImplementedError("the diagram engine writes no shape-name prefix to count")
+
+def _count_charts(prs: PresentationType) -> int:
+    """Native charts in the rendered file: graphic frames that hold a chart part."""
+    return sum(
+        1
+        for slide in prs.slides
+        for shape in slide.shapes
+        if getattr(shape, "has_chart", False)
+    )
 
 
 def render_final_report(assessment: FinalAssessment, *, audit_report: str) -> str:

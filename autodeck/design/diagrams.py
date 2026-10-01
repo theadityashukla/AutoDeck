@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Final
 
 from autodeck.design.budgets import load_metrics
 from autodeck.design.draw import add_autoshape, add_connector
@@ -82,6 +83,9 @@ from autodeck.ir.models import (
     ProcessFlowSpec,
     TwoByTwoSpec,
 )
+
+if TYPE_CHECKING:
+    from pptx.slide import Slide as PptxSlide
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -617,6 +621,14 @@ def _render_layered_stack(frame: Frame, box: Box, spec: DiagramSpec) -> None:
 # Dispatch
 # ---------------------------------------------------------------------------
 
+#: Every shape a diagram renderer creates is named `diagram:<kind>:<placement>:<n>` —
+#: `<placement>` is 1-based per slide (the first diagram placed on a slide is 1, a second is
+#: 2) and `<n>` is the shape's 1-based creation order within that placement. Set in one
+#: place, `place_diagram`, from a before/after snapshot of the slide's shapes, so no renderer
+#: has to remember it. This is the hook `audit/gate3.py` counts native diagrams with, the
+#: way `ICON_NAME_PREFIX` is for icons. A placement is one diagram, however many shapes it has.
+DIAGRAM_NAME_PREFIX: Final = "diagram:"
+
 _RENDERERS: dict[DiagramKind, Callable[[Frame, Box, DiagramSpec], None]] = {
     "process_flow": _render_process_flow,
     "two_by_two": _render_two_by_two,
@@ -646,4 +658,24 @@ def place_diagram(frame: Frame, box: Box, spec: DiagramSpec) -> None:
             "renderer for it yet — add one and a _RENDERERS entry, the same registration "
             "GEOMETRIES itself asks for."
         ) from None
+    known = {shape.shape_id for shape in frame.slide.shapes}
+    placement = _next_placement_index(frame.slide)
     renderer(frame, box, spec)
+    created = [shape for shape in frame.slide.shapes if shape.shape_id not in known]
+    for number, shape in enumerate(created, start=1):
+        shape.name = f"{DIAGRAM_NAME_PREFIX}{spec.kind}:{placement}:{number}"
+
+
+def _next_placement_index(slide: PptxSlide) -> int:
+    """1 + the highest placement index any diagram already on `slide` carries."""
+    highest = 0
+    for shape in slide.shapes:
+        if shape.name.startswith(DIAGRAM_NAME_PREFIX):
+            highest = max(highest, diagram_placement(shape.name)[1])
+    return highest + 1
+
+
+def diagram_placement(shape_name: str) -> tuple[str, int]:
+    """`(kind, placement index)` from a `diagram:<kind>:<placement>:<n>` shape name."""
+    kind, placement, _number = shape_name[len(DIAGRAM_NAME_PREFIX) :].split(":")
+    return kind, int(placement)
