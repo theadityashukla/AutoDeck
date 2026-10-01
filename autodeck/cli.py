@@ -1349,7 +1349,7 @@ def content(
 
     typer.echo("")
     header_profile = resolve_profile(context.header_profile, brief_doc.header_style)
-    typer.echo(flow_report(new_deck, design_tokens, header_profile).render())
+    typer.echo(flow_report(new_deck, design_tokens, header_profile, brief=brief_doc).render())
 
     typer.echo(f"\nNext: autodeck validate {run_id}")
 
