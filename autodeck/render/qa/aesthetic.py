@@ -63,24 +63,44 @@ logic is testable in CI without LibreOffice (B10); the default rasteriser is
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 
+from autodeck.audit.post_render import post_render_audit
 from autodeck.design.components.catalog import (
     UnknownComponentError,
+    known_components,
     registration,
 )
 from autodeck.design.icons.library import (
     CONCEPT_TO_ICON,
     IconNotFoundError,
+    available_concepts,
     resolve_icon,
 )
 from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.ir.actions import Action, ActionList, ConceptLookup, SlotLookup
-from autodeck.ir.models import Deck, LayoutPin
-from autodeck.providers.base import ImageInput
+from autodeck.ir.actions import (
+    Action,
+    ActionList,
+    ActionRejected,
+    ConceptLookup,
+    SlotLookup,
+    apply_action,
+)
+from autodeck.ir.models import (
+    AccentToken,
+    ColumnBalance,
+    CommunicationMode,
+    Deck,
+    LayoutPin,
+    TypeScale,
+)
+from autodeck.providers.base import ImageInput, ProviderError
+from autodeck.render.qa.deterministic import QAFinding, run_deterministic_qa
+from autodeck.render.qa.libreoffice import render_pptx
+from autodeck.render.renderer import render_deck
 
 PROMPT_PATH = Path("prompts/aesthetic_critique.md")
 DEFAULT_TOKENS = Path("config/tokens/dev.json")
@@ -282,7 +302,139 @@ def run_aesthetic_loop(
       - Invariant, asserted by tests on every path: `fact_fingerprint(result.deck) ==
         fact_fingerprint(deck)`.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    system = _read_prompt(prompt_path)
+
+    def default_rasterise(pptx: Path, output_dir: Path) -> list[Path]:
+        return render_pptx(pptx, output_dir, tokens).images
+
+    rasterise = rasterise if rasterise is not None else default_rasterise
+    slots_of = slots_of if slots_of is not None else catalog_slot_lookup(tokens)
+    glyph_for = glyph_for if glyph_for is not None else library_concept_lookup()
+
+    iterations: list[Iteration] = []
+    scored: list[tuple[float, Deck]] = []  # (score, the deck the model scored), in order
+
+    def result(stopped: StopReason, detail: str = "") -> AestheticResult:
+        best_score: float | None = None
+        best_deck = deck
+        for score, scored_deck in scored:
+            if best_score is None or score > best_score:  # strict: ties keep the earlier deck
+                best_score, best_deck = score, scored_deck
+        return AestheticResult(
+            deck=best_deck,
+            best_score=best_score,
+            stopped=stopped,
+            iterations=iterations,
+            detail=detail,
+        )
+
+    current = deck
+    previous_findings: int | None = None
+    for index in range(config.max_iterations):
+        iteration_dir = work_dir / f"iter-{index}"
+        iteration_dir.mkdir(parents=True, exist_ok=True)
+        pptx = iteration_dir / "deck.pptx"
+
+        render_deck(current, tokens=tokens, out_path=pptx)
+
+        report = post_render_audit(current, pptx)
+        if not report.passes:
+            summary = _audit_summary(report.numeric.findings, report.findings)
+            if index == 0:
+                raise AestheticLoopError(
+                    f"the input deck fails the post-render audit before any action was "
+                    f"applied ({summary}); that is an upstream defect, so its looks were "
+                    "not critiqued"
+                )
+            return result("audit_failed", f"iteration {index}: {summary}")
+
+        findings = run_deterministic_qa(pptx, tokens)
+        if previous_findings is not None and len(findings) > previous_findings:
+            return result(
+                "qa_regression",
+                f"iteration {index}: candidate has {len(findings)} deterministic QA "
+                f"finding(s), the deck it came from had {previous_findings}",
+            )
+
+        images = rasterise(pptx, iteration_dir / "png")
+        image_inputs = [ImageInput(data=image.read_bytes()) for image in images]
+        try:
+            reply = model.vision(
+                image_inputs,
+                _critique_prompt(
+                    current,
+                    qa_findings=findings,
+                    iteration=index,
+                    previous=iterations,
+                    slots_of=slots_of,
+                ),
+                ActionList,
+                system=system,
+            )
+        except ProviderError as exc:
+            return result("model_error", f"iteration {index}: {type(exc).__name__}: {exc}")
+
+        scored.append((reply.score, current))
+        previous_findings = len(findings)
+
+        look = Iteration(
+            index=index,
+            score=reply.score,
+            rationale=reply.rationale,
+            qa_findings=len(findings),
+            applied=(),
+            rejected=(),
+            images=tuple(images),
+        )
+
+        if reply.score >= config.target_score:
+            iterations.append(look)
+            return result("target_reached")
+        if not reply.actions:
+            iterations.append(look)
+            return result("no_actions")
+
+        candidate = current
+        applied: list[Action] = []
+        rejected: list[RejectedAction] = []
+        for action in reply.actions:
+            try:
+                candidate = apply_action(
+                    candidate, action, pins=pins, slots_of=slots_of, glyph_for=glyph_for
+                )
+            except ActionRejected as exc:
+                rejected.append(RejectedAction(action=action, reason=str(exc)))
+            else:
+                applied.append(action)
+        iterations.append(replace(look, applied=tuple(applied), rejected=tuple(rejected)))
+        if not applied:
+            return result("all_rejected")
+        current = candidate
+
+    # The final candidate was never shown to the model; it is dropped, not returned.
+    return result("max_iterations")
+
+
+def _read_prompt(path: Path) -> str:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"aesthetic critique prompt not found at {path}. Prompts are versioned files "
+            "(plan §0.5) and their hashes go into the build manifest — there is no inline "
+            "fallback."
+        )
+    return path.read_text(encoding="utf-8")
+
+
+def _audit_summary(numeric: Sequence[object], findings: Sequence[object]) -> str:
+    parts = [f"{len(numeric)} numeric finding(s)"]
+    parts.append(f"{len(findings)} post-render finding(s)")
+    if findings:
+        first = findings[0]
+        parts.append(
+            f"first: {getattr(first, 'check', '?')} on slide {getattr(first, 'slide_id', '?')}"
+        )
+    return "; ".join(parts)
 
 
 def _critique_prompt(
@@ -312,4 +464,68 @@ def _critique_prompt(
         reason, so the model does not propose the same impossible thing twice.
       Deterministic: the same inputs produce the same string (it is part of the cache key).
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    lines: list[str] = [
+        f"Aesthetic critique, look {iteration + 1}. You are shown one image per slide, in the "
+        "order listed below. Reply with a score and at most eight actions.",
+        "",
+        "SLIDES (addresses you may use; read the words off the images)",
+    ]
+    for position, slide in enumerate(deck.slides, start=1):
+        style = slide.style
+        lines.append(f"slide {slide.id} (image {position})")
+        lines.append(f"  component: {slide.component}")
+        lines.append(f"  communication_mode: {slide.communication_mode or 'unset'}")
+        lines.append(
+            f"  style: type_scale={style.type_scale} accent={style.accent} "
+            f"column_balance={style.column_balance} "
+            f"emphasis_block_id={style.emphasis_block_id or 'none'}"
+        )
+        lines.append("  blocks (id  kind  slot):")
+        for block in slide.blocks:
+            lines.append(f"    {block.id}  {block.kind}  {block.slot}")
+
+    lines += [
+        "",
+        "COMPONENTS you may swap to (name: slots; slot_map must cover every slot used)",
+    ]
+    for name in known_components():
+        slots = slots_of(name)
+        if slots is not None:
+            lines.append(f"  {name}: {', '.join(sorted(slots))}")
+
+    lines += [
+        "",
+        "ICON CONCEPTS: " + ", ".join(available_concepts()),
+        "",
+        "VOCABULARIES",
+        "  type_scale: " + ", ".join(get_args(TypeScale)),
+        "  accent / color_token: " + ", ".join(get_args(AccentToken)),
+        "  column_balance: " + ", ".join(get_args(ColumnBalance)),
+        "  communication_mode: " + ", ".join(get_args(CommunicationMode)),
+        "",
+        "DETERMINISTIC QA FINDINGS for this render (geometry facts to fix, not opinions)",
+    ]
+    if qa_findings:
+        for finding in qa_findings:
+            lines.append(_finding_line(finding))
+    else:
+        lines.append("  none")
+
+    if previous:
+        lines += ["", "EARLIER LOOKS"]
+        for earlier in previous:
+            lines.append(f"  look {earlier.index + 1}: score {earlier.score:.1f}")
+            for rejection in earlier.rejected:
+                lines.append(
+                    f"    rejected {rejection.action.model_dump_json()}: {rejection.reason}"
+                )
+    return "\n".join(lines)
+
+
+def _finding_line(finding: object) -> str:
+    if isinstance(finding, QAFinding):
+        return (
+            f"  {finding.check} | slide {finding.slide_id} | shapes {', '.join(finding.shapes)}"
+            f" | {finding.remedy_detail}"
+        )
+    return f"  {finding}"
