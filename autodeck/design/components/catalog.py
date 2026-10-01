@@ -1077,6 +1077,21 @@ def _evidence_with_figure_slots(canvas: Canvas) -> list[ComponentSlot]:
     ]
 
 
+def _icon_pillars_slots(canvas: Canvas) -> list[ComponentSlot]:
+    """Reconstruct the boxes `renderers/icon_pillars.py` computes for itself (B35).
+
+    Contract: `headline` (as `_data_card_grid_slots` builds it); `pillar_label` and
+    `pillar_point`, both repeatable, budgeted against **one column of the densest layout**
+    (`icon_pillars.MAX_PILLARS` columns — the renderer's own `grid(1, n, ...)` call, read off
+    its arithmetic, not re-guessed), each `max_items = MAX_PILLARS`; `pillar_point`
+    `required=False`; and `source` in the caption band, `required=False`, as every cited
+    component declares it. Icons are not text and get no `ComponentSlot`, exactly as charts
+    and diagrams do not; their slot (`pillar_icon`) is declared in the renderer's
+    `ADAPTER_SLOTS`, which is the placement authority (`renderer.placeable_slots`).
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
 def _data_card_grid_slots(canvas: Canvas) -> list[ComponentSlot]:
     """Reconstruct the boxes `renderers/data_card_grid.py` computes for itself.
 

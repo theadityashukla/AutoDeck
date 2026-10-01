@@ -61,6 +61,9 @@ from autodeck.design.components.renderers.data_card_grid import (
     DataCard,
     DataCardGridContent,
 )
+from autodeck.design.components.renderers.icon_pillars import (
+    IconPillarsContent,
+)
 from autodeck.design.components.renderers.two_column_compare import (
     ComparisonColumn,
     TwoColumnCompareContent,
@@ -622,6 +625,30 @@ def _adapt_data_card_grid(slide: Slide) -> tuple[DataCardGridContent, list[Style
     content = DataCardGridContent(headline=headline, cards=cards, accent=slide.style.accent)
     _raise_unplaced(consumed, slide.blocks)
     return content, warnings
+
+
+def _adapt_icon_pillars(slide: Slide) -> tuple[IconPillarsContent, list[StyleNotHonoured]]:
+    """`pillars` is a list of nested `Pillar`s from three positionally-paired repeatable
+    slots — `pillar_icon`, `pillar_label`, `pillar_point` — the `data_card_grid` pattern.
+
+    Contract:
+      - Exactly one `headline` block, else `RenderStageError`.
+      - `pillar_icon` blocks must be `kind == "icon"` (else `RenderStageError` naming the
+        block); each becomes `PillarIcon(glyph=block.icon.glyph_id,
+        color=block.icon.color_token)` — the **resolved** glyph, never a re-resolution of
+        `concept` (see `icon_pillars`' module docstring for why).
+      - Count of icons == count of labels, else `RenderStageError` naming both counts.
+        Points: either none, or exactly one per label — anything between is ambiguous
+        pairing and a `RenderStageError`, not a guess about which pillar lacks one.
+      - Count outside `MIN_PILLARS..MAX_PILLARS` → `RenderStageError`.
+      - `source` computed as in `_adapt_generic`; `accent` from `slide.style`;
+        non-default `column_balance` or any `emphasis_block_id` → `StyleNotHonoured`.
+      - `_raise_unplaced(consumed, slide.blocks)` last.
+    Wire it: `ADAPTERS[IconPillarsContent]`, and
+    `ADAPTER_SLOTS[IconPillarsContent] = {"headline", "pillar_icon", "pillar_label",
+    "pillar_point"}`.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
 
 
 ADAPTERS: dict[type, Adapter] = {
