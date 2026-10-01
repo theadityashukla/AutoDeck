@@ -600,3 +600,12 @@ def test_a_buggy_applier_that_edits_a_claim_is_caught(monkeypatch: pytest.Monkey
     )
     assert result.slides[0].blocks[0].claim is not None
     assert result.slides[0].blocks[0].claim.text == "sabotaged by a buggy applier"
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_icon_actions_cannot_reach_an_icon_in_the_speaker_notes() -> None:
+    """`SwapGlyph` and `SetIconColour` addressed at an icon block that lives in
+    `speaker_notes` → `UnknownAddressError` whose message says the block is in the notes,
+    not on the face. The same actions on a face icon still apply. (Notes are not drawn, so
+    the vision model cannot have seen that icon.)"""
+    raise NotImplementedError
