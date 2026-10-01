@@ -152,10 +152,10 @@ def _header_block(slide: Slide, slot_name: str | None) -> Block | None:
 def _header_text(block: Block | None) -> tuple[str, str]:
     """`(kind, text)` for the header a reader would actually see.
 
-    A `claim` block's readable text is `claim.text`, not `block.text` — `Block` forbids a
-    `claim` block from also carrying a foreign `text` payload (see
-    `Block._payload_matches_kind`), so `block.text` is always empty on one and reading it
-    would report every fact-bearing header as blank.
+    A `claim` block's readable text is `claim.text`, not `block.text` — since B36 `Block`
+    refuses `text` on any non-text kind by construction (see `Block._payload_matches_kind`),
+    so `block.text` is always empty on a `claim` block and reading it would report every
+    fact-bearing header as blank.
     """
     if block is None:
         return "(no header slot)", ""

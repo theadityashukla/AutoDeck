@@ -56,6 +56,7 @@ from autodeck.providers.base import (
     RateLimitError,
     StructuredOutputError,
 )
+from autodeck.render import trial
 from autodeck.render.qa import aesthetic
 from autodeck.render.qa.aesthetic import (
     AestheticLoopError,
@@ -816,7 +817,7 @@ def test_an_action_that_does_not_render_is_rejected_not_fatal(
     """A critic proposing [SwapComponent onto a slot the target cannot place, a valid
     SetAccent] -> the swap is in `rejected` with a reason starting "does not render:", the
     accent is applied, the loop continues to the next look. Same for a `SetTypeScale` that
-    makes a slide overflow (monkeypatch `render_deck` in aesthetic's namespace to raise
+    makes a slide overflow (monkeypatch `render_deck` in trial's namespace to raise
     `LayoutOverflowError` for that candidate only). Fingerprint equal."""
     real_render = aesthetic.render_deck
 
@@ -825,7 +826,8 @@ def test_an_action_that_does_not_render_is_rejected_not_fatal(
             raise LayoutOverflowError("headline does not fit")
         return real_render(deck, tokens=tokens, out_path=out_path)
 
-    monkeypatch.setattr(aesthetic, "render_deck", overflowing)
+    # The trial render lives in `render/trial.py` since 3b.7, so that is where it is patched.
+    monkeypatch.setattr(trial, "render_deck", overflowing)
 
     deck = _deck()
     # Both blocks of the `points` slot would land in `quote`, which holds exactly one.
@@ -863,16 +865,12 @@ def test_environment_failures_during_a_trial_render_propagate(
 ) -> None:
     """`FontNotFoundError` raised by the trial render escapes `run_aesthetic_loop`; it is not
     recorded as a rejected action."""
-    real_render = aesthetic.render_deck
-    calls: list[Path] = []
 
-    def render_then_lose_the_font(deck: Deck, *, tokens: DesignTokens, out_path: Path) -> Any:
-        calls.append(out_path)
-        if len(calls) > 1:  # the iteration's own render succeeded; the trial one fails
-            raise FontNotFoundError("the regular face of font family 'Inter' was not found")
-        return real_render(deck, tokens=tokens, out_path=out_path)
+    def lose_the_font(deck: Deck, *, tokens: DesignTokens, out_path: Path) -> Any:
+        # The iteration's own render (aesthetic's) succeeds; only the trial render fails.
+        raise FontNotFoundError("the regular face of font family 'Inter' was not found")
 
-    monkeypatch.setattr(aesthetic, "render_deck", render_then_lose_the_font)
+    monkeypatch.setattr(trial, "render_deck", lose_the_font)
     critic = FakeCritic(reply(5.0, SetAccent(slide_id="s1", accent="accent2")))
 
     with pytest.raises(FontNotFoundError):
