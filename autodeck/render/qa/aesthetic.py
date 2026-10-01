@@ -67,12 +67,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
 
+from autodeck.design.components.catalog import (
+    UnknownComponentError,
+    registration,
+)
+from autodeck.design.icons.library import (
+    CONCEPT_TO_ICON,
+    IconNotFoundError,
+    resolve_icon,
+)
+from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.actions import Action, ActionList, ConceptLookup, SlotLookup
 from autodeck.ir.models import Deck, LayoutPin
 from autodeck.providers.base import ImageInput
 
 PROMPT_PATH = Path("prompts/aesthetic_critique.md")
+DEFAULT_TOKENS = Path("config/tokens/dev.json")
 
 StopReason = Literal[
     "target_reached",
@@ -165,14 +176,40 @@ class AestheticLoopError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-def catalog_slot_lookup() -> SlotLookup:
+def catalog_slot_lookup(tokens: DesignTokens | None = None) -> SlotLookup:
     """A `SlotLookup` over the registered component catalog.
 
     Contract: returns a callable mapping a component name to the frozenset of its slot
     names (from `autodeck.design.components.catalog.registration(name)`), or `None` when
     the catalog raises `UnknownComponentError`. Never raises for an unknown name.
+
+    A component's slot names are the names of the `ComponentSlot`s its variants declare, so
+    they are the union over every variant: a block may be seated in any slot any variant
+    names. The names do not depend on the client's theme, but the catalog builds slots only
+    against a `Canvas`, which measures real glyphs — so `tokens` supplies fonts that exist.
+    Omitted, it is `config/tokens/dev.json`, resolved like `PROMPT_PATH`, from the working
+    directory. Results are cached per component.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    cache: dict[str, frozenset[str]] = {}
+    resolved: list[DesignTokens] = []
+
+    def slots_of(component: str) -> frozenset[str] | None:
+        if component in cache:
+            return cache[component]
+        try:
+            entry = registration(component)
+        except UnknownComponentError:
+            return None
+        if not resolved:
+            resolved.append(tokens if tokens is not None else DesignTokens.load(DEFAULT_TOKENS))
+        canvas = Canvas(resolved[0])
+        names = frozenset(
+            slot.name for variant in entry.variants for slot in variant.slots(canvas)
+        )
+        cache[component] = names
+        return names
+
+    return slots_of
 
 
 def library_concept_lookup() -> ConceptLookup:
@@ -183,7 +220,16 @@ def library_concept_lookup() -> ConceptLookup:
     icon filename that is not a concept is `None` here, because `SwapGlyph` addresses ideas,
     not files (library docstring, §9). Use `CONCEPT_TO_ICON` to tell them apart.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+    def glyph_for(concept: str) -> str | None:
+        if concept not in CONCEPT_TO_ICON:
+            return None
+        try:
+            return resolve_icon(concept).name
+        except IconNotFoundError:
+            return None
+
+    return glyph_for
 
 
 # ---------------------------------------------------------------------------

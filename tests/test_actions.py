@@ -602,10 +602,37 @@ def test_a_buggy_applier_that_edits_a_claim_is_caught(monkeypatch: pytest.Monkey
     assert result.slides[0].blocks[0].claim.text == "sabotaged by a buggy applier"
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
 def test_icon_actions_cannot_reach_an_icon_in_the_speaker_notes() -> None:
     """`SwapGlyph` and `SetIconColour` addressed at an icon block that lives in
-    `speaker_notes` → `UnknownAddressError` whose message says the block is in the notes,
+    `speaker_notes` -> `UnknownAddressError` whose message says the block is in the notes,
     not on the face. The same actions on a face icon still apply. (Notes are not drawn, so
     the vision model cannot have seen that icon.)"""
-    raise NotImplementedError
+    deck = make_deck()
+    deck.slides[0].speaker_notes.append(make_icon_block("n2", slot="notes"))
+    before_dump = deck.model_dump()
+
+    notes_actions: list[Action] = [
+        SwapGlyph(slide_id="s1", block_id="n2", concept="rocket"),
+        SetIconColour(slide_id="s1", block_id="n2", color_token="accent6"),
+    ]
+    for action in notes_actions:
+        with pytest.raises(actions.UnknownAddressError, match="speaker notes, not on the face"):
+            actions.apply_action(deck, action, slots_of=fake_slots_of, glyph_for=fake_glyph_for)
+    assert deck.model_dump() == before_dump
+
+    swapped = actions.apply_action(
+        deck,
+        SwapGlyph(slide_id="s1", block_id="b5", concept="rocket"),
+        slots_of=fake_slots_of,
+        glyph_for=fake_glyph_for,
+    )
+    recoloured = actions.apply_action(
+        deck,
+        SetIconColour(slide_id="s1", block_id="b5", color_token="accent6"),
+        slots_of=fake_slots_of,
+        glyph_for=fake_glyph_for,
+    )
+    face_icon = next(block for block in swapped.slides[0].blocks if block.id == "b5")
+    assert face_icon.icon is not None and face_icon.icon.concept == "rocket"
+    face_icon = next(block for block in recoloured.slides[0].blocks if block.id == "b5")
+    assert face_icon.icon is not None and face_icon.icon.color_token == "accent6"
