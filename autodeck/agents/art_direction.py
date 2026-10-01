@@ -234,13 +234,23 @@ def run_art_direction(
     for slide in current.slides:
         decision = _decide_mode(slide, brief)
         modes[slide.id] = decision
-        # `pins=()` on purpose: a pinned mode is what the pin asks for, so applying it is
-        # honouring the pin, not overriding it; `apply_action` would otherwise refuse the very
-        # value the pin names. The fingerprint check still runs.
+        # The brief's pins go through, so a pinned mode is applied by the pin's own channel:
+        # setting the pinned value is allowed. A pin that disagrees with the decision (an
+        # unusable value, or a second pin the first one outranked) is already reported in
+        # `decision.note`; leaving it in would make `apply_action` refuse the very mode
+        # the note says was chosen.
         current = apply_action(
             current,
             SetCommunicationMode(slide_id=slide.id, mode=decision.mode),
-            pins=(),
+            pins=[
+                pin
+                for pin in brief.layout_pins
+                if not (
+                    pin.target == "communication_mode"
+                    and pin.message_id in slide.message_ids
+                    and pin.value != decision.mode
+                )
+            ],
             slots_of=slots_of,
             glyph_for=glyph_for,
         )

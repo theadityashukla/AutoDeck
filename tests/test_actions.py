@@ -466,14 +466,14 @@ def test_a_component_swap_that_would_orphan_a_block_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("target", ["component", "communication_mode"])
-def test_a_pinned_target_cannot_be_changed(target: str) -> None:
-    """A `LayoutPin` on a message the slide serves makes the corresponding action raise
-    `PinnedTargetError`; the same action on an unpinned slide succeeds."""
+def test_a_pinned_target_cannot_be_changed_away_from_its_pinned_value(target: str) -> None:
+    """A `LayoutPin` on a message the slide serves makes an action that moves the target to
+    any other value raise `PinnedTargetError`; the same action on an unpinned slide succeeds."""
     deck = make_two_slide_deck()
     pin = LayoutPin(
         message_id="m-pinned",
         target=target,  # type: ignore[arg-type]
-        value="alt_layout" if target == "component" else "diagram_led",
+        value="two_col" if target == "component" else "text_led",
     )
 
     if target == "component":
@@ -487,7 +487,7 @@ def test_a_pinned_target_cannot_be_changed(target: str) -> None:
         pinned_action = SetCommunicationMode(slide_id="s2", mode="diagram_led")
         unpinned_action = SetCommunicationMode(slide_id="s1", mode="diagram_led")
 
-    with pytest.raises(actions.PinnedTargetError):
+    with pytest.raises(actions.PinnedTargetError, match="cannot be changed"):
         actions.apply_action(
             deck, pinned_action, pins=[pin], slots_of=fake_slots_of, glyph_for=fake_glyph_for
         )
@@ -496,6 +496,72 @@ def test_a_pinned_target_cannot_be_changed(target: str) -> None:
         deck, unpinned_action, pins=[pin], slots_of=fake_slots_of, glyph_for=fake_glyph_for
     )
     assert result is not None
+
+
+def test_setting_the_pinned_value_is_allowed() -> None:
+    """The pin is honoured, not violated, by an action that sets its own value: a mode set
+    to the pinned mode, and a swap to the pinned component, both apply."""
+    deck = make_two_slide_deck()
+    mode_pin = LayoutPin(
+        message_id="m-pinned", target="communication_mode", value="diagram_led"
+    )
+    component_pin = LayoutPin(message_id="m-pinned", target="component", value="alt_layout")
+
+    moded = actions.apply_action(
+        deck,
+        SetCommunicationMode(slide_id="s2", mode="diagram_led"),
+        pins=[mode_pin, component_pin],
+        slots_of=fake_slots_of,
+        glyph_for=fake_glyph_for,
+    )
+    assert moded.slides[1].communication_mode == "diagram_led"
+
+    swapped = actions.apply_action(
+        deck,
+        SwapComponent(slide_id="s2", component="alt_layout", slot_map=_ALT_SLOT_MAP),
+        pins=[mode_pin, component_pin],
+        slots_of=fake_slots_of,
+        glyph_for=fake_glyph_for,
+    )
+    assert swapped.slides[1].component == "alt_layout"
+
+
+def test_setting_the_pinned_value_when_already_there_is_a_no_op() -> None:
+    deck = make_two_slide_deck()
+    deck.slides[1].communication_mode = "text_led"
+    pins = [
+        LayoutPin(message_id="m-pinned", target="communication_mode", value="text_led"),
+        LayoutPin(message_id="m-pinned", target="component", value="two_col"),
+    ]
+
+    for action in (
+        SetCommunicationMode(slide_id="s2", mode="text_led"),
+        SwapComponent(slide_id="s2", component="two_col", slot_map={}),
+    ):
+        result = actions.apply_action(
+            deck, action, pins=pins, slots_of=fake_slots_of, glyph_for=fake_glyph_for
+        )
+        assert result.model_dump() == deck.model_dump()
+
+
+def test_every_applicable_pin_must_name_the_new_value() -> None:
+    """Two pins on one slide (two served messages) that disagree: whichever value is chosen,
+    one pin is violated, so the action is rejected."""
+    deck = make_deck()
+    deck.slides[0].message_ids = ["ma", "mb"]
+    pins = [
+        LayoutPin(message_id="ma", target="communication_mode", value="text_led"),
+        LayoutPin(message_id="mb", target="communication_mode", value="diagram_led"),
+    ]
+    for mode in ("text_led", "diagram_led"):
+        with pytest.raises(actions.PinnedTargetError):
+            actions.apply_action(
+                deck,
+                SetCommunicationMode(slide_id="s1", mode=mode),  # type: ignore[arg-type]
+                pins=pins,
+                slots_of=fake_slots_of,
+                glyph_for=fake_glyph_for,
+            )
 
 
 # -- layer 3: detection -------------------------------------------------------------------
@@ -733,6 +799,23 @@ def test_assign_icons_works_on_a_slot_with_no_icons_yet() -> None:
     added = result.slides[0].blocks[-1]
     assert added.id == "icon.icon1" and added.icon is not None
     assert added.icon.color_token == "accent1"
+
+
+def test_assign_icons_clears_an_emphasis_that_would_dangle() -> None:
+    """Emphasis on an icon that the action removes is cleared; emphasis on an id the action
+    re-creates, or on any other block, is left alone."""
+    deck = make_deck()
+    action = AssignIcons(slide_id="s1", slot="icon", concepts=["growth", "rocket"])
+
+    deck.slides[0].style.emphasis_block_id = "b5"  # the existing icon, replaced
+    assert _assign(deck, action).slides[0].style.emphasis_block_id is None
+
+    deck.slides[0].blocks[-1].id = "icon.icon1"  # replaced by an icon with the same id
+    deck.slides[0].style.emphasis_block_id = "icon.icon1"
+    assert _assign(deck, action).slides[0].style.emphasis_block_id == "icon.icon1"
+
+    deck.slides[0].style.emphasis_block_id = "b1"  # not an icon
+    assert _assign(deck, action).slides[0].style.emphasis_block_id == "b1"
 
 
 def test_assign_icons_rejections() -> None:
