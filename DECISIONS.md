@@ -919,3 +919,29 @@ the owner with options.
   time; a developer or render machine needs the full set to trust a green suite at all.
 - **Consequences:**
   - A green local suite is meaningful only after the setup script has run.
+
+### B35 — No component can place an icon on the face; icon-anchored slides need one first
+- **Date:** 2026-10-01
+- **Phase / branch:** Phase 3b / `v2/phase-3b-render-qa`
+- **Status:** active — sequencing decided here; the component itself goes through B33
+- **Context:** filling the aesthetic loop (3b.5) showed that no registered component has a
+  slot an `icon` block can sit in, so `render_deck` refuses a deck with a face icon
+  (`UnplacedBlockError`). `Frame.icon` exists and draws theme-recolourable icons, but no
+  component renderer calls it. Consequences: `SwapGlyph` and `SetIconColour` are correct
+  and tested against the IR, but cannot be exercised on a rendered deck; and the
+  art-direction pass (3b.7) cannot meaningfully assign `icon_anchored` (D13; plan §6.11.2
+  pairs it with "capability pillars"), nor can GATE 3 check 2 ("an icon can be selected and
+  recoloured") be performed on a real deck.
+- **Decision:** treat it as PHASE-3B's escalation case — a component design gap, returned
+  to the 3a catalog rather than special-cased in the renderer. Before 3b.7, register one
+  icon-bearing component (working name `icon_pillars`: 3–4 columns, each an icon, a short
+  label and an optional one-line point), under B33's full procedure (budgets, golden
+  preview, `placeable_slots` entry, grammar lints: icon adjacent to its label, ≤ 50 words).
+  Opus scaffolds the content type and slots; Sonnet fills (B32).
+- **Rationale:** the alternative — have 3b.7 avoid `icon_anchored` — would ship a
+  communication mode that exists in the IR, the grammar lints and the prompt, but can never
+  be rendered, and would leave GATE 3 check 2 unperformable.
+- **Consequences:**
+  - 3b.7 is sequenced after this component lands.
+  - The golden preview for the new component is reviewed by the owner with the rest of
+    GATE 3; it is not self-approved.
