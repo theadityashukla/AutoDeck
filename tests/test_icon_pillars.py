@@ -293,12 +293,12 @@ def test_an_unknown_glyph_file_is_refused_not_guessed(tmp_path: Path) -> None:
         _render_content(content, tmp_path)
 
 
-def test_each_pillar_is_a_full_height_tinted_panel_with_top_aligned_content(
+def test_panels_hug_the_tallest_stack_and_the_row_is_centred_under_the_headline(
     tmp_path: Path,
 ) -> None:
-    """One panel per pillar, all the same height and running down to the caption band; the
-    pillar's icon starts a fixed padding below its panel's top edge, whatever its label and
-    point do."""
+    """One panel per pillar, all the same height - the tallest pillar's stack plus padding
+    top and bottom - and the row is vertically centred in the region under the headline.
+    Each pillar's icon starts a fixed padding below its panel's top edge."""
     tokens = tokens_for()
     canvas = Canvas(tokens)
     body, _ = canvas.body_and_caption()
@@ -306,18 +306,31 @@ def test_each_pillar_is_a_full_height_tinted_panel_with_top_aligned_content(
     slide = _render_content(content, tmp_path).slides[0]
 
     panels = sorted(
-        (
-            s
-            for s in slide.shapes
-            if s.name.startswith("Rectangle") or s.name.startswith("Rect")
-        ),
-        key=lambda s: s.left,
+        (s for s in slide.shapes if s.name.startswith("Rect")), key=lambda s: s.left
     )
     assert len(panels) == 4
     assert len({round(p.height.pt, 1) for p in panels}) == 1
-    assert all(round(p.top.pt, 1) == round(panels[0].top.pt, 1) for p in panels)
-    assert panels[0].top.pt + panels[0].height.pt == pytest.approx(body.bottom, abs=0.5)
-    assert panels[0].height.pt > body.height / 2  # fills the region, not a content-sized chip
+    assert len({round(p.top.pt, 1) for p in panels}) == 1
+
+    # Expected height: tallest stack + 2 x padding, measured independently of the renderer.
+    frame = canvas.on(
+        new_presentation(tokens).slides.add_slide(new_presentation(tokens).slide_layouts[6])
+    )
+    inner_width = panels[0].width.pt - 2 * icon_pillars.PANEL_PADDING
+    heights = [
+        icon_pillars._pillar_stack(frame, canvas, i, pillar, inner_width).height
+        for i, pillar in enumerate(content.pillars)
+    ]
+    expected = max(heights) + 2 * icon_pillars.PANEL_PADDING
+    assert panels[0].height.pt == pytest.approx(expected, abs=0.5)
+    assert panels[0].height.pt < body.height / 2  # hugs content; not a full-height slab
+
+    # Centred in the region between the headline's bottom and the caption band's top.
+    headline = frame.stack("h", body.width)
+    headline.text(content.headline, canvas.style("title", face="major", bold=True))
+    region = headline.place(body, gutter=canvas.baseline * 4)
+    row_centre = panels[0].top.pt + panels[0].height.pt / 2
+    assert row_centre == pytest.approx(region.y + region.height / 2, abs=0.5)
 
     for panel, (left, top, width, _height) in zip(panels, _icon_boxes(slide), strict=True):
         assert top == pytest.approx(panel.top.pt + icon_pillars.PANEL_PADDING, abs=0.5)

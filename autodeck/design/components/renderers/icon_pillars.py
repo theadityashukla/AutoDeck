@@ -7,13 +7,14 @@ no component could place an icon on a slide face at all (B35).
 
 Structure: a headline across the top; below it, the body split into equal columns, one per
 pillar. Each column is a tinted panel (the accent at 0.92 brightness, as `data_card_grid`'s
-cards are) that runs the full height of the region under the headline, so the pillars read
-as a set of equal-height slabs rather than a row of loose items. Inside each panel the
-content is top-aligned with `data_card_grid`'s card padding: the icon, then its label
-directly beneath, then an optional point of up to two lines. Because every stack starts at
-the panel's top edge, the icons share one top edge across the slide, whatever the labels
-and points below them do. The icon and its label are drawn in **one stack**, so their
-adjacency is a construction fact, not a geometric coincidence
+cards are) that hugs its content: all panels share one height, the tallest pillar's stack
+plus `data_card_grid`'s card padding above and below, so the pillars read as a set of
+equal-height cards. The row of panels is centred vertically in the region under the
+headline (above the caption band). Inside each panel the content is top-aligned: the icon,
+then its label directly beneath, then an optional point of up to two lines. Because every
+stack starts at its panel's top edge, the icons share one top edge across the slide,
+whatever the labels and points below them do. The icon and its label are drawn in **one
+stack**, so their adjacency is a construction fact, not a geometric coincidence
 `grammar.check_icon_adjacency` has to infer (that module's docstring names the missing
 structural pairing; this is it for this component).
 
@@ -95,14 +96,17 @@ def render(slide: Slide, canvas: Canvas, content: IconPillarsContent) -> None:
       - `frame.body_and_caption()`; headline as `data_card_grid` does (title style, major
         face, bold), placed with `gutter=canvas.baseline * 4`; `content.source` in the
         caption band exactly as the other cited components write it.
-      - The region below splits into `len(content.pillars)` equal columns with
-        `canvas.gutter` between (`Box.grid(1, n, ...)`); each column is the full height of
-        the region, down to the caption band.
+      - Every pillar's stack is declared first, `column.pad(PANEL_PADDING)` wide. The panel
+        height is `max(stack.height) + 2 * PANEL_PADDING`, the same for every panel. That
+        band is reserved **vertically centred** in the region under the headline
+        (`Box.reserve(..., valign="middle")`, so overflow raises `LayoutOverflowError`) and
+        split into `len(content.pillars)` equal columns with `canvas.gutter` between
+        (`Box.grid(1, n, ...)`).
       - Each column is a panel: `frame.rect(column, fill=pillar.icon.color,
-        fill_brightness=0.92)`. Its content is one `frame.stack(f"icon_pillars pillar {i}",
-        ...)`, `column.pad(PANEL_PADDING)` wide, placed **top-aligned** in the padded panel
-        (no vertical centring), holding, top to bottom, the icon (square,
-        `_ICON_BASELINES * canvas.baseline`, centred), the label
+        fill_brightness=0.92)`. Its content is that pillar's `frame.stack(
+        f"icon_pillars pillar {i}", ...)`, placed **top-aligned** in `column.pad(
+        PANEL_PADDING)` (no vertical centring inside a panel), holding, top to bottom, the
+        icon (square, `_ICON_BASELINES * canvas.baseline`, centred), the label
         (`canvas.style("body", bold=True)`, centred), and the point when present
         (`canvas.style("body")`, centred). The icon is added with
         `stack.icon(pillar.icon.glyph, ...)`, which draws that vendored file directly.
@@ -128,12 +132,20 @@ def render(slide: Slide, canvas: Canvas, content: IconPillarsContent) -> None:
     headline.text(content.headline, canvas.style("title", face="major", bold=True))
     region = headline.place(body, gutter=canvas.baseline * 4)
 
-    columns = region.grid(1, count, gutter=canvas.gutter)[0]
-    for index, (pillar, column) in enumerate(zip(content.pillars, columns, strict=True)):
+    # Column width is known before the band's height is, so every stack is declared first:
+    # the panels must all be as tall as the tallest of them.
+    column_width = region.grid(1, count, gutter=canvas.gutter)[0][0].width
+    stacks = [
+        _pillar_stack(frame, canvas, index, pillar, column_width - 2 * PANEL_PADDING)
+        for index, pillar in enumerate(content.pillars)
+    ]
+    panel_height = max(stack.height for stack in stacks) + 2 * PANEL_PADDING
+    band = region.reserve(panel_height, valign="middle", what="icon_pillars panels")
+
+    columns = band.grid(1, count, gutter=canvas.gutter)[0]
+    for pillar, stack, column in zip(content.pillars, stacks, columns, strict=True):
         frame.rect(column, fill=pillar.icon.color, fill_brightness=_PANEL_BRIGHTNESS)
-        inner = column.pad(PANEL_PADDING)
-        stack = _pillar_stack(frame, canvas, index, pillar, inner.width)
-        stack.place(inner, valign="top")
+        stack.place(column.pad(PANEL_PADDING), valign="top")
 
     frame.caption(caption, content.source)
 
