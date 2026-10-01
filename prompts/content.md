@@ -181,6 +181,51 @@ place A8 and A2 pull in opposite directions, so the rule is explicit:
 - The hedge travels **with** the number, on the same surface. A caveat in the speaker notes
   does not qualify a bare figure on the slide face; nobody reads notes in the room.
 
+## Diagrams — a sequence, with every box accounted for
+
+When the slide's component has a `diagram` slot (`framework_diagram`, `timeline`), fill it
+with one block of `kind: "diagram"` holding a process flow: two to six steps that happen in
+order. Use one only when the order *is* the point — if the steps could be shuffled without
+losing anything, they are a list, and a list belongs in a `claim` or `framing` block, not a
+diagram.
+
+```json
+{"id": "b2", "kind": "diagram", "slot": "diagram", "text": "", "claim": null, "chart": null,
+ "diagram": {"relationship": "sequence", "title": "",
+   "steps": [
+     {"id": "n1", "order": 1, "label": "Profile the workload", "transition": "",
+      "status": "framing", "claim": null, "framing_reason": "stage_name"},
+     {"id": "n2", "order": 2, "label": "Batch requests", "transition": "",
+      "status": "claim", "framing_reason": "",
+      "claim": {"text": "Continuous batching raised throughput 2.3x on the same GPUs.",
+                "citations": [{"doc_id": "...", "quote": "..."}]}}
+   ]}}
+```
+
+**Every step says what kind of label it is, before anything else.** A label is one of two
+things, and `status` says which:
+
+- **`claim`** — the label asserts something about the world ("Batch requests" is a stage,
+  but "Throughput +130%" is a fact). Fill `claim` exactly as for a claim block: verbatim
+  quotes, a `derivation` for any number you computed. The label is the short version shown
+  in the box; `claim.text` is the full assertion the citation supports. Leave
+  `framing_reason` as `""`.
+- **`framing`** — the label names something rather than asserting it. Set `framing_reason`
+  to the one reason that is true: `stage_name` (a phase of the process), `actor_name` (a
+  party, team or system), `artefact_name` (a deliverable), `category_name` (a grouping this
+  deck defines), or `question`. Leave `claim` as `null`.
+
+**Framed labels, the title and every `transition` are fenced exactly like framing blocks**
+(A5 above): no numerals, no named studies, no superlatives with factual content. Declaring
+"40% cheaper" a `category_name` does not make it one; the framing linter demotes it, and the
+render is blocked.
+
+**A diagram is all or nothing.** If one step's citation fails to resolve, the whole diagram
+is dropped — a sequence with a missing step is a different sequence. Cite every factual step
+carefully, or make it a framed stage name. Labels: at most four words. `order` runs 1, 2, 3
+… with no gaps. `transition` names what happens on the arrow between two steps, or is
+`""`; it is never decoration.
+
 ## Budgets are hard constraints
 
 Each slot arrives with a budget: a maximum number of lines and an approximate character
