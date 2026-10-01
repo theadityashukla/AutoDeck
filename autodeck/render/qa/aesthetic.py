@@ -387,6 +387,12 @@ def run_aesthetic_loop(
             images=tuple(images),
         )
 
+        # Scaffold (3b.10 integrity) — Sonnet changes this condition to also require
+        # `not findings`: a deck with an open deterministic QA finding has not reached the
+        # target whatever score the model gives (the prompt caps such scores at 6, but a
+        # prompt is advice; this makes it structural). With findings and a high score, carry
+        # on to apply the actions as for any other score. Update the module docstring's stop
+        # reasons to say so.
         if reply.score >= config.target_score:
             iterations.append(look)
             return result("target_reached")

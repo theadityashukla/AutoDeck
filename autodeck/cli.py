@@ -1912,6 +1912,18 @@ def gate3(
     paths with the deck's first, the report, and the five PowerPoint checks only a person can
     do. Exits non-zero when a checkable criterion fails. As with `gate2`, this reports and
     never decides: a clean run here is not the gate.
+
+    Scaffold (3b.10 integrity) — Sonnet adds:
+      - `require_gate(Gate.CLAIMS)` right after opening the run; `GateBlocked` → exit 3. A
+        final audit over claims that are no longer the approved ones would print PASS lines
+        about a deck nobody may ship.
+      - After assessing: `orchestrator.record_final_assessment(assessment.deck_digest,
+        assessment.passes)`, so `approve ... final_render` can check it (see
+        `Orchestrator.approve`).
+      - Printed output: the three paths, the four criteria, findings, header flow and the
+        human checklist — but the full claim-level audit goes ONLY to the report file, with
+        one line saying where it is. (The terminal output was ~200 lines, most of it a
+        repeat of GATE 2 the owner has already read.)
     """
     from autodeck.audit.gate3 import assess_final, render_final_report
     from autodeck.audit.report import build_audit_report
