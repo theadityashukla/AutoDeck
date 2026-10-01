@@ -11,11 +11,11 @@ artifacts that do not exist. The fix, one design:
 
 - `Orchestrator.approve(gate, approver=…)` records, beside the timestamp and name, the
   **fingerprint of the artifact the gate covers**: brief → sha256 of the current brief file;
-  outline → sha256 of the IR version the outline stage produced; claims → sha256 of the IR
-  version the validate stage produced; final_render → sha256 of the rendered PPTX's
-  `canonical_pptx_digest`. Store it in `state.json`; older `state.json` files without a
-  fingerprint are read as "approved, fingerprint unknown" and treated as NOT approved by
-  `require_gate` (fail safe, with a message saying re-approve).
+  outline → sha256 of the IR version the outline stage produced; claims → `facts_digest` of
+  the IR version the validate stage produced (3b.10: the facts, not the file); final_render →
+  sha256 of the rendered PPTX's `canonical_pptx_digest`. Store it in `state.json`; older
+  `state.json` files without a fingerprint are read as "approved, fingerprint unknown" and
+  treated as NOT approved by `require_gate` (fail safe, with a message saying re-approve).
 - `require_gate(gate)` passes only if the approval's fingerprint equals the current
   artifact's. A mismatch raises `GateBlocked` naming the gate and saying the artifact changed
   after approval. Re-running a stage therefore invalidates the approval automatically; no
@@ -55,6 +55,8 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from autodeck.cli import app
+from autodeck.ir.actions import facts_digest
+from autodeck.ir.models import Deck
 from autodeck.ir.store import IRStore
 from autodeck.pipeline.orchestrator import ArtifactMissing, Gate, GateBlocked, Orchestrator
 from autodeck.providers.base import ProviderAuthError, ProviderConfig, RateLimitError
@@ -119,7 +121,13 @@ def test_an_approval_records_the_fingerprint_of_what_was_approved(
 
     stored = json.loads(orchestrator.paths.state_file.read_text(encoding="utf-8"))
     assert "aditya" in stored["approvals"][gate]
-    assert stored["fingerprints"][gate] == _sha256(_artifact_path(orchestrator, Gate(gate)))
+    artifact = _artifact_path(orchestrator, Gate(gate))
+    if gate == "claims":
+        # Bound to the deck's facts, not the file's bytes (3b.10).
+        expected = facts_digest(Deck.model_validate_json(artifact.read_text(encoding="utf-8")))
+    else:
+        expected = _sha256(artifact)
+    assert stored["fingerprints"][gate] == expected
     assert len(stored["fingerprints"][gate]) == 64
 
 
