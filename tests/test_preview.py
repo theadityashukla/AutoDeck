@@ -49,9 +49,10 @@ def test_each_example_is_an_instance_of_its_own_content_type() -> None:
 
 def _blocks_for(name: str, content: Any) -> dict[str, str | list[str]]:
     """Flatten one example's dataclass into the slot-name -> value mapping `check_overflow`
-    expects. `two_column_compare` and `data_card_grid` need their own cases: their real
-    content models nest a `ComparisonColumn` per side / a `DataCard` per card, and the slot
-    names (`left_title`, `left_points`, ... / `card_label`, `card_value`) live one level
+    expects. `two_column_compare`, `data_card_grid` and `icon_pillars` need their own cases:
+    their real content models nest a `ComparisonColumn` per side / a `DataCard` per card / a
+    `Pillar` per column, and the slot names (`left_title`, `left_points`, ... /
+    `card_label`, `card_value` / `pillar_label`, `pillar_point`) live one level
     below the dataclass's own fields, not on it directly — the same split
     `autodeck.render.renderer.ADAPTERS` makes for these two components at render time."""
     if name == "two_column_compare":
@@ -68,6 +69,13 @@ def _blocks_for(name: str, content: Any) -> dict[str, str | list[str]]:
             "headline": content.headline,  # type: ignore[attr-defined]
             "card_label": [card.label for card in content.cards],  # type: ignore[attr-defined]
             "card_value": [card.value for card in content.cards],  # type: ignore[attr-defined]
+        }
+    if name == "icon_pillars":
+        return {
+            "headline": content.headline,  # type: ignore[attr-defined]
+            "pillar_label": [p.label for p in content.pillars],  # type: ignore[attr-defined]
+            "pillar_point": [p.point for p in content.pillars],  # type: ignore[attr-defined]
+            "source": content.source,  # type: ignore[attr-defined]
         }
     from dataclasses import asdict
 

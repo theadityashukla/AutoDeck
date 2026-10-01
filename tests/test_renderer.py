@@ -31,6 +31,7 @@ from autodeck.ir.models import (
     Deck,
     DiagramAxis,
     DiagramSpec,
+    IconRef,
     LabelFraming,
     ProcessFlowSpec,
     ProcessStep,
@@ -119,6 +120,20 @@ def _framing_block(slot: str, text: str, *, block_id: str | None = None) -> Bloc
 
 def _payload_block(slot: str, kind: str, **payload: Any) -> Block:
     return Block(id=_next_id(), kind=kind, slot=slot, **payload)  # type: ignore[arg-type]
+
+
+def _icon_pillars_blocks(example: Any) -> list[Block]:
+    """The blocks an `icon_pillars` example adapts from: all icons, then all labels, then all
+    points — each group in pillar order, which is how the adapter pairs them."""
+    blocks = [_framing_block("headline", example.headline)]
+    for pillar in example.pillars:
+        icon = IconRef(
+            concept=pillar.icon.glyph, glyph_id=pillar.icon.glyph, color_token=pillar.icon.color
+        )
+        blocks.append(_payload_block("pillar_icon", "icon", icon=icon))
+    blocks.extend(_framing_block("pillar_label", p.label) for p in example.pillars)
+    blocks.extend(_framing_block("pillar_point", p.point) for p in example.pillars if p.point)
+    return blocks
 
 
 def _slide(
@@ -284,6 +299,9 @@ def _check_component_adapts(name: str) -> None:
     if name == "data_card_grid":
         _check_data_card_grid_adapts(example, content_type)
         return
+    if name == "icon_pillars":
+        _check_icon_pillars_adapts(example, content_type)
+        return
 
     blocks: list[Block] = []
     for f in dataclasses.fields(content_type):
@@ -350,6 +368,23 @@ def _check_data_card_grid_adapts(example: Any, content_type: type) -> None:
 
     assert content.headline == example.headline
     assert content.cards == example.cards
+    assert content.accent == example.accent
+    assert warnings == []
+
+
+def _check_icon_pillars_adapts(example: Any, content_type: type) -> None:
+    slide = _slide(
+        "s1",
+        "icon_pillars",
+        _icon_pillars_blocks(example),
+        style=SlideStyle(accent=example.accent),
+    )
+
+    content, warnings = adapt_slide(slide, content_type)
+    content = cast(Any, content)
+
+    assert content.headline == example.headline
+    assert content.pillars == example.pillars
     assert content.accent == example.accent
     assert warnings == []
 
@@ -884,6 +919,8 @@ def _example_blocks(name: str) -> list[Block]:
             blocks.append(_framing_block("card_label", card.label))
             blocks.append(_framing_block("card_value", card.value))
         return blocks
+    if name == "icon_pillars":
+        return _icon_pillars_blocks(example)
 
     hints = get_type_hints(content_type)
     blocks = []
