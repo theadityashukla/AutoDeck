@@ -36,6 +36,7 @@ and the pull-quote text itself) and `callout_takeaway`'s one prominent line is n
 
 from __future__ import annotations
 
+import string
 from dataclasses import dataclass, field
 
 from autodeck.design.components.catalog import UnknownComponentError, spec_for
@@ -51,6 +52,10 @@ _HEADER_ROLE = "title"
 #: "Costs stabilise…"). Two is a parallel pair, often deliberate; three is a pattern.
 OPENING_WORDS = 2
 REPEATED_OPENING_THRESHOLD = 3
+
+#: Characters stripped from each end of an opening word: ASCII punctuation, typographic
+#: quotes and the ellipsis character.
+_OPENING_STRIP = string.punctuation + "\u2018\u2019\u201c\u201d\u2026"
 
 
 @dataclass(frozen=True)
@@ -170,9 +175,9 @@ def flow_report(
     (and therefore which slot carries the `title` role) is resolved per theme, the same as
     every other read of `autodeck.design.components.catalog`.
 
-    3b.9 additions (scaffold — Sonnet wires these in after the existing per-slide loop):
-      - `findings.extend(_repeated_opening_findings(report.lines))` always.
-      - `findings.extend(_storyline_findings(deck, brief))` when `brief` is given; without
+    3b.9 additions, appended after the existing per-slide checks:
+      - repeated-opening findings (`_repeated_opening_findings`) are always added.
+      - storyline findings (`_storyline_findings`) are added when `brief` is given; without
         a brief there is no order to check against, and nothing is reported for it.
     Run this on the **final** deck — after art direction and the aesthetic loop — not only
     after content: a `SwapComponent` can move a block out of the title-role slot, so the
@@ -228,6 +233,10 @@ def flow_report(
             )
         seen[normalised] = slide.id
 
+    report.findings.extend(_repeated_opening_findings(report.lines))
+    if brief is not None:
+        report.findings.extend(_storyline_findings(deck, brief))
+
     return report
 
 
@@ -236,7 +245,8 @@ def _opening(text: str) -> str:
     punctuation (`string.punctuation` plus typographic quotes and the ellipsis character),
     joined by one space. Empty
     words after stripping are dropped before counting."""
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    words = (word.strip(_OPENING_STRIP).lower() for word in text.split())
+    return " ".join([word for word in words if word][:OPENING_WORDS])
 
 
 def _repeated_opening_findings(lines: list[HeaderLine]) -> list[FlowFinding]:
@@ -250,7 +260,27 @@ def _repeated_opening_findings(lines: list[HeaderLine]) -> list[FlowFinding]:
     and the existing verbatim finding says something different. Deterministic order:
     findings in order of the attributed slide.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    groups: dict[str, list[int]] = {}
+    for index, line in enumerate(lines):
+        opening = _opening(line.text)
+        if len(opening.split()) < OPENING_WORDS:
+            continue
+        groups.setdefault(opening, []).append(index)
+
+    flagged = sorted(
+        (members[REPEATED_OPENING_THRESHOLD - 1], opening, members)
+        for opening, members in groups.items()
+        if len(members) >= REPEATED_OPENING_THRESHOLD
+    )
+    return [
+        FlowFinding(
+            lines[attributed].slide_id,
+            f"{len(members)} headers open with {opening!r} "
+            f"(slides {', '.join(lines[i].slide_id for i in members)}) - "
+            "this reads as a template being filled in",
+        )
+        for attributed, opening, members in flagged
+    ]
 
 
 def _storyline_findings(deck: Deck, brief: DeckBrief) -> list[FlowFinding]:
@@ -275,4 +305,38 @@ def _storyline_findings(deck: Deck, brief: DeckBrief) -> list[FlowFinding]:
         already checks it (`autodeck/audit/gate1.py`), and two descriptions of one rule is
         the defect this project keeps finding.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    position = {message.id: index for index, message in enumerate(brief.key_messages)}
+    findings: list[FlowFinding] = []
+    furthest: int | None = None
+
+    for slide in deck.slides:
+        known: list[int] = []
+        for message_id in slide.message_ids:
+            if message_id in position:
+                known.append(position[message_id])
+            else:
+                findings.append(
+                    FlowFinding(
+                        slide.id,
+                        f"serves message {message_id!r}, which the signed brief does not have",
+                    )
+                )
+        if not known:
+            continue
+
+        rank = min(known)
+        if furthest is not None and rank < furthest:
+            here = brief.key_messages[rank].id
+            ahead = brief.key_messages[furthest].id
+            findings.append(
+                FlowFinding(
+                    slide.id,
+                    f"serves message {here!r} (position {rank + 1}) after message "
+                    f"{ahead!r} (position {furthest + 1}) - a storyline break, or a "
+                    "deliberate recap?",
+                )
+            )
+        else:
+            furthest = rank
+
+    return findings
