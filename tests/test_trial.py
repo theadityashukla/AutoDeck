@@ -18,7 +18,7 @@ from autodeck.ir.actions import (
     UnknownAddressError,
     fact_fingerprint,
 )
-from autodeck.ir.models import Block, Deck
+from autodeck.ir.models import Block, Deck, Slide
 from autodeck.pipeline.orchestrator import RenderBlocked
 from autodeck.render import trial
 from autodeck.render.qa.aesthetic import catalog_slot_lookup, library_concept_lookup
@@ -28,7 +28,14 @@ from autodeck.render.trial import (
     GrammarRegression,
     try_action,
 )
-from tests.test_aesthetic import FakeCritic, FakeRasteriser, _deck, reply, tokens_for
+from tests.test_aesthetic import (
+    FakeCritic,
+    FakeRasteriser,
+    _deck,
+    _framing_block,
+    reply,
+    tokens_for,
+)
 
 SLOTS = catalog_slot_lookup()
 GLYPHS = library_concept_lookup()
@@ -142,6 +149,38 @@ def test_a_new_grammar_finding_is_a_regression_and_a_fixed_one_is_fine(tmp_path:
     # Equal is accepted: the finding was there before and this action did not add it.
     unchanged = _try(over, SetAccent(slide_id="s1", accent="accent2"), tmp_path)
     assert unchanged.slides[0].style.accent == "accent2"
+
+
+def test_an_unrenderable_slide_elsewhere_does_not_reject_a_valid_action(
+    tmp_path: Path,
+) -> None:
+    """Only the touched slide is rendered, so a broken slide the action did not touch cannot
+    reject every other action. (An icon_pillars slide with labels but no icons does not
+    render; the deck as a whole cannot, either.)"""
+    from autodeck.render.renderer import RenderStageError, render_deck
+
+    deck = _deck()
+    deck.slides[1] = Slide(
+        id="s2",
+        narrative_role="capabilities",
+        component="icon_pillars",
+        message_ids=["m2"],
+        blocks=[
+            _framing_block("headline", "Three things", block_id="s2-h"),
+            _framing_block("pillar_label", "Fast", block_id="s2-l1"),
+            _framing_block("pillar_label", "Safe", block_id="s2-l2"),
+            _framing_block("pillar_label", "Cheap", block_id="s2-l3"),
+        ],
+    )
+    with pytest.raises(RenderStageError):
+        render_deck(deck, tokens=tokens_for(), out_path=tmp_path / "whole.pptx")
+
+    result = _try(deck, SetAccent(slide_id="s1", accent="accent2"), tmp_path)
+    assert result.slides[0].style.accent == "accent2"
+
+    # The broken slide itself is still a rejection when an action touches it.
+    with pytest.raises(DoesNotRender):
+        _try(deck, SetAccent(slide_id="s2", accent="accent2"), tmp_path)
 
 
 def test_an_assign_icons_pileup_is_a_regression(

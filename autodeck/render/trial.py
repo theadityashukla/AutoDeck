@@ -10,13 +10,16 @@ An action is accepted when, in order:
 
 1. `apply_action` accepts it — types, addresses, pins, and the fact fingerprint
    (`autodeck/ir/actions.py`). `FactMutationError` is never caught anywhere.
-2. The resulting deck renders (`render_deck` to a scratch path — pure python-pptx, ~10 ms a
-   slide, no LibreOffice). A render failure *caused by the action* is a rejection.
+2. The touched slide renders. `render_deck` is given a one-slide deck holding only the
+   touched slide (to a scratch path — pure python-pptx, no LibreOffice), because every
+   action addresses exactly one slide: a slide the action did not touch cannot be what the
+   action broke, and rendering the whole deck would let one unrenderable slide reject every
+   action on every other slide. A render failure *caused by the action* is a rejection.
 3. It creates no new grammar finding (`autodeck.design.grammar.lint_slide_ir`, D13's
-   blocking IR lints; advisories do not count): the count of findings on the touched slide
-   does not rise. An `AssignIcons` that completes an icon+chart+diagram pileup, or a mode
-   change that pushes a slide over its word budget, is a regression the model cannot see
-   from where it stands.
+   *blocking* IR lints; advisory findings do not count): the count of blocking findings on
+   the touched slide does not rise. An `AssignIcons` that completes an
+   icon+chart+diagram pileup, or a mode change that pushes a slide over its word budget, is
+   a regression the model cannot see from where it stands.
 
 Rejections carry a reason a person can read; they are reported, never retried here.
 """
@@ -69,7 +72,8 @@ def try_action(
       - `action` is any `ArtAction` or `Action` member (typed `object` here only so both
         unions are accepted; narrow it with the same union `apply_action` takes).
       - Step 1 → `apply_action(...)`; its `ActionRejected` propagates unchanged.
-      - Step 2 → `render_deck(candidate, tokens=tokens, out_path=scratch)`;
+      - Step 2 → `render_deck(<one-slide deck: the touched slide>, tokens=tokens,
+        out_path=scratch)`;
         `RenderStageError` or `LayoutOverflowError` → `DoesNotRender(DOES_NOT_RENDER_PREFIX
         + f"{type(exc).__name__}: {exc}")` chained `from exc`. `FontNotFoundError`,
         `RenderBlocked` and anything else propagate — environment and safety failures, not
@@ -87,12 +91,16 @@ def try_action(
         glyph_for=glyph_for,
     )
 
+    slide_id: str = action.slide_id  # type: ignore[attr-defined]
+    touched = next((s for s in candidate.slides if s.id == slide_id), None)
+    assert touched is not None  # `apply_action` rejected an unknown slide id above
     try:
-        render_deck(candidate, tokens=tokens, out_path=scratch)
+        render_deck(
+            candidate.model_copy(update={"slides": [touched]}), tokens=tokens, out_path=scratch
+        )
     except (RenderStageError, LayoutOverflowError) as exc:
         raise DoesNotRender(f"{DOES_NOT_RENDER_PREFIX}{type(exc).__name__}: {exc}") from exc
 
-    slide_id: str = action.slide_id  # type: ignore[attr-defined]
     before = _slide_findings(deck, slide_id)
     after = _slide_findings(candidate, slide_id)
     if len(after) > len(before):

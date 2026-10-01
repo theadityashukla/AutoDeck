@@ -238,6 +238,24 @@ def test_a_pin_that_is_not_a_mode_falls_back_to_the_rule_and_says_so(
     assert "'loud'" in decision.note
 
 
+def test_conflicting_pins_honour_the_first_and_say_so(
+    tmp_path: Path, prompt_file: Path
+) -> None:
+    deck = make_deck()
+    deck.slides[0].message_ids = ["m1", "m2"]
+    brief = make_brief(
+        LayoutPin(message_id="m1", target="communication_mode", value="icon_anchored"),
+        LayoutPin(message_id="m2", target="communication_mode", value="diagram_led"),
+    )
+
+    result = run(deck, FakeArtModel(plan()), tmp_path, prompt_file, brief=brief)
+
+    decision = result.modes["s1"]
+    assert (decision.mode, decision.source) == ("icon_anchored", "pin")
+    assert "'diagram_led'" in decision.note
+    assert result.deck.slides[0].communication_mode == "icon_anchored"
+
+
 def test_a_pin_on_another_message_does_not_apply(tmp_path: Path, prompt_file: Path) -> None:
     brief = make_brief(
         LayoutPin(message_id="m2", target="communication_mode", value="diagram_led")
@@ -332,12 +350,7 @@ def test_assign_icons_on_an_icon_pillars_slide_makes_it_render_and_icon_anchored
 ) -> None:
     """icon_pillars slide with labels but no icons: before, `render_error` would be set;
     with an AssignIcons for the right count -> renders, mode icon_anchored (rule).
-    Skip with a clear reason if `icon_pillars` is not registered on this branch."""
-    if "icon_pillars" not in known_components():
-        pytest.skip(
-            "icon_pillars (B35) is not registered on this branch; it lives on "
-            "v2/phase-3b-icon-pillars. This test runs once the two are merged."
-        )
+    Real render: `icon_pillars` is registered (B35)."""
     deck = make_deck()
     deck.slides = [icon_pillars_slide()]
     concepts = ["speed", "security", "growth"]
@@ -406,9 +419,7 @@ def test_a_mode_that_breaks_a_word_budget_is_assigned_and_reported_not_refused(
     assert len(budget) == 1 and "slide s1" in budget[0].location
 
 
-def test_facts_are_unchanged_on_every_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prompt_file: Path
-) -> None:
+def test_facts_are_unchanged_on_every_path(tmp_path: Path, prompt_file: Path) -> None:
     """Fingerprint equality after: a full successful plan, a model error, an all-rejected
     plan, and a plan containing AssignIcons."""
     swap = SwapComponent(
@@ -417,32 +428,30 @@ def test_facts_are_unchanged_on_every_path(
         slot_map={"headline": "headline", "cta": "points"},
     )
     accent = SetAccent(slide_id="s1", accent="accent2")
-    icons = AssignIcons(slide_id="s2", slot="icon", concepts=["growth", "speed"])
+    icons = AssignIcons(
+        slide_id="s1", slot="pillar_icon", concepts=["growth", "speed", "trust"]
+    )
     bad = SetAccent(slide_id="nope", accent="accent2")
 
     scenarios: dict[str, tuple[FakeArtModel, dict[str, Any]]] = {
         "successful": (FakeArtModel(plan(swap, accent)), {}),
         "model error": (FakeArtModel(RateLimitError("slow down")), {}),
         "all rejected": (FakeArtModel(plan(bad)), {}),
-        "assign icons": (FakeArtModel(plan(icons)), {"slots_of": with_icon_slot}),
+        "assign icons": (FakeArtModel(plan(icons)), {}),
     }
     for name, (model, overrides) in scenarios.items():
-        if name == "assign icons":
-            # No component on this branch draws an icon, so a real render would reject the
-            # action (and the scenario would prove nothing). Stub the renders: the invariant
-            # under test is about the IR, and `icon_pillars` covers the real render.
-            noop = lambda deck, *, tokens, out_path: None  # noqa: E731
-            monkeypatch.setattr(art_direction.trial, "render_deck", noop)
-            monkeypatch.setattr(art_direction, "render_deck", noop)
         deck = make_deck()
+        if name == "assign icons":
+            deck.slides[0] = icon_pillars_slide()
         before = deck.model_dump()
         result = run(deck, model, tmp_path / name.replace(" ", "-"), prompt_file, **overrides)
         assert fact_fingerprint(result.deck) == fact_fingerprint(deck), name
         assert deck.model_dump() == before, name
         if name == "assign icons":
             assert result.applied == [icons] and result.rejected == []
-            assert [b.kind for b in result.deck.slides[1].blocks].count("icon") == 2
-            assert result.modes["s2"].mode == "icon_anchored"
+            assert [b.kind for b in result.deck.slides[0].blocks].count("icon") == 3
+            assert result.modes["s1"].mode == "icon_anchored"
+            assert result.render_error == ""
         if name == "successful":
             assert result.applied == [swap, accent]
 
