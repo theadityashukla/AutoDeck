@@ -55,6 +55,7 @@ from autodeck.ir.models import (
     ColumnBalance,
     CommunicationMode,
     Deck,
+    IconRef,
     IRModel,
     LayoutPin,
     Slide,
@@ -257,7 +258,7 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
         `Slide.communication_mode`, `Block.slot`, and `IconRef` fields.
       - Keyed by block id, not by position, so a `SwapComponent` that reorders nothing but
         re-slots blocks leaves it unchanged, while a block that disappears changes it.
-      - **Icon blocks are excluded entirely** (B36; scaffold — Sonnet implements). An icon
+      - **Icon blocks are excluded entirely** (B36). An icon
         block's only content is its `IconRef`, already excluded, and since B36 the IR
         refuses `text` on it — so it holds no fact, and `AssignIcons` may add or replace
         icon blocks without tripping the detector. Every other block kind stays keyed in,
@@ -276,6 +277,8 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
     for slide in deck.slides:
         for in_notes, blocks in ((False, slide.blocks), (True, slide.speaker_notes)):
             for block in blocks:
+                if block.kind == "icon":
+                    continue
                 content = (
                     block.text,
                     block.chart.model_dump(mode="python") if block.chart is not None else None,
@@ -322,6 +325,55 @@ def _find_icon_block(slide: Slide, block_id: str) -> Block:
     raise UnknownAddressError(f"unknown block_id {block_id!r} on slide {slide.id!r}")
 
 
+def _assign_icons(
+    slide: Slide, action: AssignIcons, *, slots_of: SlotLookup, glyph_for: ConceptLookup
+) -> None:
+    """Replace the face's icon blocks in `action.slot` with one per concept, in place."""
+    slots = slots_of(slide.component)
+    if slots is None or action.slot not in slots:
+        raise UnknownAddressError(
+            f"slot {action.slot!r} is not a slot of component {slide.component!r}"
+        )
+    glyphs: list[str] = []
+    for concept in action.concepts:
+        glyph_id = glyph_for(concept)
+        if glyph_id is None:
+            raise UnknownAddressError(f"unknown icon concept {concept!r}")
+        glyphs.append(glyph_id)
+
+    occupant = next(
+        (b for b in slide.blocks if b.slot == action.slot and b.kind != "icon"), None
+    )
+    if occupant is not None:
+        raise ActionRejected(
+            f"slot {action.slot!r} on slide {slide.id!r} already holds a {occupant.kind!r} "
+            f"block ({occupant.id!r}); icons never displace content"
+        )
+
+    new_ids = [f"{action.slot}.icon{i}" for i in range(1, len(action.concepts) + 1)]
+    taken = {b.id for b in slide.blocks if not (b.kind == "icon" and b.slot == action.slot)}
+    taken |= {b.id for b in slide.speaker_notes}
+    collisions = [block_id for block_id in new_ids if block_id in taken]
+    if collisions:
+        raise ActionRejected(
+            f"new icon id(s) {', '.join(collisions)} collide with existing block(s) on "
+            f"slide {slide.id!r}"
+        )
+
+    slide.blocks = [b for b in slide.blocks if not (b.kind == "icon" and b.slot == action.slot)]
+    for block_id, concept, glyph_id in zip(new_ids, action.concepts, glyphs, strict=True):
+        slide.blocks.append(
+            Block(
+                id=block_id,
+                kind="icon",
+                slot=action.slot,
+                icon=IconRef(
+                    concept=concept, glyph_id=glyph_id, color_token=action.color_token
+                ),
+            )
+        )
+
+
 def _is_pinned(slide: Slide, pins: Sequence[LayoutPin], target: str) -> bool:
     """Whether a `LayoutPin` on `target` applies to `slide` (its `message_id` is served)."""
     return any(pin.target == target for pin in pins if pin.message_id in slide.message_ids)
@@ -358,7 +410,7 @@ def apply_action(
         `speaker_notes` is not drawn, so the vision model cannot have seen it and has no
         grounds to restyle it → `UnknownAddressError` saying the block is in the notes, not
         on the face. `_find_icon_block` enforces this for both actions.
-      - `AssignIcons` (B36; scaffold — Sonnet implements in `_apply_unchecked`): `slot` not
+      - `AssignIcons` (B36, implemented in `_apply_unchecked`): `slot` not
         in `slots_of(slide.component)` → `UnknownAddressError`; any concept with
         `glyph_for(concept) is None` → `UnknownAddressError` naming it; a non-icon face block
         already in `slot` → `ActionRejected` (icons never displace content). Otherwise remove
@@ -409,8 +461,6 @@ def _apply_unchecked(
     Does the actual mutation and the address/pin validation that guards it; the fingerprint
     check that catches a bug here lives in `apply_action`, one layer up.
     """
-    if isinstance(action, AssignIcons):
-        raise NotImplementedError("scaffold: Sonnet fills this in (see apply_action)")
     new_deck = deck.model_copy(deep=True)
     slide = _find_slide(new_deck, action.slide_id)
 
@@ -465,6 +515,9 @@ def _apply_unchecked(
         slide.component = action.component
         for block in slide.blocks:
             block.slot = action.slot_map[block.slot]
+
+    elif isinstance(action, AssignIcons):
+        _assign_icons(slide, action, slots_of=slots_of, glyph_for=glyph_for)
 
     elif isinstance(action, SwapGlyph):
         block = _find_icon_block(slide, action.block_id)

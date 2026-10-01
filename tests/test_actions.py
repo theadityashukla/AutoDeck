@@ -7,11 +7,12 @@ did not prevent — including one caused by a bug in `apply_action` itself.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import UnionType
 from typing import Literal, get_args, get_origin
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError, create_model
 
 from autodeck.ir import actions
 from autodeck.ir.actions import (
@@ -19,6 +20,8 @@ from autodeck.ir.actions import (
     ADDRESS_FIELDS,
     Action,
     ActionList,
+    ArtAction,
+    AssignIcons,
     SetAccent,
     SetColumnBalance,
     SetCommunicationMode,
@@ -38,6 +41,7 @@ from autodeck.ir.models import (
     Derivation,
     DerivationInput,
     DiagramSpec,
+    FigureRef,
     IconRef,
     LabelFraming,
     LayoutPin,
@@ -540,7 +544,7 @@ def test_the_fingerprint_sees_every_kind_of_fact(mutation: str) -> None:
         assert slide.blocks[3].diagram is not None
         slide.blocks[3].diagram.process_flow.steps[0].label = "Relabeled"  # type: ignore[union-attr]
     elif mutation == "a deleted block":
-        slide.blocks.pop()
+        slide.blocks.pop(3)  # the diagram; the trailing icon block is no longer a fact (B36)
     elif mutation == "a speaker-note claim":
         assert slide.speaker_notes[0].claim is not None
         slide.speaker_notes[0].claim.text = "A different notes claim."
@@ -638,32 +642,176 @@ def test_icon_actions_cannot_reach_an_icon_in_the_speaker_notes() -> None:
     assert face_icon.icon is not None and face_icon.icon.color_token == "accent6"
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def _facts_with(deck: Deck, mutate: Callable[[Slide], None]) -> bool:
+    """Whether mutating a copy of `deck`'s first slide changes the fingerprint."""
+    copy = deck.model_copy(deep=True)
+    mutate(copy.slides[0])
+    return actions.fact_fingerprint(copy) != actions.fact_fingerprint(deck)
+
+
 def test_icon_blocks_are_not_facts_but_every_other_block_still_is() -> None:
     """B36: adding, removing or replacing an icon block leaves `fact_fingerprint` unchanged;
     removing a framing, claim, chart, diagram or figure block still changes it."""
-    raise NotImplementedError
+    deck = make_deck()
+    deck.slides[0].blocks.append(
+        Block(
+            id="b6",
+            kind="figure",
+            slot="fig",
+            figure=FigureRef(asset_id="fig-1", citation=make_citation("A figure quote.")),
+        )
+    )
+
+    def remove(block_id: str) -> Callable[[Slide], None]:
+        def run(slide: Slide) -> None:
+            slide.blocks = [b for b in slide.blocks if b.id != block_id]
+
+        return run
+
+    def add_icon(slide: Slide) -> None:
+        slide.blocks.append(make_icon_block("b9", slot="icon"))
+
+    def replace_icon(slide: Slide) -> None:
+        slide.blocks = [b for b in slide.blocks if b.kind != "icon"]
+        slide.blocks.append(make_icon_block("b8", slot="icon"))
+
+    def add_notes_icon(slide: Slide) -> None:
+        slide.speaker_notes.append(make_icon_block("n9", slot="notes"))
+
+    assert not _facts_with(deck, remove("b5"))  # the icon
+    assert not _facts_with(deck, add_icon)
+    assert not _facts_with(deck, replace_icon)
+    assert not _facts_with(deck, add_notes_icon)
+
+    for fact_block in ("b1", "b2", "b3", "b4", "b6"):  # claim, framing, chart, diagram, figure
+        assert _facts_with(deck, remove(fact_block)), fact_block
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def _assign(deck: Deck, action: AssignIcons) -> Deck:
+    return actions.apply_action(deck, action, slots_of=fake_slots_of, glyph_for=fake_glyph_for)
+
+
 def test_assign_icons_replaces_the_slots_icons_in_order() -> None:
-    """Two existing icons in the slot → replaced by three new ones with ids `slot.icon1..3`,
+    """Two existing icons in the slot -> replaced by three new ones with ids `slot.icon1..3`,
     concepts and glyphs from `glyph_for`, `color_token` applied; other slots untouched;
     fingerprint unchanged (via `apply_action`)."""
-    raise NotImplementedError
+    deck = make_deck()
+    deck.slides[0].blocks.append(make_icon_block("b6", slot="icon"))
+    deck.slides[0].blocks.append(make_icon_block("b7", slot="badge"))
+    before_dump = deck.model_dump()
+
+    result = _assign(
+        deck,
+        AssignIcons(
+            slide_id="s1",
+            slot="icon",
+            concepts=["rocket", "growth", "rocket"],
+            color_token="accent4",
+        ),
+    )
+
+    assert deck.model_dump() == before_dump
+    blocks = result.slides[0].blocks
+    in_slot = [b for b in blocks if b.slot == "icon"]
+    assert [b.id for b in in_slot] == ["icon.icon1", "icon.icon2", "icon.icon3"]
+    assert all(b.kind == "icon" and b.icon is not None for b in in_slot)
+    icons = [b.icon for b in in_slot if b.icon is not None]
+    assert [(i.concept, i.glyph_id, i.color_token) for i in icons] == [
+        ("rocket", "glyph-rocket", "accent4"),
+        ("growth", "glyph-1", "accent4"),
+        ("rocket", "glyph-rocket", "accent4"),
+    ]
+    # Everything outside the slot is untouched, including the other slot's icon.
+    assert [b.id for b in blocks if b.slot != "icon"] == ["b1", "b2", "b3", "b4", "b7"]
+    assert actions.fact_fingerprint(result) == actions.fact_fingerprint(deck)
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_assign_icons_works_on_a_slot_with_no_icons_yet() -> None:
+    deck = make_deck()
+    deck.slides[0].blocks = [b for b in deck.slides[0].blocks if b.kind != "icon"]
+    result = _assign(deck, AssignIcons(slide_id="s1", slot="icon", concepts=["growth"]))
+    added = result.slides[0].blocks[-1]
+    assert added.id == "icon.icon1" and added.icon is not None
+    assert added.icon.color_token == "accent1"
+
+
 def test_assign_icons_rejections() -> None:
-    """Unknown slot for the component → UnknownAddressError; unknown concept →
-    UnknownAddressError naming it; a non-icon face block in the slot → ActionRejected;
-    an id collision with a non-icon block → ActionRejected; more than six concepts or none
-    → ValidationError at parse."""
-    raise NotImplementedError
+    """Unknown slot for the component -> UnknownAddressError; unknown concept ->
+    UnknownAddressError naming it; a non-icon face block in the slot -> ActionRejected;
+    an id collision with a non-icon block -> ActionRejected; more than six concepts or none
+    -> ValidationError at parse."""
+    deck = make_deck()
+    before_dump = deck.model_dump()
+
+    with pytest.raises(actions.UnknownAddressError, match="not a slot of component"):
+        _assign(deck, AssignIcons(slide_id="s1", slot="nope", concepts=["growth"]))
+    with pytest.raises(actions.UnknownAddressError, match="'warp'"):
+        _assign(deck, AssignIcons(slide_id="s1", slot="icon", concepts=["growth", "warp"]))
+    with pytest.raises(actions.UnknownAddressError, match="unknown slide_id"):
+        _assign(deck, AssignIcons(slide_id="nope", slot="icon", concepts=["growth"]))
+
+    with pytest.raises(actions.ActionRejected, match="never displace content") as displaced:
+        _assign(deck, AssignIcons(slide_id="s1", slot="body", concepts=["growth"]))
+    assert not isinstance(displaced.value, actions.UnknownAddressError)
+
+    collide = make_deck()
+    collide.slides[0].blocks.append(
+        Block(id="icon.icon1", kind="framing", slot="sub", text="Squatting on the id")
+    )
+    with pytest.raises(actions.ActionRejected, match="collide"):
+        _assign(collide, AssignIcons(slide_id="s1", slot="icon", concepts=["growth"]))
+
+    assert deck.model_dump() == before_dump
+
+    with pytest.raises(ValidationError):
+        AssignIcons(slide_id="s1", slot="icon", concepts=[])
+    with pytest.raises(ValidationError):
+        AssignIcons(slide_id="s1", slot="icon", concepts=["growth"] * 7)
+    with pytest.raises(ValidationError):
+        AssignIcons.model_validate(
+            {"slide_id": "s1", "slot": "icon", "concepts": ["growth"], "text": "Up 40%"}
+        )
 
 
-@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
 def test_assign_icons_is_not_in_the_aesthetic_vocabulary() -> None:
     """`ActionList.model_validate` of an `assign_icons` action fails; `ArtAction` accepts it
     and refuses `set_communication_mode`, `swap_glyph` and `set_icon_colour`."""
-    raise NotImplementedError
+    assign = {"kind": "assign_icons", "slide_id": "s1", "slot": "icon", "concepts": ["growth"]}
+    with pytest.raises(ValidationError):
+        ActionList.model_validate({"score": 5, "rationale": "x", "actions": [assign]})
+
+    adapter = TypeAdapter(ArtAction)
+    assert isinstance(adapter.validate_python(assign), AssignIcons)
+    for refused in (
+        {"kind": "set_communication_mode", "slide_id": "s1", "mode": "text_led"},
+        {"kind": "swap_glyph", "slide_id": "s1", "block_id": "b5", "concept": "rocket"},
+        {
+            "kind": "set_icon_colour",
+            "slide_id": "s1",
+            "block_id": "b5",
+            "color_token": "accent2",
+        },
+    ):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(refused)
+
+
+def test_every_art_action_is_covered_by_the_content_field_guard() -> None:
+    """`ArtAction`'s members must be in `ACTION_TYPES`, or the walk in
+    `test_no_action_has_a_field_that_can_carry_content` would not see them."""
+    members = get_args(get_args(ArtAction)[0])
+    assert members and set(members) <= set(ACTION_TYPES)
+
+
+def test_the_content_guard_still_catches_a_stray_string_field() -> None:
+    """With `slot` and `concepts` admitted to `ADDRESS_FIELDS`, a free-text field added to
+    `AssignIcons` must still be flagged: the whitelist names fields, not types."""
+    assert "note" not in ADDRESS_FIELDS
+    assert {"slot", "concepts"} <= ADDRESS_FIELDS
+    leaky = create_model("Leaky", __base__=AssignIcons, note=(str, ""))
+    flagged = [
+        name
+        for name, info in leaky.model_fields.items()
+        if _admits_str(info.annotation) and name not in ADDRESS_FIELDS
+    ]
+    assert flagged == ["note"]
