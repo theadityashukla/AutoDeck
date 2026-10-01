@@ -513,3 +513,50 @@ def test_typed_digits_added_to_an_agenda_item_after_render_are_still_caught(
     report = post_render_audit(deck, pptx)
 
     assert not report.numeric.passes
+
+
+# ---------------------------------------------------------------------------
+# Auto-numbered lists with startAt attribute
+# ---------------------------------------------------------------------------
+
+
+def test_a_clean_agenda_render_has_no_auto_number_startAt_findings(
+    tmp_path: Path,
+) -> None:
+    """A clean agenda render (with native auto-numbering starting at 1) passes without any
+    auto-number findings."""
+    deck = _agenda_deck()
+    pptx = _render(deck, tmp_path)
+
+    report = post_render_audit(deck, pptx)
+
+    check_name = "auto-numbered item with startAt attribute"
+    matching = [f for f in report.findings if f.check == check_name]
+    assert len(matching) == 0
+    assert report.passes
+
+
+def test_an_auto_number_with_startAt_attribute_is_flagged(tmp_path: Path) -> None:
+    """If an agenda item's auto-number has a startAt attribute set, the audit flags it as a
+    number PowerPoint will render but the IR does not trace."""
+    deck = _agenda_deck()
+    pptx = _render(deck, tmp_path)
+
+    # Add startAt="3" to the first a:buAutoNum element in the slide
+    slide_xml = _read_part(pptx, "ppt/slides/slide1.xml")
+    # Replace the opening tag of the first a:buAutoNum with one that has startAt="3"
+    slide_xml = slide_xml.replace(
+        '<a:buAutoNum type="arabicPeriod"',
+        '<a:buAutoNum type="arabicPeriod" startAt="3"',
+        1,
+    )
+    _replace_part(pptx, "ppt/slides/slide1.xml", slide_xml)
+
+    report = post_render_audit(deck, pptx)
+
+    check_name = "auto-numbered item with startAt attribute"
+    matching = [f for f in report.findings if f.check == check_name]
+    assert len(matching) == 1
+    assert matching[0].slide_id == "s1"
+    assert "startAt='3'" in matching[0].detail or "startAt=3" in matching[0].detail
+    assert not report.passes

@@ -7,7 +7,7 @@ the rendered PPTX back and check it against the IR it was rendered from. Detecti
 catches the thing prevention could not anticipate: a component that formats a figure, a
 template with a number baked in, a renderer bug that truncates a sentence.
 
-Three checks, each independent:
+Four checks, each independent:
 
 1. **A2 on rendered text** — `numeric_linter.lint_rendered_slides` over each slide's face and
    notes text. A numeral that reached the page without reaching the IR blocks. Every caption
@@ -40,6 +40,9 @@ Three checks, each independent:
 3. **Shape of the file** — every IR slide rendered exactly once and no extra slides; and no
    `ppt/media/` image part unless the deck has a `figure` block (D10/D11: charts, diagrams
    and icons are native, so an image part anywhere else is a fallback that should not exist).
+4. **Auto-numbered lists** — no `a:buAutoNum` element carries a `startAt` attribute. Such an
+   attribute would render a number that PowerPoint computes and the IR does not trace, breaking
+   invariant A2 (every number on a slide is traced to its IR source).
 
 PHASE-3B's escalation trigger applies to every finding here: **a discrepancy is not tuned
 away — it means something in the pipeline is rewriting content, and the mechanism must be
@@ -48,6 +51,7 @@ found.** So every finding names the slide, the check, and the expected and actua
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,9 +68,12 @@ PostRenderCheck = Literal[
     "slide missing from render",
     "unexpected slide in render",
     "image part without a figure",
+    "auto-numbered item with startAt attribute",
 ]
 
 _MEDIA_PREFIX = "ppt/media/"
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+"""DrawingML namespace for XML element lookups."""
 
 
 @dataclass(frozen=True)
@@ -113,7 +120,7 @@ def _claim_survives(claim_text: str, rendered_text: str) -> bool:
 
 
 def post_render_audit(deck: Deck, pptx: Path) -> PostRenderReport:
-    """Run all three checks on `pptx` against `deck`, the IR it was rendered from.
+    """Run all four checks on `pptx` against `deck`, the IR it was rendered from.
 
     Contract: uses `autodeck.render.extract.extract_slide_text`; an `ExtractionError`
     propagates (an unattributable file is not auditable, so it is not "no findings"). Walks
@@ -128,6 +135,7 @@ def post_render_audit(deck: Deck, pptx: Path) -> PostRenderReport:
     findings.extend(_shape_findings(deck, rendered))
     findings.extend(_claim_survival_findings(deck, rendered, slide_by_id))
     findings.extend(_image_part_findings(deck, pptx))
+    findings.extend(_auto_number_start_findings(pptx))
 
     lintable = {sid: text for sid, text in rendered.items() if sid in slide_by_id}
     rendered_text = {
@@ -266,3 +274,54 @@ def _image_part_findings(deck: Deck, pptx: Path) -> list[PostRenderFinding]:
             ),
         )
     ]
+
+
+def _auto_number_start_findings(pptx: Path) -> list[PostRenderFinding]:
+    """Walk every slide's XML and flag any `a:buAutoNum` with a `startAt` attribute.
+
+    Such an attribute makes PowerPoint render a number that the IR does not trace,
+    breaking invariant A2 (every number on a slide is traced to its source).
+    """
+    findings: list[PostRenderFinding] = []
+
+    with zipfile.ZipFile(pptx) as archive:
+        # Find all slide XML files (ppt/slides/slide1.xml, ppt/slides/slide2.xml, etc.)
+        slide_paths = sorted(
+            name
+            for name in archive.namelist()
+            if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+        )
+
+        for slide_path in slide_paths:
+            slide_xml = archive.read(slide_path).decode("utf-8")
+            root = ET.fromstring(slide_xml)
+
+            # Extract the slide ID from cSld/@name attribute
+            # The name has the format "autodeck:<slide_id>"
+            cSld = root.find(
+                ".//{http://schemas.openxmlformats.org/presentationml/2006/main}cSld"
+            )
+            if cSld is None:
+                continue
+            name = cSld.get("name", "")
+            if not name.startswith("autodeck:"):
+                continue
+            slide_id = name[len("autodeck:") :]
+
+            # Find all a:buAutoNum elements with startAt attribute
+            for buAutoNum in root.findall(f".//{{{_A_NS}}}buAutoNum"):
+                start_at = buAutoNum.get("startAt")
+                if start_at is not None:
+                    findings.append(
+                        PostRenderFinding(
+                            check="auto-numbered item with startAt attribute",
+                            slide_id=slide_id,
+                            detail=(
+                                f"auto-numbered item on slide {slide_id!r} has "
+                                f"startAt={start_at!r}; PowerPoint renders this number, "
+                                "but it is not traced to the IR"
+                            ),
+                        )
+                    )
+
+    return findings
