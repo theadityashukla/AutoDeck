@@ -126,9 +126,17 @@ If you skip this step, `plan` stops at once with exit code 2 and tells you what 
 
 **Run every command from the repository root.** The folders `runs/` and `corpus/` are created
 relative to where you are standing. If you run a command from a different folder it will
-not find your earlier work. Also, a mistyped run id is not an error: the commands quietly
-create a new, empty run under that name. If `autodeck status <run>` shows everything
-`PENDING` and `not-started`, check the spelling of the run id first.
+not find your earlier work.
+
+A mistyped run id is an error, not a new run. Only `plan` creates a run; every other command
+refuses an id it does not know and creates nothing:
+
+```
+no such run 'northwind-mielstone' under runs. Runs are created by `autodeck plan`; check the id with `ls` on the runs directory.
+```
+
+(The `runs` in that message is the folder it looked in, relative to where you are standing —
+if the id is right and you still get this, you are in the wrong folder.)
 
 **The free-tier quota.** `STATUS.md` records that the free Gemini tier allows roughly 20
 requests per model per day. The steps are spread over different models so they mostly do not
@@ -143,35 +151,117 @@ on the same 20. The content step uses Groq, whose free tier is limited per minut
 - the content step (about one request per slide);
 - the validate step (about one request per six claims).
 
-A reply the program cannot parse is retried, and each retry is also a request. When the
-quota is spent, the program waits and retries a few times on its own (up to about a minute
-per wait), then gives up. On `plan` it ends the session with a Python error like this
-(captured by pointing the real Gemini client at a stand-in server that always answers 429):
+A reply the program cannot parse is retried, and each retry is also a request.
+
+When the quota is spent, the program waits and retries a few times on its own (up to about a
+minute per wait), then gives up. `plan`, `outline`, `content` and `validate` then stop with a
+short message and **exit code 5** — not a Python error. This is what `plan` printed when the
+real Gemini client was pointed at a stand-in server that always answers 429:
 
 ```
 Planning q429 for northwind-retail / llm-inference-efficiency (env=dev)
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
 you > hello there
-
-Traceback (most recent call last):
-  [... lines omitted ...]
-  File "autodeck/cli.py", line 830, in plan
-    reply = session.turn(said)
-  [... lines omitted ...]
-  File "autodeck/providers/base.py", line 339, in _send_once
-    raise RateLimitError(
-autodeck.providers.base.RateLimitError: gemini: rate limited (429)
+STOPPED: role 'planner' (gemini, model gemini-3.7-flash) was rate limited.
+  The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
+  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  Saved: no draft had been started. Nothing is approved.
+  Then run `autodeck plan q429 --client northwind-retail --project llm-inference-efficiency` again.
 ```
 
-The last line is the thing to look for: `RateLimitError: gemini: rate limited (429)`. **The fix
-is to stop and come back tomorrow**, not to run it again straight away. Be aware that a
-crashed `plan` session loses the draft brief (see section 3), and a crashed `content` step
-saves nothing (it writes the new version only after every slide is done).
+It tells you which role and model ran out, what that means, and what was saved. **The fix is
+to wait for the quota to reset, then run the same command again** — not to run it again
+straight away. How long that is depends on the provider: Gemini's free tier is a daily
+allowance per model (wait until tomorrow), Groq's is per minute (the `content` example below
+says so).
 
-A missing key looks similar — a Python error whose last line is
-`autodeck.providers.base.ProviderAuthError: gemini has no API key. Set GEMINI_API_KEY in
-the environment.` and a `401`/`403` from the provider reads `credentials rejected`.
+**Nothing that finished is lost.** Every reply from the model is saved to
+`runs/<run>/llm_cache/` the moment it arrives, and a command that is run again replays those
+replies at no cost and only asks the model for what did not finish. `plan` keeps your draft
+brief as well (section 3). Here is `content` on a five-slide deck, with the quota running
+out on the third request (stand-in server again):
+
+```
+  s1       1 block(s), 0 note(s)
+  s2       2 block(s), 0 note(s)
+STOPPED: role 'content' (groq, model openai/gpt-oss-120b) was rate limited.
+  The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
+  Groq's free tier is limited per minute (tokens), so waiting a minute or two is usually enough.
+  Saved: no IR version was written (the latest is still v1). 2 completed provider call(s) are saved under runs/northwind-quota/llm_cache; a re-run replays them at no cost and only pays for what did not finish.
+  Then run `autodeck content northwind-quota` again.
+```
+
+Nothing was written (`status` shows `content   failed`, and the deck is still IR v1). Running
+the same command later:
+
+```
+  s1       1 block(s), 0 note(s)
+  s2       2 block(s), 0 note(s)
+  s3       3 block(s), 0 note(s)
+  s4       2 block(s), 0 note(s)
+  s5       2 block(s), 0 note(s)
+
+wrote IR v2
+```
+
+(The rest of that output is the usual lint report.) It asked the model for **3** slides, not
+5: the two that had finished were replayed from the cache — the stand-in server counted the
+requests. A third run asked for none.
+
+`validate` stops the same way, and it is marked as failed so that `gate2` and `approve …
+claims` stay closed until it has really finished (a validator that ran out of quota has judged
+nothing, and a table of unjudged claims must not be approvable):
+
+```
+validation batch of 4 claim(s) failed (RateLimitError): gemini: rate limited (429) — treated as unjudged
+STOPPED: role 'validation' (gemini, model gemini-3.5-flash) was rate limited.
+  The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
+  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  Saved: the validate stage is marked failed, so `gate2` and `approve ... claims` stay closed until it completes. 5 completed provider call(s) are saved under runs/northwind-quota/llm_cache; a re-run replays them at no cost and only pays for what did not finish.
+  Then run `autodeck validate northwind-quota` again.
+```
+
+```
+run 'northwind-quota' has not been validated yet. Run `autodeck validate northwind-quota` first.
+```
+
+**Two consequences of the cache.** First, running a command again with nothing changed gives
+you *the same result* — it is replaying the same replies — so re-running `outline` or `content`
+is not a way to get a second opinion. (Changing what the model is shown does ask it again: a
+claim you send back changes the writer's prompt, so the next `content` is a fresh request.)
+If you really want a fresh attempt, delete the saved replies for the run and run the command
+again (this costs requests):
+
+```bash
+rm -r runs/northwind-milestone/llm_cache
+```
+
+In the test run, the `outline` command made 1 request the first time, 0 when run again, and 1
+again after that folder was deleted. Second, the cache is only for model replies; it is not an
+approval and nothing in it is trusted — every step still checks its own results.
+
+A missing key stops the command the same way, before any request is made:
+
+```
+STOPPED: role 'planner' (gemini, model gemini-3.7-flash) has no API key.
+  The environment variable GEMINI_API_KEY is not set. Set it in this shell, then run the command again.
+  Saved: no draft had been started. Nothing is approved.
+  Then run `autodeck plan nokey --client northwind-retail --project llm-inference-efficiency` again.
+```
+
+A key the provider turns down (a `401`/`403` answer) reads like this:
+
+```
+Planning badkey for northwind-retail / llm-inference-efficiency (env=dev)
+Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
+
+you > hello
+STOPPED: role 'planner' (gemini, model gemini-3.7-flash) was refused: the provider rejected the credentials.
+  Check that GEMINI_API_KEY holds a valid key for gemini, then run the command again.
+  Saved: no draft had been started. Nothing is approved.
+  Then run `autodeck plan badkey --client northwind-retail --project llm-inference-efficiency` again.
+```
 
 ---
 
@@ -209,15 +299,27 @@ Three commands are recognised, and only these (they must start the line exactly 
 |---|---|
 | `/brief` | Shows the current draft of the brief. Changes nothing. |
 | `/sign <your name>` | Signs the brief, ends the session. The name can be several words. |
-| `/quit` (or `/exit`) | Leaves without signing. |
+| `/quit` (or `/exit`) | Leaves without signing. Your draft is kept. |
 
 The session ends only when *you* type `/sign <name>`. The planner can suggest the brief looks
 finished, but that suggestion is ignored by the code; it cannot sign for you. Signing with no
 name is refused:
 
 ```
+Planning signname for northwind-retail / llm-inference-efficiency (env=dev)
+Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
+
+you > hi
+
+planner > Noted.
+
 you > /sign
 sign-off needs the name of whoever is approving. A7 records who approved each gate; an unnamed approval is not one.
+you > /sign   
+sign-off needs the name of whoever is approving. A7 records who approved each gate; an unnamed approval is not one.
+you > /exit
+
+left without signing; transcript kept, draft kept at runs/signname/draft_brief.json (run `autodeck plan signname --client northwind-retail --project llm-inference-efficiency` to resume it)
 ```
 
 ### Example session
@@ -363,7 +465,7 @@ individually.
 ### If you leave without signing
 
 `/quit`, `/exit`, Ctrl-C and Ctrl-D all leave without signing (exit code 1). Nothing is
-approved. Example output:
+approved, and **the draft is kept**. Example output:
 
 ```
 Planning quit-demo for northwind-retail / llm-inference-efficiency (env=dev)
@@ -374,13 +476,64 @@ you > Audience is the CTO.
 planner > Noted.
 
 you > /quit
-left without signing; transcript kept
+
+left without signing; transcript kept, draft kept at runs/quit-demo/draft_brief.json (run `autodeck plan quit-demo --client northwind-retail --project llm-inference-efficiency` to resume it)
 ```
 
-The transcript of what was said is kept in `runs/<run>/logs/planner.jsonl`. **The draft is
-not.** Running `plan` again with the same run id starts a fresh conversation with an empty
-brief (it does not reload the old one); the old lines stay in the transcript file and new
-ones are added below them.
+`status` mentions the saved draft:
+
+```
+run quit-demo (env=dev)
+stages:
+  ingest         not-started
+  plan           not-started
+  outline        not-started
+  content        not-started
+  validate       not-started
+  art_direction  not-started
+  render         not-started
+  audit          not-started
+  (an unsigned draft brief is saved at runs/quit-demo/draft_brief.json; `autodeck plan` resumes it)
+gates:
+  brief          PENDING
+  outline        PENDING
+  claims         PENDING
+  final_render   PENDING
+```
+
+Run the same `plan` command again, with the same run id, and it picks the draft up and says
+so. `/brief` shows the draft exactly as you left it:
+
+```
+Planning quit-demo for northwind-retail / llm-inference-efficiency (env=dev)
+Resumed the unsigned draft from an earlier session (1 key message(s)); /brief shows it. Nothing is approved until you /sign.
+Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
+
+you > /brief
+objective: Decide.
+audience: CTO
+length_target: (not set)
+header_style: (not set)
+key_messages:
+  - [km1] (unprobed) Serving throughput is bounded by wasted KV-cache memory, not by compute.
+must_include: (none)
+must_avoid: (none)
+layout_pins:
+  (none)
+open_risks:
+  (none)
+you > /quit
+
+left without signing; transcript kept, draft kept at runs/quit-demo/draft_brief.json (run `autodeck plan quit-demo --client northwind-retail --project llm-inference-efficiency` to resume it)
+```
+
+Resuming approves nothing: you still have to type `/sign <your name>`. The draft is saved
+after every turn as well as on the way out, so a crash or a spent quota costs you at most the
+turn that was in flight. Ctrl-C and Ctrl-D end the same way (in a test run, each printed
+`left without signing; transcript kept, draft kept at runs/quit-demo/draft_brief.json …`,
+exit code 1). The conversation so far is in `runs/<run>/logs/planner.jsonl`, and a resumed
+session carries on from it. The draft is stored in `runs/<run>/draft_brief.json`; signing
+deletes it, because the signed brief (`brief/v1.yaml`) replaces it.
 
 Once a brief is signed, the session is over. The code's own advice for changing a signed
 brief is to start a new run (a new run id) — editing a signed brief would invalidate the
@@ -466,6 +619,7 @@ uv run autodeck approve northwind-milestone outline --by "Your Name"
 
 ```
 approved outline for northwind-milestone
+  covers sha256 205779d5ed3aea87...
 still pending: claims, final_render
 ```
 
@@ -474,26 +628,81 @@ records the name `owner`. Put your real name in. The gate names are exactly `bri
 `outline`, `claims` and `final_render`. (`brief` was already approved when you typed `/sign`;
 the `approve` command *can* record it too, but `/sign` is the intended route.)
 
-Two warnings about `approve`:
+Three things about `approve`:
 
-- **It does not check that you have looked.** It records whatever you tell it, in any order.
-  (In a test, `approve quit-demo claims` succeeded on a run that had no brief and no content,
-  and printed `still pending: brief, outline, final_render`.) The system relies on you not
-  running it until you have read the thing.
-- **It is recorded at the moment you run it, and it is not undone by re-running other
-  commands.** Only approve an outline you have finished judging.
+- **It records what you approved, not just that you did.** Note the `covers sha256 …` line
+  in the output above: that is a fingerprint of the exact outline file at the moment you ran
+  the command, and it is stored in `runs/<run>/state.json` next to your name and the time.
+  Every later step re-checks it (see "If you do not like the outline" below).
+- **It refuses to approve something that does not exist.** On a run where the stage has not
+  run, nothing is recorded:
+
+  ```
+  cannot approve GATE 'claims' for run 'quit-demo': the validate stage has not completed. Run `autodeck validate quit-demo` first. Nothing was recorded.
+  ```
+
+  and the same for `outline` (`the outline stage has not completed`), `brief` (the run has no
+  brief) and `final_render` (there is no rendered deck). Approving the claims also needs them
+  to be the *latest* ones — if `content` has been run since `validate`, it refuses with
+  `IR v8 was written after validation produced v7` (section 6).
+- **It does not check that you have looked.** It records whatever you tell it, in any order
+  that the stages allow. The system relies on you not running it until you have read the
+  thing.
 
 ### If you do not like the outline
 
-The code supports one thing: **run the same `outline` command again**, *before* you approve.
-It asks the AI for a fresh outline and overwrites the previous one (`wrote …/ir/v1.json`
-again). It does not take your feedback — the only input is the signed brief — so a re-run
-gives you a different attempt, not a corrected one. If the problem is the brief itself, the
-brief cannot be edited once signed; start a new run id and plan again.
+Run the same `outline` command again, *before* you approve. It does not take your feedback —
+the only input is the signed brief — so the one thing you can change is the model's answer
+itself. Because model replies are cached (section 2), **a plain re-run replays the same
+outline**: in the test run, running `outline` a second time made no request to the model and
+wrote the same outline. To get a different attempt, delete the saved replies first:
 
-**Do not re-run `outline` after you have approved it.** In a test, re-running it after the
-approval left the approval in place while overwriting the outline file underneath it, so the
-approval would no longer describe what is on disk.
+```bash
+rm -r runs/northwind-milestone/llm_cache
+uv run autodeck outline northwind-milestone --client northwind-retail --project llm-inference-efficiency
+```
+
+(That costs one request, and `wrote …/ir/v1.json` appears again: the outline is always
+`v1`, and a new one replaces it.) If the problem is the brief itself, the brief cannot be
+edited once signed; start a new run id and plan again.
+
+**If you re-run `outline` after approving it, the approval is withdrawn automatically** — if
+the outline that comes out is different. The approval is tied to the fingerprint of the file
+you approved; a different file no longer matches. In the test run, an outline regenerated
+after approval gave this, and `content` refused to continue:
+
+```
+run northwind-reoutline (env=dev)
+stages:
+  ingest         not-started
+  plan           completed
+  outline        completed
+  content        not-started
+  validate       not-started
+  art_direction  not-started
+  render         not-started
+  audit          not-started
+gates:
+  brief          2026-10-01T20:27:05+00:00 by Jane Owner
+  outline        NOT CURRENT (2026-10-01T20:27:05+00:00 by Jane Owner) — the outline changed after it was approved; review what is there now and re-approve it
+  claims         PENDING
+  final_render   PENDING
+```
+
+```
+GATE 'outline' is not approved for run 'northwind-reoutline': the outline changed after it was approved; review what is there now and re-approve it. Review the artifacts under runs/northwind-reoutline/ and record approval with `autodeck approve northwind-reoutline outline`. The pipeline never self-approves (A7).
+```
+
+Review the outline that is there now and approve it again:
+
+```
+approved outline for northwind-reoutline
+  covers sha256 784550535bff6c3d...
+still pending: claims, final_render
+```
+
+If the re-run produced exactly the same outline (a replayed one does), the fingerprint still
+matches and the approval stands.
 
 ---
 
@@ -508,7 +717,9 @@ Neither command takes `--client` or `--project` (they read them from the run). N
 needs your judgement; you are reading for warnings.
 
 **`content`** writes the wording of every slide from the approved outline, one request per
-slide, and runs two automatic checks on the result. If you run it before approving the
+slide, and runs two automatic checks on the result. Each slide's reply is saved as it
+arrives, so if the quota runs out part-way you run the same command again and only the
+unfinished slides are asked for (section 2). If you run it before approving the
 outline:
 
 ```
@@ -570,20 +781,36 @@ What the pieces mean:
 - **Header flow**: the slide headlines listed in order, for you to skim and ask whether the
   argument holds from headlines alone. Advisory only.
 
-**If a sentence is too long for its slot it is dropped**, not shortened. Example (the writer
-produced a sentence longer than its one-line slot allows; output from a test fixture):
+**If a sentence is too long for its slot it is dropped**, not shortened — and every dropped
+sentence is listed on its own line, with the slide, the slot, and the first 60 characters of
+the sentence. Example (the writer produced a sentence longer than its one-line slot allows;
+output from a test fixture):
 
 ```
 wrote IR v2
 
-1 block(s) dropped during citation/budget resolution:
-  slide s3: overflow: bullets_supporting.points[1]: 138 characters does not fit (points (each item): at most 1 line(s), roughly 88 characters, at 16pt Inter)
+2 block(s) dropped during citation/budget resolution (one line each; a dropped block is gone from the deck, not shortened):
+  slide s3: dropped block 'b2' (slot 'points'): “Quantisation halves inference memory while keeping full-prec…” — overflow: bullets_supporting.points[1]: 138 characters does not fit (points (each item): at most 1 line(s), roughly 88 characters, at 16pt Inter)
+  slide s3: dropped block 'b3' (slot 'points'): “GPTQ does not speed up the multiplications themselves, becau…” — overflow: bullets_supporting.points[1]: 138 characters does not fit (points (each item): at most 1 line(s), roughly 88 characters, at 16pt Inter)
 ```
 
-Two things to know. First, the dropped sentence is gone from the deck, so a slide can end up
-with less than you expected (here slide `s3` lost its claims and kept only its headline);
-the count in the message counts overflowing *slots*, which can understate how many sentences
-vanished. Second, the fix is to run `content` again.
+Things to know. The dropped sentences are gone from the deck, so a slide can end up with less
+than you expected (here slide `s3` lost both its claims and kept only its headline). **A slot
+is dropped as a unit:** only the second sentence was too long, but both were removed, which is
+why both are listed with the same reason. The count in the heading is the number of sentences
+removed. And the fix is not simply to run `content` again — that replays the same replies
+(section 2). Delete `runs/<run>/llm_cache` first, or send the claim back with a reason (which
+changes what the writer is shown).
+
+If the writer left a *required* slot empty (nothing was written, so nothing was dropped), it
+says so separately. A render cannot proceed with such a slot empty:
+
+```
+wrote IR v2
+
+1 required slot(s) have no block — nothing was written for them, so nothing was dropped, but a render cannot proceed with them empty:
+  slide s2: bullets_supporting.headline: required slot is missing or empty
+```
 
 **`validate`** sends every claim to a second, independent AI pass that re-searches the papers
 itself (it is not shown the writer's citation as evidence) and gives each claim a verdict. It
@@ -623,8 +850,10 @@ uv run autodeck gate2 northwind-milestone
 ```
 
 This prints the audit report, six automatic checks, and a list of claim ids. It refuses to run
-until `validate` has (`run '…' has not been validated yet`, exit 3). It writes nothing to disk
-and approves nothing; run it as often as you like.
+until `validate` has (`run '…' has not been validated yet`, exit 3). It approves nothing; run it
+as often as you like. Each time, it also writes the report it printed to
+`runs/<run>/audit_report.md` (and says so in its last lines), so the file on disk is always the
+report for the latest version of the deck.
 
 ### Reading one claim
 
@@ -728,6 +957,8 @@ Stable claim ids, for `autodeck send-back --claim`:
 
 1 claim(s) already sent back in an earlier round:
   s4:b2 (v4, by Jane Owner): The word always overstates the source, which reports a gain under stated conditions.
+
+Audit report written to runs/northwind-milestone/audit_report.md
 ```
 
 - `[PASS]`/`[FAIL]` lines are what a machine can check. **A clean set of PASS lines is not
@@ -757,6 +988,8 @@ Stable claim ids, for `autodeck send-back --claim`:
   s3:b2  [partially_supported]  Quantisation halves inference memory while keeping full-precision performance.
   s3:b3  [supported]  GPTQ gives no speedup on the multiplications themselves.
   s4:b2  [unsupported]  Speculative decoding always speeds up sampling without changing the outputs.
+
+Audit report written to runs/northwind-milestone/audit_report.md
 ```
 
 ### Approving
@@ -769,10 +1002,12 @@ uv run autodeck approve northwind-milestone claims --by "Your Name"
 
 ```
 approved claims for northwind-milestone
+  covers sha256 2e79b95917388dbd...
 still pending: final_render
 ```
 
-`still pending: final_render` is correct — that is approval 4, which is a later session.
+The `covers sha256 …` line is the fingerprint of the validated claims table you just
+reviewed. `still pending: final_render` is correct — that is approval 4, which is a later session.
 Finish by printing the state:
 
 ```bash
@@ -783,22 +1018,56 @@ uv run autodeck status northwind-milestone
 run northwind-milestone (env=dev)
 stages:
   ingest         not-started
-  plan           not-started
-  outline        not-started
+  plan           completed
+  outline        completed
   content        completed
   validate       completed
   art_direction  not-started
   render         not-started
   audit          not-started
 gates:
-  brief          2026-09-30T20:23:23+00:00 by Jane Owner
-  outline        2026-09-30T20:23:23+00:00 by Jane Owner
-  claims         2026-09-30T20:23:23+00:00 by Jane Owner
+  brief          2026-10-01T20:27:03+00:00 by Jane Owner
+  outline        2026-10-01T20:27:03+00:00 by Jane Owner
+  claims         2026-10-01T20:27:04+00:00 by Jane Owner
   final_render   PENDING
 ```
 
-In `status`, trust the `gates:` section. The `stages:` list only marks `content` and
-`validate`; `plan` and `outline` show `not-started` even though they ran.
+`status` shows `plan`, `outline`, `content` and `validate` as `completed` once they are (the
+other stages, `ingest`, `art_direction`, `render` and `audit`, stay `not-started`: the document store is
+built outside any run, and the rest are not part of this session), and the
+`gates:` section shows who approved what and when.
+
+**An approval stops counting if what it covered changes.** If you run `content` again after
+approving the claims, the claims table you reviewed is no longer the latest, and `status` says
+so (here `content` had been run once more after the approval):
+
+```
+run northwind-milestone (env=dev)
+stages:
+  ingest         not-started
+  plan           completed
+  outline        completed
+  content        completed
+  validate       completed
+  art_direction  not-started
+  render         not-started
+  audit          not-started
+gates:
+  brief          2026-10-01T20:27:03+00:00 by Jane Owner
+  outline        2026-10-01T20:27:03+00:00 by Jane Owner
+  claims         NOT CURRENT (2026-10-01T20:27:04+00:00 by Jane Owner) — IR v8 was written after validation produced v7, so the claims table you reviewed is not the latest. Re-run `autodeck validate northwind-milestone`
+  final_render   PENDING
+```
+
+Approving the new table is refused until it has been validated again:
+
+```
+cannot approve GATE 'claims' for run 'northwind-milestone': IR v8 was written after validation produced v7, so the claims table you reviewed is not the latest. Re-run `autodeck validate northwind-milestone`. Nothing was recorded.
+```
+
+Run `validate` and `gate2` again, read the new table, and approve that one. The same happens
+to the outline if its file changes (section 4). A line starting `NOT CURRENT` in `status`
+always means "approved once, but no longer valid"; `PENDING` means never approved.
 
 ### Rejecting specific claims
 
@@ -852,31 +1121,28 @@ round:`), and an id can now point at a different sentence.
 
 ## 7. What to send back to Claude afterwards
 
-Approvals live only in `runs/<run>/state.json`, which is not committed to git (this is
-decision B30, below), so a record outside your machine is needed. Send:
+Send two things:
 
 1. **The run id** (`northwind-milestone`, or whatever you chose).
-2. **The output of these two commands**, pasted or saved to a file:
+2. **The file `runs/<run id>/audit_report.md`** (`runs/northwind-milestone/audit_report.md`).
+   `gate2` writes it every time it runs, so there is nothing to redirect or copy out of the
+   terminal — but run `uv run autodeck gate2 <run id>` once more after your last `validate`,
+   so the file is the report for the deck you approved.
 
-   ```bash
-   uv run autodeck gate2 northwind-milestone > gate2-report.txt
-   uv run autodeck status northwind-milestone > status.txt
-   ```
+That is all that is needed, together with a line per decision in section 8. If you want to
+send more, the run folder `runs/<run id>/` holds the rest (derived data; `runs/` is in
+`.gitignore`). From the test run above:
 
-   `gate2` does not save its report itself, so redirecting it is how you keep it.
-3. **Optionally, the files from your run folder** `runs/northwind-milestone/`. What a run
-   writes, from the test run above:
-
-   | File | What it is |
-   |---|---|
-   | `state.json` | Which steps finished and **who approved each gate and when**. |
-   | `brief/v1.yaml` | The brief you signed. |
-   | `ir/v1.json`, `ir/v2.json`, … | Every version of the deck: outline, then each content pass, then each validated pass. The highest number is the latest. |
-   | `logs/planner.jsonl` | The planning conversation. |
-   | `send_backs.json` | Only if you rejected claims. |
-
-   (The run folder holds derived data; `runs/` is in `.gitignore`.)
-4. **A line per decision in section 8.**
+| File | What it is |
+|---|---|
+| `state.json` | Which steps finished, and **who approved each gate, when, and the fingerprint of what they approved**. Approvals live only here (decision B30, below). |
+| `brief/v1.yaml` | The brief you signed. |
+| `ir/v1.json`, `ir/v2.json`, … | Every version of the deck: outline, then each content pass, then each validated pass. The highest number is the latest. |
+| `audit_report.md` | The report `gate2` printed, as of its last run. |
+| `logs/planner.jsonl` | The planning conversation. |
+| `draft_brief.json` | Only while a planning session is unsigned. |
+| `send_backs.json` | Only if you rejected claims. |
+| `llm_cache/` | Saved model replies, so a re-run does not pay twice. Safe to delete (section 2). |
 
 ---
 
@@ -885,9 +1151,11 @@ decision B30, below), so a record outside your machine is needed. Send:
 These are open questions recorded in `STATUS.md`, `DECISIONS.md` and the phase handovers.
 None blocks this session. Reply with the short form shown.
 
-**B30 — should approvals be saved somewhere permanent?** Your approval (name and time) is
-saved only in `runs/<id>/state.json`, and that file is not kept in git, so it does not
-survive a lost machine; only the notes in `DECISIONS.md` do. An approval is the one thing in a
+**B30 — should approvals be saved somewhere permanent?** Your approval (name, time, and now
+the fingerprint of what you approved) is saved only in `runs/<id>/state.json`, and that file
+is not kept in git, so it does not survive a lost machine; only the notes in `DECISIONS.md`
+do. (The fingerprint stops an approval silently covering changed content on your machine; it
+does not make the record survive it.) An approval is the one thing in a
 run that cannot be reproduced, so it is the one thing that should not be treated as
 disposable. Options: **(1)** `autodeck approve` also writes a small committed ledger file
 (`approvals/<run_id>.yaml`) with gate, approver, time, and the version and hash of what was
@@ -930,15 +1198,18 @@ breaking change that a test currently pins. Options (same caveat as above): swit
 | You see | It means | Do this |
 |---|---|---|
 | `FontNotFoundError`, or `MISSING …` in `fonts check` | A font the layout is measured against is not installed. The program refuses to substitute one, on purpose. | Run `./scripts/setup-dev-env.sh`, then `uv run autodeck fonts check --tokens config/tokens/dev.json`. |
-| `RateLimitError: … rate limited (429)` | Daily free-tier quota is spent. | Stop. Try again tomorrow. Do not keep re-running. |
-| `ProviderAuthError: gemini has no API key` (or groq) | The key is not set in this terminal. | `export GEMINI_API_KEY=…` / `export GROQ_API_KEY=…`, then `uv run autodeck models`. |
+| `STOPPED: role '…' (…) was rate limited` (exit 5) | Daily free-tier quota for that model is spent. Finished work is saved. | Wait for the quota to reset, then run the same command again; it resumes. Do not keep re-running. |
+| `STOPPED: role '…' (…) has no API key` / `…the provider rejected the credentials` (exit 5) | The key is not set in this terminal, or is not valid. | `export GEMINI_API_KEY=…` / `export GROQ_API_KEY=…` (the message names which), then `uv run autodeck models`. |
 | `no ingested documents under …` (exit 2) | The document store is empty. | `uv run autodeck knowledge ingest llm-inference-efficiency` |
 | `GATE '…' requires human approval before run '…' continues` (exit 3) | A previous approval is missing. **This is the system working.** | Approve the gate it names, once you have judged it. |
 | `Final render is blocked … by N finding(s)` (`RenderBlocked`) | Raised when a deck is rendered while a claim is `unsupported`/`contradicted`/`unverified` or a lint is failing. Also the system working. It is not reachable from any command in this session; `gate2`'s six checks show the same conditions earlier. | Fix the content (send back, re-run `content` and `validate`). No flag skips it. |
+| `GATE '…' is not approved for run '…': the … changed after it was approved` (exit 3) | You re-ran a step after approving what it made, and the result is different. **The system working.** | Read what is there now, then `uv run autodeck approve <run> <gate>` again. |
+| `cannot approve GATE '…' for run '…': …` (exit 1) | There is nothing to approve yet, or the claims table is not the latest. Nothing was recorded. | Run the step it names. |
+| `no such run '…'` (exit 1) | The run id is mistyped, or you are in a different folder. | Check the spelling and that you are in the repository root. |
 | `run '…' has no content yet` / `has not been validated yet` (exit 3) | You skipped a step. | Run the one it names. |
 | `outline` exits 4 | Report has a BLOCKING finding. | Read it; see section 4. |
 | `gate2` exits 4 | At least one of the six checks says FAIL. | Read the FAIL lines; fix or send back; re-run `content`, `validate`, `gate2`. |
-| `status` shows everything PENDING | Probably a mistyped run id (it creates an empty run) or you are in a different folder. | Check spelling and that you are in the repository root. |
+| `status` shows a gate as `NOT CURRENT` | It was approved, but the thing it covered has changed since. | Read what is there now and approve it again. |
 
 If you are ever unsure whether to approve: don't. Nothing is lost by waiting, and every
 command can be re-run.

@@ -108,12 +108,23 @@ def _provider_failure_message(
 ) -> str:
     who = f"role '{failure.role}' ({failure.provider}, model {failure.model})"
     if failure.kind == "rate_limit":
+        # Free tiers limit differently: Gemini per model per day, Groq per minute
+        # (config/models.yaml). Saying "daily" about Groq would send the owner away for a
+        # day over a limit that clears in a minute.
+        if failure.provider == "groq":
+            meaning = (
+                "Groq's free tier is limited per minute (tokens), so waiting a minute or "
+                "two is usually enough."
+            )
+        else:
+            meaning = (
+                "On a free tier this is almost always that model's daily quota: it resets "
+                "daily, so running the command again sooner will not help."
+            )
         what = (
             f"STOPPED: {who} was rate limited.\n"
             "  The provider refused the call (HTTP 429) and waiting inside the command did "
-            "not clear it.\n"
-            "  On a free tier this is almost always that model's daily quota: it resets "
-            "daily, so running the command again sooner will not help."
+            f"not clear it.\n  {meaning}"
         )
     elif failure.kind == "missing_key":
         what = (

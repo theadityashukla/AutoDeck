@@ -306,7 +306,8 @@ def test_provider_failures_end_with_a_message_not_a_traceback(
     assert "Saved:" in result.output
     assert "autodeck content r1" in result.output
     if failure == "rate limit":
-        assert "daily quota" in result.output
+        # `content` is bound to Groq in dev, whose free tier is per minute, not per day.
+        assert "limited per minute" in result.output
     else:
         assert "GROQ_API_KEY" in result.output
     # Nothing was half-written: the IR is still the approved outline alone.
