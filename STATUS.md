@@ -7,13 +7,13 @@ every phase handover. If this file disagrees with your memory, this file is righ
 
 | | |
 |---|---|
-| **Current phase** | Phase 3a — design system |
-| **Integration branch** | `v2/integration` — **unchanged since Phase 1.** 2a, 2b and 3a are stacked and unmerged (B27) |
-| **Active phase branch** | `v2/phase-3a-design-system`, cut from `v2/phase-2b-content-validate`'s tip |
+| **Current phase** | Phase 3b — renderer, QA and art direction: **implemented, awaiting the owner's GATE 2 and GATE 3 reviews** |
+| **Integration branch** | `v2/integration` — **unchanged since Phase 1.** 2a, 2b, 3a and 3b are stacked and unmerged (B27) |
+| **Active phase branch** | `v2/phase-3b-render-qa` (carries 3a, which is stacked under it) |
 | **Last gate passed** | **GATE 1** — approved 2026-09-18 (DECISIONS.md G1), at the precision that entry records |
-| **Next gate** | **GATE 2 — open**, then GATE 3 after Phase 3b |
-| **Latest handovers** | `docs/handovers/PHASE-2B.md`, `docs/handovers/PHASE-3A.md` |
-| **Updated** | 2026-09-27 |
+| **Next gate** | **GATE 2 — open**, then **GATE 3 — open too**: both can now be reviewed in one run, in order (`docs/OWNER-GUIDE.md`, sections 6 and 6b) |
+| **Latest handovers** | `docs/handovers/PHASE-2B.md`, `docs/handovers/PHASE-3A.md` (no Phase 3b handover written yet) |
+| **Updated** | 2026-10-01 |
 
 ## What the adversarial review found
 
@@ -24,8 +24,10 @@ acting — and twelve commits fixed them. The review ran on Opus; the planned Fa
 returned HTTP 429, "requires usage credits". The suite on the phase branch stood at
 839 passed, 0 skipped, 10 live-marked and deselected at the time — the 13 font-dependent
 skips are gone because fonts are installed, and CI now installs the OFL dev fonts too,
-since `3cac30e` on the 3a branch. The suite at tip, including Phase 3a, is
-**1098 passed, 0 skipped, 10 live-marked and deselected**. See `docs/handovers/PHASE-2B.md`
+since `3cac30e` on the 3a branch. The suite at tip, including Phase 3a, was
+**1098 passed, 0 skipped, 10 live-marked and deselected**; with Phase 3b it is **1327 passed
+by default, plus 41 `render`-marked tests (they need LibreOffice and the fonts; all pass
+locally) — 51 deselected by default, 10 of them live**. See `docs/handovers/PHASE-2B.md`
 §6.9–§6.13 for what the review found and how it was closed.
 
 **The corrected coverage: A2 and A3 stay `tested`, corrected in place; A5 is downgraded from
@@ -37,20 +39,23 @@ percent", "four times"); A3's `chart` blocks never receive a verdict.
 
 ## Next action
 
-**Judge GATE 2 on a real deck.** Phase 2b is code complete — all eleven tasks, 1098 tests —
-but **no live milestone run exists**, and that is the invariant working rather than a
-shortfall. `autodeck content` refuses to run without an approved outline, and no flag
+**Judge GATE 2, then GATE 3, on a real deck.** Phase 2b is code complete — all eleven tasks —
+and Phase 3b (renderer, QA, art direction and the GATE 3 surface) is now implemented on
+`v2/phase-3b-render-qa`, but **no live milestone run exists** and nobody has yet reviewed
+GATE 2 or GATE 3. That is the invariant working rather than a shortfall. `autodeck content` refuses to run without an approved outline, and no flag
 anywhere approves a gate. GATE 1's approval was given against a run whose `runs/` directory
 was derived data on a machine that no longer exists, so the milestone starts from the
 planning session again.
 
 **The owner's step-by-step is `docs/OWNER-GUIDE.md`** (commands, what you will see, how to sign, what to
-send back). It is the only copy of those instructions; start with its "Before you start".
+send back), covering all four approvals: GATE 2 is its section 6 and GATE 3 — `render`, `gate3`, the five hands-on
+PowerPoint checks, `approve … final_render` — is its section 6b. It is the only copy of those
+instructions; start with its "Before you start".
 
 Budget the quota: 20 requests per model per day, roughly one `content` call per slide and
 one `validation` call per six claims, spread across five models (B25).
 
-### Four owner decisions waiting at GATE 2
+### Owner decisions waiting (four at GATE 2, two at GATE 3)
 
 - **B30 — a gate approval does not survive the machine.** Approvals live in
   `runs/<id>/state.json`, which is derived data and not committed (B22). The human act
@@ -67,6 +72,14 @@ one `validation` call per six claims, spread across five models (B25).
 - **Which error for "does not fit"?** `split_rows`/`split_columns` raise `ValueError` where
   `Box.reserve` raises `LayoutOverflowError`; making them consistent is a breaking change a
   test pins (`docs/handovers/PHASE-3A.md`).
+- **GATE 3 — approve the finished deck?** The owner's call after the five PowerPoint checks
+  (`docs/OWNER-GUIDE.md` section 6b). Nothing in the code ticks those checks.
+- **GATE 3 — approve a deck with no native diagram, or hold?** Found while writing the guide
+  by running `render` and `gate3` on a plain deck: the content step can write charts but
+  cannot create diagrams (`ProposedBlock` kinds are `claim`/`framing`/`chart`/`section_header`),
+  and no art-direction action creates one, so a pipeline-made deck fails GATE 3 criterion 4
+  and PowerPoint check 1 has nothing to try. `PHASE-3B.md` requires a native diagram. The
+  guide tells the owner to hold; no decision on record yet.
 
 ### Carried from GATE 0 — verification debt, not blockers
 
@@ -78,10 +91,30 @@ one `validation` call per six claims, spread across five models (B25).
 - **The Claude adapter has never been called live.** The first `sit` run will be its first
   real request.
 
+### New debt from Phase 3b (found while writing the owner's guide)
+
+- **A pipeline-made deck cannot satisfy GATE 3 criterion 4** (see the decision above).
+- **`autodeck gate3` does not refuse when the claims approval is stale.** After a `content`
+  run it still reports four PASS lines on the old `deck.pptx` while the claim-level section
+  shows every claim `unverified`.
+- **`autodeck approve <run> final_render` checks neither the `gate3` result nor the claims
+  approval.** It accepted a deck with two failing criteria and, with claims `NOT CURRENT`,
+  said only `still pending: claims`.
+- **A contrast failure the critic saw twice still ships** (`Stopped: target_reached` with
+  `1 QA finding(s)` on both iterations), and `gate3` then reports it as FAIL.
+- **Art-direction quota failure on an icon slide** prints an internal-sounding
+  `RenderStageError: icon_pillars has 0 'pillar_icon' block(s)…` line after the quota message.
+- **`gate3` header flow shows a title slide as `'(empty)'`** with an advisory about a missing
+  `subtitle` slot.
+- The PowerPoint-only checks are untested on a real PowerPoint (above).
+
 ### New debt from Phase 3a
 
-- **The four PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — see
-  `docs/handovers/PHASE-3A.md` §7.
+- **The PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — see
+  `docs/handovers/PHASE-3A.md` §7. There are now five; `autodeck gate3` prints them unticked
+  and `docs/OWNER-GUIDE.md` section 6b gives the click-by-click steps. The PowerPoint menu
+  paths in that guide were written from the file's contents and Microsoft's menu layout, not
+  from a PowerPoint session; the first real run is their test.
 - `check_overflow`'s sibling-floor gap: each slot's budget assumes siblings take one line;
   nothing checks both can hold at once.
 - Diagram and chart labels are protected only at render, not by `check_overflow`.
@@ -175,15 +208,16 @@ See the tracker in `docs/INVARIANTS.md`.
 | 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | **gate approved (G1) — unmerged, stacked under 2b** |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | GATE 2 | **code complete — gate open** |
 | 3a — Design system | `v2/phase-3a-design-system` | internal | **code complete, internal review pending** |
-| 3b — Renderer & QA | `v2/phase-3b-render-qa` | GATE 3 | not started |
+| 3b — Renderer & QA | `v2/phase-3b-render-qa` | GATE 3 | **implemented (3b.1–3b.10) — gate open, awaiting owner review** |
 | 4 — Consulting workflow | `v2/phase-4-workflow` | GATE 4 | not started |
 | 5 — Evals & hardening | `v2/phase-5-evals-hardening` | — | not started |
 
 ## What exists today
 
-Phases 0 through 3a, on `v2/phase-3a-design-system`. **1098 tests pass** (0 skipped, 10
-live-marked and deselected — fonts are installed, and CI now installs the OFL dev fonts
-too); ruff and pyright are clean.
+Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1327 tests pass by default** (plus 41
+`render`-marked tests, which need LibreOffice and the fonts and also pass; 10 live-marked
+tests stay deselected). Ruff and pyright were clean at the Phase 3a tip; not re-run for this
+update.
 
 - **Deck IR** (`autodeck/ir/`) — models, three-dialect JSON-Schema export, versioned store
   with an id-keyed diff.
@@ -264,3 +298,23 @@ too); ruff and pyright are clean.
   shapes with theme colours.
 - `grammar.py` — D13 lints: word budget, ≤1 diagram, icon+chart+diagram pileup (blocking);
   concept count (advisory); icon adjacency (blocking, uncalibrated).
+
+### Added in Phase 3b
+
+- **Renderer and QA** (`autodeck/render/`) — IR → PPTX through the theme master with native
+  charts and diagrams; deterministic QA (overlap, safe area, minimum size, contrast);
+  headless LibreOffice rendering to PNGs.
+- **The bounded aesthetic loop** (`render/qa/aesthetic.py`, `prompts/aesthetic_critique.md`) —
+  a vision critic on true renders whose output is a closed action set; it cannot express a
+  text edit. Up to three looks, target score 8.
+- **Art direction** (`autodeck/agents/art_direction.py`, `prompts/art_direction.md`, B35/B36) —
+  communication modes by rule, taste by model, `AssignIcons` as the only way icons come to
+  exist; runs on the `outline` role's binding.
+- **Post-render audit and header flow** — the numeric linter re-run on text extracted from the
+  rendered file; header horizontal-flow QA.
+- **GATE 3** (`autodeck/audit/gate3.py`, `autodeck/cli.py`) — `autodeck render`,
+  `autodeck gate3` (writes `final_audit_report.md` and `build_manifest.json`), and
+  `approve … final_render`, which records the rendered deck's canonical digest.
+- **The claims approval is bound to the deck's facts** (`ir/actions.facts_digest`), not to an
+  IR file, so art direction and the critique write new IR versions without voiding it;
+  changing a claim, citation, verdict or sentence does.
