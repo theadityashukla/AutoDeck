@@ -7,21 +7,44 @@ aesthetic loop needs LibreOffice for its default rasteriser: CLI tests that reac
 
 from __future__ import annotations
 
+import inspect
+import json
 from pathlib import Path
 
 import pytest
+from pptx import Presentation
+from typer.testing import CliRunner, Result
 
+import autodeck.providers.registry as registry_module
+from autodeck.agents.art_direction import ArtDirectionPlan
 from autodeck.audit.gate3 import (
     HUMAN_CHECKS,
     FinalAssessment,
+    _count_icons,
+    assess_final,
     render_final_report,
 )
+from autodeck.audit.manifest import Manifest, canonical_pptx_digest
 from autodeck.audit.numeric_linter import NumericReport
 from autodeck.audit.post_render import PostRenderFinding, PostRenderReport
+from autodeck.cli import app
+from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 from autodeck.design.grammar import GrammarFinding
 from autodeck.design.headers.flow import HeaderFlowReport
-from autodeck.ir.actions import facts_digest
-from autodeck.ir.models import Deck
+from autodeck.design.headers.prompt import resolve_profile
+from autodeck.ir.actions import AssignIcons, SetAccent, apply_action, facts_digest
+from autodeck.ir.models import (
+    Block,
+    Deck,
+    DeckBrief,
+    DiagramSpec,
+    KeyMessage,
+    LabelFraming,
+    ProcessFlowSpec,
+    ProcessStep,
+    Slide,
+)
+from autodeck.ir.store import IRStore
 from autodeck.pipeline.orchestrator import (
     ApprovalState,
     ArtifactMissing,
@@ -29,10 +52,141 @@ from autodeck.pipeline.orchestrator import (
     GateBlocked,
     Orchestrator,
 )
+from autodeck.providers.base import ProviderError, RateLimitError
+from autodeck.render.qa.aesthetic import catalog_slot_lookup, library_concept_lookup
 from autodeck.render.qa.deterministic import QAFinding
+from autodeck.render.renderer import render_deck
 from tests.test_actions import make_deck, make_icon_block
+from tests.test_aesthetic import FakeCritic, _bullets_slide, _framing_block, reply, tokens_for
+from tests.test_art_direction import FakeArtModel
+from tests.test_knowledge import build_knowledge
 
-SCAFFOLD = pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+runner = CliRunner()
+
+#: `assess_final` cannot count diagrams from the rendered file: the diagram engine writes no
+#: shape-name prefix to count (see `gate3._count_diagrams`). Every test that reaches it is
+#: marked, and goes green the moment the contract is settled.
+DIAGRAM_COUNT_UNRESOLVED = pytest.mark.xfail(
+    strict=True,
+    raises=NotImplementedError,
+    reason="the diagram engine writes no shape-name prefix for assess_final to count",
+)
+
+
+def _invoke(runs_root: Path, *args: str) -> Result:
+    return runner.invoke(app, [*args, "--runs-root", str(runs_root)])
+
+
+def _gate3(runs_root: Path, knowledge: Path) -> Result:
+    """`autodeck gate3`, re-raising `NotImplementedError` so `DIAGRAM_COUNT_UNRESOLVED` sees
+    it (the CLI runner would otherwise turn it into exit code 1)."""
+    result = _invoke(runs_root, "gate3", "r1", "--knowledge-root", str(knowledge))
+    if isinstance(result.exception, NotImplementedError):
+        raise result.exception
+    return result
+
+
+def _fixture_deck() -> Deck:
+    """Three slides that render for real: a cited claim with bullets, a native diagram, and
+    an `icon_pillars` slide whose icons only art direction can supply."""
+    diagram = DiagramSpec(
+        relationship="sequence",
+        kind="process_flow",
+        process_flow=ProcessFlowSpec(
+            steps=[
+                ProcessStep(
+                    id="n1", label="Pilot", order=1, framing=LabelFraming(reason="stage_name")
+                ),
+                ProcessStep(
+                    id="n2", label="Rollout", order=2, framing=LabelFraming(reason="stage_name")
+                ),
+            ]
+        ),
+    )
+    return Deck(
+        run_id="r1",
+        project="attention-efficiency",
+        client="acme",
+        audience="CTO",
+        version=1,
+        theme_ref="config/tokens/dev.json",
+        component_lib_version=COMPONENT_LIB_VERSION,
+        slides=[
+            _bullets_slide("s1", with_notes=True),
+            Slide(
+                id="s2",
+                narrative_role="plan",
+                component="framework_diagram",
+                message_ids=["m2"],
+                blocks=[
+                    _framing_block(
+                        "headline", "A two-step rollout gets the platform live", block_id="s2-h"
+                    ),
+                    Block(id="s2-d", kind="diagram", slot="diagram", diagram=diagram),
+                ],
+            ),
+            Slide(
+                id="s3",
+                narrative_role="capabilities",
+                component="icon_pillars",
+                message_ids=["m2"],
+                blocks=[
+                    _framing_block("headline", "Three things we do well", block_id="s3-h"),
+                    _framing_block("pillar_label", "Fast", block_id="s3-l1"),
+                    _framing_block("pillar_label", "Safe", block_id="s3-l2"),
+                    _framing_block("pillar_label", "Cheap", block_id="s3-l3"),
+                ],
+            ),
+        ],
+    )
+
+
+def make_gate3_run(tmp_path: Path, *, approve: bool = True) -> tuple[Path, Path]:
+    """A run whose claims stage is validated (and, by default, approved): `(runs_root,
+    knowledge_root)`. The validated deck is the fixture above, as `validate` would save it."""
+    runs_root = tmp_path / "runs"
+    knowledge_root = build_knowledge(tmp_path)
+    orchestrator = Orchestrator("r1", runs_root=runs_root, env="dev")
+    orchestrator.ir.save_brief(
+        DeckBrief(
+            run_id="r1",
+            objective="Decide whether to fund the serving rewrite.",
+            audience="CTO",
+            key_messages=[
+                KeyMessage(
+                    id="m1", text="The rewrite cut cost per token.", evidence_status="supported"
+                ),
+                KeyMessage(
+                    id="m2", text="Rollout can start in Q1.", evidence_status="supported"
+                ),
+            ],
+            approved_by="tester",
+        )
+    )
+    deck = _fixture_deck()
+    orchestrator.run_stage(
+        "validate", lambda: f"wrote {orchestrator.save_ir(deck)}", force=True
+    )
+    if approve:
+        orchestrator.approve(Gate.CLAIMS)
+    return runs_root, knowledge_root
+
+
+def patch_roles(monkeypatch: pytest.MonkeyPatch, **by_role: object) -> None:
+    monkeypatch.setattr(
+        registry_module.ModelRegistry, "provider_for", lambda self, role, **kw: by_role[role]
+    )
+
+
+def art_plan() -> ArtDirectionPlan:
+    return ArtDirectionPlan(
+        rationale="Give the capability slide its icons.",
+        actions=[
+            AssignIcons(
+                slide_id="s3", slot="pillar_icon", concepts=["speed", "security", "growth"]
+            )
+        ],
+    )
 
 
 def _presentation_only_change(deck: Deck) -> Deck:
@@ -117,14 +271,53 @@ def test_facts_digest_is_stable_and_sensitive() -> None:
     assert facts_digest(_presentation_only_change(deck)) == digest
 
 
-@SCAFFOLD
-def test_render_refuses_without_a_current_claims_approval() -> None:
-    raise NotImplementedError
+def test_render_refuses_without_a_current_claims_approval(tmp_path: Path) -> None:
+    runs_root, _knowledge = make_gate3_run(tmp_path, approve=False)
+
+    refused = _invoke(runs_root, "render", "r1")
+    assert refused.exit_code == 3, refused.output
+    assert "GATE 'claims'" in refused.output
+    assert "autodeck approve r1 claims" in refused.output
+    assert not (runs_root / "r1" / "deck.pptx").exists()
+    assert IRStore(runs_root, "r1").versions() == [1]
+
+    # An approval that no longer covers the facts does not count either.
+    Orchestrator("r1", runs_root=runs_root).approve(Gate.CLAIMS)
+    store = IRStore(runs_root, "r1")
+    changed = store.load(1).model_copy(deep=True, update={"version": 2})
+    claim = changed.slides[0].blocks[0].claim
+    assert claim is not None
+    claim.text = "A claim nobody approved."
+    store.save(changed)
+    stale = _invoke(runs_root, "render", "r1")
+    assert stale.exit_code == 3, stale.output
+    assert "facts changed after validation" in stale.output
+    assert not (runs_root / "r1" / "deck.pptx").exists()
 
 
-@SCAFFOLD
-def test_gate3_refuses_before_render() -> None:
-    raise NotImplementedError
+def test_an_unknown_run_is_refused_by_both_commands(tmp_path: Path) -> None:
+    for command in ("render", "gate3"):
+        result = _invoke(tmp_path / "runs", command, "nope")
+        assert result.exit_code == 1, result.output
+        assert "no such run" in result.output
+
+
+def test_gate3_refuses_before_render(tmp_path: Path) -> None:
+    runs_root, knowledge = make_gate3_run(tmp_path)
+
+    refused = _invoke(runs_root, "gate3", "r1", "--knowledge-root", str(knowledge))
+
+    assert refused.exit_code == 3, refused.output
+    assert "autodeck render r1" in refused.output
+    assert not (runs_root / "r1" / "final_audit_report.md").exists()
+    assert not (runs_root / "r1" / "build_manifest.json").exists()
+
+    # A completed render stage with the deck missing is refused the same way.
+    orchestrator = Orchestrator("r1", runs_root=runs_root)
+    orchestrator.run_stage("render", lambda: "claimed", force=True)
+    missing = _invoke(runs_root, "gate3", "r1", "--knowledge-root", str(knowledge))
+    assert missing.exit_code == 3, missing.output
+    assert "autodeck render r1" in missing.output
 
 
 def _assessment(
@@ -250,23 +443,272 @@ def test_the_report_shows_every_failure_in_full_and_is_deterministic() -> None:
     assert report.count("- [ ]") == 5
 
 
-@SCAFFOLD
-def test_assess_final_counts_diagrams_and_icons_from_the_rendered_file() -> None:
-    raise NotImplementedError
+def _deck_with_icons() -> Deck:
+    return apply_action(
+        _fixture_deck(),
+        AssignIcons(
+            slide_id="s3", slot="pillar_icon", concepts=["speed", "security", "growth"]
+        ),
+        slots_of=catalog_slot_lookup(),
+        glyph_for=library_concept_lookup(),
+    )
 
 
-@SCAFFOLD
+def test_icons_are_counted_per_instance_from_the_rendered_file(tmp_path: Path) -> None:
+    """`place_icon` makes one shape per subpath, all named `icon:<family>:<name>`; three icons
+    on a slide are three, however many strokes each has. A deck with none counts zero."""
+    tokens = tokens_for()
+    with_icons = tmp_path / "with.pptx"
+    render_deck(_deck_with_icons(), tokens=tokens, out_path=with_icons)
+    without = tmp_path / "without.pptx"
+    render_deck(make_two_slide_deck_for_rendering(), tokens=tokens, out_path=without)
+
+    assert _count_icons(Presentation(str(with_icons))) == 3
+    assert _count_icons(Presentation(str(without))) == 0
+
+
+def make_two_slide_deck_for_rendering() -> Deck:
+    return _fixture_deck().model_copy(update={"slides": _fixture_deck().slides[:2]})
+
+
+@DIAGRAM_COUNT_UNRESOLVED
+def test_assess_final_counts_diagrams_and_icons_from_the_rendered_file(tmp_path: Path) -> None:
+    tokens = tokens_for()
+    deck = _deck_with_icons()
+    pptx = tmp_path / "deck.pptx"
+    render_deck(deck, tokens=tokens, out_path=pptx)
+
+    assessment = assess_final(
+        deck, pptx, tokens=tokens, brief=None, profile=resolve_profile(None)
+    )
+
+    assert assessment.icon_count == 3
+    assert assessment.diagram_count == 1
+    assert assessment.deck_digest == canonical_pptx_digest(pptx)
+    assert assessment.post_render.passes
+    assert assessment.passes
+
+
+def _approved_run_with_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    art: object = None,
+    critic: object = None,
+) -> tuple[Path, Path]:
+    runs_root, knowledge = make_gate3_run(tmp_path)
+    patch_roles(
+        monkeypatch,
+        outline=art if art is not None else FakeArtModel(art_plan()),
+        aesthetic=critic if critic is not None else FakeCritic(reply(9.0, rationale="good")),
+    )
+    return runs_root, knowledge
+
+
 @pytest.mark.render
-def test_render_then_gate3_produces_deck_report_and_manifest_together(tmp_path: object) -> None:
+def test_render_writes_the_deck_and_previews_and_keeps_the_claims_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch)
+    before = IRStore(runs_root, "r1").load(1)
+
+    result = _invoke(runs_root, "render", "r1")
+
+    assert result.exit_code == 0, result.output
+    run_dir = runs_root / "r1"
+    assert (run_dir / "deck.pptx").exists()
+    assert len(list((run_dir / "previews" / "final").glob("*.png"))) == 3
+    assert "Art direction" in result.output
+    assert "s3" in result.output and "icon_anchored" in result.output
+    assert "applied  assign_icons" in result.output
+    assert "Aesthetic loop" in result.output
+    assert "Stopped: target_reached" in result.output
+    assert "Next: autodeck gate3 r1" in result.output
+
+    store = IRStore(runs_root, "r1")
+    assert store.versions() == [1, 2]
+    after = store.load(2)
+    assert facts_digest(after) == facts_digest(before)
+    assert [b.kind for b in after.slides[2].blocks].count("icon") == 3
+    assert [slide.communication_mode for slide in after.slides] == [
+        "text_led",
+        "diagram_led",
+        "icon_anchored",
+    ]
+
+    # The point of binding the approval to facts: the render did not void it.
+    orchestrator = Orchestrator("r1", runs_root=runs_root)
+    assert orchestrator.approval_state(Gate.CLAIMS) == (ApprovalState.CURRENT, "approved")
+    assert not orchestrator.state.is_approved(Gate.FINAL_RENDER)
+    for stage in ("art_direction", "render"):
+        assert orchestrator.state.is_complete(stage)
+
+
+@pytest.mark.render
+def test_a_critique_that_changes_the_deck_is_saved_as_its_own_ir_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    accent = SetAccent(slide_id="s1", accent="accent2")
+    critic = FakeCritic(reply(5.0, accent), reply(9.0))
+    runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch, critic=critic)
+
+    result = _invoke(runs_root, "render", "r1")
+
+    assert result.exit_code == 0, result.output
+    assert "iteration 0: score 5" in result.output
+    assert "applied  set_accent" in result.output
+    store = IRStore(runs_root, "r1")
+    assert store.versions() == [1, 2, 3]
+    assert store.load(3).slides[0].style.accent == "accent2"
+    assert store.load(2).slides[0].style.accent != "accent2"
+    Orchestrator("r1", runs_root=runs_root).require_gate(Gate.CLAIMS)
+
+
+@pytest.mark.render
+def test_a_spent_critique_quota_ends_render_with_exit_5_but_leaves_a_reviewable_deck(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    critic = FakeCritic(RateLimitError("gemini: rate limited (429)"))
+    runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch, critic=critic)
+
+    result = _invoke(runs_root, "render", "r1")
+
+    assert result.exit_code == 5, result.output
+    assert "Traceback" not in result.output
+    assert "role 'aesthetic'" in result.output
+    assert "not (fully) critiqued" in result.output
+    assert "autodeck render r1" in result.output
+    assert (runs_root / "r1" / "deck.pptx").exists()
+    # Art direction completed and was saved; the approval still stands.
+    assert IRStore(runs_root, "r1").versions() == [1, 2]
+    Orchestrator("r1", runs_root=runs_root).require_gate(Gate.CLAIMS)
+
+
+@pytest.mark.render
+def test_a_spent_art_direction_quota_ends_render_with_exit_5_and_says_what_is_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    art = FakeArtModel(RateLimitError("gemini: rate limited (429)"))
+    runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch, art=art)
+
+    result = _invoke(runs_root, "render", "r1")
+
+    assert result.exit_code == 5, result.output
+    assert "Traceback" not in result.output
+    assert "role 'outline'" in result.output
+    assert "IR versions up to v2 were written" in result.output
+    assert "autodeck render r1" in result.output
+    # The rule still assigned modes, but the icon slide has no icons without the model.
+    assert not (runs_root / "r1" / "deck.pptx").exists()
+    assert IRStore(runs_root, "r1").versions() == [1, 2]
+    Orchestrator("r1", runs_root=runs_root).require_gate(Gate.CLAIMS)
+
+
+@pytest.mark.render
+def test_a_model_that_never_answers_validly_is_reported_not_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    critic = FakeCritic(ProviderError("the reply was not valid JSON"))
+    runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch, critic=critic)
+
+    result = _invoke(runs_root, "render", "r1")
+
+    assert result.exit_code == 0, result.output
+    assert "Stopped: model_error" in result.output
+    assert "was not (fully) critiqued" in result.output
+    assert (runs_root / "r1" / "deck.pptx").exists()
+
+
+@DIAGRAM_COUNT_UNRESOLVED
+@pytest.mark.render
+def test_render_then_gate3_produces_deck_report_and_manifest_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Full CLI path with fakes on an approved fixture run: `render` writes deck.pptx,
     previews and new IR versions without voiding the claims approval; `gate3` writes
     final_audit_report.md and build_manifest.json and prints all three paths first; then
     `approve <run> final_render` records `canonical_pptx_digest(deck.pptx)`."""
-    raise NotImplementedError
+    runs_root, knowledge = _approved_run_with_models(tmp_path, monkeypatch)
+    assert _invoke(runs_root, "render", "r1").exit_code == 0
+
+    result = _gate3(runs_root, knowledge)
+
+    run_dir = runs_root / "r1"
+    assert result.exit_code == 0, result.output
+    deck_path, report_path, manifest_path = (
+        run_dir / "deck.pptx",
+        run_dir / "final_audit_report.md",
+        run_dir / "build_manifest.json",
+    )
+    for path in (deck_path, report_path, manifest_path):
+        assert path.exists(), path
+    lines = result.output.splitlines()
+    first_paths = [i for i, line in enumerate(lines) if str(run_dir) in line][:3]
+    assert [lines[i].split(str(run_dir))[1].lstrip("/") for i in first_paths] == [
+        "deck.pptx",
+        "final_audit_report.md",
+        "build_manifest.json",
+    ]
+    assert max(first_paths) < next(i for i, line in enumerate(lines) if "[PASS]" in line)
+    assert report_path.read_text(encoding="utf-8") in result.output
+    assert result.output.count("- [ ]") == 5 and "[x]" not in result.output
+    assert Manifest.load(manifest_path).run_id == "r1"
+
+    approved = _invoke(runs_root, "approve", "r1", "final_render")
+    assert approved.exit_code == 0, approved.output
+    state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    assert state["fingerprints"]["final_render"] == canonical_pptx_digest(deck_path)
+    assert canonical_pptx_digest(deck_path)[:16] in result.output
+    # The digest the report printed is the digest the approval recorded.
+    assert canonical_pptx_digest(deck_path) in report_path.read_text(encoding="utf-8")
 
 
-@SCAFFOLD
+@DIAGRAM_COUNT_UNRESOLVED
+@pytest.mark.render
+def test_gate3_exits_4_and_says_so_when_the_rendered_deck_fails_a_criterion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_root, knowledge = _approved_run_with_models(tmp_path, monkeypatch)
+    assert _invoke(runs_root, "render", "r1").exit_code == 0
+    deck_path = runs_root / "r1" / "deck.pptx"
+    _tamper_claim(deck_path)
+
+    result = _gate3(runs_root, knowledge)
+
+    assert result.exit_code == 4, result.output
+    assert "[FAIL] Post-render audit passes" in result.output
+    assert (runs_root / "r1" / "final_audit_report.md").exists()
+    assert "Approve with `autodeck approve r1 final_render`" in result.output
+
+
+def _tamper_claim(pptx: Path) -> None:
+    """Change one word of a claim inside the rendered file, the way a rendering bug might."""
+    import shutil
+    import zipfile
+
+    scratch = pptx.with_suffix(".tampered")
+    with zipfile.ZipFile(pptx) as source, zipfile.ZipFile(scratch, "w") as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename == "ppt/slides/slide1.xml":
+                assert b"cut cost" in data
+                data = data.replace(b"cut cost", b"raised cost")
+            target.writestr(item, data)
+    shutil.move(scratch, pptx)
+
+
 def test_neither_command_can_record_an_approval() -> None:
     """Extend the existing walk (`test_none_of_the_new_commands_can_record_an_approval` in
-    tests/test_owner_run.py) to `render` and `gate3`, or assert here in the same way."""
-    raise NotImplementedError
+    tests/test_cli_gate2.py) to `render` and `gate3`: no bypass-shaped option, and no call to
+    `.approve(` in either command's own source or anything they define."""
+    from autodeck import cli
+
+    banned = {"yes", "force", "skip_gates", "no_gates", "auto_approve", "approve", "trust"}
+    # No way to skip a stage either: render's only options are the run, where runs live, and
+    # which environment's models to use.
+    assert set(inspect.signature(cli.render).parameters) == {"run_id", "runs_root", "env"}
+    for name in ("render", "gate3"):
+        func = getattr(cli, name)
+        assert not (set(inspect.signature(func).parameters) & banned), name
+        assert ".approve(" not in inspect.getsource(func), name
+        assert "approve(" not in inspect.getsource(func).replace("autodeck approve", ""), name

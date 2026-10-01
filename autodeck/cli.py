@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NoReturn
 
 import typer
+from pydantic import BaseModel
 
 from autodeck.audit.manifest import build_manifest
 from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
@@ -1644,6 +1645,13 @@ def _gate2_checks(
     return checks
 
 
+def _describe_action(action: BaseModel) -> str:
+    """`set_accent slide_id=s2 accent=accent3` — an action as one readable line."""
+    fields = action.model_dump(mode="json", exclude_none=True)
+    kind = fields.pop("kind", type(action).__name__)
+    return " ".join([str(kind), *(f"{name}={value}" for name, value in fields.items())])
+
+
 @app.command()
 def render(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
@@ -1652,31 +1660,241 @@ def render(
 ) -> None:
     """Art-direct, render and critique the approved deck into `runs/<run>/deck.pptx` (3b.10).
 
-    Scaffold contract — Sonnet fills:
-      - Unknown run → refused like every other command. `require_gate(Gate.CLAIMS)` first;
-        `GateBlocked` → exit 3. Nothing renders a deck whose claims the owner has not
-        approved (A7).
-      - Always re-runs its stages (`run_stage(..., force=True)`): the owner invokes it on
-        purpose. No options beyond run id, runs root and env — in particular none that skip
-        a stage, which the gate-bypass invariant test would rightly flag.
-      - Stage "art_direction": `run_art_direction(deck, brief=..., tokens=DesignTokens.load(
-        Path(deck.theme_ref)), model=guard.provider("outline"), work_dir=paths.previews /
-        "art_direction")`; save the result deck as a new IR version (`orchestrator.save_ir`).
-        Print each slide's mode and source, applied/rejected counts with reasons, the
-        rationale, any `render_error` (→ exit 4 after saving), and `stopped`/`detail`.
-      - Stage "render": `run_aesthetic_loop(deck, tokens=..., model=guard.provider(
-        "aesthetic"), work_dir=paths.previews / "aesthetic", pins=brief.layout_pins)`; save
-        its deck as a new IR version if it changed; `render_deck(final, out_path=
-        paths.deck_pptx)`; rasterise the final deck to `paths.previews / "final"`. Print the
-        stop reason, best score, every iteration's score/applied/rejected, and where the PNGs
-        are. `FontSubstitutionRisk`/`RenderError` → clean message, exit 1. `model_error` is
-        not a failure of the command: say plainly the deck was not (fully) critiqued and how
-        to re-run.
-      - Provider failures go through `ProviderGuard` / `_ends_on_provider_failure` exactly as
-        `content` and `validate` do (exit 5, with what was saved).
-      - Ends: "Next: autodeck gate3 <run>". Never approves anything.
+    Blocked unless the claims gate is approved for the deck as it is now (A7). Always runs
+    every stage, in order: art direction (communication modes by rule, taste by model), then
+    the aesthetic loop on true renders, then the final `deck.pptx` and its PNGs under
+    `runs/<run>/previews/final`. Each presentation pass writes its result as a new IR version
+    that changes no fact, so the claims approval stays current; a pass that changed a claim
+    would void it (and `apply_action` refuses to). There is deliberately no option that
+    skips a stage. Approves nothing: GATE 3 is `autodeck gate3`, then `autodeck approve`.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    import shutil
+
+    from autodeck.agents.art_direction import ArtDirectionResult, run_art_direction
+    from autodeck.design.fonts import FontNotFoundError
+    from autodeck.ir.store import IRStoreError
+    from autodeck.pipeline.orchestrator import RenderBlocked
+    from autodeck.render.qa.aesthetic import (
+        AestheticLoopError,
+        AestheticResult,
+        run_aesthetic_loop,
+    )
+    from autodeck.render.qa.libreoffice import RenderError, render_pptx
+    from autodeck.render.renderer import render_deck
+
+    orchestrator = _open_run(run_id, runs_root, env)
+    try:
+        orchestrator.require_gate(Gate.CLAIMS)
+    except GateBlocked as blocked:
+        _echo_error(str(blocked))
+        raise typer.Exit(code=3) from None
+
+    try:
+        deck = orchestrator.ir.load()
+        brief_doc = orchestrator.ir.load_brief()
+    except IRStoreError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    paths = orchestrator.paths
+    design_tokens = DesignTokens.load(Path(deck.theme_ref))
+    guard = ProviderGuard(
+        ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
+    )
+    render_command = f"render {run_id}"
+    start_version = orchestrator.ir.latest_version()
+
+    def render_saved() -> str:
+        latest = orchestrator.ir.latest_version()
+        wrote = (
+            "no IR version was written"
+            if latest == start_version
+            else f"IR versions up to v{latest} were written"
+        )
+        deck_note = (
+            f"; {paths.deck_pptx} exists but was not (fully) critiqued"
+            if paths.deck_pptx.exists()
+            else ""
+        )
+        return f"{wrote}{deck_note}. {_cache_note(orchestrator)}"
+
+    # Both providers are built before anything is written, so a missing key stops the
+    # command with nothing half-done.
+    with _ends_on_provider_failure(guard, command=render_command, saved=render_saved):
+        art_model = guard.provider("outline")
+        aesthetic_model = guard.provider("aesthetic")
+
+    # -- art direction -----------------------------------------------------------------
+
+    art_result: ArtDirectionResult | None = None
+    directed: Deck = deck
+
+    def do_art_direction() -> str:
+        nonlocal art_result, directed
+        shutil.rmtree(paths.previews / "art_direction", ignore_errors=True)
+        art_result = run_art_direction(
+            deck,
+            brief=brief_doc,
+            tokens=design_tokens,
+            model=art_model,
+            work_dir=paths.previews / "art_direction",
+        )
+        directed = art_result.deck.model_copy(
+            update={"version": orchestrator.ir.next_version()}
+        )
+        return f"wrote {orchestrator.save_ir(directed)}"
+
+    try:
+        with _ends_on_provider_failure(guard, command=render_command, saved=render_saved):
+            orchestrator.run_stage("art_direction", do_art_direction, force=True)
+    except FileNotFoundError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    except (RenderError, FontNotFoundError) as exc:
+        _echo_error(f"art direction could not render a trial: {exc}")
+        raise typer.Exit(code=1) from None
+    except RenderBlocked as blocked:
+        _echo_error(str(blocked))
+        raise typer.Exit(code=4) from None
+
+    assert art_result is not None
+    typer.secho("Art direction", bold=True, fg=typer.colors.CYAN)
+    for slide in directed.slides:
+        decision = art_result.modes.get(slide.id)
+        if decision is not None:
+            note = f" - {decision.note}" if decision.note else ""
+            typer.echo(
+                f"  {slide.id:<10} {decision.mode:<14} ({decision.source}) "
+                f"{slide.component}{note}"
+            )
+    typer.echo(
+        f"  {len(art_result.applied)} action(s) applied, {len(art_result.rejected)} rejected"
+    )
+    for applied in art_result.applied:
+        typer.echo(f"    applied  {_describe_action(applied)}")
+    for rejected in art_result.rejected:
+        typer.echo(f"    rejected {_describe_action(rejected.action)}: {rejected.reason}")
+    if art_result.rationale:
+        typer.echo(f"  Rationale: {art_result.rationale}")
+    if art_result.stopped == "model_error":
+        typer.secho(
+            f"  The art-direction model did not answer ({art_result.detail}); modes were "
+            "assigned by rule only.",
+            fg=typer.colors.YELLOW,
+        )
+    if art_result.grammar:
+        typer.echo(f"  {len(art_result.grammar)} grammar finding(s) on the directed deck:")
+        for finding in art_result.grammar:
+            typer.echo(f"    {finding}")
+    typer.secho(f"wrote IR v{directed.version}", fg=typer.colors.GREEN)
+
+    if art_result.render_error:
+        if guard.failures:
+            # The model that was meant to supply what this deck lacks (icons) never answered:
+            # that is a quota or a key to fix, not a defect in the slide.
+            _echo_error(
+                "\n"
+                + _provider_failure_message(
+                    guard.failures[0], command=render_command, saved=render_saved()
+                )
+                + f"\n  (the directed deck does not render yet: {art_result.render_error})"
+            )
+            raise typer.Exit(code=EXIT_PROVIDER_FAILURE)
+        _echo_error(
+            f"\nThe art-directed deck does not render: {art_result.render_error}\n"
+            f"IR v{directed.version} is saved. Nothing was rendered; fix the slide it names "
+            "and run `autodeck render` again."
+        )
+        raise typer.Exit(code=4)
+
+    # -- aesthetic loop and final render -----------------------------------------------
+
+    loop_result: AestheticResult | None = None
+    final_deck: Deck = directed
+    final_images: list[Path] = []
+
+    def do_render() -> str:
+        nonlocal loop_result, final_deck, final_images
+        shutil.rmtree(paths.previews / "aesthetic", ignore_errors=True)
+        shutil.rmtree(paths.previews / "final", ignore_errors=True)
+        loop_result = run_aesthetic_loop(
+            directed,
+            tokens=design_tokens,
+            model=aesthetic_model,
+            work_dir=paths.previews / "aesthetic",
+            pins=brief_doc.layout_pins,
+        )
+        final_deck = loop_result.deck
+        if final_deck.model_dump(mode="json") != directed.model_dump(mode="json"):
+            final_deck = final_deck.model_copy(
+                update={"version": orchestrator.ir.next_version()}
+            )
+            orchestrator.save_ir(final_deck)
+        render_deck(final_deck, tokens=design_tokens, out_path=paths.deck_pptx)
+        final_images = render_pptx(
+            paths.deck_pptx, paths.previews / "final", design_tokens
+        ).images
+        return f"wrote {paths.deck_pptx}"
+
+    try:
+        with _ends_on_provider_failure(guard, command=render_command, saved=render_saved):
+            orchestrator.run_stage("render", do_render, force=True)
+    except AestheticLoopError as exc:
+        _echo_error(f"\n{exc}\nIR v{directed.version} is saved; no deck was written.")
+        raise typer.Exit(code=4) from None
+    except (RenderError, FontNotFoundError) as exc:
+        _echo_error(
+            f"\nThe deck could not be rendered: {exc}\nIR v{directed.version} is saved "
+            "(art direction); no final deck was written."
+        )
+        raise typer.Exit(code=1) from None
+    except RenderBlocked as blocked:
+        _echo_error(str(blocked))
+        raise typer.Exit(code=4) from None
+
+    assert loop_result is not None
+    typer.secho("\nAesthetic loop", bold=True, fg=typer.colors.CYAN)
+    score = "none" if loop_result.best_score is None else f"{loop_result.best_score:g}/10"
+    detail = f" ({loop_result.detail})" if loop_result.detail else ""
+    typer.echo(f"  Stopped: {loop_result.stopped}{detail}. Best score: {score}.")
+    for iteration in loop_result.iterations:
+        typer.echo(
+            f"  iteration {iteration.index}: score {iteration.score:g}, "
+            f"{iteration.qa_findings} QA finding(s), {len(iteration.applied)} applied, "
+            f"{len(iteration.rejected)} rejected"
+        )
+        for applied in iteration.applied:
+            typer.echo(f"    applied  {_describe_action(applied)}")
+        for rejected in iteration.rejected:
+            typer.echo(f"    rejected {_describe_action(rejected.action)}: {rejected.reason}")
+    if final_deck.version != directed.version:
+        typer.secho(f"wrote IR v{final_deck.version}", fg=typer.colors.GREEN)
+
+    typer.secho(f"\nWrote {paths.deck_pptx}", fg=typer.colors.GREEN)
+    typer.echo(f"Rendered {len(final_images)} slide(s) to PNG in {paths.previews / 'final'}")
+    typer.echo(f"What the critic saw, per iteration: {paths.previews / 'aesthetic'}")
+
+    if guard.failures:
+        # The art-direction and critique passes swallow a provider failure on purpose (the
+        # rule and the best deck so far stand in), so the command "succeeds" with a deck
+        # that was not critiqued. Say so as loudly as any other provider failure.
+        _echo_error(
+            "\n"
+            + _provider_failure_message(
+                guard.failures[0], command=render_command, saved=render_saved()
+            )
+        )
+        raise typer.Exit(code=EXIT_PROVIDER_FAILURE)
+
+    if loop_result.stopped == "model_error" or art_result.stopped == "model_error":
+        typer.secho(
+            "\nThe deck was not (fully) critiqued: a model call failed (details above). The "
+            f"deck is rendered and safe to review; run `autodeck {render_command}` again to "
+            "retry the critique (completed provider calls replay from the cache).",
+            fg=typer.colors.YELLOW,
+        )
+
+    typer.echo(f"\nNext: autodeck gate3 {run_id}")
 
 
 @app.command()
@@ -1684,25 +1902,108 @@ def gate3(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     env: EnvOption = "dev",
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
 ) -> None:
     """The GATE 3 review surface: deck, final audit and manifest, together (3b.10, A7).
 
-    Scaffold contract — Sonnet fills:
-      - Unknown run → refused. The "render" stage not complete or `paths.deck_pptx` missing
-        → exit 3 with "run `autodeck render <run>` first".
-      - `assess_final(latest IR, paths.deck_pptx, tokens=..., brief=..., profile=...)` and
-        the claim-level audit (`build_audit_report` as `gate2` builds it); write
-        `render_final_report(...)` to `paths.final_audit_report`; build and save the manifest
-        (`build_manifest(run_id=..., env=..., models=registry.manifest_entry(), prompts_dir=
-        Path("prompts"), knowledge_dir=<knowledge root>, ir_path=<latest IR file>)` →
-        `paths.manifest_file`).
-      - Print: the three paths (deck, final audit report, manifest) first — "the owner gets
-        deck, audit report and manifest together" is the task's definition of done — then
-        the report, then "Approve with `autodeck approve <run> final_render` after doing the
-        five PowerPoint checks above; the approval records the deck digest shown."
-      - Exit 4 if `not assessment.passes`. Never approves anything.
+    Recomputes everything from the files on disk - the latest IR and `runs/<run>/deck.pptx` -
+    so the report describes the exact deck `autodeck approve <run> final_render` will
+    fingerprint. Writes `final_audit_report.md` and `build_manifest.json`, then prints their
+    paths with the deck's first, the report, and the five PowerPoint checks only a person can
+    do. Exits non-zero when a checkable criterion fails. As with `gate2`, this reports and
+    never decides: a clean run here is not the gate.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    from autodeck.audit.gate3 import assess_final, render_final_report
+    from autodeck.audit.report import build_audit_report
+    from autodeck.audit.report import render as render_audit
+    from autodeck.design.headers.prompt import resolve_profile
+    from autodeck.ir.store import IRStoreError
+    from autodeck.knowledge.context_assembler import ContextAssembler
+    from autodeck.knowledge.loader import KnowledgeError
+    from autodeck.pipeline.orchestrator import assess_render_safety
+
+    orchestrator = _open_run(run_id, runs_root, env)
+    paths = orchestrator.paths
+    if not orchestrator.state.is_complete("render") or not paths.deck_pptx.exists():
+        _echo_error(
+            f"run {run_id!r} has no rendered deck. Run `autodeck render {run_id}` first."
+        )
+        raise typer.Exit(code=3)
+
+    try:
+        deck = orchestrator.ir.load()
+    except IRStoreError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    brief_doc: DeckBrief | None
+    try:
+        brief_doc = orchestrator.ir.load_brief()
+    except IRStoreError:
+        brief_doc = None
+
+    try:
+        context = ContextAssembler(
+            knowledge_root, client=deck.client, project=deck.project
+        ).assemble()
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    profile = resolve_profile(
+        context.header_profile, brief_doc.header_style if brief_doc is not None else None
+    )
+
+    design_tokens = DesignTokens.load(Path(deck.theme_ref))
+    assessment = assess_final(
+        deck, paths.deck_pptx, tokens=design_tokens, brief=brief_doc, profile=profile
+    )
+    safety = assess_render_safety(deck)
+    audit_report = build_audit_report(
+        deck, brief=brief_doc, numeric=safety.numeric, framing=safety.framing
+    )
+    report_text = render_final_report(assessment, audit_report=render_audit(audit_report))
+    paths.final_audit_report.write_text(report_text, encoding="utf-8")
+
+    registry = ModelRegistry.load(env)
+    latest = orchestrator.ir.latest_version()
+    assert latest is not None
+
+    def write_manifest() -> str:
+        manifest = build_manifest(
+            run_id=run_id,
+            env=registry.env,
+            models=registry.manifest_entry(),
+            prompts_dir=Path("prompts"),
+            knowledge_dir=knowledge_root,
+            ir_path=orchestrator.ir.version_path(latest),
+        )
+        manifest.save(paths.manifest_file)
+        return f"wrote {paths.manifest_file}"
+
+    orchestrator.run_stage("audit", write_manifest, force=True)
+
+    # The task's definition of done: the owner gets all three together, so all three first.
+    typer.secho("GATE 3 - the owner gets these together", bold=True, fg=typer.colors.CYAN)
+    typer.echo(f"  Deck:               {paths.deck_pptx}")
+    typer.echo(f"  Final audit report: {paths.final_audit_report}")
+    typer.echo(f"  Build manifest:     {paths.manifest_file}")
+    typer.echo("")
+    typer.echo(report_text)
+    typer.echo("=" * 78)
+    for label, passed, detail in assessment.checkable():
+        typer.secho(
+            f"  [{'PASS' if passed else 'FAIL'}] {label}",
+            fg=typer.colors.GREEN if passed else typer.colors.RED,
+        )
+        typer.echo(f"         {detail}")
+    typer.secho(
+        f"\nApprove with `autodeck approve {run_id} final_render` after doing the five "
+        "PowerPoint checks above; the approval records the deck digest shown "
+        f"({assessment.deck_digest[:16]}...). A clean run above is not the gate.",
+        fg=typer.colors.YELLOW,
+    )
+
+    if not assessment.passes:
+        raise typer.Exit(code=4)
 
 
 @app.command("send-back")

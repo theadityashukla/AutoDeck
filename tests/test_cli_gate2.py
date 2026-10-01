@@ -623,6 +623,8 @@ def test_none_of_the_new_commands_can_record_an_approval() -> None:
         "content",
         "validate",
         "gate2",
+        "render",
+        "gate3",
         "send_back",
         "outline",
         "plan",
