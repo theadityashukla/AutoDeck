@@ -51,29 +51,29 @@ found.** So every finding names the slide, the check, and the expected and actua
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+
+from pptx import Presentation
+from pptx.oxml.ns import qn
 
 from autodeck.audit.numeric_linter import NumericReport, lint_rendered_slides
 from autodeck.ingest.provenance import normalise_for_match
 from autodeck.ir.models import ClaimSite, Deck, Slide
 from autodeck.render.extract import SlideText, extract_slide_text
-from autodeck.render.renderer import expected_caption_lines
+from autodeck.render.renderer import SLIDE_TAG_PREFIX, expected_caption_lines
 
 PostRenderCheck = Literal[
     "claim altered in render",
     "slide missing from render",
     "unexpected slide in render",
     "image part without a figure",
-    "auto-numbered item with startAt attribute",
+    "auto-number with startAt",
 ]
 
 _MEDIA_PREFIX = "ppt/media/"
-_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
-"""DrawingML namespace for XML element lookups."""
 
 
 @dataclass(frozen=True)
@@ -280,48 +280,60 @@ def _auto_number_start_findings(pptx: Path) -> list[PostRenderFinding]:
     """Walk every slide's XML and flag any `a:buAutoNum` with a `startAt` attribute.
 
     Such an attribute makes PowerPoint render a number that the IR does not trace,
-    breaking invariant A2 (every number on a slide is traced to its source).
+    breaking invariant A2 (every number on a slide is traced to its source). Scans both
+    the slide face and the notes slide for such elements.
     """
     findings: list[PostRenderFinding] = []
+    presentation = Presentation(str(pptx))
 
-    with zipfile.ZipFile(pptx) as archive:
-        # Find all slide XML files (ppt/slides/slide1.xml, ppt/slides/slide2.xml, etc.)
-        slide_paths = sorted(
-            name
-            for name in archive.namelist()
-            if name.startswith("ppt/slides/slide") and name.endswith(".xml")
-        )
-
-        for slide_path in slide_paths:
-            slide_xml = archive.read(slide_path).decode("utf-8")
-            root = ET.fromstring(slide_xml)
-
-            # Extract the slide ID from cSld/@name attribute
-            # The name has the format "autodeck:<slide_id>"
-            cSld = root.find(
-                ".//{http://schemas.openxmlformats.org/presentationml/2006/main}cSld"
+    for slide_index, pptx_slide in enumerate(presentation.slides):
+        raw_name = pptx_slide.name
+        if not raw_name or not raw_name.startswith(SLIDE_TAG_PREFIX):
+            # extract_slide_text has already run and attributed the file; an untagged slide
+            # means we cannot audit it. Raise to match extract_slide_text's contract.
+            raise ValueError(
+                f"slide {slide_index} carries no autodeck tag (cSld/@name={raw_name!r}); "
+                "cannot attribute auto-number elements"
             )
-            if cSld is None:
-                continue
-            name = cSld.get("name", "")
-            if not name.startswith("autodeck:"):
-                continue
-            slide_id = name[len("autodeck:") :]
+        slide_id = raw_name[len(SLIDE_TAG_PREFIX) :]
 
-            # Find all a:buAutoNum elements with startAt attribute
-            for buAutoNum in root.findall(f".//{{{_A_NS}}}buAutoNum"):
-                start_at = buAutoNum.get("startAt")
-                if start_at is not None:
-                    findings.append(
-                        PostRenderFinding(
-                            check="auto-numbered item with startAt attribute",
-                            slide_id=slide_id,
-                            detail=(
-                                f"auto-numbered item on slide {slide_id!r} has "
-                                f"startAt={start_at!r}; PowerPoint renders this number, "
-                                "but it is not traced to the IR"
-                            ),
-                        )
-                    )
+        # Scan the slide face for a:buAutoNum with startAt
+        findings.extend(_auto_number_findings_in_element(pptx_slide._element, slide_id))
 
+        # Scan the notes slide if present
+        if pptx_slide.has_notes_slide:
+            findings.extend(
+                _auto_number_findings_in_element(
+                    pptx_slide.notes_slide._element, slide_id, location="notes"
+                )
+            )
+
+    return findings
+
+
+def _auto_number_findings_in_element(
+    element: Any, slide_id: str, location: str = "face"
+) -> list[PostRenderFinding]:
+    """Find all `a:buAutoNum` elements with `startAt` attribute in an XML element.
+
+    Args:
+        element: The XML element to search (typically slide._element or notes_slide._element).
+        slide_id: The slide ID to report in findings.
+        location: "face" or "notes" to clarify where the element was found.
+    """
+    findings: list[PostRenderFinding] = []
+    for buAutoNum in element.iter(qn("a:buAutoNum")):
+        start_at = buAutoNum.get("startAt")
+        if start_at is not None:
+            findings.append(
+                PostRenderFinding(
+                    check="auto-number with startAt",
+                    slide_id=slide_id,
+                    detail=(
+                        f"auto-numbered item on slide {slide_id!r} ({location}) has "
+                        f"startAt={start_at!r}; PowerPoint renders this number, but it is "
+                        "not traced to the IR"
+                    ),
+                )
+            )
     return findings

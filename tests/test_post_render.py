@@ -530,7 +530,7 @@ def test_a_clean_agenda_render_has_no_auto_number_startAt_findings(
 
     report = post_render_audit(deck, pptx)
 
-    check_name = "auto-numbered item with startAt attribute"
+    check_name = "auto-number with startAt"
     matching = [f for f in report.findings if f.check == check_name]
     assert len(matching) == 0
     assert report.passes
@@ -554,9 +554,37 @@ def test_an_auto_number_with_startAt_attribute_is_flagged(tmp_path: Path) -> Non
 
     report = post_render_audit(deck, pptx)
 
-    check_name = "auto-numbered item with startAt attribute"
+    check_name = "auto-number with startAt"
     matching = [f for f in report.findings if f.check == check_name]
     assert len(matching) == 1
     assert matching[0].slide_id == "s1"
     assert "startAt='3'" in matching[0].detail or "startAt=3" in matching[0].detail
+    assert not report.passes
+
+
+def test_an_auto_number_with_startAt_in_notes_is_flagged(tmp_path: Path) -> None:
+    """If an auto-number in the notes slide has a startAt attribute, the audit flags it."""
+    # Use _sample_deck which has speaker notes, then tamper with the notes slide
+    deck = _sample_deck()
+    pptx = _render(deck, tmp_path)
+
+    # Add a buAutoNum with startAt to a paragraph in the notes slide
+    notes_xml = _read_part(pptx, "ppt/notesSlides/notesSlide1.xml")
+    # Add buAutoNum element with startAt to the first <a:p> paragraph
+    # Insert <a:pPr><a:buAutoNum type="arabicPeriod" startAt="5"/></a:pPr> after <a:p>
+    notes_xml = notes_xml.replace(
+        "<a:p><a:r>",
+        '<a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="5"/></a:pPr><a:r>',
+        1,
+    )
+    _replace_part(pptx, "ppt/notesSlides/notesSlide1.xml", notes_xml)
+
+    report = post_render_audit(deck, pptx)
+
+    check_name = "auto-number with startAt"
+    matching = [f for f in report.findings if f.check == check_name]
+    assert len(matching) == 1
+    assert matching[0].slide_id == "s2"  # _sample_deck has speaker notes on slide s2
+    assert "notes" in matching[0].detail
+    assert "startAt='5'" in matching[0].detail or "startAt=5" in matching[0].detail
     assert not report.passes
