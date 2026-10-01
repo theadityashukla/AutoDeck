@@ -1644,6 +1644,67 @@ def _gate2_checks(
     return checks
 
 
+@app.command()
+def render(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    env: EnvOption = "dev",
+) -> None:
+    """Art-direct, render and critique the approved deck into `runs/<run>/deck.pptx` (3b.10).
+
+    Scaffold contract — Sonnet fills:
+      - Unknown run → refused like every other command. `require_gate(Gate.CLAIMS)` first;
+        `GateBlocked` → exit 3. Nothing renders a deck whose claims the owner has not
+        approved (A7).
+      - Always re-runs its stages (`run_stage(..., force=True)`): the owner invokes it on
+        purpose. No options beyond run id, runs root and env — in particular none that skip
+        a stage, which the gate-bypass invariant test would rightly flag.
+      - Stage "art_direction": `run_art_direction(deck, brief=..., tokens=DesignTokens.load(
+        Path(deck.theme_ref)), model=guard.provider("outline"), work_dir=paths.previews /
+        "art_direction")`; save the result deck as a new IR version (`orchestrator.save_ir`).
+        Print each slide's mode and source, applied/rejected counts with reasons, the
+        rationale, any `render_error` (→ exit 4 after saving), and `stopped`/`detail`.
+      - Stage "render": `run_aesthetic_loop(deck, tokens=..., model=guard.provider(
+        "aesthetic"), work_dir=paths.previews / "aesthetic", pins=brief.layout_pins)`; save
+        its deck as a new IR version if it changed; `render_deck(final, out_path=
+        paths.deck_pptx)`; rasterise the final deck to `paths.previews / "final"`. Print the
+        stop reason, best score, every iteration's score/applied/rejected, and where the PNGs
+        are. `FontSubstitutionRisk`/`RenderError` → clean message, exit 1. `model_error` is
+        not a failure of the command: say plainly the deck was not (fully) critiqued and how
+        to re-run.
+      - Provider failures go through `ProviderGuard` / `_ends_on_provider_failure` exactly as
+        `content` and `validate` do (exit 5, with what was saved).
+      - Ends: "Next: autodeck gate3 <run>". Never approves anything.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
+@app.command()
+def gate3(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    env: EnvOption = "dev",
+) -> None:
+    """The GATE 3 review surface: deck, final audit and manifest, together (3b.10, A7).
+
+    Scaffold contract — Sonnet fills:
+      - Unknown run → refused. The "render" stage not complete or `paths.deck_pptx` missing
+        → exit 3 with "run `autodeck render <run>` first".
+      - `assess_final(latest IR, paths.deck_pptx, tokens=..., brief=..., profile=...)` and
+        the claim-level audit (`build_audit_report` as `gate2` builds it); write
+        `render_final_report(...)` to `paths.final_audit_report`; build and save the manifest
+        (`build_manifest(run_id=..., env=..., models=registry.manifest_entry(), prompts_dir=
+        Path("prompts"), knowledge_dir=<knowledge root>, ir_path=<latest IR file>)` →
+        `paths.manifest_file`).
+      - Print: the three paths (deck, final audit report, manifest) first — "the owner gets
+        deck, audit report and manifest together" is the task's definition of done — then
+        the report, then "Approve with `autodeck approve <run> final_render` after doing the
+        five PowerPoint checks above; the approval records the deck digest shown."
+      - Exit 4 if `not assessment.passes`. Never approves anything.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
 @app.command("send-back")
 def send_back(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],

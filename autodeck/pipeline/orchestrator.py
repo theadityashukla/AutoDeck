@@ -378,6 +378,19 @@ class Orchestrator:
                 f"before approvals were bound to artifacts). Re-run `{command}`",
             )
         if gate is Gate.CLAIMS:
+            # 3b.10 scaffold — Sonnet replaces this block. Contract: the claims approval is
+            # bound to the deck's FACTS, not to an IR file. Art direction and the aesthetic
+            # loop write new IR versions that are provably fact-identical (`apply_action`'s
+            # fingerprint check), and a file-bound approval would be voided by them. So:
+            #   validated = facts_digest(IR v{record.ir_version}); latest = facts_digest(
+            #   latest IR). If they differ → ArtifactMissing("the facts changed after
+            #   validation (IR v{latest}); re-run `{command}`"). Else return `validated`.
+            # `facts_digest(deck)` = sha256 of `json.dumps(fact_fingerprint(deck),
+            # sort_keys=True, default=str)` — define it once, in `autodeck/ir/actions.py`
+            # beside `fact_fingerprint`. Changing a claim, citation, verdict or any block
+            # text still voids the approval; changing style, component, mode or icons does
+            # not. Approvals recorded with the old file-sha fingerprint read CHANGED and must
+            # be re-approved; say so in the commit message.
             latest = self.ir.latest_version()
             if latest != record.ir_version:
                 raise ArtifactMissing(
