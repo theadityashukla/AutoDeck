@@ -236,6 +236,30 @@ def adapt_slide(slide: Slide, content_type: type) -> tuple[object, list[StyleNot
     return _adapt_generic(slide, content_type)
 
 
+def placeable_slots(component: str) -> frozenset[str]:
+    """Every slot name a face block may carry and be placed by `adapt_slide` for `component`.
+
+    **The single answer to "where can a block go".** The catalog's `ComponentSlot`s describe
+    text measurement, not placement: they omit chart and diagram slots and include the
+    computed `source`. The aesthetic loop's `SwapComponent` vocabulary is built from this
+    function, so it must agree with `adapt_slide` exactly — which is why it lives here,
+    beside the code it describes, rather than in the catalog.
+
+    Contract:
+      - Generic components: the content dataclass's fields that `_adapt_generic` fills from
+        blocks — `str`, `list[str]`, `DiagramSpec`, `ChartSpec` fields — and never a field
+        it computes (`source`, `accent`, or any field taken from `slide.style`). Derive this
+        from the same classification `_adapt_generic` uses (factor it out if needed) — not
+        a second list.
+      - `ADAPTERS` components: `ADAPTER_SLOTS[content_type]`, a frozenset declared next to
+        each adapter. A test ties the two: for each adapted component, a block in each
+        declared slot is consumed, and a block in any other slot is `UnplacedBlockError`.
+      - Unknown component → `UnknownComponentError`.
+      - Pure, no `Canvas`, no tokens, no fonts: slot names do not depend on the theme.
+    """
+    raise NotImplementedError("scaffold: Sonnet fills this in")
+
+
 def source_line(citations: list[Citation]) -> str:
     """The caption-band source text. **Reuse** the formatter in `autodeck.design.charts`
     (`source_line`) rather than writing a second one — two descriptions of one format is the

@@ -861,3 +861,15 @@ def test_scaled_tokens_spacious_multiplies_every_size() -> None:
     scaled = scaled_tokens(tokens, "spacious")
     assert scaled.typography.title == pytest.approx(tokens.typography.title * 1.1)
     assert scaled.typography.body == pytest.approx(tokens.typography.body * 1.1)
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_placeable_slots_agrees_with_adapt_slide_for_every_component() -> None:
+    """For every `known_components()` name: `placeable_slots` never contains `source` or
+    `accent`; contains the chart/diagram field names of components that have them
+    (`chart_focus`, `framework_diagram`, `timeline`); every slot used by the component's
+    catalog example is in it; and for each slot in it, a slide holding the example blocks
+    plus nothing outside `placeable_slots` adapts without `UnplacedBlockError`, while a block
+    in a slot *not* in it raises `UnplacedBlockError`. Unknown name →
+    `UnknownComponentError`."""
+    raise NotImplementedError

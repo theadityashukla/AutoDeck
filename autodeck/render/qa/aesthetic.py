@@ -69,9 +69,7 @@ from typing import Literal, Protocol, get_args
 
 from autodeck.audit.post_render import post_render_audit
 from autodeck.design.components.catalog import (
-    UnknownComponentError,
     known_components,
-    registration,
 )
 from autodeck.design.icons.library import (
     CONCEPT_TO_ICON,
@@ -79,7 +77,6 @@ from autodeck.design.icons.library import (
     available_concepts,
     resolve_icon,
 )
-from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.actions import (
     Action,
@@ -196,40 +193,17 @@ class AestheticLoopError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-def catalog_slot_lookup(tokens: DesignTokens | None = None) -> SlotLookup:
-    """A `SlotLookup` over the registered component catalog.
+def catalog_slot_lookup() -> SlotLookup:
+    """A `SlotLookup` over the registered components, as the renderer places them.
 
-    Contract: returns a callable mapping a component name to the frozenset of its slot
-    names (from `autodeck.design.components.catalog.registration(name)`), or `None` when
-    the catalog raises `UnknownComponentError`. Never raises for an unknown name.
-
-    A component's slot names are the names of the `ComponentSlot`s its variants declare, so
-    they are the union over every variant: a block may be seated in any slot any variant
-    names. The names do not depend on the client's theme, but the catalog builds slots only
-    against a `Canvas`, which measures real glyphs — so `tokens` supplies fonts that exist.
-    Omitted, it is `config/tokens/dev.json`, resolved like `PROMPT_PATH`, from the working
-    directory. Results are cached per component.
+    Contract: delegates to `autodeck.render.renderer.placeable_slots` — the single authority
+    on where a block can go — and maps its `UnknownComponentError` to `None`. Never raises
+    for an unknown name. No tokens, no `Canvas`: slot names do not depend on the theme.
+    (Amended: the first scaffold read the catalog's `ComponentSlot`s, which describe text
+    measurement, not placement — they omit chart/diagram slots and include the computed
+    `source`, and building them needs a `Canvas` with installed fonts.)
     """
-    cache: dict[str, frozenset[str]] = {}
-    resolved: list[DesignTokens] = []
-
-    def slots_of(component: str) -> frozenset[str] | None:
-        if component in cache:
-            return cache[component]
-        try:
-            entry = registration(component)
-        except UnknownComponentError:
-            return None
-        if not resolved:
-            resolved.append(tokens if tokens is not None else DesignTokens.load(DEFAULT_TOKENS))
-        canvas = Canvas(resolved[0])
-        names = frozenset(
-            slot.name for variant in entry.variants for slot in variant.slots(canvas)
-        )
-        cache[component] = names
-        return names
-
-    return slots_of
+    raise NotImplementedError("scaffold: Sonnet re-fills this against placeable_slots")
 
 
 def library_concept_lookup() -> ConceptLookup:
@@ -295,6 +269,17 @@ def run_aesthetic_loop(
         slots_of=..., glyph_for=...)`, threading the result; an `ActionRejected` is recorded
         and the next action is tried against the unchanged candidate. `FactMutationError`
         propagates (never caught — module docstring). If nothing applied → `all_rejected`.
+      - **Trial render per action.** After `apply_action` succeeds, `render_deck` the
+        candidate to a scratch path in the iteration's directory (pure python-pptx, ~10 ms a
+        slide — no LibreOffice). `RenderStageError` (incl. `UnplacedBlockError`,
+        `UnknownComponentError`) or `LayoutOverflowError` → the action is recorded as
+        rejected with reason `"does not render: <ExcType>: <msg>"` and the candidate reverts
+        to before it. This is how a `spacious` overflow or a swap onto a slot the component
+        cannot fill becomes a rejected action (`renderer.TYPE_SCALE_FACTORS`' docstring)
+        rather than a crash. `FontNotFoundError`, `RenderBlocked` and anything else
+        propagate — they are environment or safety failures, not properties of the action.
+        Consequently the next iteration's render of the candidate cannot fail for the
+        action's sake; if it raises, that is a defect and propagates.
       - After `max_iterations` scored looks, `max_iterations`. The unscored final candidate
         is discarded.
       - Return the deck with the highest recorded score; ties go to the earlier deck (fewer
@@ -440,7 +425,7 @@ def _audit_summary(numeric: Sequence[object], findings: Sequence[object]) -> str
 def _critique_prompt(
     deck: Deck,
     *,
-    qa_findings: Sequence[object],
+    qa_findings: Sequence[QAFinding],
     iteration: int,
     previous: Sequence[Iteration],
     slots_of: SlotLookup,

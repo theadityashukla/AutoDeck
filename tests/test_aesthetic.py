@@ -804,3 +804,27 @@ def test_one_real_iteration_renders_true_pngs_and_keeps_facts(tmp_path: Path) ->
         assert all(png.read_bytes().startswith(b"\x89PNG") for png in pngs)
     assert [len(call) for call in critic.images] == [2, 2]
     assert fact_fingerprint(result.deck) == fact_fingerprint(deck)
+
+
+# ---------------------------------------------------------------------------
+# Scaffold amendment: placement authority and per-action trial render
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_an_action_that_does_not_render_is_rejected_not_fatal() -> None:
+    """A critic proposing [SwapComponent onto a slot the target cannot place, a valid
+    SetAccent] → the swap is in `rejected` with a reason starting "does not render:", the
+    accent is applied, the loop continues to the next look. Same for a `SetTypeScale` that
+    makes a slide overflow (monkeypatch `render_deck` in aesthetic's namespace to raise
+    `LayoutOverflowError` for that candidate only). Fingerprint equal."""
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_environment_failures_during_a_trial_render_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`FontNotFoundError` raised by the trial render escapes `run_aesthetic_loop`; it is not
+    recorded as a rejected action."""
+    raise NotImplementedError
