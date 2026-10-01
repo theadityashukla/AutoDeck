@@ -48,8 +48,10 @@ _HEADER_ROLE = "title"
 
 #: Repeated syntax (3b.9): a header "opening" is its first `OPENING_WORDS` words, lowercased,
 #: with surrounding punctuation stripped. When `REPEATED_OPENING_THRESHOLD` or more headers
-#: share one, the deck reads as a template being filled in ("Costs fall…", "Costs rise…",
-#: "Costs stabilise…"). Two is a parallel pair, often deliberate; three is a pattern.
+#: share one, the deck reads as a template being filled in ("Inference costs fall…",
+#: "Inference costs dominate…", "Inference costs vary…"). Two is a parallel pair, often
+#: deliberate; three is a pattern. Two words, not one: a one-word opening fires on every
+#: deck whose headers start "The" or "Our".
 OPENING_WORDS = 2
 REPEATED_OPENING_THRESHOLD = 3
 
