@@ -137,8 +137,9 @@ from autodeck.design.theme.tokens import DesignTokens
 #: `label` loses its silent "Takeaway" default. Slot boxes and the slot set both moved.
 #:
 #: 0.6.0: B35 registers `icon_pillars`, the first component with a face icon, and `Stack`
-#: gains an `icon` item. The set of components and the set of placeable slots both moved
-#: (`pillar_icon`, `pillar_label`, `pillar_point`); no existing component's geometry did.
+#: gains an `icon` item that loads its glyph file directly. The set of components and the
+#: set of placeable slots both moved (`pillar_icon`, `pillar_label`, `pillar_point`); no
+#: existing component's geometry did.
 COMPONENT_LIB_VERSION = "0.6.0"
 
 #: Where golden preview PNGs live — the design artifact of record (D5, §6.6). One directory
@@ -1087,8 +1088,10 @@ def _icon_pillars_slots(canvas: Canvas) -> list[ComponentSlot]:
 
     Contract: `headline` (as `_data_card_grid_slots` builds it); `pillar_label` and
     `pillar_point`, both repeatable, budgeted against **one column of the densest layout**
-    (`icon_pillars.MAX_PILLARS` columns — the renderer's own `grid(1, n, ...)` call, read off
-    its arithmetic, not re-guessed), each `max_items = MAX_PILLARS`; `pillar_point`
+    (`icon_pillars.MAX_PILLARS` columns, inside the panel padding — the renderer's own
+    `grid(1, n, ...)` and `pad(PANEL_PADDING)` calls, read off its arithmetic, not
+    re-guessed), each `max_items = MAX_PILLARS`; `pillar_point` allows
+    `icon_pillars.MAX_POINT_LINES` (two) lines per item, `pillar_label` one; `pillar_point`
     `required=False`; and `source` in the caption band, `required=False`, as every cited
     component declares it. Icons are not text and get no `ComponentSlot`, exactly as charts
     and diagrams do not; their slot (`pillar_icon`) is declared in the renderer's
@@ -1102,14 +1105,18 @@ def _icon_pillars_slots(canvas: Canvas) -> list[ComponentSlot]:
 
     _, region = body.split_top(headline_one_line, gutter=canvas.baseline * 4)
 
-    # One column's width under the densest layout (MAX_PILLARS across) — the same
-    # `grid(1, n, ...)` call `render()` makes, so this is a read of its arithmetic.
+    # One panel's content width under the densest layout (MAX_PILLARS across): the same
+    # `grid(1, n, ...)` and `pad(PANEL_PADDING)` calls `render()` makes, so this is a read of
+    # its arithmetic. Text is laid out in the padded panel, not the whole column.
     column = region.grid(1, icon_pillars.MAX_PILLARS, gutter=canvas.gutter)[0][0]
+    inner = column.pad(icon_pillars.PANEL_PADDING)
 
     label_style = canvas.style("body", bold=True, align="center")
     point_style = canvas.style("body", align="center")
-    label_item_box = column.resize(height=_one_line_height(canvas, label_style, column.width))
-    point_item_box = column.resize(height=_one_line_height(canvas, point_style, column.width))
+    label_item_box = inner.resize(height=_one_line_height(canvas, label_style, inner.width))
+    point_item_box = inner.resize(
+        height=icon_pillars.MAX_POINT_LINES * _one_line_height(canvas, point_style, inner.width)
+    )
 
     # The renderer's gaps between a column's items: label under icon, point under label.
     label_gap = canvas.baseline * 2

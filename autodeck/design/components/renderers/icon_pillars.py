@@ -6,15 +6,21 @@ ideas a reader should take in as a set, each anchored by a glyph. This is the co
 no component could place an icon on a slide face at all (B35).
 
 Structure: a headline across the top; below it, the body split into equal columns, one per
-pillar. Each column is a stack: the icon, then its label directly beneath, then an optional
-one-line point. The icon and its label are drawn in **one stack**, so their adjacency is a
-construction fact, not a geometric coincidence `grammar.check_icon_adjacency` has to infer
-(that module's docstring names the missing structural pairing; this is it for this
-component).
+pillar. Each column is a tinted panel (the accent at 0.92 brightness, as `data_card_grid`'s
+cards are) that runs the full height of the region under the headline, so the pillars read
+as a set of equal-height slabs rather than a row of loose items. Inside each panel the
+content is top-aligned with `data_card_grid`'s card padding: the icon, then its label
+directly beneath, then an optional point of up to two lines. Because every stack starts at
+the panel's top edge, the icons share one top edge across the slide, whatever the labels
+and points below them do. The icon and its label are drawn in **one stack**, so their
+adjacency is a construction fact, not a geometric coincidence
+`grammar.check_icon_adjacency` has to infer (that module's docstring names the missing
+structural pairing; this is it for this component).
 
 **The icon drawn is the IR's resolved glyph, not a re-resolution of its concept.**
-`PillarIcon.glyph` is `IconRef.glyph_id`; `Frame.icon` falls back from concept to literal
-filename, so passing the glyph id draws exactly that file. Re-resolving the concept here
+`PillarIcon.glyph` is `IconRef.glyph_id`, and `Stack.icon` loads that vendored file
+directly (`load_icon`), never through the concept table, so even a glyph whose file name is
+also a concept that maps elsewhere draws the file named. Re-resolving the concept here
 would make `SwapGlyph`'s recorded `glyph_id` decorative — the deck would show whatever the
 concept table says today, not what the IR says.
 
@@ -28,6 +34,7 @@ from typing import cast, get_args
 
 from pptx.slide import Slide
 
+from autodeck.design.components.renderers import data_card_grid
 from autodeck.design.draw import ThemeColor
 from autodeck.design.layout_kit import Canvas, Frame, Stack
 
@@ -36,8 +43,19 @@ from autodeck.design.layout_kit import Canvas, Frame, Stack
 MIN_PILLARS = 3
 MAX_PILLARS = 4
 
-#: The icon's square edge, as a multiple of the token baseline.
-_ICON_BASELINES = 6
+#: The icon's square edge, as a multiple of the token baseline. Ten baselines is 80pt with
+#: the dev tokens: large enough to anchor a panel as the thing the eye lands on first.
+_ICON_BASELINES = 10
+
+#: Padding between a panel's edge and its content — `data_card_grid`'s card padding, by
+#: reference, so the two panelled components keep one inset.
+PANEL_PADDING = data_card_grid._CARD_PADDING
+
+#: The most lines a pillar's point may take. The slot budget and the renderer read this one.
+MAX_POINT_LINES = 2
+
+#: The panel tint, the same brightness `data_card_grid`'s cards use.
+_PANEL_BRIGHTNESS = 0.92
 
 
 @dataclass
@@ -54,7 +72,8 @@ class Pillar:
     label: str
     """A short framing label — what this pillar is. Uncited framing, so under A5's fence."""
     point: str | None = None
-    """An optional one-line claim — what is true of it. Cited when present."""
+    """An optional short claim, up to `MAX_POINT_LINES` lines — what is true of it. Cited
+    when present."""
 
 
 @dataclass
@@ -77,15 +96,16 @@ def render(slide: Slide, canvas: Canvas, content: IconPillarsContent) -> None:
         face, bold), placed with `gutter=canvas.baseline * 4`; `content.source` in the
         caption band exactly as the other cited components write it.
       - The region below splits into `len(content.pillars)` equal columns with
-        `canvas.gutter` between (`Box.grid(1, n, ...)`).
-      - Each column: one `frame.stack(f"icon_pillars pillar {i}", ...)` holding, top to
-        bottom, the icon (square, `_ICON_BASELINES * canvas.baseline`, centred), the label
+        `canvas.gutter` between (`Box.grid(1, n, ...)`); each column is the full height of
+        the region, down to the caption band.
+      - Each column is a panel: `frame.rect(column, fill=pillar.icon.color,
+        fill_brightness=0.92)`. Its content is one `frame.stack(f"icon_pillars pillar {i}",
+        ...)`, `column.pad(PANEL_PADDING)` wide, placed **top-aligned** in the padded panel
+        (no vertical centring), holding, top to bottom, the icon (square,
+        `_ICON_BASELINES * canvas.baseline`, centred), the label
         (`canvas.style("body", bold=True)`, centred), and the point when present
-        (`canvas.style("body")`, centred). The icon is drawn with
-        `frame.icon(box, pillar.icon.glyph, color=pillar.icon.color)`.
-        If `Stack` has no item for an icon, add the smallest honest one to `layout_kit`
-        (`Stack.icon(...)`, measured as its box height) rather than placing the icon outside
-        the stack — the stack is what makes adjacency structural.
+        (`canvas.style("body")`, centred). The icon is added with
+        `stack.icon(pillar.icon.glyph, ...)`, which draws that vendored file directly.
       - `len(pillars)` outside `MIN_PILLARS..MAX_PILLARS` → `ValueError` naming the count.
       - Overflow raises `LayoutOverflowError` like every other component; no shrinking.
     """
@@ -109,18 +129,11 @@ def render(slide: Slide, canvas: Canvas, content: IconPillarsContent) -> None:
     region = headline.place(body, gutter=canvas.baseline * 4)
 
     columns = region.grid(1, count, gutter=canvas.gutter)[0]
-
-    # Every column's stack is declared before any is placed, so the row can be one band as
-    # tall as its tallest pillar: icons then share a top edge across the slide, and the
-    # whole row is centred in the space under the headline as a unit.
-    stacks = [
-        _pillar_stack(frame, canvas, index, pillar, column.width)
-        for index, (pillar, column) in enumerate(zip(content.pillars, columns, strict=True))
-    ]
-    band_height = max(stack.height for stack in stacks)
-    band = region.reserve(band_height, valign="middle", what="icon_pillars pillars")
-    for stack, column in zip(stacks, columns, strict=True):
-        stack.place(column.resize(height=band.height).offset(dy=band.y - column.y))
+    for index, (pillar, column) in enumerate(zip(content.pillars, columns, strict=True)):
+        frame.rect(column, fill=pillar.icon.color, fill_brightness=_PANEL_BRIGHTNESS)
+        inner = column.pad(PANEL_PADDING)
+        stack = _pillar_stack(frame, canvas, index, pillar, inner.width)
+        stack.place(inner, valign="top")
 
     frame.caption(caption, content.source)
 

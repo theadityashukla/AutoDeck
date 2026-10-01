@@ -22,6 +22,7 @@ from autodeck.design.icons.consistency import (
 )
 from autodeck.design.icons.custgeom import custgeom_xml, place_icon
 from autodeck.design.icons.library import (
+    CONCEPT_TO_ICON,
     Icon,
     IconNotFoundError,
     UnsupportedIconElementError,
@@ -482,6 +483,18 @@ def test_a_stack_icon_is_measured_as_its_height_and_centred_across_the_width() -
         assert shape.top == pytest.approx(pt_to_emu(50), abs=2)
         assert shape.width == pytest.approx(pt_to_emu(48), abs=2)
     assert label.top == pytest.approx(pt_to_emu(50 + 48 + 10), abs=2)
+
+
+def test_a_stack_icon_draws_the_named_file_even_when_a_concept_shares_its_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Stack.icon` takes a glyph file, never a concept: with `zap` remapped to another file
+    in the concept table, it still draws `zap`."""
+    monkeypatch.setitem(CONCEPT_TO_ICON, "zap", "circle-alert")
+    frame = _frame()
+    frame.stack("pillar", 200).icon("zap", size=48).place(Box(0, 0, 200, 100))
+    names = {s.name for s in frame.slide.shapes}
+    assert names == {"icon:lucide:zap"}
 
 
 def test_the_caption_strip_and_the_body_come_from_one_split() -> None:

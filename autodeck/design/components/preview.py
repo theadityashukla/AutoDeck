@@ -287,22 +287,22 @@ EXAMPLES: dict[str, Any] = {
             Pillar(
                 icon=PillarIcon(glyph="users", color="accent1"),
                 label="Embedded teams",
-                point="Teams in each region",
+                point="Squads placed in each region",
             ),
             Pillar(
                 icon=PillarIcon(glyph="shield-check", color="accent1"),
-                label="Built-in security",
-                point="Scanned each release",
+                label="Secure by design",
+                point="Automated checks each release",
             ),
             Pillar(
                 icon=PillarIcon(glyph="zap", color="accent1"),
                 label="Faster delivery",
-                point="Weeks cut to days",
+                point="Weeks of waiting cut to days",
             ),
             Pillar(
                 icon=PillarIcon(glyph="trending-up", color="accent1"),
-                label="Compounding growth",
-                point="Gains build on gains",
+                label="Steady growth",
+                point="Each rollout builds on the last",
             ),
         ],
         source="Source: internal programme review, Q3 2025.",

@@ -26,7 +26,7 @@ from autodeck.design.components.renderers.icon_pillars import (
     PillarIcon,
 )
 from autodeck.design.icons.consistency import ICON_NAME_PREFIX
-from autodeck.design.icons.library import CONCEPT_TO_ICON
+from autodeck.design.icons.library import CONCEPT_TO_ICON, IconNotFoundError
 from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.master_builder import new_presentation, save_themed
 from autodeck.design.theme.tokens import DesignTokens
@@ -262,6 +262,71 @@ def test_the_drawn_glyph_is_the_irs_glyph_id_not_its_concept(tmp_path: Path) -> 
     }
     assert "icon:lucide:zap" in names
     assert "icon:lucide:circle-alert" not in names
+
+
+def test_a_glyph_whose_file_name_is_also_a_concept_still_draws_the_named_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The renderer loads the glyph file directly. If a concept were created with the same
+    name as a vendored file but mapped to a DIFFERENT glyph, the named file still wins;
+    going through the concept table would draw `circle-alert` here."""
+    monkeypatch.setitem(CONCEPT_TO_ICON, "zap", "circle-alert")
+    assert CONCEPT_TO_ICON["zap"] != "zap"  # the collision exists
+
+    blocks = _blocks(3, glyphs=("zap", "users", "clock"))
+    out = tmp_path / "deck.pptx"
+    render_deck(_deck(_slide(blocks)), tokens=tokens_for(), out_path=out)
+
+    names = {
+        shape.name
+        for shape in Presentation(str(out)).slides[0].shapes
+        if shape.name.startswith(ICON_NAME_PREFIX)
+    }
+    assert "icon:lucide:zap" in names
+    assert "icon:lucide:circle-alert" not in names
+
+
+def test_an_unknown_glyph_file_is_refused_not_guessed(tmp_path: Path) -> None:
+    pillar = Pillar(icon=PillarIcon(glyph="no-such-glyph"), label="Speed")
+    content = IconPillarsContent(headline="Unknown glyph", pillars=[pillar] * 3)
+    with pytest.raises(IconNotFoundError):
+        _render_content(content, tmp_path)
+
+
+def test_each_pillar_is_a_full_height_tinted_panel_with_top_aligned_content(
+    tmp_path: Path,
+) -> None:
+    """One panel per pillar, all the same height and running down to the caption band; the
+    pillar's icon starts a fixed padding below its panel's top edge, whatever its label and
+    point do."""
+    tokens = tokens_for()
+    canvas = Canvas(tokens)
+    body, _ = canvas.body_and_caption()
+    content = _example(4)
+    slide = _render_content(content, tmp_path).slides[0]
+
+    panels = sorted(
+        (
+            s
+            for s in slide.shapes
+            if s.name.startswith("Rectangle") or s.name.startswith("Rect")
+        ),
+        key=lambda s: s.left,
+    )
+    assert len(panels) == 4
+    assert len({round(p.height.pt, 1) for p in panels}) == 1
+    assert all(round(p.top.pt, 1) == round(panels[0].top.pt, 1) for p in panels)
+    assert panels[0].top.pt + panels[0].height.pt == pytest.approx(body.bottom, abs=0.5)
+    assert panels[0].height.pt > body.height / 2  # fills the region, not a content-sized chip
+
+    for panel, (left, top, width, _height) in zip(panels, _icon_boxes(slide), strict=True):
+        assert top == pytest.approx(panel.top.pt + icon_pillars.PANEL_PADDING, abs=0.5)
+        assert left + width / 2 == pytest.approx(panel.left.pt + panel.width.pt / 2, abs=1.0)
+
+    # The panel tint is a theme colour, never a literal.
+    for panel in panels:
+        assert panel._element.xpath(".//a:srgbClr") == []
+        assert panel._element.xpath(".//a:schemeClr")
 
 
 def _line_colours(slide: Any) -> list[tuple[str, str]]:
