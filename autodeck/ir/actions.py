@@ -272,6 +272,8 @@ def _find_slide(deck: Deck, slide_id: str) -> Slide:
 
 
 def _find_icon_block(slide: Slide, block_id: str) -> Block:
+    """Face only — see `apply_action`'s contract. Scaffold: Sonnet narrows the search to
+    `slide.blocks` and gives a notes-resident id its own message."""
     for block in slide.all_blocks():
         if block.id == block_id:
             if block.kind != "icon":
@@ -314,6 +316,10 @@ def apply_action(
       - `SwapGlyph`: `glyph_for(concept)` is `None` → `UnknownAddressError`; else set both
         `concept` and `glyph_id`. The target block must be `kind == "icon"`.
       - `SetIconColour`: target block must be an icon.
+      - Both icon actions address **face** blocks only (`slide.blocks`). An icon block in
+        `speaker_notes` is not drawn, so the vision model cannot have seen it and has no
+        grounds to restyle it → `UnknownAddressError` saying the block is in the notes, not
+        on the face. `_find_icon_block` enforces this for both actions.
       - Pins: a `SwapComponent` on a slide whose served message has a `component` pin, or a
         `SetCommunicationMode` against a `communication_mode` pin → `PinnedTargetError`.
         (No action can alter a diagram's kind; see the module docstring.) A slide is pinned
