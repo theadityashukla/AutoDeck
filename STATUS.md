@@ -50,18 +50,23 @@ send back). It is the only copy of those instructions; start with its "Before yo
 Budget the quota: 20 requests per model per day, roughly one `content` call per slide and
 one `validation` call per six claims, spread across five models (B25).
 
-### Three owner decisions waiting at GATE 2
+### Four owner decisions waiting at GATE 2
 
 - **B30 — a gate approval does not survive the machine.** Approvals live in
   `runs/<id>/state.json`, which is derived data and not committed (B22). The human act
   survives in `DECISIONS.md` only because we write it there by convention, and an approval
-  is the one thing in a run that cannot be reproduced. Three options are set out in B30.
+  is the one thing in a run that cannot be reproduced. Since the A7 change `state.json` also
+  stores the sha256 of what was approved, so an approval no longer silently covers changed
+  content — but it is still only in the uncommitted file. Three options are set out in B30.
 - **Should A5 fence `section_header`?** A section header is framing by nature, and nothing
   currently stops one carrying a fact. Input from the headers work: lean yes, narrowly — it
   is where A5's closed list is weakest.
 - **Chart verdict / per-cell citations.** `chart` blocks never receive a verdict, and
   `ChartSpec.source_citations` is not linked per data point, so "the source table cell is
   the citation" is not literally satisfiable without an IR change.
+- **Which error for "does not fit"?** `split_rows`/`split_columns` raise `ValueError` where
+  `Box.reserve` raises `LayoutOverflowError`; making them consistent is a breaking change a
+  test pins (`docs/handovers/PHASE-3A.md`).
 
 ### Carried from GATE 0 — verification debt, not blockers
 

@@ -18,6 +18,7 @@ from autodeck.audit.manifest import Manifest, build_manifest, hash_prompts
 from autodeck.audit.numeric_linter import NumericReport, lint_deck
 from autodeck.ir.models import Block, Citation, Claim, Deck, Slide, Verdict
 from autodeck.pipeline.orchestrator import (
+    ArtifactMissing,
     Gate,
     GateBlocked,
     Orchestrator,
@@ -26,6 +27,7 @@ from autodeck.pipeline.orchestrator import (
     assess_render_safety,
     require_safe_to_render,
 )
+from tests.gate_artifacts import seed_artifact
 
 
 def make(tmp_path: Path, run_id: str = "r1", env: str = "dev") -> Orchestrator:
@@ -45,12 +47,14 @@ def test_an_unapproved_gate_raises(tmp_path: Path, gate: Gate) -> None:
 
 def test_an_approved_gate_passes(tmp_path: Path) -> None:
     orchestrator = make(tmp_path)
+    seed_artifact(orchestrator, Gate.BRIEF)
     orchestrator.approve(Gate.BRIEF)
     orchestrator.require_gate(Gate.BRIEF)  # must not raise
 
 
 def test_approving_one_gate_does_not_approve_the_others(tmp_path: Path) -> None:
     orchestrator = make(tmp_path)
+    seed_artifact(orchestrator, Gate.BRIEF)
     orchestrator.approve(Gate.BRIEF)
     assert orchestrator.pending_gates() == [Gate.OUTLINE, Gate.CLAIMS, Gate.FINAL_RENDER]
     with pytest.raises(GateBlocked):
@@ -64,16 +68,63 @@ def test_there_are_exactly_four_gates(tmp_path: Path) -> None:
 
 
 def test_an_approval_records_who_and_when(tmp_path: Path) -> None:
-    """An approval is an auditable event on disk, not a boolean in a process."""
+    """An approval is an auditable event on disk, not a boolean in a process — and it names
+    the artifact it covers, for every one of the four gates."""
+    from autodeck.audit.manifest import canonical_pptx_digest
+
     orchestrator = make(tmp_path)
-    orchestrator.approve(Gate.CLAIMS, approver="aditya")
+    for gate in Gate:
+        seed_artifact(orchestrator, gate)
+        orchestrator.approve(gate, approver="aditya")
+
     stored = json.loads(orchestrator.paths.state_file.read_text(encoding="utf-8"))
-    assert "aditya" in stored["approvals"]["claims"]
+    for gate in Gate:
+        assert "aditya" in stored["approvals"][gate.value]
+        assert len(stored["fingerprints"][gate.value]) == 64
+    assert stored["fingerprints"]["final_render"] == canonical_pptx_digest(
+        orchestrator.paths.deck_pptx
+    )
+    assert orchestrator.pending_gates() == []
+
+
+def test_a_later_content_pass_makes_the_claims_approval_stale(tmp_path: Path) -> None:
+    """The claims table the owner approved is the validated IR. A newer IR version written
+    after validation (a content pass) means it is no longer the latest, and approving — or
+    relying on an earlier approval — must not pass."""
+    orchestrator = make(tmp_path)
+    seed_artifact(orchestrator, Gate.CLAIMS)
+    orchestrator.approve(Gate.CLAIMS)
+    orchestrator.require_gate(Gate.CLAIMS)
+
+    newer = orchestrator.ir.load().model_copy(update={"version": 2})
+    orchestrator.ir.save(newer)
+
+    with pytest.raises(GateBlocked, match="not the latest"):
+        make(tmp_path).require_gate(Gate.CLAIMS)
+    with pytest.raises(ArtifactMissing, match="not the latest"):
+        make(tmp_path).approve(Gate.CLAIMS)
+
+
+def test_replacing_the_rendered_deck_invalidates_the_final_render_approval(
+    tmp_path: Path,
+) -> None:
+    orchestrator = make(tmp_path)
+    seed_artifact(orchestrator, Gate.FINAL_RENDER, marker="one")
+    orchestrator.approve(Gate.FINAL_RENDER)
+    orchestrator.require_gate(Gate.FINAL_RENDER)
+
+    seed_artifact(orchestrator, Gate.FINAL_RENDER, marker="two")
+    with pytest.raises(GateBlocked, match="rendered deck changed after it was approved"):
+        orchestrator.require_gate(Gate.FINAL_RENDER)
 
 
 def test_approvals_survive_a_restart(tmp_path: Path) -> None:
-    make(tmp_path).approve(Gate.OUTLINE)
-    assert make(tmp_path).state.is_approved(Gate.OUTLINE)
+    first = make(tmp_path)
+    seed_artifact(first, Gate.OUTLINE)
+    first.approve(Gate.OUTLINE)
+    resumed = make(tmp_path)
+    assert resumed.state.is_approved(Gate.OUTLINE)
+    resumed.require_gate(Gate.OUTLINE)  # still the artifact that was approved
 
 
 def test_the_gate_error_says_how_to_approve(tmp_path: Path) -> None:
@@ -85,13 +136,54 @@ def test_no_command_can_bypass_a_gate() -> None:
     """The invariant. No CLI option may approve a gate as a side effect of running.
 
     `approve` is the only command allowed to record an approval, and it does nothing else.
+    Checked over **every registered command**, sub-apps included, so a command added later
+    is covered without anyone remembering to list it; and over the package source, so the
+    only callers of `Orchestrator.approve` are the two sanctioned ones.
     """
+    import re
+
+    import typer.main
+
+    import autodeck
     from autodeck import cli
 
-    banned = {"yes", "force", "skip_gates", "no_gates", "auto_approve", "approve"}
+    banned = {"yes", "force", "skip_gates", "no_gates", "auto_approve", "approve", "trust"}
+    commands: list[tuple[str, set[str]]] = []
+
+    def walk(group: object, path: str) -> None:
+        for name, command in getattr(group, "commands", {}).items():
+            commands.append(
+                (f"{path} {name}".strip(), {p.name for p in command.params if p.name})
+            )
+            walk(command, f"{path} {name}".strip())
+
+    walk(typer.main.get_command(cli.app), "")
+    assert len(commands) > 10, "the walk found too few commands to be checking anything"
+    #: `knowledge ingest --force` re-ingests PDFs; it is not near a gate.
+    unrelated = {("knowledge ingest", "force")}
+    for name, parameters in commands:
+        leaked = {p for p in parameters & banned if (name, p) not in unrelated}
+        assert not leaked, f"`autodeck {name}` exposes a gate bypass: {leaked}"
+
+    # The two old explicit checks, kept: `run` and `status` by signature.
     for name in ("run", "status"):
         parameters = set(inspect.signature(getattr(cli, name)).parameters)
         assert not (parameters & banned), f"cli.{name} exposes a gate bypass"
+
+    # Who may call `.approve(`: `cli.approve` and `PlannerSession.sign_off`, nothing else.
+    root = Path(autodeck.__file__).parent
+    callers = {
+        str(path.relative_to(root)): len(re.findall(r"\.approve\(", path.read_text()))
+        for path in root.rglob("*.py")
+        if ".approve(" in path.read_text()
+    }
+    assert callers == {"cli.py": 1, "agents/planner.py": 1}, callers
+    assert ".approve(" in inspect.getsource(cli.approve)
+
+    # No environment variable decides an approval: the gate code never reads the environment.
+    for relative in ("pipeline/orchestrator.py", "agents/planner.py"):
+        source = (root / relative).read_text()
+        assert "environ" not in source and "getenv" not in source, relative
 
 
 # ---------------------------------------------------------------------------

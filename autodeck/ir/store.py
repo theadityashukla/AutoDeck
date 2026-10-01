@@ -75,6 +75,21 @@ class RunPaths:
         return self.root / "llm_cache"
 
     @property
+    def draft_brief(self) -> Path:
+        """An unsigned planning draft, kept so `autodeck plan` can resume it."""
+        return self.root / "draft_brief.json"
+
+    @property
+    def audit_report(self) -> Path:
+        """The rendered audit report `autodeck gate2` writes (A6: every deck ships one)."""
+        return self.root / "audit_report.md"
+
+    @property
+    def deck_pptx(self) -> Path:
+        """The rendered deck. The final-render gate's fingerprint is taken from this file."""
+        return self.root / "deck.pptx"
+
+    @property
     def state_file(self) -> Path:
         return self.root / "state.json"
 

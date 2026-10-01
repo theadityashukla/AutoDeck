@@ -131,7 +131,7 @@ def make_run(tmp_path: Path) -> tuple[Path, Path, Path]:
         theme_ref="config/tokens/dev.json",
         component_lib_version=COMPONENT_LIB_VERSION,
     )
-    orchestrator.ir.save(deck)
+    orchestrator.run_stage("outline", lambda: f"wrote {orchestrator.save_ir(deck)}", force=True)
     orchestrator.approve(Gate.OUTLINE)
     return knowledge_root, corpus_root, runs_root
 
@@ -619,7 +619,18 @@ def test_none_of_the_new_commands_can_record_an_approval() -> None:
     from autodeck import cli
 
     banned = {"yes", "force", "skip_gates", "no_gates", "auto_approve", "approve"}
-    for name in ("content", "validate", "gate2", "send_back"):
+    for name in (
+        "content",
+        "validate",
+        "gate2",
+        "send_back",
+        "outline",
+        "plan",
+        "status",
+        "run",
+        "ir_versions",
+        "ir_diff",
+    ):
         func = getattr(cli, name)
         parameters = set(inspect.signature(func).parameters)
         assert not (parameters & banned), f"cli.{name} exposes a gate bypass"

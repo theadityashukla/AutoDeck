@@ -43,7 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -297,6 +297,40 @@ class Draft:
         excused = {risk.message_id for risk in self.open_risks}
         return [m for m in self.key_messages if m.needs_a_risk() and m.id not in excused]
 
+    def is_blank(self) -> bool:
+        """Nothing has been drafted yet — not worth saving or resuming."""
+        return self == Draft()
+
+    def to_dict(self) -> dict[str, Any]:
+        """The draft as JSON-able data, for `PlannerSession.save_draft`."""
+        return {
+            "objective": self.objective,
+            "audience": self.audience,
+            "key_messages": [m.model_dump(mode="json") for m in self.key_messages],
+            "must_include": list(self.must_include),
+            "must_avoid": list(self.must_avoid),
+            "length_target": self.length_target,
+            "header_style": self.header_style,
+            "layout_pins": [p.model_dump(mode="json") for p in self.layout_pins],
+            "open_risks": [r.model_dump(mode="json") for r in self.open_risks],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> Draft:
+        return cls(
+            objective=payload.get("objective", ""),
+            audience=payload.get("audience", ""),
+            key_messages=[
+                KeyMessage.model_validate(m) for m in payload.get("key_messages", [])
+            ],
+            must_include=list(payload.get("must_include", [])),
+            must_avoid=list(payload.get("must_avoid", [])),
+            length_target=payload.get("length_target"),
+            header_style=payload.get("header_style"),
+            layout_pins=[LayoutPin.model_validate(p) for p in payload.get("layout_pins", [])],
+            open_risks=[OpenRisk.model_validate(r) for r in payload.get("open_risks", [])],
+        )
+
     def to_brief(self, run_id: str, *, version: int = 1) -> DeckBrief:
         """Build the real brief. Raises if it is not yet valid."""
         return DeckBrief(
@@ -347,6 +381,51 @@ class PlannerSession:
         self.transcript = Transcript(orchestrator.paths.logs / "planner.jsonl")
         self.system_prompt = _read_prompt(prompt_path)
         self.signed = False
+        # True when this session picked up a draft a previous session left behind.
+        self.resumed = False
+        self._resume_from_disk()
+
+    # -- resuming ----------------------------------------------------------
+
+    @property
+    def draft_path(self) -> Path:
+        return self.orchestrator.paths.draft_brief
+
+    def _resume_from_disk(self) -> None:
+        """Pick up an unsigned draft left by an earlier session on this run.
+
+        Only the draft and the transcript are restored. Nothing is approved by resuming:
+        `sign_off` is still the only way out, and it is still a human typing a name.
+        """
+        if not self.draft_path.exists():
+            return
+        try:
+            payload = json.loads(self.draft_path.read_text(encoding="utf-8"))
+            self.draft = Draft.from_dict(payload)
+        except (OSError, ValueError, TypeError) as exc:
+            # A draft that will not load is not worth losing the session over, but it is
+            # worth saying so: starting blank silently would look like a lost brief.
+            logger.warning("could not resume the draft at %s: %s", self.draft_path, exc)
+            return
+        self.transcript.load()
+        self.resumed = True
+
+    def save_draft(self) -> Path | None:
+        """Write the draft beside the run so a later `plan` can resume it.
+
+        Called after every turn and again on leaving, so a crash costs at most the turn in
+        flight. Writes to a temporary name first: a half-written draft would be treated as
+        the resumable one. Returns None, writing nothing, when the draft is still blank.
+        """
+        if self.draft.is_blank():
+            return None
+        self.draft_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.draft_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(self.draft.to_dict(), indent=2) + "\n", encoding="utf-8"
+        )
+        temporary.replace(self.draft_path)
+        return self.draft_path
 
     # -- conversation ------------------------------------------------------
 
@@ -370,6 +449,7 @@ class PlannerSession:
 
         self._apply(action)
         probes = self._probe_if_asked(action)
+        self.save_draft()
 
         return PlannerReply(
             text=action.reply, probes=probes, suggests_signoff=action.ready_for_signoff
@@ -501,7 +581,13 @@ class PlannerSession:
         signed = brief.model_copy(update={"approved_by": approver.strip()})
         self.store.save_brief(signed)
         self.orchestrator.approve(Gate.BRIEF, approver=approver.strip())
+        self.orchestrator.run_stage(
+            "plan", lambda: f"brief v{version} signed off by {approver.strip()}", force=True
+        )
         self.transcript.append("system", f"brief v{version} signed off by {approver.strip()}")
+        # The brief now lives in `brief/v{version}.yaml`; a leftover draft would be offered
+        # for resuming on top of a run that is already planned.
+        self.draft_path.unlink(missing_ok=True)
         self.signed = True
         return signed
 
