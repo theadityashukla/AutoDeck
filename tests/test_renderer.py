@@ -46,9 +46,11 @@ from autodeck.render.renderer import (
     SLIDE_TAG_PREFIX,
     RenderStageError,
     StyleNotHonoured,
+    UnknownComponentError,
     UnplacedBlockError,
     adapt_slide,
     expected_caption_lines,
+    placeable_slots,
     render_deck,
     scaled_tokens,
     source_line,
@@ -861,3 +863,93 @@ def test_scaled_tokens_spacious_multiplies_every_size() -> None:
     scaled = scaled_tokens(tokens, "spacious")
     assert scaled.typography.title == pytest.approx(tokens.typography.title * 1.1)
     assert scaled.typography.body == pytest.approx(tokens.typography.body * 1.1)
+
+
+def _example_blocks(name: str) -> list[Block]:
+    """One block per populated field of `name`'s `preview.EXAMPLES` content — the same
+    blocks `_check_component_adapts` places."""
+    example = preview.EXAMPLES[name]
+    content_type = catalog.registration(name).content_type
+    if name == "two_column_compare":
+        return [
+            _framing_block("headline", example.headline),
+            _framing_block("left_title", example.left.title),
+            *[_framing_block("left_points", p) for p in example.left.points],
+            _framing_block("right_title", example.right.title),
+            *[_framing_block("right_points", p) for p in example.right.points],
+        ]
+    if name == "data_card_grid":
+        blocks = [_framing_block("headline", example.headline)]
+        for card in example.cards:
+            blocks.append(_framing_block("card_label", card.label))
+            blocks.append(_framing_block("card_value", card.value))
+        return blocks
+
+    hints = get_type_hints(content_type)
+    blocks = []
+    for f in dataclasses.fields(content_type):
+        if f.name in ("accent", "source"):
+            continue
+        value = getattr(example, f.name)
+        hint = hints[f.name]
+        if hint in (DiagramSpec, ChartSpec):
+            payload_field = "diagram" if hint is DiagramSpec else "chart"
+            blocks.append(_payload_block(f.name, payload_field, **{payload_field: value}))
+        elif isinstance(value, list):
+            blocks.extend(_framing_block(f.name, item) for item in value)
+        elif value:
+            blocks.append(_framing_block(f.name, value))
+    return blocks
+
+
+def _is_unplaced(slide: Slide, content_type: type) -> bool:
+    try:
+        adapt_slide(slide, content_type)
+    except UnplacedBlockError:
+        return True
+    except RenderStageError:
+        return False  # another complaint (e.g. two headlines) — but the block was placeable
+    return False
+
+
+def test_placeable_slots_agrees_with_adapt_slide_for_every_component() -> None:
+    """For every `known_components()` name: `placeable_slots` never contains `source` or
+    `accent`; contains the chart/diagram field names of components that have them
+    (`chart_focus`, `framework_diagram`, `timeline`); every slot used by the component's
+    catalog example is in it; and for each slot in it, a slide holding the example blocks
+    plus nothing outside `placeable_slots` adapts without `UnplacedBlockError`, while a block
+    in a slot *not* in it raises `UnplacedBlockError`. Unknown name ->
+    `UnknownComponentError`."""
+    for name in catalog.known_components():
+        slots = placeable_slots(name)
+        content_type = catalog.registration(name).content_type
+        blocks = _example_blocks(name)
+
+        assert "source" not in slots and "accent" not in slots, name
+        assert {block.slot for block in blocks} <= slots, name
+
+        # The example itself adapts, and so does the example plus one more block in each
+        # placeable text slot: whatever else it complains about, it does not leave it unplaced.
+        adapt_slide(_slide("s1", name, blocks), content_type)
+        hints = get_type_hints(content_type)
+        for slot in sorted(slots):
+            if hints.get(slot) in (DiagramSpec, ChartSpec):
+                continue
+            extra = [*blocks, _framing_block(slot, "One more block.")]
+            assert not _is_unplaced(_slide("s1", name, extra), content_type), (name, slot)
+
+        # Anything outside the set — including the computed names — is refused, never dropped.
+        for outside in ("no_such_slot", "source", "accent"):
+            stray = [*blocks, _framing_block(outside, "Stray block.")]
+            assert _is_unplaced(_slide("s1", name, stray), content_type), (name, outside)
+
+    assert "chart" in placeable_slots("chart_focus")
+    assert "diagram" in placeable_slots("framework_diagram")
+    assert "diagram" in placeable_slots("timeline")
+    assert {"card_label", "card_value", "headline"} == placeable_slots("data_card_grid")
+    assert {"left_title", "left_points", "right_title", "right_points"} <= placeable_slots(
+        "two_column_compare"
+    )
+
+    with pytest.raises(UnknownComponentError):
+        placeable_slots("no_such_component")

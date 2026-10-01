@@ -272,9 +272,8 @@ def _find_slide(deck: Deck, slide_id: str) -> Slide:
 
 
 def _find_icon_block(slide: Slide, block_id: str) -> Block:
-    """Face only — see `apply_action`'s contract. Scaffold: Sonnet narrows the search to
-    `slide.blocks` and gives a notes-resident id its own message."""
-    for block in slide.all_blocks():
+    """The icon block `block_id` on `slide`'s face; a notes-resident id is rejected as such."""
+    for block in slide.blocks:
         if block.id == block_id:
             if block.kind != "icon":
                 raise ActionRejected(
@@ -282,6 +281,11 @@ def _find_icon_block(slide: Slide, block_id: str) -> Block:
                     "not 'icon'"
                 )
             return block
+    if any(block.id == block_id for block in slide.speaker_notes):
+        raise UnknownAddressError(
+            f"block_id {block_id!r} on slide {slide.id!r} is in the speaker notes, not on the "
+            "face; notes are not drawn, so icon actions cannot address it"
+        )
     raise UnknownAddressError(f"unknown block_id {block_id!r} on slide {slide.id!r}")
 
 
