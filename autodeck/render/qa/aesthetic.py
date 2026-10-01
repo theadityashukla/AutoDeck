@@ -281,6 +281,11 @@ def run_aesthetic_loop(
         slots_of=..., glyph_for=...)`, threading the result; an `ActionRejected` is recorded
         and the next action is tried against the unchanged candidate. `FactMutationError`
         propagates (never caught — module docstring). If nothing applied → `all_rejected`.
+      - **Amended for 3b.7 (B36; scaffold — Sonnet refactors):** the per-action acceptance
+        below now lives in `autodeck.render.trial.try_action`, shared with art direction,
+        and also rejects a new grammar finding (`GrammarRegression`). Call it instead of
+        inlining apply → render; keep this loop's reason strings and stop reasons as they
+        are (`DOES_NOT_RENDER_PREFIX` matches the existing wording).
       - **Trial render per action.** After `apply_action` succeeds, `render_deck` the
         candidate to a scratch path in the iteration's directory (pure python-pptx, ~10 ms a
         slide — no LibreOffice). `RenderStageError` (incl. `UnplacedBlockError`,

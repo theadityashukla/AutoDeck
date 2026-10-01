@@ -1257,6 +1257,13 @@ class Block(IRModel):
     `Claim` is the exact shape A1 forbids, and a block carrying two payloads is ambiguous
     to every consumer downstream — the renderer, the linters, and the audit report would
     each be free to pick differently.
+
+    **`text` is a payload too, and only text kinds may carry it** (B36). Scaffold contract —
+    Sonnet adds it to `_payload_matches_kind`: a block whose `kind` is not in `_TEXT_KINDS`
+    with `text is not None` → `ValueError` naming the block and kind. Before B36 an `icon`
+    or `claim` block could hold `text="Revenue up 40%"`: never rendered, but an uncited
+    number sitting in the IR where any future reader of `block.text` would find it — and the
+    reason `fact_fingerprint` could not exclude icon blocks.
     """
 
     id: str = Field(min_length=1)

@@ -154,6 +154,24 @@ Action = Annotated[
 free-geometry action — the brief names free-form geometry and text edits as exactly what
 this set must not be able to express."""
 
+
+class AssignIcons(IRModel):
+    """Set the ordered icons in one face slot — art direction only (3b.7, B36).
+
+    Replaces every icon block in `slot` on the slide's face with one new icon block per
+    concept, in order; ids are `f"{slot}.icon{i}"` (1-based). Not in `Action`: the aesthetic
+    critic restyles icons that exist (`SwapGlyph`, `SetIconColour`) but does not decide that
+    a slide has icons — that is a communication-mode decision (D13), and it is art
+    direction's. See `ArtAction`.
+    """
+
+    kind: Literal["assign_icons"] = "assign_icons"
+    slide_id: str = Field(min_length=1)
+    slot: str = Field(min_length=1)
+    concepts: list[str] = Field(min_length=1, max_length=6)
+    color_token: AccentToken = "accent1"
+
+
 ACTION_TYPES: tuple[type[IRModel], ...] = (
     SetTypeScale,
     SetAccent,
@@ -163,10 +181,20 @@ ACTION_TYPES: tuple[type[IRModel], ...] = (
     SwapComponent,
     SwapGlyph,
     SetIconColour,
+    AssignIcons,
 )
 
+ArtAction = Annotated[
+    SetTypeScale | SetAccent | SetEmphasis | SwapComponent | AssignIcons,
+    Field(discriminator="kind"),
+]
+"""What the art-direction model may propose (3b.7, B36). Narrower than `Action` in one way
+and wider in another: no `SetCommunicationMode` — modes are derived by rule from content
+shape, not proposed (`agents/art_direction.derive_mode`) — and no glyph/colour restyling,
+which is the aesthetic critic's; plus `AssignIcons`, which only art direction may use."""
+
 ADDRESS_FIELDS: frozenset[str] = frozenset(
-    {"kind", "slide_id", "block_id", "component", "concept", "slot_map"}
+    {"kind", "slide_id", "block_id", "component", "concept", "slot_map", "slot", "concepts"}
 )
 """The only string-carrying fields any action may have. Each is looked up, never written as
 content: ids and slot names address existing IR; `component` and `concept` are checked
@@ -229,6 +257,11 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
         `Slide.communication_mode`, `Block.slot`, and `IconRef` fields.
       - Keyed by block id, not by position, so a `SwapComponent` that reorders nothing but
         re-slots blocks leaves it unchanged, while a block that disappears changes it.
+      - **Icon blocks are excluded entirely** (B36; scaffold — Sonnet implements). An icon
+        block's only content is its `IconRef`, already excluded, and since B36 the IR
+        refuses `text` on it — so it holds no fact, and `AssignIcons` may add or replace
+        icon blocks without tripping the detector. Every other block kind stays keyed in,
+        so a deleted claim, framing line, chart, diagram or figure still changes it.
       - Pure; never mutates `deck`.
     """
     claim_entries: list[tuple[tuple[str, str, str | None, bool], object]] = []
@@ -303,7 +336,8 @@ def apply_action(
     | SetCommunicationMode
     | SwapComponent
     | SwapGlyph
-    | SetIconColour,
+    | SetIconColour
+    | AssignIcons,
     *,
     pins: Sequence[LayoutPin] = (),
     slots_of: SlotLookup,
@@ -324,6 +358,13 @@ def apply_action(
         `speaker_notes` is not drawn, so the vision model cannot have seen it and has no
         grounds to restyle it → `UnknownAddressError` saying the block is in the notes, not
         on the face. `_find_icon_block` enforces this for both actions.
+      - `AssignIcons` (B36; scaffold — Sonnet implements in `_apply_unchecked`): `slot` not
+        in `slots_of(slide.component)` → `UnknownAddressError`; any concept with
+        `glyph_for(concept) is None` → `UnknownAddressError` naming it; a non-icon face block
+        already in `slot` → `ActionRejected` (icons never displace content). Otherwise remove
+        the face's icon blocks in `slot` and append one `Block(kind="icon", slot=slot,
+        id=f"{slot}.icon{i}", icon=IconRef(concept, glyph_for(concept), color_token))` per
+        concept in order; an id collision with a non-icon block → `ActionRejected`.
       - Pins: a `SwapComponent` on a slide whose served message has a `component` pin, or a
         `SetCommunicationMode` against a `communication_mode` pin → `PinnedTargetError`.
         (No action can alter a diagram's kind; see the module docstring.) A slide is pinned
@@ -356,7 +397,8 @@ def _apply_unchecked(
     | SetCommunicationMode
     | SwapComponent
     | SwapGlyph
-    | SetIconColour,
+    | SetIconColour
+    | AssignIcons,
     *,
     pins: Sequence[LayoutPin],
     slots_of: SlotLookup,
@@ -367,6 +409,8 @@ def _apply_unchecked(
     Does the actual mutation and the address/pin validation that guards it; the fingerprint
     check that catches a bug here lives in `apply_action`, one layer up.
     """
+    if isinstance(action, AssignIcons):
+        raise NotImplementedError("scaffold: Sonnet fills this in (see apply_action)")
     new_deck = deck.model_copy(deep=True)
     slide = _find_slide(new_deck, action.slide_id)
 

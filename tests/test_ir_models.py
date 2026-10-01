@@ -563,3 +563,11 @@ def test_every_claim_site_carries_where_it_was_found_and_how_to_write_it_back() 
     assert all(
         site.in_speaker_notes == site.block_id.startswith("n") for site in deck.claim_sites()
     )
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_only_text_kinds_may_carry_text() -> None:
+    """B36: an `icon`, `claim`, `chart`, `figure` or `diagram` block with `text` set (even
+    alongside its correct payload) is a `ValidationError` naming the block and kind;
+    `framing` and `section_header` still require it. The golden fixture still loads."""
+    raise NotImplementedError

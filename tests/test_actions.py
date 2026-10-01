@@ -636,3 +636,34 @@ def test_icon_actions_cannot_reach_an_icon_in_the_speaker_notes() -> None:
     assert face_icon.icon is not None and face_icon.icon.concept == "rocket"
     face_icon = next(block for block in recoloured.slides[0].blocks if block.id == "b5")
     assert face_icon.icon is not None and face_icon.icon.color_token == "accent6"
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_icon_blocks_are_not_facts_but_every_other_block_still_is() -> None:
+    """B36: adding, removing or replacing an icon block leaves `fact_fingerprint` unchanged;
+    removing a framing, claim, chart, diagram or figure block still changes it."""
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_assign_icons_replaces_the_slots_icons_in_order() -> None:
+    """Two existing icons in the slot → replaced by three new ones with ids `slot.icon1..3`,
+    concepts and glyphs from `glyph_for`, `color_token` applied; other slots untouched;
+    fingerprint unchanged (via `apply_action`)."""
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_assign_icons_rejections() -> None:
+    """Unknown slot for the component → UnknownAddressError; unknown concept →
+    UnknownAddressError naming it; a non-icon face block in the slot → ActionRejected;
+    an id collision with a non-icon block → ActionRejected; more than six concepts or none
+    → ValidationError at parse."""
+    raise NotImplementedError
+
+
+@pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
+def test_assign_icons_is_not_in_the_aesthetic_vocabulary() -> None:
+    """`ActionList.model_validate` of an `assign_icons` action fails; `ArtAction` accepts it
+    and refuses `set_communication_mode`, `swap_glyph` and `set_icon_colour`."""
+    raise NotImplementedError
