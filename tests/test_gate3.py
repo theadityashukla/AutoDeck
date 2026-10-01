@@ -11,6 +11,15 @@ from pathlib import Path
 
 import pytest
 
+from autodeck.audit.gate3 import (
+    HUMAN_CHECKS,
+    FinalAssessment,
+    render_final_report,
+)
+from autodeck.audit.numeric_linter import NumericReport
+from autodeck.audit.post_render import PostRenderFinding, PostRenderReport
+from autodeck.design.grammar import GrammarFinding
+from autodeck.design.headers.flow import HeaderFlowReport
 from autodeck.ir.actions import facts_digest
 from autodeck.ir.models import Deck
 from autodeck.pipeline.orchestrator import (
@@ -20,6 +29,7 @@ from autodeck.pipeline.orchestrator import (
     GateBlocked,
     Orchestrator,
 )
+from autodeck.render.qa.deterministic import QAFinding
 from tests.test_actions import make_deck, make_icon_block
 
 SCAFFOLD = pytest.mark.xfail(strict=True, reason="scaffold: not implemented yet")
@@ -117,18 +127,127 @@ def test_gate3_refuses_before_render() -> None:
     raise NotImplementedError
 
 
-@SCAFFOLD
+def _assessment(
+    *,
+    post_render_findings: tuple[PostRenderFinding, ...] = (),
+    qa: tuple[QAFinding, ...] = (),
+    grammar_findings: tuple[GrammarFinding, ...] = (),
+    diagrams: int = 1,
+    icons: int = 3,
+) -> FinalAssessment:
+    return FinalAssessment(
+        pptx=Path("runs/r1/deck.pptx"),
+        deck_digest="d" * 64,
+        post_render=PostRenderReport(numeric=NumericReport(), findings=post_render_findings),
+        qa=list(qa),
+        grammar=list(grammar_findings),
+        flow=HeaderFlowReport(),
+        diagram_count=diagrams,
+        icon_count=icons,
+    )
+
+
+_POST_RENDER = PostRenderFinding(
+    check="claim altered in render", slide_id="s2", detail="expected 'A', found 'B'"
+)
+_QA = QAFinding(
+    check="below minimum size",
+    slide_id="s3",
+    shapes=("Text 4",),
+    measured=9.0,
+    threshold=12.0,
+    remedy="token",
+    remedy_detail="typography.minimum",
+)
+_BLOCKING_GRAMMAR = GrammarFinding(
+    check="icon adjacent to text label", severity="blocking", detail="far from text"
+)
+_ADVISORY_GRAMMAR = GrammarFinding(check="word budget", severity="advisory", detail="long")
+
+
 def test_checkable_criteria_and_their_order() -> None:
     """Build `FinalAssessment`s by hand: all clean → four PASS; one post-render finding,
     one QA finding, one blocking grammar finding, zero icons — each fails its own line only."""
-    raise NotImplementedError
+    clean = _assessment()
+    results = clean.checkable()
+    assert [label for label, _passed, _detail in results] == [
+        "Post-render audit passes (every claim on its slide, every number traced)",
+        "No deterministic QA findings",
+        "No blocking grammar findings",
+        "At least one native diagram and one theme-recolourable icon",
+    ]
+    assert [passed for _label, passed, _detail in results] == [True] * 4
+    assert clean.passes
+    assert results[3][2] == "1 diagram(s), 3 icon(s)"
+
+    broken = {
+        0: _assessment(post_render_findings=(_POST_RENDER,)),
+        1: _assessment(qa=(_QA,)),
+        2: _assessment(grammar_findings=(_BLOCKING_GRAMMAR,)),
+        3: _assessment(icons=0),
+    }
+    for index, assessment in broken.items():
+        passed = [ok for _label, ok, _detail in assessment.checkable()]
+        assert passed == [position != index for position in range(4)], index
+        assert not assessment.passes
+    assert "expected 'A', found 'B'" in broken[0].checkable()[0][2]
+    assert "below minimum size" in broken[1].checkable()[1][2]
+    assert "far from text" in broken[2].checkable()[2][2]
+    assert broken[3].checkable()[3][2] == "1 diagram(s), 0 icon(s)"
+
+    # Advisory grammar findings and header-flow findings are reported, never a criterion.
+    advisory = _assessment(grammar_findings=(_ADVISORY_GRAMMAR,))
+    assert advisory.passes
+    assert _assessment(diagrams=0).passes is False
 
 
-@SCAFFOLD
 def test_the_report_lists_human_checks_unticked_and_says_nothing_checked_them() -> None:
     """Even for an assessment that passes every checkable criterion, every `HUMAN_CHECKS`
     item appears as `- [ ]`, and no `[x]` appears anywhere in the report."""
-    raise NotImplementedError
+    assessment = _assessment(grammar_findings=(_ADVISORY_GRAMMAR,))
+    assert assessment.passes
+    report = render_final_report(assessment, audit_report="# Audit report - Demo\n")
+
+    assert "[x]" not in report.lower()
+    for check in HUMAN_CHECKS:
+        assert f"- [ ] {check}" in report
+    assert report.count("- [ ]") == len(HUMAN_CHECKS) == 5
+    human_heading = report.index("Human checks")
+    assert "by a person" in report[human_heading:]
+    assert "Nothing in this report has checked them" in report[human_heading:]
+
+    # Sections in the contracted order, human checks last.
+    order = [
+        report.index("Deck: "),
+        report.index("Deck digest: "),
+        report.index("## Checkable criteria"),
+        report.index("## Findings"),
+        report.index("## Header flow"),
+        report.index("# Audit report - Demo"),
+        human_heading,
+    ]
+    assert order == sorted(order)
+    assert report.count("[PASS]") == 4
+    assert "d" * 64 in report
+    assert "[advisory] word budget: long" in report
+
+
+def test_the_report_shows_every_failure_in_full_and_is_deterministic() -> None:
+    assessment = _assessment(
+        post_render_findings=(_POST_RENDER,),
+        qa=(_QA,),
+        grammar_findings=(_BLOCKING_GRAMMAR,),
+        icons=0,
+    )
+    report = render_final_report(assessment, audit_report="audit")
+    assert report.count("[FAIL]") == 4
+    assert "4 of 4 checkable criteria fail." in report
+    assert "slide s2: expected 'A', found 'B'" in report
+    assert "measured 9 against 12; fix by token (typography.minimum)" in report
+    assert "[BLOCKING] icon adjacent to text label: far from text" in report
+    assert report == render_final_report(assessment, audit_report="audit")
+    # Still unticked when everything fails.
+    assert report.count("- [ ]") == 5
 
 
 @SCAFFOLD
