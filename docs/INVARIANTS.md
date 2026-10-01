@@ -165,14 +165,14 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | **tested** | tested | **tested** | tested | | | |
-| A2 numbers | partial | partial | partial | **tested** | tested | | | |
-| A3 validation | partial | partial | partial | **tested** | tested | | | |
-| A4 isolation | not-started | **tested** | tested | tested | tested | | | |
-| A5 framing | not-started | partial | partial | **enforced** | **enforced** | | | |
-| A6 reproducibility | partial | partial | partial | **enforced** | enforced | | | |
-| A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | | | |
-| A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | | | |
+| A1 citation | **tested** | **tested** | tested | **tested** | tested | **tested** | | |
+| A2 numbers | partial | partial | partial | **tested** | tested | **tested** | | |
+| A3 validation | partial | partial | partial | **tested** | tested | **tested** | | |
+| A4 isolation | not-started | **tested** | tested | tested | tested | tested | | |
+| A5 framing | not-started | partial | partial | **enforced** | **enforced** | **tested** | | |
+| A6 reproducibility | partial | partial | partial | **enforced** | enforced | **tested** | | |
+| A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | **tested** | | |
+| A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | tested | | |
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
