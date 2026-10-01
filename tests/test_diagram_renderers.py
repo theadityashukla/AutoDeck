@@ -19,7 +19,7 @@ import pytest
 from pptx.presentation import Presentation
 from pptx.slide import Slide
 
-from autodeck.design.diagrams import place_diagram
+from autodeck.design.diagrams import diagram_placement, place_diagram
 from autodeck.design.fonts import is_available
 from autodeck.design.layout_kit import Box, Canvas, Frame, LayoutOverflowError
 from autodeck.design.theme.master_builder import new_presentation, save_themed
@@ -222,6 +222,50 @@ class TestSelectability:
         assert "<p:pic>" not in xml
         assert "dgm:" not in xml  # SmartArt's own namespace prefix
         pptx_path.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Naming — the hook GATE 3 counts native diagrams with
+# ---------------------------------------------------------------------------
+
+
+class TestShapeNames:
+    @requires_test_font
+    @pytest.mark.parametrize(
+        ("build", "kind"),
+        [
+            (_process_flow, "process_flow"),
+            (_two_by_two, "two_by_two"),
+            (_layered_stack, "layered_stack"),
+        ],
+    )
+    def test_every_shape_a_diagram_creates_is_named_by_kind_placement_and_order(
+        self, build, kind
+    ) -> None:
+        tokens = tokens_for()
+        _, slide, frame = _frame(tokens)
+        frame.text(Box(0, 0, 100, 20), "Pre-existing", frame.canvas.style("body"))
+        before = [shape.name for shape in slide.shapes]
+
+        place_diagram(frame, frame.canvas.content, build())
+
+        shapes = list(slide.shapes)
+        assert [shape.name for shape in shapes[: len(before)]] == before
+        names = [shape.name for shape in shapes[len(before) :]]
+        assert names == [f"diagram:{kind}:1:{n}" for n in range(1, len(names) + 1)]
+        assert len(names) > 1
+
+    @requires_test_font
+    def test_a_second_diagram_on_the_slide_is_a_second_placement(self) -> None:
+        tokens = tokens_for()
+        _, slide, frame = _frame(tokens)
+        place_diagram(frame, Box(0, 0, 400, 200), _layered_stack())
+        place_diagram(frame, Box(0, 220, 400, 200), _process_flow(with_transitions=False))
+
+        placements = {diagram_placement(shape.name) for shape in slide.shapes}
+        assert placements == {("layered_stack", 1), ("process_flow", 2)}
+        numbers = [shape.name.rsplit(":", 1)[1] for shape in slide.shapes]
+        assert numbers.count("1") == 2  # each placement counts from 1 again
 
 
 # ---------------------------------------------------------------------------

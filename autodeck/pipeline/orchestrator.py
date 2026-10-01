@@ -43,6 +43,7 @@ from typing import Any
 from autodeck.audit.framing_linter import FramingReport, lint_framing
 from autodeck.audit.numeric_linter import NumericReport, lint_deck
 from autodeck.audit.verdicts import ClaimBlock, blocking_blocks, unverified_claims
+from autodeck.ir.actions import facts_digest
 from autodeck.ir.models import Deck
 from autodeck.ir.store import IRStore, IRStoreError, RunPaths, run_paths
 
@@ -337,8 +338,11 @@ class Orchestrator:
 
         - brief: the latest brief file.
         - outline: the IR version the outline stage wrote.
-        - claims: the IR version the validate stage wrote — and only while that is still
-          the newest IR. A later content pass makes the table the owner reviewed stale.
+        - claims: the facts of the IR version the validate stage wrote (`facts_digest`),
+          valid only while the newest IR has the same facts. A later IR that changes a
+          claim, citation, verdict or block text makes the table the owner reviewed stale;
+          one that only changes style, component, mode or icons (art direction, the
+          aesthetic loop) does not.
         - final_render: `canonical_pptx_digest` of `runs/<run>/deck.pptx`.
 
         Raises:
@@ -378,15 +382,25 @@ class Orchestrator:
                 f"before approvals were bound to artifacts). Re-run `{command}`",
             )
         if gate is Gate.CLAIMS:
+            # Bound to the deck's facts, not to an IR file: art direction and the aesthetic
+            # loop write fact-identical IR versions that must not void the approval.
             latest = self.ir.latest_version()
-            if latest != record.ir_version:
+            try:
+                validated = facts_digest(self.ir.load(record.ir_version))
+                latest_digest = facts_digest(self.ir.load(latest))
+            except (IRStoreError, ValueError) as unreadable:
                 raise ArtifactMissing(
                     gate,
                     run,
-                    f"IR v{latest} was written after validation produced v"
-                    f"{record.ir_version}, so the claims table you reviewed is not the "
-                    f"latest. Re-run `{command}`",
+                    f"an IR version cannot be read ({unreadable}). Re-run `{command}`",
+                ) from unreadable
+            if latest_digest != validated:
+                raise ArtifactMissing(
+                    gate,
+                    run,
+                    f"the facts changed after validation (IR v{latest}); re-run `{command}`",
                 )
+            return validated
         return _sha256_file(self.ir.version_path(record.ir_version))
 
     def approval_state(self, gate: Gate) -> tuple[ApprovalState, str]:

@@ -48,6 +48,8 @@ catalog and icon library.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Sequence
 from typing import Annotated, Literal
 
@@ -297,6 +299,18 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
     block_entries.sort(key=lambda entry: (entry[0][0], entry[0][1], entry[0][2]))
 
     return (tuple(claim_entries), tuple(block_entries))
+
+
+def facts_digest(deck: Deck) -> str:
+    """sha256 hex of `deck`'s facts: `json.dumps(fact_fingerprint(deck), sort_keys=True,
+    default=str)`.
+
+    The claims gate (A7) binds its approval to this, not to an IR file, so presentation-only
+    IR versions (art direction, the aesthetic loop) keep the approval while a changed claim,
+    citation, verdict or block text voids it. Pure; deterministic across processes.
+    """
+    encoded = json.dumps(fact_fingerprint(deck), sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------

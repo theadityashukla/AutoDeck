@@ -87,10 +87,10 @@ def test_an_approval_records_who_and_when(tmp_path: Path) -> None:
     assert orchestrator.pending_gates() == []
 
 
-def test_a_later_content_pass_makes_the_claims_approval_stale(tmp_path: Path) -> None:
-    """The claims table the owner approved is the validated IR. A newer IR version written
-    after validation (a content pass) means it is no longer the latest, and approving — or
-    relying on an earlier approval — must not pass."""
+def test_a_later_ir_with_the_same_facts_keeps_the_claims_approval(tmp_path: Path) -> None:
+    """The claims approval is bound to the deck's facts (3b.10), not to an IR file: a newer IR
+    version that differs only in version number — or in presentation, as art direction and
+    the aesthetic loop write — is the same table the owner reviewed."""
     orchestrator = make(tmp_path)
     seed_artifact(orchestrator, Gate.CLAIMS)
     orchestrator.approve(Gate.CLAIMS)
@@ -99,9 +99,33 @@ def test_a_later_content_pass_makes_the_claims_approval_stale(tmp_path: Path) ->
     newer = orchestrator.ir.load().model_copy(update={"version": 2})
     orchestrator.ir.save(newer)
 
-    with pytest.raises(GateBlocked, match="not the latest"):
+    make(tmp_path).require_gate(Gate.CLAIMS)  # must not raise
+    assert make(tmp_path).approval_state(Gate.CLAIMS)[0].value == "current"
+
+
+def test_a_later_ir_with_changed_facts_makes_the_claims_approval_stale(tmp_path: Path) -> None:
+    """A newer IR version in which a claim changed (a content pass) is not the table the
+    owner reviewed: the approval no longer counts, and approving the stale table is refused
+    until validation is re-run."""
+    from tests.test_actions import make_deck
+
+    orchestrator = make(tmp_path)
+    validated = make_deck(run_id="r1")
+    orchestrator.run_stage(
+        "validate", lambda: f"wrote {orchestrator.save_ir(validated)}", force=True
+    )
+    orchestrator.approve(Gate.CLAIMS)
+    orchestrator.require_gate(Gate.CLAIMS)
+
+    changed = validated.model_copy(deep=True, update={"version": 2})
+    claim = changed.slides[0].blocks[0].claim
+    assert claim is not None
+    claim.text = "A different claim entirely."
+    orchestrator.ir.save(changed)
+
+    with pytest.raises(GateBlocked, match="facts changed after validation"):
         make(tmp_path).require_gate(Gate.CLAIMS)
-    with pytest.raises(ArtifactMissing, match="not the latest"):
+    with pytest.raises(ArtifactMissing, match="facts changed after validation"):
         make(tmp_path).approve(Gate.CLAIMS)
 
 

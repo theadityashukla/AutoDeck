@@ -90,6 +90,17 @@ class RunPaths:
         return self.root / "deck.pptx"
 
     @property
+    def final_audit_report(self) -> Path:
+        """What `autodeck gate3` writes: the final, post-render audit (3b.10). Kept separate
+        from `audit_report` so the GATE 2 report stays the record of what was approved."""
+        return self.root / "final_audit_report.md"
+
+    @property
+    def previews(self) -> Path:
+        """True-render PNGs of the final deck and the aesthetic loop's per-iteration work."""
+        return self.root / "previews"
+
+    @property
     def state_file(self) -> Path:
         return self.root / "state.json"
 
