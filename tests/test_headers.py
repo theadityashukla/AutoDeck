@@ -185,6 +185,55 @@ class TestFlowReport:
         assert line.text == "KV-cache waste is the binding constraint"
         assert not report.findings
 
+    def test_a_title_slide_is_read_by_its_title_not_its_empty_subtitle(self) -> None:
+        """`title`'s only `title`-role slot is its optional `subtitle`; its own title is set
+        at the `display` role. The flow used to read the subtitle slot, so every title slide
+        showed as '(empty)' with a finding that no block filled it."""
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="opening",
+                component="title",
+                blocks=[header_block("Serve better before you buy more", slot="title")],
+            )
+        )
+        report = flow_report(deck, TOKENS, HeaderStyleProfile())
+        [line] = report.lines
+        assert line.text == "Serve better before you buy more"
+        assert line.kind == "section_header"
+        assert not report.findings
+        assert "(empty)" not in report.render()
+
+    def test_a_title_slide_with_a_subtitle_still_reads_the_title(self) -> None:
+        subtitle = Block(id="h2", kind="section_header", slot="subtitle", text="Q4 review")
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="opening",
+                component="title",
+                blocks=[header_block("Serve better", slot="title"), subtitle],
+            )
+        )
+        [line] = flow_report(deck, TOKENS, HeaderStyleProfile()).lines
+        assert line.text == "Serve better"
+
+    def test_a_display_figure_does_not_displace_the_headline(self) -> None:
+        """`big_number` has a `display`-role `figure`, but its required `title`-role
+        `headline` is the header."""
+        deck = deck_with_slides(
+            Slide(
+                id="s1",
+                narrative_role="evidence",
+                component="big_number",
+                blocks=[
+                    header_block("Waste is the bottleneck"),
+                    Block(id="f1", kind="framing", slot="figure", text="41%"),
+                ],
+            )
+        )
+        [line] = flow_report(deck, TOKENS, HeaderStyleProfile()).lines
+        assert line.text == "Waste is the bottleneck"
+
     def test_avoid_and_max_words_are_advisory_only(self) -> None:
         """The mechanical checks flag, they never block — that is A5's job, on the IR,
         regardless of what this report says."""

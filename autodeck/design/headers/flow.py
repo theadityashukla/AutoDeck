@@ -31,7 +31,10 @@ renderer already draws at the theme's title size. Reading that role back out, ra
 hardcoding a slot name like `headline`, is what keeps this module correct as more of the
 15-component catalog is registered: `quote` already has two `title`-role slots (`headline`
 and the pull-quote text itself) and `callout_takeaway`'s one prominent line is named
-`takeaway`, not `headline` — a name-based lookup would have missed both.
+`takeaway`, not `headline` — a name-based lookup would have missed both. The `title`
+component is the exception to "the `title` role": its title is set at the larger `display`
+role and its `title`-role slot is the optional subtitle, so `_header_slot_name` looks for a
+required `title`-role slot first and falls back to `display`.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir.models import Block, Deck, DeckBrief, Slide
 
 _HEADER_ROLE = "title"
+_DISPLAY_ROLE = "display"
 
 #: Repeated syntax (3b.9): a header "opening" is its first `OPENING_WORDS` words, lowercased,
 #: with surrounding punctuation stripped. When `REPEATED_OPENING_THRESHOLD` or more headers
@@ -127,20 +131,32 @@ class HeaderFlowReport:
 
 
 def _header_slot_name(component: str, tokens: DesignTokens) -> str | None:
-    """The name of `component`'s slot with the `title` type-scale role, if it has one.
+    """The name of `component`'s header slot: where a reader finds the slide's main line.
 
     Reads the same `ComponentSpec` the renderer and the budget check build, rather than
     guessing a slot name — see the module docstring for why a name-based lookup would be
-    wrong for `quote` and `callout_takeaway` alike.
+    wrong for `quote` and `callout_takeaway` alike. In order:
+
+    1. The first *required* slot with the `title` type-scale role. Required matters:
+       `title`'s only `title`-role slot is its optional `subtitle`, and the first-match rule
+       it replaced read that, so every title slide showed as empty.
+    2. Else the first slot with the `display` role — the title slide's own title, set larger
+       than any header. (`big_number`'s `figure` is also `display`, but it has a required
+       `title`-role `headline`, so rule 1 settles it first.)
+    3. Else the first `title`-role slot, optional or not.
     """
     try:
         spec = spec_for(component, tokens)
     except UnknownComponentError:
         return None
-    for slot in spec.slots:
-        if slot.role == _HEADER_ROLE:
+    title_slots = [slot for slot in spec.slots if slot.role == _HEADER_ROLE]
+    for slot in title_slots:
+        if slot.required:
             return slot.name
-    return None
+    for slot in spec.slots:
+        if slot.role == _DISPLAY_ROLE:
+            return slot.name
+    return title_slots[0].name if title_slots else None
 
 
 def _header_block(slide: Slide, slot_name: str | None) -> Block | None:
