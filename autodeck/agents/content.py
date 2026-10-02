@@ -85,11 +85,12 @@ which Opus wrote; this module is the plumbing that keeps the prompt's promises h
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,12 +99,15 @@ from autodeck.design.components.catalog import (
     UnknownComponentError,
     check_overflow,
     is_missing_slot_finding,
+    missing_slot_finding,
+    registration,
     render_budgets,
 )
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ingest.document_store import DocumentStore, IngestError
 from autodeck.ir.models import (
+    GEOMETRIES,
     Block,
     ChartKind,
     ChartSeries,
@@ -115,8 +119,11 @@ from autodeck.ir.models import (
     DerivationInput,
     DiagramSpec,
     KeyMessage,
+    LabelFraming,
     LabelReason,
     OpenRisk,
+    ProcessFlowSpec,
+    ProcessStep,
     Slide,
 )
 from autodeck.knowledge.context_assembler import AssembledContext
@@ -555,21 +562,76 @@ def _resolve_diagram(
 ) -> DiagramSpec:
     """Resolve a proposed process flow into a `DiagramSpec`, or raise so the block drops.
 
-    Scaffold (B37) — Sonnet fills. Contract:
-      - Each step with `status="claim"`: `claim` must be set (else
-        `CitationResolutionError` naming the step) and resolves through `_resolve_claim` —
-        the same path as a claim block, no second resolver. `framing_reason` must be ''.
-      - Each step with `status="framing"`: `framing_reason` must be a `LabelReason` (not '')
-        and `claim` must be None; it becomes `LabelFraming(reason=...)`.
-      - **Any step failing drops the whole diagram**, never just the step: a flow missing a
-        step is a different sequence, which is a changed fact, not a smaller one.
-      - Build `DiagramSpec(relationship="sequence", kind="process_flow", title=title or
-        None, process_flow=ProcessFlowSpec(steps=[ProcessStep(...)]))`, with `transition`
-        '' → None. The IR's own validators (contiguous orders, label/claim status) are the
-        last check; their errors drop the block like any other (`_resolve_block` already
-        catches them).
+    Each step is exactly one of the two A1 cases, and `status` says which before the
+    payload is read:
+      - `status="claim"`: `claim` must be set and `framing_reason` empty. The claim resolves
+        through `_resolve_claim` — the same path as a claim block, no second resolver — and
+        becomes the node's `claim`.
+      - `status="framing"`: `framing_reason` must be a `LabelReason` and `claim` must be
+        None; it becomes `LabelFraming(reason=...)`.
+
+    **Any step failing drops the whole diagram**, never just the step: a flow missing a step
+    is a different sequence, which is a changed fact, not a smaller one. The error names the
+    step so the rejection says where. The IR's own validators (contiguous orders, label
+    budget, claim/framing exclusivity) are the last check; their errors drop the block like
+    any other (`_resolve_block` catches them).
+
+    The label word budget is the geometry's (`GEOMETRIES["process_flow"].max_label_words`),
+    enforced by `DiagramSpec` at construction — the one place it is checked.
     """
-    raise NotImplementedError("scaffold: Sonnet fills this in")
+    steps: list[ProcessStep] = []
+    for step in proposed.steps:
+        try:
+            steps.append(_resolve_step(step, store=store, claims=claims, spans=spans))
+        except (CitationResolutionError, IngestError) as exc:
+            raise CitationResolutionError(
+                f"diagram step {step.id!r} (order {step.order}) dropped the whole diagram: "
+                f"{exc}"
+            ) from exc
+    return DiagramSpec(
+        relationship="sequence",
+        kind="process_flow",
+        title=proposed.title or None,
+        process_flow=ProcessFlowSpec(steps=steps),
+    )
+
+
+def _resolve_step(
+    step: ProposedStep,
+    *,
+    store: DocumentStore,
+    claims: Sequence[CachedClaim],
+    spans: Sequence[RetrievedSpan],
+) -> ProcessStep:
+    """One proposed step into a `ProcessStep`, with `status` and payload checked to agree."""
+    resolved_claim: Claim | None = None
+    framing: LabelFraming | None = None
+    if step.status == "claim":
+        if step.claim is None:
+            raise CitationResolutionError("status='claim' with no claim payload")
+        if step.framing_reason != "":
+            raise CitationResolutionError(
+                f"status='claim' but framing_reason={step.framing_reason!r}; a label is a "
+                "claim or framing, never both"
+            )
+        resolved_claim = _resolve_claim(step.claim, store=store, claims=claims, spans=spans)
+    else:
+        if step.framing_reason == "":
+            raise CitationResolutionError("status='framing' with no framing_reason")
+        if step.claim is not None:
+            raise CitationResolutionError(
+                "status='framing' but a claim was supplied; a label is a claim or framing, "
+                "never both"
+            )
+        framing = LabelFraming(reason=step.framing_reason)
+    return ProcessStep(
+        id=step.id,
+        order=step.order,
+        label=step.label,
+        transition=step.transition or None,
+        claim=resolved_claim,
+        framing=framing,
+    )
 
 
 def _resolve_block(
@@ -598,9 +660,13 @@ def _resolve_block(
                 raise CitationResolutionError("kind='chart' with no chart payload")
             chart = _resolve_chart(proposed.chart, store=store, claims=claims, spans=spans)
             return Block(id=proposed.id, kind="chart", slot=proposed.slot, chart=chart)
-        # Scaffold (B37) — Sonnet adds the `diagram` branch here: kind='diagram' with no
-        # payload → CitationResolutionError; else `_resolve_diagram(...)` into
-        # `Block(kind="diagram", diagram=...)`.
+        if proposed.kind == "diagram":
+            if proposed.diagram is None:
+                raise CitationResolutionError("kind='diagram' with no diagram payload")
+            diagram = _resolve_diagram(
+                proposed.diagram, store=store, claims=claims, spans=spans
+            )
+            return Block(id=proposed.id, kind="diagram", slot=proposed.slot, diagram=diagram)
         # framing / section_header: plain text, no citation to resolve (A5's exemption).
         if not proposed.text.strip():
             raise CitationResolutionError(f"kind={proposed.kind!r} with no text")
@@ -633,12 +699,35 @@ def _block_text(block: Block) -> str:
     return block.text or ""
 
 
+def _diagram_slots(component: str) -> list[str]:
+    """The slots of `component`'s content type that take a `DiagramSpec` (B37).
+
+    The catalog's text table declares no diagram slot — a diagram's boxes depend on node
+    count — so what the component needs is read off its content dataclass, the same
+    classification the render stage's `adapt_slide` fills from. Empty for a component the
+    catalog does not know.
+    """
+    try:
+        content_type = registration(component).content_type
+    except UnknownComponentError:
+        return []
+    hints = get_type_hints(content_type)
+    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is DiagramSpec]
+
+
 def _check_budgets(
     blocks: list[Block], *, component: str, tokens: DesignTokens
 ) -> tuple[list[Block], list[str], list[str], bool]:
-    """Drop any face block whose slot overflows its budget. Chart blocks are exempt — the
-    catalog declares text slots, not chart geometry, and no component yet checked here fills
-    a slot with a chart.
+    """Drop any face block whose slot overflows its budget. Chart and diagram blocks are
+    exempt — the catalog declares text slots, not chart or diagram geometry. A diagram's
+    labels are budgeted by its geometry (`GEOMETRIES[kind].max_label_words`), which
+    `DiagramSpec` enforces when the block is built, so an over-long label has already
+    dropped its block (as an IR-validation rejection) by the time this runs.
+
+    A component that takes a diagram (`_diagram_slots`) but received none is reported in
+    `incomplete_slots`, in the catalog's own missing-slot form: the catalog's text table
+    cannot see an absent diagram, and the render stage would otherwise be the first to
+    notice.
 
     `check_overflow` reports overflow and missing-required-slot findings in one list; they
     are split here (`is_missing_slot_finding`) because they mean different things to a
@@ -649,7 +738,7 @@ def _check_budgets(
     """
     by_slot: dict[str, list[Block]] = {}
     for block in blocks:
-        if block.chart is not None:
+        if block.chart is not None or block.diagram is not None:
             continue
         by_slot.setdefault(block.slot, []).append(block)
 
@@ -662,11 +751,16 @@ def _check_budgets(
     except UnknownComponentError:
         return blocks, [], [], False
 
-    if not findings:
-        return blocks, [], [], True
-
     overflow_findings = [f for f in findings if not is_missing_slot_finding(f)]
     incomplete_slots = [f for f in findings if is_missing_slot_finding(f)]
+    filled_diagrams = {b.slot for b in blocks if b.diagram is not None}
+    incomplete_slots.extend(
+        missing_slot_finding(component, slot)
+        for slot in _diagram_slots(component)
+        if slot not in filled_diagrams
+    )
+    if not overflow_findings:
+        return blocks, [], incomplete_slots, True
 
     findings_by_slot: dict[str, list[str]] = {}
     for finding in overflow_findings:
@@ -679,7 +773,11 @@ def _check_budgets(
     rejections: list[str] = []
     kept: list[Block] = []
     for block in blocks:
-        if block.chart is not None or block.slot not in findings_by_slot:
+        if (
+            block.chart is not None
+            or block.diagram is not None
+            or block.slot not in findings_by_slot
+        ):
             kept.append(block)
             continue
         rejections.append(
@@ -860,12 +958,21 @@ def _resolve_blocks(
 
 def _slide_budgets(component: str, tokens: DesignTokens) -> str:
     try:
-        return render_budgets(component, tokens)
+        text = render_budgets(component, tokens)
     except UnknownComponentError as exc:
         return (
             f"(no declared budgets for {component!r} yet — {exc}. Write concisely; "
             "overflow cannot be checked automatically for this component.)"
         )
+    lines = [text]
+    flow = GEOMETRIES["process_flow"]
+    for slot in _diagram_slots(component):
+        lines.append(
+            f"- {slot}: ONE block of kind 'diagram' (a process flow of 2 to 6 steps). Every "
+            f"step label and every transition is at most {flow.max_label_words} words; a "
+            "longer one drops the whole diagram. The diagram's own title is not drawn."
+        )
+    return "\n".join(lines)
 
 
 def _read_prompt(path: Path) -> str:
