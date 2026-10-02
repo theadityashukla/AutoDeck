@@ -46,3 +46,17 @@ def seed_artifact(orchestrator: Orchestrator, gate: Gate, *, marker: str = "") -
             component_lib_version="test",
         )
         orchestrator.run_stage(stage, lambda: f"wrote {orchestrator.save_ir(deck)}", force=True)
+
+
+def seed_passing_final_assessment(orchestrator: Orchestrator, *, passes: bool = True) -> None:
+    """Record that `gate3` assessed the deck now on disk, as `autodeck gate3` does.
+
+    `approve ... final_render` refuses a deck no passing final audit described (3b.10), so a
+    test that wants `final_render` approved seeds the deck, then this, then (with claims
+    approved) approves.
+    """
+    from autodeck.audit.manifest import canonical_pptx_digest
+
+    orchestrator.record_final_assessment(
+        canonical_pptx_digest(orchestrator.paths.deck_pptx), passes
+    )

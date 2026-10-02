@@ -27,6 +27,7 @@ from autodeck.ir.store import IRStore, diff_decks
 from autodeck.pipeline.orchestrator import (
     DEFAULT_RUNS_ROOT,
     STAGE_SEQUENCE,
+    ApprovalRefused,
     ApprovalState,
     ArtifactMissing,
     Gate,
@@ -93,14 +94,41 @@ EXIT_PROVIDER_FAILURE = 5
 
 
 def _cache_note(orchestrator: Orchestrator) -> str:
-    """How much of this run's provider work is saved, for the end-of-failure message."""
+    """How much of this run's provider work is saved, for the end-of-failure message.
+
+    Counts what is in the response cache, which is all it can know: a provider that does not
+    write to it (a stand-in model in a test) leaves it empty after making calls, so the empty
+    case must not claim that no call was made.
+    """
     cache = ResponseCache(orchestrator.paths.llm_cache)
     saved = len(cache)
     return (
         f"{saved} completed provider call(s) are saved under {cache.directory}; a re-run "
         "replays them at no cost and only pays for what did not finish."
         if saved
-        else "No provider call had completed yet, so there is nothing cached."
+        else "The run's response cache is empty, so a re-run repeats every model call."
+    )
+
+
+def _undrawn_deck_note(deck: Deck, run_id: str, render_error: str) -> str:
+    """Why no deck was drawn after a model call failed, in plain words.
+
+    When the slides that could not be drawn are icon slides with no icons, say so: the
+    art-direction call that would have chosen the icons is the one that failed. Any other
+    render error is shown as it is.
+    """
+    iconless = [
+        slide.id
+        for slide in deck.slides
+        if slide.component == "icon_pillars"
+        and not any(block.slot == "pillar_icon" for block in slide.blocks)
+    ]
+    if not iconless:
+        return f"\n  No deck was drawn yet: {render_error}"
+    return (
+        f"\n  No deck was drawn: the icon slide ({', '.join(iconless)}) could not get its "
+        "icons because the art-direction call above failed. Re-run "
+        f"`autodeck render {run_id}` later."
     )
 
 
@@ -312,7 +340,7 @@ def approve(
     orchestrator = _open_run(run_id, runs_root)
     try:
         orchestrator.approve(gate, approver=approver)
-    except ArtifactMissing as exc:
+    except (ArtifactMissing, ApprovalRefused) as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
     typer.secho(f"approved {gate.value} for {run_id}", fg=typer.colors.GREEN)
@@ -1797,7 +1825,7 @@ def render(
                 + _provider_failure_message(
                     guard.failures[0], command=render_command, saved=render_saved()
                 )
-                + f"\n  (the directed deck does not render yet: {art_result.render_error})"
+                + _undrawn_deck_note(directed, run_id, art_result.render_error)
             )
             raise typer.Exit(code=EXIT_PROVIDER_FAILURE)
         _echo_error(
@@ -1912,6 +1940,13 @@ def gate3(
     paths with the deck's first, the report, and the five PowerPoint checks only a person can
     do. Exits non-zero when a checkable criterion fails. As with `gate2`, this reports and
     never decides: a clean run here is not the gate.
+
+    Requires a current claims approval (exit 3 otherwise): a final audit over claims that are
+    no longer the approved ones would print PASS lines about a deck nobody may ship. It
+    records what it concluded (`Orchestrator.record_final_assessment`) so `approve ...
+    final_render` can refuse a deck this audit did not describe or did not pass. The terminal
+    shows the three paths, the four criteria, the findings, the header flow and the human
+    checklist; the full claim-level audit (a repeat of GATE 2) goes only to the report file.
     """
     from autodeck.audit.gate3 import assess_final, render_final_report
     from autodeck.audit.report import build_audit_report
@@ -1923,6 +1958,11 @@ def gate3(
     from autodeck.pipeline.orchestrator import assess_render_safety
 
     orchestrator = _open_run(run_id, runs_root, env)
+    try:
+        orchestrator.require_gate(Gate.CLAIMS)
+    except GateBlocked as blocked:
+        _echo_error(str(blocked))
+        raise typer.Exit(code=3) from None
     paths = orchestrator.paths
     if not orchestrator.state.is_complete("render") or not paths.deck_pptx.exists():
         _echo_error(
@@ -1962,6 +2002,14 @@ def gate3(
     )
     report_text = render_final_report(assessment, audit_report=render_audit(audit_report))
     paths.final_audit_report.write_text(report_text, encoding="utf-8")
+    shown_text = render_final_report(
+        assessment,
+        audit_report=(
+            f"The claim-level audit is in `{paths.final_audit_report}` (it repeats the GATE 2 "
+            "table you have already reviewed)."
+        ),
+    )
+    orchestrator.record_final_assessment(assessment.deck_digest, assessment.passes)
 
     registry = ModelRegistry.load(env)
     latest = orchestrator.ir.latest_version()
@@ -1987,7 +2035,7 @@ def gate3(
     typer.echo(f"  Final audit report: {paths.final_audit_report}")
     typer.echo(f"  Build manifest:     {paths.manifest_file}")
     typer.echo("")
-    typer.echo(report_text)
+    typer.echo(shown_text)
     typer.echo("=" * 78)
     for label, passed, detail in assessment.checkable():
         typer.secho(
@@ -1995,12 +2043,20 @@ def gate3(
             fg=typer.colors.GREEN if passed else typer.colors.RED,
         )
         typer.echo(f"         {detail}")
-    typer.secho(
-        f"\nApprove with `autodeck approve {run_id} final_render` after doing the five "
-        "PowerPoint checks above; the approval records the deck digest shown "
-        f"({assessment.deck_digest[:16]}...). A clean run above is not the gate.",
-        fg=typer.colors.YELLOW,
-    )
+    if assessment.passes:
+        typer.secho(
+            f"\nApprove with `autodeck approve {run_id} final_render` after doing the five "
+            "PowerPoint checks above; the approval records the deck digest shown "
+            f"({assessment.deck_digest[:16]}...). A clean run above is not the gate.",
+            fg=typer.colors.YELLOW,
+        )
+    else:
+        typer.secho(
+            f"\nNot approvable: `autodeck approve {run_id} final_render` will refuse this deck "
+            "while a criterion above fails. Fix what it names, run `autodeck render "
+            f"{run_id}` again, then `autodeck gate3 {run_id}`.",
+            fg=typer.colors.YELLOW,
+        )
 
     if not assessment.passes:
         raise typer.Exit(code=4)

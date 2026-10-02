@@ -698,7 +698,10 @@ def test_render_then_gate3_produces_deck_report_and_manifest_together(
         "build_manifest.json",
     ]
     assert max(first_paths) < next(i for i, line in enumerate(lines) if "[PASS]" in line)
-    assert report_path.read_text(encoding="utf-8") in result.output
+    # The claim-level audit is in the file only; the terminal points to it (3b.10 integrity).
+    assert "# Audit report" in report_path.read_text(encoding="utf-8")
+    assert "# Audit report" not in result.output
+    assert "claim-level audit is in" in result.output
     assert result.output.count("- [ ]") == 5 and "[x]" not in result.output
     assert Manifest.load(manifest_path).run_id == "r1"
 
@@ -725,7 +728,8 @@ def test_gate3_exits_4_and_says_so_when_the_rendered_deck_fails_a_criterion(
     assert result.exit_code == 4, result.output
     assert "[FAIL] Post-render audit passes" in result.output
     assert (runs_root / "r1" / "final_audit_report.md").exists()
-    assert "Approve with `autodeck approve r1 final_render`" in result.output
+    assert "Not approvable: `autodeck approve r1 final_render` will refuse" in result.output
+    assert "Approve with" not in result.output
 
 
 def _tamper_claim(pptx: Path) -> None:

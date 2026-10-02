@@ -25,7 +25,7 @@ returned HTTP 429, "requires usage credits". The suite on the phase branch stood
 839 passed, 0 skipped, 10 live-marked and deselected at the time — the 13 font-dependent
 skips are gone because fonts are installed, and CI now installs the OFL dev fonts too,
 since `3cac30e` on the 3a branch. The suite at tip, including Phase 3a, was
-**1098 passed, 0 skipped, 10 live-marked and deselected**; with Phase 3b it is **1327 passed
+**1098 passed, 0 skipped, 10 live-marked and deselected**; with Phase 3b it is **1343 passed
 by default, plus 41 `render`-marked tests (they need LibreOffice and the fonts; all pass
 locally) — 51 deselected by default, 10 of them live**. See `docs/handovers/PHASE-2B.md`
 §6.9–§6.13 for what the review found and how it was closed.
@@ -94,18 +94,6 @@ one `validation` call per six claims, spread across five models (B25).
 ### New debt from Phase 3b (found while writing the owner's guide)
 
 - **A pipeline-made deck cannot satisfy GATE 3 criterion 4** (see the decision above).
-- **`autodeck gate3` does not refuse when the claims approval is stale.** After a `content`
-  run it still reports four PASS lines on the old `deck.pptx` while the claim-level section
-  shows every claim `unverified`.
-- **`autodeck approve <run> final_render` checks neither the `gate3` result nor the claims
-  approval.** It accepted a deck with two failing criteria and, with claims `NOT CURRENT`,
-  said only `still pending: claims`.
-- **A contrast failure the critic saw twice still ships** (`Stopped: target_reached` with
-  `1 QA finding(s)` on both iterations), and `gate3` then reports it as FAIL.
-- **Art-direction quota failure on an icon slide** prints an internal-sounding
-  `RenderStageError: icon_pillars has 0 'pillar_icon' block(s)…` line after the quota message.
-- **`gate3` header flow shows a title slide as `'(empty)'`** with an advisory about a missing
-  `subtitle` slot.
 - The PowerPoint-only checks are untested on a real PowerPoint (above).
 
 ### New debt from Phase 3a
@@ -214,7 +202,7 @@ See the tracker in `docs/INVARIANTS.md`.
 
 ## What exists today
 
-Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1327 tests pass by default** (plus 41
+Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1343 tests pass by default** (plus 41
 `render`-marked tests, which need LibreOffice and the fonts and also pass; 10 live-marked
 tests stay deselected). Ruff and pyright were clean at the Phase 3a tip; not re-run for this
 update.
