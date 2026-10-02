@@ -2028,7 +2028,11 @@ def gate3(
             "table you have already reviewed)."
         ),
     )
-    orchestrator.record_final_assessment(assessment.deck_digest, assessment.passes)
+    orchestrator.record_final_assessment(
+        assessment.deck_digest,
+        assessment.passes,
+        failed=[label for label, passed, _detail in assessment.checkable() if not passed],
+    )
 
     registry = ModelRegistry.load(env)
     latest = orchestrator.ir.latest_version()
