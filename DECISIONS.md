@@ -1014,8 +1014,11 @@ the owner with options.
 - **Status:** active
 - **Context:** verifying the owner guide showed that re-running `autodeck render` with
   identical model replies produced a different deck, voiding a `final_render` approval.
-  Cause: `render` loaded the *latest* IR — the previous render's art-directed and critiqued
-  output — so each run art-directed an already art-directed deck and changes compounded.
+  Two causes. (1) `render` loaded the *latest* IR — the previous render's art-directed and
+  critiqued output — so each run art-directed an already art-directed deck and changes
+  compounded. (2) Found while proving the fix: every native chart embeds an `.xlsx` whose
+  `docProps/core.xml` carries its write time, so any deck with a chart digested differently
+  on every render, whatever the IR said.
 - **Decision:** `render` always starts from the IR version the `validate` stage recorded
   (the facts the claims approval covers, in the presentation content left them). Art
   direction and the critique then write new IR versions on top as today.
@@ -1027,3 +1030,8 @@ the owner with options.
     next render (there is no supported way to make one today).
   - `gate3` also records which criteria failed, so `approve ... final_render` can name them
     when it refuses.
+  - The embedded chart workbook's created/modified times are pinned to 1980-01-01T00:00:00Z
+    (the date its zip entries already carry), at the source in `design/charts.py`.
+  - The provider response cache keys vision calls on the images' bytes, not their count, so
+    a cached critique is replayed only for the render it was given. LibreOffice renders were
+    verified byte-stable for the same deck, so reproducibility is kept.

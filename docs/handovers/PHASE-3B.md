@@ -19,8 +19,8 @@
 | **Approved by / when** | — |
 | **What the owner actually checked** | Nothing yet. The owner's GATE 2 run and GATE 3's five PowerPoint checks are both outstanding; `docs/OWNER-GUIDE.md` walks through both. |
 
-Suite at tip `6678e90`: **1327 passed, 51 deselected** (live + render); **41 render tests
-passed** with `-m render`. Requires the B34 environment (`scripts/setup-dev-env.sh`).
+Suite at tip: **1363 passed, 54 deselected** (live + render); **44 render tests passed**
+with `-m render`. Requires the B34 environment (`scripts/setup-dev-env.sh`).
 
 ## 2. What shipped
 
@@ -62,6 +62,8 @@ passed** with `-m render`. Requires the B34 environment (`scripts/setup-dev-env.
 - **B34** — the environment is part of the project.
 - **B35** — icon-anchored slides need a face-icon component first → `icon_pillars`.
 - **B36** — art direction: modes by rule, taste by model; `AssignIcons`; IR `text` hole closed; icon blocks out of the fingerprint; no automatic dividers; `outline` role binding.
+- **B37** — the content writer authors process-flow diagrams; A5 reaches diagram labels (both found by verifying the owner guide against the real CLI).
+- **B38** — `render` starts from the validated IR; chart workbooks carry no write time; vision cache keyed on image bytes — so a render is reproducible.
 
 Not yet in the log, recorded here and in commit messages: claims approval bound to facts
 (`facts_digest`), and pins rejecting only a move *away* from the pinned value. **Phase 4
@@ -101,6 +103,17 @@ should add these as B-entries** if the owner accepts them at GATE 3.
 - Negative: `accent3` on the dev theme fails contrast on a bullets slide; the loop reverted
   it correctly (`qa_regression`).
 
+### Found by running the owner guide, after the first handover draft
+
+Running every documented GATE 3 step against the real CLI (scripted providers) found:
+no pipeline deck could ever pass GATE 3 (no authorable diagram → B37); A5 never read a
+diagram's uncited text (B37); `gate3` passed over stale claims and `approve final_render`
+accepted a failed audit (both now refused); the critique could declare its target reached
+with a QA finding open (now structural); `render` compounded its own output and chart
+decks never digested stably (B38); the title slide's header read as empty (wrong slot
+picked by `flow.py`). **Lesson: a guide written by running the product is a test suite the
+code had not met yet.** Do it before calling a phase done.
+
 ## 7. Known gaps, risks, and debt carried forward
 
 | Item | Impact if ignored | Owned by |
@@ -109,6 +122,8 @@ should add these as B-entries** if the owner accepts them at GATE 3.
 | `icon_pillars` label budget ≈ 16 characters at four columns | Content writer labels may be rejected for length | Phase 4 (content prompt guidance, or a 3-column variant) |
 | Only `icon_pillars` can place a face icon | `icon_anchored` reachable through one layout only | Phase 4 catalog work if the owner wants more |
 | Section dividers not automated | Long decks lack section structure unless added by hand | Phase 4 decision (B36) |
+| Only `process_flow` is writer-authorable; `two_by_two` / `layered_stack` are not | `framework_diagram` can only show a sequence from the pipeline | Phase 4 (B37) |
+| `section_divider`'s header-flow line reads its section number | The header list shows a number for divider slides | Phase 4 (flow.py slot choice) |
 | B30 — approvals live in `state.json`, not committed | An approval can be lost with the machine | Owner decision |
 | Approvals recorded before this phase's fingerprint changes read CHANGED | Re-approval needed — no real approvals exist yet | n/a unless approvals predate tip |
 | Dev theme `accent3` contrast | Critique proposals using it are reverted, wasting a round | Real client template (Q5) |
@@ -149,9 +164,9 @@ uv sync
 uv run ruff check . && uv run ruff format --check . && uv run pyright
 # expected: All checks passed! / 150 files already formatted / 0 errors
 uv run pytest -q
-# expected: 1327 passed, 51 deselected
+# expected: 1363 passed, 54 deselected (plus any added after this handover)
 uv run pytest -q -m render
-# expected: 41 passed
+# expected: 44 passed
 uv run autodeck components preview
 git status --short autodeck/design/components/previews
 # expected: no output (all 16 golden previews regenerate byte-identical)
