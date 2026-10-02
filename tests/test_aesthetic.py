@@ -570,7 +570,10 @@ def test_a_candidate_with_more_qa_findings_is_reverted(
         reply(5.0, SetTypeScale(slide_id="s1", scale="compact")), reply(9.0)
     )
     equal_result = _run(deck, equal_critic, tmp_path / "b", prompt_file)
-    assert equal_result.stopped == "target_reached"
+    # Equal is not a regression, so the loop carries on to the second look. That look scores 9
+    # but the finding is still open, so it is not `target_reached` (3b.10 integrity); the
+    # critic proposed nothing more, so the loop ends on `no_actions`.
+    assert equal_result.stopped == "no_actions"
     assert equal_critic.calls == 2
     assert _type_scale(equal_result.deck) == "compact"
     assert fact_fingerprint(equal_result.deck) == fact_fingerprint(deck)

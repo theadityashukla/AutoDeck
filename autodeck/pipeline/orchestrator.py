@@ -96,6 +96,24 @@ class ArtifactMissing(RuntimeError):
         self.run_id = run_id
 
 
+class ApprovalRefused(RuntimeError):
+    """A gate's artifact exists, but approving it now would be approving the wrong thing.
+
+    Distinct from `ArtifactMissing` (nothing to approve) and `GateBlocked` (a later stage
+    needs an approval that is not there): here the owner asked to approve, and a
+    precondition the gate depends on does not hold. Nothing is recorded.
+    """
+
+    def __init__(self, gate: Gate, run_id: str, reason: str) -> None:
+        super().__init__(
+            f"cannot approve GATE '{gate.value}' for run {run_id!r}: {reason} Nothing was "
+            "recorded."
+        )
+        self.gate = gate
+        self.run_id = run_id
+        self.reason = reason
+
+
 class UnknownRunError(RuntimeError):
     """A command that works on an existing run was given an id with no run directory."""
 
@@ -177,9 +195,9 @@ class RunState:
     """Gate value -> sha256 of the artifact that was approved. An approval with no entry
     here is from before approvals were bound to an artifact, and does not count."""
     final_assessment: dict[str, Any] = field(default_factory=dict)
-    """Scaffold (3b.10 integrity) — what `autodeck gate3` last concluded:
+    """What `autodeck gate3` last concluded:
     `{"digest": <canonical_pptx_digest>, "passes": bool, "at": <ISO>}`. Written only by
-    `record_final_assessment`; serialised by `to_dict`/`from_dict` (Sonnet adds both)."""
+    `record_final_assessment`. Empty until `gate3` has run."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -188,6 +206,7 @@ class RunState:
             "stages": {name: record.to_dict() for name, record in self.stages.items()},
             "approvals": dict(self.approvals),
             "fingerprints": dict(self.fingerprints),
+            "final_assessment": dict(self.final_assessment),
         }
 
     @classmethod
@@ -201,6 +220,7 @@ class RunState:
             },
             approvals=dict(payload.get("approvals") or {}),
             fingerprints=dict(payload.get("fingerprints") or {}),
+            final_assessment=dict(payload.get("final_assessment") or {}),
         )
 
     def is_complete(self, stage: str) -> bool:
@@ -458,32 +478,56 @@ class Orchestrator:
 
         Raises:
             ArtifactMissing: the gate's artifact does not exist. Nothing is written.
-
-        Scaffold (3b.10 integrity) — Sonnet adds, for `Gate.FINAL_RENDER` only, before
-        anything is written, raising `ApprovalRefused(gate, run, reason)` (a new exception,
-        sibling of `ArtifactMissing`; the CLI prints it and exits 1):
-          - the claims approval is not `CURRENT` → reason names its state and detail. A
-            finished deck cannot be approved on top of claims nobody has approved as they
-            now stand (A7 chain).
-          - `state.final_assessment` is absent, or its `digest` differs from
-            `current_fingerprint(FINAL_RENDER)` → "run `autodeck gate3 <run>` on this deck
-            first": the owner approves what the final audit described, not a deck it never
-            saw.
-          - its `passes` is False → "the final audit did not pass: <which>; fix and re-run
-            `render` and `gate3`". PHASE-3B's GATE 3 is "the visual result *and a final audit
-            pass*"; an approval over a failed audit is not that gate.
-        Other gates keep today's behaviour exactly.
+            ApprovalRefused: `Gate.FINAL_RENDER` only, and nothing is written. The claims
+                approval is not current (a finished deck cannot be approved on top of claims
+                nobody has approved as they now stand); `gate3` has not been run on this
+                exact deck (the owner approves what the final audit described, not a deck it
+                never saw); or the final audit it recorded did not pass (GATE 3 is the
+                visual result *and* a final audit pass).
         """
         fingerprint = self.current_fingerprint(gate)
+        if gate is Gate.FINAL_RENDER:
+            self._check_final_render_preconditions(fingerprint)
         self.state.approvals[gate.value] = f"{_now()} by {approver}"
         self.state.fingerprints[gate.value] = fingerprint
         self.save_state()
 
+    def _check_final_render_preconditions(self, deck_digest: str) -> None:
+        gate = Gate.FINAL_RENDER
+        run = self.run_id
+        claims_state, claims_detail = self.approval_state(Gate.CLAIMS)
+        if claims_state is not ApprovalState.CURRENT:
+            raise ApprovalRefused(
+                gate,
+                run,
+                f"the claims approval does not count ({claims_state.value}: {claims_detail}). "
+                f"Run `autodeck gate2 {run}`, review the claims, and `autodeck approve {run} "
+                "claims` first.",
+            )
+        assessment = self.state.final_assessment
+        if not assessment or assessment.get("digest") != deck_digest:
+            raise ApprovalRefused(
+                gate,
+                run,
+                f"the final audit has not been run on this deck. Run `autodeck gate3 {run}` "
+                "first.",
+            )
+        if not assessment.get("passes"):
+            raise ApprovalRefused(
+                gate,
+                run,
+                "the final audit did not pass on this deck. Fix what it reports, then "
+                f"re-run `autodeck render {run}` and `autodeck gate3 {run}`.",
+            )
+
     def record_final_assessment(self, digest: str, passes: bool) -> None:
-        """Remember what `gate3` concluded about the deck with `digest`. Scaffold: Sonnet
-        fills (set `state.final_assessment`, save). Records a fact about a report; it is not
-        an approval and grants nothing."""
-        raise NotImplementedError("scaffold: Sonnet fills this in")
+        """Remember what `gate3` concluded about the deck with `digest`.
+
+        Records a fact about a report; it is not an approval and grants nothing. The latest
+        call replaces any earlier one.
+        """
+        self.state.final_assessment = {"digest": digest, "passes": passes, "at": _now()}
+        self.save_state()
 
     def pending_gates(self) -> list[Gate]:
         """Gates without a *current* approval, in order."""

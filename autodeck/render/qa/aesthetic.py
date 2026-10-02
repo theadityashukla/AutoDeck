@@ -42,8 +42,10 @@ triggers).
 
 ## Stop reasons, exhaustively
 
-`target_reached` — the scored deck met `target_score`. `no_actions` — the model proposed
-nothing. `all_rejected` — it proposed actions and `apply_action` rejected every one, so
+`target_reached` — the scored deck met `target_score` *and* has no open deterministic QA
+finding (a high score over an open finding does not stop the loop; its actions are applied
+as for any other score). `no_actions` — the model
+proposed nothing. `all_rejected` — it proposed actions and `apply_action` rejected every one, so
 there is no candidate to render. `max_iterations` — the budget ran out. `qa_regression` — a
 candidate had more deterministic findings than its predecessor. `audit_failed` — a candidate
 failed the post-render audit (a presentation change that breaks A1/A2 on the rendered page
@@ -141,7 +143,8 @@ class LoopConfig:
     """Vision calls per deck, at most. Three is the plan's §6.9 default: one look, one
     correction, one confirmation."""
     target_score: float = 8.0
-    """Stop as soon as a scored deck reaches this. Same 0-10 scale as `ActionList.score`."""
+    """Stop as soon as a scored deck with no open QA finding reaches this. Same 0-10 scale as
+    `ActionList.score`."""
 
 
 DEFAULT_CONFIG = LoopConfig()
@@ -273,8 +276,9 @@ def run_aesthetic_loop(
         every PNG as an `ImageInput`. `ProviderError` (base class — covers auth, rate limit
         exhaustion, bad replies, `StructuredOutputError`) → `stopped="model_error"`.
         Any other exception propagates.
-      - Record the score against the deck just rendered. If `score >= target_score` →
-        `target_reached`. If `actions` is empty → `no_actions`.
+      - Record the score against the deck just rendered. If `score >= target_score` and
+        the deck has no deterministic QA finding → `target_reached`. If `actions` is empty →
+        `no_actions`.
       - Apply each action in order with `apply_action(candidate, action, pins=pins,
         slots_of=..., glyph_for=...)`, threading the result; an `ActionRejected` is recorded
         and the next action is tried against the unchanged candidate. `FactMutationError`
@@ -387,13 +391,11 @@ def run_aesthetic_loop(
             images=tuple(images),
         )
 
-        # Scaffold (3b.10 integrity) — Sonnet changes this condition to also require
-        # `not findings`: a deck with an open deterministic QA finding has not reached the
-        # target whatever score the model gives (the prompt caps such scores at 6, but a
-        # prompt is advice; this makes it structural). With findings and a high score, carry
-        # on to apply the actions as for any other score. Update the module docstring's stop
-        # reasons to say so.
-        if reply.score >= config.target_score:
+        # The target needs a clean deck as well as a high score: the critique prompt caps the
+        # score for a deck with an open deterministic QA finding, but a prompt is advice, so
+        # this makes it structural. With findings and a high score, carry on and apply the
+        # actions as for any other score.
+        if reply.score >= config.target_score and not findings:
             iterations.append(look)
             return result("target_reached")
         if not reply.actions:

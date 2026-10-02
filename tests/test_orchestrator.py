@@ -27,7 +27,7 @@ from autodeck.pipeline.orchestrator import (
     assess_render_safety,
     require_safe_to_render,
 )
-from tests.gate_artifacts import seed_artifact
+from tests.gate_artifacts import seed_artifact, seed_passing_final_assessment
 
 
 def make(tmp_path: Path, run_id: str = "r1", env: str = "dev") -> Orchestrator:
@@ -75,6 +75,8 @@ def test_an_approval_records_who_and_when(tmp_path: Path) -> None:
     orchestrator = make(tmp_path)
     for gate in Gate:
         seed_artifact(orchestrator, gate)
+        if gate is Gate.FINAL_RENDER:  # claims, above, are already approved
+            seed_passing_final_assessment(orchestrator)
         orchestrator.approve(gate, approver="aditya")
 
     stored = json.loads(orchestrator.paths.state_file.read_text(encoding="utf-8"))
@@ -133,7 +135,10 @@ def test_replacing_the_rendered_deck_invalidates_the_final_render_approval(
     tmp_path: Path,
 ) -> None:
     orchestrator = make(tmp_path)
+    seed_artifact(orchestrator, Gate.CLAIMS)
+    orchestrator.approve(Gate.CLAIMS)
     seed_artifact(orchestrator, Gate.FINAL_RENDER, marker="one")
+    seed_passing_final_assessment(orchestrator)
     orchestrator.approve(Gate.FINAL_RENDER)
     orchestrator.require_gate(Gate.FINAL_RENDER)
 
