@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoDeck</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar" aria-label="Main">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </div>
+      <span class="brand-name">AutoDeck</span>
+    </div>
+    <a class="nav-item" href="#/" data-nav="home">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+      <span class="nav-text">Home</span>
+    </a>
+    <a class="nav-item" href="#/runs" data-nav="runs">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></svg>
+      <span class="nav-text">Runs</span>
+    </a>
+    <a class="nav-item" href="#/clients/new" data-nav="clients">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+      <span class="nav-text">Clients</span>
+    </a>
+    <div class="nav-label">Recent</div>
+    <div id="recent"></div>
+    <div class="spacer"></div>
+    <a class="nav-item" href="#/settings" data-nav="settings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+      <span class="nav-text">Settings</span>
+    </a>
+  </nav>
+  <main class="main" id="view" tabindex="-1"></main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

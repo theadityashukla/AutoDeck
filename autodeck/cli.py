@@ -880,41 +880,25 @@ def plan(
     draft** are kept: run `plan` again with the same run id and it picks the draft up. A
     provider failure (spent quota, missing key) also ends the session with the draft kept.
     """
-    from autodeck.agents.evidence_gap import CLASSIFIER_ROLE, EvidenceProbe
-    from autodeck.agents.planner import (
-        BriefIncomplete,
-        PlannerError,
-        PlannerSession,
-        render_draft,
-    )
-    from autodeck.ingest.document_store import DocumentStore
-    from autodeck.knowledge.context_assembler import ContextAssembler
-    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
-    from autodeck.pipeline.orchestrator import Orchestrator
-    from autodeck.providers.registry import ModelRegistry
-    from autodeck.retrieval.hybrid import build_index
+    from autodeck.agents.planner import BriefIncomplete, PlannerError, render_draft
+    from autodeck.pipeline.planning import PlanningSetupError, prepare_planning
 
     try:
-        assembler = ContextAssembler(knowledge_root, client=client, project=project)
-        context = assembler.assemble()
-        knowledge = KnowledgeLoader(knowledge_root).load_project(project)
-    except KnowledgeError as exc:
-        _echo_error(str(exc))
-        raise typer.Exit(code=1) from None
-
-    store = DocumentStore(corpus_root / project)
-    documents = list(store.documents())
-    if not documents:
-        _echo_error(
-            f"no ingested documents under {corpus_root / project}. The evidence-gap check "
-            f"is the point of this session — run `autodeck knowledge ingest {project}` first."
+        planning = prepare_planning(
+            run_id,
+            client=client,
+            project=project,
+            env=env,
+            knowledge_root=knowledge_root,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
         )
-        raise typer.Exit(code=2)
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
 
-    registry = ModelRegistry.load(env)
-    index = assembler.use_index(build_index(documents, project=project))
-    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
-    guard = ProviderGuard(registry, cache=ResponseCache(orchestrator.paths.llm_cache))
+    orchestrator = planning.orchestrator
+    guard = planning.guard
     resume_command = f"plan {run_id} --client {client} --project {project}"
 
     def draft_note() -> str:
@@ -926,17 +910,7 @@ def plan(
         return "no draft had been started. Nothing is approved."
 
     with _ends_on_provider_failure(guard, command=resume_command, saved=draft_note):
-        session = PlannerSession(
-            orchestrator,
-            model=guard.provider("planner"),
-            probe=EvidenceProbe(
-                index=index,  # type: ignore[arg-type]
-                store=store,
-                claims=knowledge.claims,
-                classifier=guard.provider(CLASSIFIER_ROLE),
-            ),
-            context=context,
-        )
+        session = planning.open_session()
 
     typer.secho(f"Planning {run_id} for {client} / {project} (env={env})", bold=True)
     if session.resumed:
@@ -2234,6 +2208,35 @@ def spike_build(
         "family — Aptos is the deliverable target (B11).",
         fg=typer.colors.YELLOW,
     )
+
+
+# ---------------------------------------------------------------------------
+# ui
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def ui(
+    env: EnvOption = "dev",
+    port: Annotated[int, typer.Option("--port", help="Local port; 0 picks a free one.")] = 0,
+    browser: Annotated[
+        bool, typer.Option("--browser", help="Open in the browser instead of a window.")
+    ] = False,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Open the review UI (B40): a local window over the same pipeline these commands run.
+
+    Uses a native window when the `ui` extra is installed (`uv sync --extra ui`), and the
+    default browser otherwise. Serves on 127.0.0.1 only. It records no approval of its own:
+    the brief is signed through the planner, as `/sign` is here (A7).
+    """
+    from autodeck.ui.api import Roots
+    from autodeck.ui.launch import serve
+
+    roots = Roots(knowledge=knowledge_root, corpus=corpus_root, runs=runs_root, env=env)
+    serve(roots, port=port, window=not browser, say=typer.echo)
 
 
 if __name__ == "__main__":  # pragma: no cover

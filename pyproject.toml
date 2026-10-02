@@ -19,6 +19,11 @@ dependencies = [
     "docling>=2.117.0",
 ]
 
+[project.optional-dependencies]
+# The review UI's native window (B40): pywebview drives the web view the OS already ships
+# (WebView2 on Windows, WKWebView on macOS). Without it `autodeck ui` opens the browser.
+ui = ["pywebview>=5.0"]
+
 [project.scripts]
 autodeck = "autodeck.cli:app"
 

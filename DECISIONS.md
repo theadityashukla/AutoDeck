@@ -1056,3 +1056,52 @@ the owner with options.
   - The UI must call the CLI/orchestrator's existing gate paths and must not add a new way
     to approve — the gate-bypass tests (`test_no_command_can_bypass_a_gate`,
     `test_none_of_the_new_commands_can_record_an_approval`) should be extended to cover it.
+
+### B40 — The review UI: a local web front end in a native window, over the existing pipeline
+- **Date:** 2026-10-02
+- **Phase / branch:** UI / `v2/integration`
+- **Status:** active — owner's decision
+- **Context:** D7 deferred a "thin review UI"; B39 brought Phases 2a–3b onto `v2/integration`
+  so the owner can build one. The owner's requirements: it runs on macOS and Windows, needs
+  minimal downloads, has a clean glass look, and is an interface over the codebase
+  (everything the CLI does), not a separate system.
+- **Decision:** new package `autodeck/ui/`. A standard-library HTTP server
+  (`http.server.ThreadingHTTPServer`) bound to 127.0.0.1 serves a JSON API and static
+  HTML/CSS/JS. `pywebview` (optional dependency group/extra `ui`) opens it in the OS's own
+  web view (WebView2 on Windows, WKWebView on macOS). If pywebview is unavailable or fails,
+  the same local URL opens in the default browser (the fallback the owner asked for).
+  Command: `autodeck ui`. System fonts only, and CSS `backdrop-filter` for the glass; no
+  font, icon or JS framework downloads.
+- **Rationale:** one language (Python) end to end; no Electron or Node; the web view already
+  ships with both OSes; and the fallback means a failed native window never blocks the owner.
+- **Consequences:**
+  - The UI calls the same functions as the CLI; it adds no new way to approve a gate (B39,
+    A7) — an approval in the UI is a person acting through the existing approval path, and
+    the gate-bypass tests are extended to cover the UI's API.
+  - The server binds to localhost only and has no auth, so it is a single-user local tool.
+  - The model environment (dev/sit/prod) is a Settings choice, and every screen shows which
+    tier a run used so a dev draft is never mistaken for a client deliverable.
+
+### B41 — Redesigning an existing deck: the uploaded deck is the source document
+- **Date:** 2026-10-02
+- **Phase / branch:** UI / `v2/integration`
+- **Status:** active — owner's decision
+- **Context:** the owner wants to hand AutoDeck a finished deck's text and have it rebuilt in
+  the client's brand, changing layouts where that helps. Under A1 every factual statement
+  needs a citation, and §6.12 says reference decks teach style, never truth — so a deck's own
+  text would otherwise be uncited.
+- **Decision:** in a redesign run the uploaded deck is ingested as a source document in the
+  run's corpus (its slides play the role of pages, a text frame's location the role of a
+  bbox). Every statement on a redesigned slide cites the original slide's verbatim text. Not
+  implemented yet; this records the rule the implementation must follow.
+- **Rationale:** keeps A1–A3 and A8 intact rather than adding a "trust me" mode: A2 still
+  requires every numeral to match the original or a declared derivation; A3's validator
+  checks the redesigned wording is faithful to the original; A8 surfaces any place the deck
+  contradicts itself.
+- **Consequences:**
+  - Such a citation proves faithfulness to the client's deck, not truth. The audit report
+    must label these citations "client-supplied deck" so a reader can tell them from
+    research-paper citations.
+  - An optional check of figures against the project's papers can be offered.
+  - The deck is a source for that run only and stays inside the client's namespace (A4).
+  - The four approvals (A7) apply unchanged.
