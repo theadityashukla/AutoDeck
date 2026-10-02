@@ -651,7 +651,7 @@ Three things about `approve`:
   ```
 
   and the same for `outline` (`the outline stage has not completed`), `brief` (the run has no
-  brief) and `final_render` (there is no rendered deck). Approving the claims also needs them
+  brief) and `final_render` (there is no rendered deck; section 6b says what else it requires). Approving the claims also needs them
   to be current — if `content` has been run since `validate`, it refuses with
   `the facts changed after validation (IR v8); re-run `autodeck validate <run>`` (section 6).
 - **It does not check that you have looked.** It records whatever you tell it, in any order
@@ -759,14 +759,13 @@ Every framing block stays on the right side of the fence.
 
 Header flow — read top to bottom; does the argument hold without the rest of the slide?
 
-1. [s1] '(empty)' ((no header slot), 0 word(s))
+1. [s1] 'Serve better before you buy more' (framing, 6 word(s))
 2. [s2] 'Where serving capacity is lost' (section_header, 5 word(s))
 3. [s3] 'What quantisation buys' (section_header, 3 word(s))
 4. [s4] 'Faster generation, same outputs' (section_header, 4 word(s))
 5. [s5] 'Settle hosted versus self-hosted with your own volume data' (framing, 9 word(s))
 
-Mechanical checks (advisory — never blocks a build):
-  s1: no block fills the header slot 'subtitle'
+Mechanical checks: nothing to flag.
 
 This pass does not judge whether the sequence carries the argument — a human does. Read the numbered list above top to bottom, covering the rest of each slide, and ask whether it would still make the deck's case.
 
@@ -1154,7 +1153,9 @@ Four things happen, in this order, and only the last two are yours:
 4. **Your hands-on checks in PowerPoint**, then your approval.
 
 **The prerequisite is a current claims approval** (section 6): `autodeck status <run>` must
-show a date and a name on the `claims` line, not `NOT CURRENT` and not `PENDING`.
+show a date and a name on the `claims` line, not `NOT CURRENT` and not `PENDING`. You do not
+have to remember to check: `render` and `gate3` both refuse (exit 3) without it, and
+`approve … final_render` refuses too.
 
 **Art direction and the critique cannot change a word, a number, a quote or a source.**
 Their whole vocabulary is a short fixed list (accent colour, type size, which block is
@@ -1200,7 +1201,7 @@ Art direction
 wrote IR v8
 
 Aesthetic loop
-  Stopped: target_reached. Best score: 8.5/10.
+  Stopped: no_actions. Best score: 8.5/10.
   iteration 0: score 6.5, 1 QA finding(s), 1 applied, 0 rejected
     applied  set_type_scale slide_id=s3 scale=compact
   iteration 1: score 8.5, 1 QA finding(s), 0 applied, 0 rejected
@@ -1234,7 +1235,9 @@ How to read it, top to bottom:
   critic's mark out of 10, and each `iteration` line is one look: its score, how many
   mechanical layout problems (`QA finding(s)`: overlaps, text off the safe area, text too
   small, low contrast) the file had, and what was applied or rejected. The stop reasons, in
-  plain words: `target_reached` — scored 8 or more; `no_actions` — the critic had nothing to
+  plain words: `target_reached` — scored 8 or more *and* no layout problem is left open (a high mark over
+  a layout problem does not end it: in the example above the second look scored 8.5 with one
+  problem still open and the critic had nothing more to propose, so it ended `no_actions`); `no_actions` — the critic had nothing to
   change; `all_rejected` — everything it proposed was refused; `max_iterations` — three
   looks done; `qa_regression` — a change made the layout problems worse, so it was dropped and
   the best earlier deck kept; `audit_failed` — a change broke the re-check of claims on the
@@ -1272,22 +1275,23 @@ art direction pass (v8) and the critique's change (v9). They changed no fact.
 **You can run `render` again at any time**, and it always runs every stage again (there is
 no option to skip one). It writes a new `deck.pptx` over the old one and a new IR version. That
 matters if you have already approved the finished deck (below): whether the approval
-survives depends on whether the new file is actually different. When a re-run came out
-identical (same instructions from the models), `status` still showed `final_render` approved.
-When the critic's change altered the deck, it showed the following (wherever I have cut output
-in this guide, a line `(… N lines omitted …)` says how many lines are missing):
+survives depends on whether the new file is actually different, and in my tests it was.
+Even when the stand-in models gave the same instructions again, the new file differed from
+the old one and `status` showed the following (from a test fixture that has only the claims
+approval; wherever I have cut output in this guide, a line `(… N lines omitted …)` says how
+many lines are missing):
 
 ```
 (… 10 lines omitted …)
 gates:
-  brief          2026-10-01T21:46:26+00:00 by Jane Owner
-  outline        2026-10-01T21:46:27+00:00 by Jane Owner
-  claims         2026-10-01T21:46:27+00:00 by Jane Owner
-  final_render   NOT CURRENT (2026-10-01T21:46:35+00:00 by Jane Owner) — the rendered deck changed after it was approved; review what is there now and re-approve it
+  brief          PENDING
+  outline        PENDING
+  claims         2026-10-02T08:09:20+00:00 by owner
+  final_render   NOT CURRENT (2026-10-02T08:09:25+00:00 by Jane Owner) — the rendered deck changed after it was approved; review what is there now and re-approve it
 ```
 
-and you approve again. `status` is the arbiter; if it says `NOT CURRENT`, you must read what
-is there now and approve again. Because real models answer differently each time, expect a
+and you approve again: run `gate3` on the new deck first (`approve` refuses a deck `gate3` has not described),
+then approve. If `status` says `NOT CURRENT`, you must read what is there now and approve again. Because real models answer differently each time, expect a
 re-run to produce a different deck, and expect to redo the PowerPoint checks on it.
 
 **If the critique did not happen.** Two ways this shows. If the critic's free-tier quota is
@@ -1314,12 +1318,12 @@ What the critic saw, per iteration: runs/r1/previews/aesthetic
 STOPPED: role 'aesthetic' (gemini, model gemini-3.1-flash-lite) was rate limited.
   The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
   On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
-  Saved: IR versions up to v2 were written; runs/r1/deck.pptx exists but was not (fully) critiqued. No provider call had completed yet, so there is nothing cached.
+  Saved: IR versions up to v2 were written; runs/r1/deck.pptx exists but was not (fully) critiqued. The run's response cache is empty, so a re-run repeats every model call.
   Then run `autodeck render r1` again.
 ```
 
-(In this test the stand-in model is not cached, which is why the last `Saved:` line says
-"nothing is cached"; with the real model it counts the saved calls.) `deck.pptx` exists and is
+(In this test the stand-in model does not write to the response cache, which is why the
+`Saved:` line says it is empty; with the real model it counts the saved calls.) `deck.pptx` exists and is
 a valid deck, only it did not get the critic's pass. You can go on to `gate3` and
 judge it as it is, or wait a day and run `render` again, which replays what finished. If
 instead the critic answered with something unusable, you get the same files and exit
@@ -1340,7 +1344,21 @@ Next: autodeck gate3 r1
 ```
 
 If the *art director's* quota is the one spent, the message names `role 'outline'`, and the
-rule-chosen modes are used without the model's taste.
+rule-chosen modes are used without the model's taste. If the deck has an icon slide, that
+slide gets its icons from the art director, so no deck can be drawn yet, and the message
+ends with a line saying so (exit 5, no `deck.pptx`):
+
+```
+STOPPED: role 'outline' (gemini, model gemini-3.6-flash) was rate limited.
+  The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
+  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  Saved: IR versions up to v2 were written. The run's response cache is empty, so a re-run repeats every model call.
+  Then run `autodeck render r1` again.
+  No deck was drawn: the icon slide (s3) could not get its icons because the art-direction call above failed. Re-run `autodeck render r1` later.
+```
+
+Wait for the quota to reset and run `render` again. (A deck with no icon slide is still drawn,
+and the command then exits 5 as in the critic case above.)
 
 ### `autodeck gate3` — the final audit
 
@@ -1353,7 +1371,15 @@ finds the client's header style; you only need it if you are not standing in the
 root, in which case you get `project '…' not found at …` and exit code 1 (section 2: run
 every command from the repository root). It uses no model and no key, can be run as often as you
 like, and approves nothing. It re-reads the files on disk every time, so the report always
-describes the `deck.pptx` that is there now. Before `render` has run it says so:
+describes the `deck.pptx` that is there now. It writes down what it concluded (pass or fail,
+and for which deck), because `approve … final_render` reads that. It needs the claims
+approval to be current, and refuses without it (exit 3, nothing written):
+
+```
+GATE 'claims' is not approved for run 'r1': the facts changed after validation (IR v6); re-run `autodeck validate r1`. Review the artifacts under runs/r1/ and record approval with `autodeck approve r1 claims`. The pipeline never self-approves (A7).
+```
+
+Before `render` has run it says so:
 
 ```
 run 'northwind-milestone' has no rendered deck. Run `autodeck render northwind-milestone` first.
@@ -1365,10 +1391,11 @@ get together: the **deck** (`deck.pptx`), the **final audit report**
 manifest** (`build_manifest.json`, the record of which models, prompts and knowledge
 produced the deck; you do not need to read it, but send it along if asked). Then the report
 itself, and then, as a summary at the very bottom, the four criteria a second time, so you do
-not have to scroll back. Here is a deck where everything the machine can check passes — from a different test
-fixture with a chart, a diagram and three icons, because the plain deck above cannot pass
-(see below). I have cut the claim-by-claim section, which is the GATE 2 audit again,
-unchanged:
+not have to scroll back. The terminal does not repeat the claim-by-claim audit (it is the
+GATE 2 report you have already read): the file `final_audit_report.md` has it, and the
+terminal has one line saying so. Here is a deck where everything the machine can check
+passes — from a different test fixture with a chart, a diagram and three icons, because the
+plain deck above cannot pass (see below):
 
 ```
 GATE 3 - the owner gets these together
@@ -1379,7 +1406,7 @@ GATE 3 - the owner gets these together
 # GATE 3 - final deck review
 
 Deck: `runs/r1/deck.pptx`
-Deck digest: `36b31e30558ccbdbf740ee1483a7632f3da4b64040f4afdd91bc02411f06b941`
+Deck digest: `b5d0e6b8a17a37a67fff97e6e1aab5f728ec57f4650942668cd21aaa511d42e1`
 
 `autodeck approve <run> final_render` records this digest. If the deck changes after this report was written, the approval no longer counts.
 
@@ -1421,7 +1448,10 @@ Mechanical checks (advisory — never blocks a build):
 
 This pass does not judge whether the sequence carries the argument — a human does. Read the numbered list above top to bottom, covering the rest of each slide, and ask whether it would still make the deck's case.
 
-(… 69 lines omitted …)
+## Claim-level audit
+
+The claim-level audit is in `runs/r1/final_audit_report.md` (it repeats the GATE 2 table you have already reviewed).
+
 ## Human checks - do these in PowerPoint, by a person
 
 These five checks must be done in PowerPoint by a person. Nothing in this report has checked them, and a clean run of every criterion above does not stand in for them.
@@ -1442,16 +1472,16 @@ These five checks must be done in PowerPoint by a person. Nothing in this report
   [PASS] At least one native chart, one native diagram and one theme-recolourable icon
          1 chart(s), 1 diagram(s), 3 icon(s)
 
-Approve with `autodeck approve r1 final_render` after doing the five PowerPoint checks above; the approval records the deck digest shown (36b31e30558ccbdb...). A clean run above is not the gate.
+Approve with `autodeck approve r1 final_render` after doing the five PowerPoint checks above; the approval records the deck digest shown (b5d0e6b8a17a37a6...). A clean run above is not the gate.
 ```
 
-The line `(… N lines omitted …)` is mine, not the program's: it marks where the
-claim-by-claim audit (the GATE 2 report again, plus the conflicts, risks and linter sections)
-sat. Everything else is verbatim.
+This is verbatim. The file `runs/r1/final_audit_report.md` holds the same report with the
+claim-by-claim audit (the GATE 2 report again, plus the conflicts, risks and linter
+sections) in place of the line under `## Claim-level audit`.
 
 What each part tells you:
 
-- **The deck digest** (`36b31e30…`) is a fingerprint of the exact file. `approve … final_render`
+- **The deck digest** (`b5d0e6b8…`) is a fingerprint of the exact file. `approve … final_render`
   stores it. The report and the approval therefore name the same file, and if `deck.pptx` is
   changed afterwards the approval stops counting.
 - **The four checkable criteria.** In plain words:
@@ -1481,7 +1511,7 @@ What each part tells you:
   or can tick them. They are your job, next.
 
 **What a `FAIL` looks like, and the one you should expect on a real deck.** This is the
-`gate3` output for the plain `northwind-milestone` deck above (shortened the same way):
+`gate3` output for the plain `northwind-milestone` deck above:
 
 ```
 GATE 3 - the owner gets these together
@@ -1523,18 +1553,20 @@ None.
 
 Header flow — read top to bottom; does the argument hold without the rest of the slide?
 
-1. [s1] '(empty)' ((no header slot), 0 word(s))
+1. [s1] 'Serve better before you buy more' (framing, 6 word(s))
 2. [s2] 'Where serving capacity is lost' (section_header, 5 word(s))
 3. [s3] 'What quantisation buys' (section_header, 3 word(s))
 4. [s4] 'Faster generation, same outputs' (section_header, 4 word(s))
 5. [s5] 'Settle hosted versus self-hosted with your own volume data' (framing, 9 word(s))
 
-Mechanical checks (advisory — never blocks a build):
-  s1: no block fills the header slot 'subtitle'
+Mechanical checks: nothing to flag.
 
 This pass does not judge whether the sequence carries the argument — a human does. Read the numbered list above top to bottom, covering the rest of each slide, and ask whether it would still make the deck's case.
 
-(… 140 lines omitted …)
+## Claim-level audit
+
+The claim-level audit is in `runs/northwind-milestone/final_audit_report.md` (it repeats the GATE 2 table you have already reviewed).
+
 ## Human checks - do these in PowerPoint, by a person
 
 These five checks must be done in PowerPoint by a person. Nothing in this report has checked them, and a clean run of every criterion above does not stand in for them.
@@ -1555,11 +1587,12 @@ These five checks must be done in PowerPoint by a person. Nothing in this report
   [FAIL] At least one native chart, one native diagram and one theme-recolourable icon
          0 chart(s), 0 diagram(s), 0 icon(s)
 
-Approve with `autodeck approve northwind-milestone final_render` after doing the five PowerPoint checks above; the approval records the deck digest shown (73dcea0c3deb53db...). A clean run above is not the gate.
+Not approvable: `autodeck approve northwind-milestone final_render` will refuse this deck while a criterion above fails. Fix what it names, run `autodeck render northwind-milestone` again, then `autodeck gate3 northwind-milestone`.
 ```
 
 `gate3` exited with code 4 on that run. That is a report, not a crash; the files were
-written all the same.
+written all the same. Note the last line: with a `[FAIL]` above, it does not invite you to
+approve, because `approve … final_render` will refuse this deck (see "Approving").
 
 - `[FAIL] No deterministic QA findings` names slide `s5`, the shape `TextBox 2` and the
   numbers: contrast 3.66 where 4.5 is needed, and the remedy ("fix by token
@@ -1677,7 +1710,7 @@ uv run autodeck approve northwind-milestone final_render --by "Your Name"
 
 ```
 approved final_render for r1
-  covers sha256 36b31e30558ccbdb...
+  covers sha256 b5d0e6b8a17a37a6...
 still pending: brief, outline
 ```
 
@@ -1693,50 +1726,63 @@ so treat saving from PowerPoint the same way (this is why you work on a copy):
 ```
 (… 10 lines omitted …)
 gates:
-  brief          2026-10-01T21:46:26+00:00 by Jane Owner
-  outline        2026-10-01T21:46:27+00:00 by Jane Owner
-  claims         2026-10-01T21:46:27+00:00 by Jane Owner
-  final_render   NOT CURRENT (2026-10-01T21:46:46+00:00 by Jane Owner) — the rendered deck changed after it was approved; review what is there now and re-approve it
+  brief          PENDING
+  outline        PENDING
+  claims         2026-10-02T08:09:20+00:00 by owner
+  final_render   NOT CURRENT (2026-10-02T08:09:35+00:00 by Jane Owner) — the rendered deck changed after it was approved; review what is there now and re-approve it
 ```
 
 Check this with `autodeck status <run>` before you send anything back.
 
-Two things `approve final_render` does **not** do. It does not read the `gate3` result: it
-would accept a deck that failed a criterion. And it does not check that the claims approval
-is still current. If you run `content` after approving the claims and then approve the
-finished deck, the only hint is the `still pending: claims` line:
+`approve … final_render` checks two things before it records anything, and writes nothing
+if either fails (exit 1). First, the claims approval must be current. If you run `content`
+after approving the claims and then try to approve the finished deck:
 
 ```
-approved final_render for northwind-milestone
-  covers sha256 5ea1dbb20c9f5c77...
-still pending: claims
+cannot approve GATE 'final_render' for run 'r1': the claims approval does not count: the facts changed after validation (IR v6); re-run `autodeck validate r1`. Run `autodeck gate2 r1`, review the claims, and `autodeck approve r1 claims` first. Nothing was recorded.
 ```
 
-So, before you approve, run `autodeck status <run>` and check the `claims` line has a date.
+Second, `gate3` must have been run on **this exact deck** and passed. A deck `gate3` never
+described (you have not run it, or you rendered again, or the file changed since):
+
+```
+cannot approve GATE 'final_render' for run 'r1': the final audit has not been run on this deck. Run `autodeck gate3 r1` first. Nothing was recorded.
+```
+
+and a deck whose final audit failed (`[FAIL]` lines, exit 4):
+
+```
+cannot approve GATE 'final_render' for run 'northwind-milestone': the final audit did not pass on this deck. Fix what it reports, then re-run `autodeck render northwind-milestone` and `autodeck gate3 northwind-milestone`. Nothing was recorded.
+```
+
+So you no longer need to check `status` before you approve as a precaution; the command
+checks for you. It still does not check that you did the five PowerPoint checks. That is
+yours, and the only part of GATE 3 no program can see.
 
 When all four gates show a name and a date, you are done:
 
 ```
-run northwind-milestone (env=dev)
+run r1 (env=dev)
 stages:
   ingest         not-started
-  plan           completed
-  outline        completed
-  content        completed
+  plan           not-started
+  outline        not-started
+  content        not-started
   validate       completed
   art_direction  completed
   render         completed
   audit          completed
 gates:
-  brief          2026-10-01T21:46:26+00:00 by Jane Owner
-  outline        2026-10-01T21:46:27+00:00 by Jane Owner
-  claims         2026-10-01T21:46:27+00:00 by Jane Owner
-  final_render   2026-10-01T21:46:35+00:00 by Jane Owner
+  brief          PENDING
+  outline        PENDING
+  claims         2026-10-02T08:09:20+00:00 by owner
+  final_render   2026-10-02T08:09:25+00:00 by Jane Owner
 ```
 
-(This is the plain test deck, shown only so you can see the finished state: its `gate3`
-had two `FAIL` lines, so you would not have approved it. `audit completed` is the build
-manifest `gate3` wrote.)
+(This is the fixture that passed `gate3`. It skipped the brief and outline approvals, so those
+two show `PENDING`; yours would show a name and a date on all four lines. `audit completed`
+is the build manifest `gate3` wrote. The plain `northwind-milestone` deck cannot be shown in
+this state: its `gate3` has two `FAIL` lines, so `approve` refuses it.)
 
 ### If something fails
 
@@ -1744,7 +1790,11 @@ manifest `gate3` wrote.)
 |---|---|---|---|
 | `GATE 'claims' requires human approval…` or `…is not approved… the facts changed after validation` (from `render`) | 3 | The claims table is not approved, or not the latest. | `autodeck status <run>`; if `NOT CURRENT`, run `validate`, `gate2`, read, and approve the claims again (section 6). |
 | `run '…' has no rendered deck` (from `gate3`) | 3 | `render` has not finished here. | `uv run autodeck render <run>`. |
-| `[FAIL]` lines, exit 4 (from `gate3`) | 4 | A criterion failed. The report and files are still written. | Read the failing line: slide, shape, measurement. Run `render` again once. If it fails the same way, send the report back. Do not approve. |
+| `GATE 'claims' is not approved … the facts changed after validation` (from `gate3`) | 3 | The claims table was changed after you approved it, so a final audit would describe a deck nobody may ship. Nothing was written. | `validate`, `gate2`, read, approve the claims again (section 6); then `render` and `gate3`. |
+| `cannot approve GATE 'final_render' … the final audit has not been run on this deck` | 1 | `gate3` has not run on the file that is there now (or the file changed since). Nothing was recorded. | `uv run autodeck gate3 <run>`, then approve. |
+| `cannot approve GATE 'final_render' … the final audit did not pass` | 1 | `gate3` showed a `[FAIL]`. Nothing was recorded. | Fix what it names, `render` again, `gate3` again. Do not approve. |
+| `cannot approve GATE 'final_render' … the claims approval does not count` | 1 | The claims table changed or was never approved. Nothing was recorded. | Approve the claims again (section 6), then `render` and `gate3`. |
+| `[FAIL]` lines, exit 4 (from `gate3`) | 4 | A criterion failed. The report and files are still written, and `approve … final_render` will refuse this deck. | Read the failing line: slide, shape, measurement. Run `render` again once. If it fails the same way, send the report back. Do not approve. |
 | `Final render is blocked … by N finding(s)` (from `render`) | 4 | A claim is `unsupported`, `contradicted` or `unverified`, or a lint fails, even though the claims were approved (`approve` does not stop you approving them). Nothing is rendered. | Go back to section 6: send back, `content`, `validate`, `gate2`, approve; then `render`. |
 | `STOPPED: role 'aesthetic' …` / `role 'outline' …` (from `render`) | 5 | A model's free-tier quota is spent, or a key is missing. A deck may already exist; `Saved:` says. | Wait, then run `render` again (it replays what finished). Or carry on to `gate3` with the deck you have. |
 | `The deck was not (fully) critiqued` | 0 | A model reply was unusable. The deck is fine to review. | `render` again, or go on to `gate3`. |
@@ -1888,12 +1938,12 @@ on record; or approve with check 1 untried and the risk accepted. Reply: *"diagr
 | `GATE '…' requires human approval before run '…' continues` (exit 3) | A previous approval is missing. **This is the system working.** | Approve the gate it names, once you have judged it. |
 | `Final render is blocked … by N finding(s)` (exit 4, from `render`) | A claim is `unsupported`/`contradicted`/`unverified` or a lint is failing, though the claims were approved (`approve` does not stop you approving them). Also the system working; `gate2`'s six checks show the same conditions earlier. | Fix the content (send back, re-run `content` and `validate`, approve the new table). No flag skips it. |
 | `GATE '…' is not approved for run '…': the … changed after it was approved` (exit 3) | You re-ran a step after approving what it made, and the result is different. **The system working.** | Read what is there now, then `uv run autodeck approve <run> <gate>` again. |
-| `cannot approve GATE '…' for run '…': …` (exit 1) | There is nothing to approve yet, or the facts changed after validation (`the facts changed after validation (IR vN); re-run autodeck validate <run>`). Nothing was recorded. | Run the step it names. |
+| `cannot approve GATE '…' for run '…': …` (exit 1) | There is nothing to approve yet, or the facts changed after validation (`the facts changed after validation (IR vN); re-run autodeck validate <run>`). For `final_render` also: the claims approval is not current, or `gate3` has not passed on this deck. Nothing was recorded. | Run the step it names (`validate`, or `gate3`). |
 | `no such run '…'` (exit 1) | The run id is mistyped, or you are in a different folder. | Check the spelling and that you are in the repository root. |
 | `run '…' has no content yet` / `has not been validated yet` (exit 3) | You skipped a step. | Run the one it names. |
 | `outline` exits 4 | Report has a BLOCKING finding. | Read it; see section 4. |
 | `gate2` exits 4 | At least one of the six checks says FAIL. | Read the FAIL lines; fix or send back; re-run `content`, `validate`, `gate2`. |
-| `render` exits 3, 4 or 5, or `gate3` exits 3 or 4; `The deck was not (fully) critiqued`; `LibreOffice not found`; `project '…' not found` (`gate3`, exit 1) | The finishing step. | The table at the end of section 6b says what each means and what to do. |
+| `render` exits 3, 4 or 5, or `gate3` exits 3 or 4 (exit 3 also when the claims approval is stale); `The deck was not (fully) critiqued`; `LibreOffice not found`; `project '…' not found` (`gate3`, exit 1) | The finishing step. | The table at the end of section 6b says what each means and what to do. |
 | `status` shows a gate as `NOT CURRENT` | It was approved, but the thing it covered has changed since. | Read what is there now and approve it again. |
 
 If you are ever unsure whether to approve: don't. Nothing is lost by waiting, and every

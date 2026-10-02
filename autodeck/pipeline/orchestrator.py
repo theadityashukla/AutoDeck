@@ -500,7 +500,7 @@ class Orchestrator:
             raise ApprovalRefused(
                 gate,
                 run,
-                f"the claims approval does not count ({claims_state.value}: {claims_detail}). "
+                f"the claims approval does not count: {claims_detail}. "
                 f"Run `autodeck gate2 {run}`, review the claims, and `autodeck approve {run} "
                 "claims` first.",
             )
