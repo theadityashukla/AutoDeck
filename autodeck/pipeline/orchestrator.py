@@ -196,7 +196,9 @@ class RunState:
     here is from before approvals were bound to an artifact, and does not count."""
     final_assessment: dict[str, Any] = field(default_factory=dict)
     """What `autodeck gate3` last concluded:
-    `{"digest": <canonical_pptx_digest>, "passes": bool, "at": <ISO>}`. Written only by
+    `{"digest": <canonical_pptx_digest>, "passes": bool, "failed": list[str], "at": <ISO>}`
+    where `failed` holds the label of each criterion that did not pass (absent in a state
+    file written before it existed; read it with `.get`). Written only by
     `record_final_assessment`. Empty until `gate3` has run."""
 
     def to_dict(self) -> dict[str, Any]:
@@ -513,20 +515,34 @@ class Orchestrator:
                 "first.",
             )
         if not assessment.get("passes"):
+            failed = [str(label) for label in assessment.get("failed") or []]
+            named = (
+                " Failed: " + "; ".join(f"{label!r}" for label in failed) + "."
+                if failed
+                else ""
+            )
             raise ApprovalRefused(
                 gate,
                 run,
-                "the final audit did not pass on this deck. Fix what it reports, then "
-                f"re-run `autodeck render {run}` and `autodeck gate3 {run}`.",
+                f"the final audit did not pass on this deck.{named} Fix what it reports, "
+                f"then re-run `autodeck render {run}` and `autodeck gate3 {run}`.",
             )
 
-    def record_final_assessment(self, digest: str, passes: bool) -> None:
+    def record_final_assessment(
+        self, digest: str, passes: bool, failed: list[str] | None = None
+    ) -> None:
         """Remember what `gate3` concluded about the deck with `digest`.
 
-        Records a fact about a report; it is not an approval and grants nothing. The latest
-        call replaces any earlier one.
+        `failed` is the label of each criterion that did not pass (empty when `passes`), so
+        a refusal to approve can name them. Records a fact about a report; it is not an
+        approval and grants nothing. The latest call replaces any earlier one.
         """
-        self.state.final_assessment = {"digest": digest, "passes": passes, "at": _now()}
+        self.state.final_assessment = {
+            "digest": digest,
+            "passes": passes,
+            "failed": list(failed or []),
+            "at": _now(),
+        }
         self.save_state()
 
     def pending_gates(self) -> list[Gate]:

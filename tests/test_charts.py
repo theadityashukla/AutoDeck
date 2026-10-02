@@ -337,6 +337,27 @@ class TestEditableData:
         assert [sheet.cell(row, 2).value for row in (2, 3, 4, 5)] == [10.0, 11.5, 12.0, 14.0]
 
     @requires_test_font
+    def test_the_embedded_workbook_carries_no_write_time_so_a_chart_deck_digests_stably(
+        self, tmp_path: Path
+    ) -> None:
+        """XlsxWriter stamps the workbook with the time it was written; the PPTX digest hashes
+        that part as it is, so a chart deck rendered twice used to digest twice (B38)."""
+        tokens = tokens_for()
+        presentation = new_presentation(tokens)
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        frame = Canvas(tokens).on(slide)
+        place_chart(frame, frame.canvas.content, _spec())
+        pptx_path = tmp_path / "deck.pptx"
+        save_themed(presentation, tokens, pptx_path)
+
+        with zipfile.ZipFile(pptx_path) as package:
+            embedding = next(n for n in package.namelist() if n.endswith(".xlsx"))
+            with zipfile.ZipFile(io.BytesIO(package.read(embedding))) as workbook:
+                core = workbook.read("docProps/core.xml").decode("utf-8")
+        assert ">1980-01-01T00:00:00Z</dcterms:created>" in core
+        assert ">1980-01-01T00:00:00Z</dcterms:modified>" in core
+
+    @requires_test_font
     def test_no_image_part_is_ever_written(self, tmp_path: Path) -> None:
         """D10: not one chart type here ever degrades to a picture."""
         tokens = tokens_for()

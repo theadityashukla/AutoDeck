@@ -1273,26 +1273,48 @@ gates:
 art direction pass (v8) and the critique's change (v9). They changed no fact.
 
 **You can run `render` again at any time**, and it always runs every stage again (there is
-no option to skip one). It writes a new `deck.pptx` over the old one and a new IR version. That
-matters if you have already approved the finished deck (below): whether the approval
-survives depends on whether the new file is actually different, and in my tests it was.
-Even when the stand-in models gave the same instructions again, the new file differed from
-the old one and `status` showed the following (from a test fixture that has only the claims
-approval; wherever I have cut output in this guide, a line `(… N lines omitted …)` says how
-many lines are missing):
+no option to skip one). It writes a new `deck.pptx` over the old one and new IR versions (one for art direction, one more for each change the critique makes).
+Every render starts from the IR version `validate` wrote, never from what the last render
+left, so a second render does not art-direct a deck that was already art-directed and
+changes do not pile up from one run to the next. A render is the validated content plus the
+models' answers, nothing else.
+
+That matters if you have already approved the finished deck (below), because the approval
+survives exactly when the new file is the same document as the old one. When the models
+give the same answers again, it is. In my test the stand-in models gave the same instructions
+twice, the second `render` made the same decisions (only the IR version number it wrote went up), and `status` still showed `final_render`
+approved (from a test fixture that has only the claims approval; wherever I have cut output
+in this guide, a line `(… N lines omitted …)` says how many lines are missing):
 
 ```
 (… 10 lines omitted …)
 gates:
   brief          PENDING
   outline        PENDING
-  claims         2026-10-02T08:09:20+00:00 by owner
-  final_render   NOT CURRENT (2026-10-02T08:09:25+00:00 by Jane Owner) — the rendered deck changed after it was approved; review what is there now and re-approve it
+  claims         2026-10-02T08:27:30+00:00 by owner
+  final_render   2026-10-02T08:27:35+00:00 by Jane Owner
+```
+
+With the real models the same holds, as far as I can tell from how the cache works but not
+from running it against Gemini: the first run's answers are saved in
+`runs/<run>/llm_cache` (section 2), and a second `render` asks the same questions, so it is
+given the saved answers back, at no cost. If you delete that folder, or the models answer
+differently (a critic that moves an accent colour on slide 1, say), the new file is a different
+document and the approval is voided. Here the stand-in critic changed one accent on the
+second run:
+
+```
+(… 10 lines omitted …)
+gates:
+  brief          PENDING
+  outline        PENDING
+  claims         2026-10-02T08:27:30+00:00 by owner
+  final_render   NOT CURRENT (2026-10-02T08:27:35+00:00 by Jane Owner) — the rendered deck changed after it was approved; review what is there now and re-approve it
 ```
 
 and you approve again: run `gate3` on the new deck first (`approve` refuses a deck `gate3` has not described),
-then approve. If `status` says `NOT CURRENT`, you must read what is there now and approve again. Because real models answer differently each time, expect a
-re-run to produce a different deck, and expect to redo the PowerPoint checks on it.
+then approve. If `status` says `NOT CURRENT`, you must read what is there now, redo the
+PowerPoint checks on it, and approve again.
 
 **If the critique did not happen.** Two ways this shows. If the critic's free-tier quota is
 spent (Gemini, per day), `render` still finishes the deck, then stops with exit code 5:
@@ -1752,7 +1774,7 @@ cannot approve GATE 'final_render' for run 'r1': the final audit has not been ru
 and a deck whose final audit failed (`[FAIL]` lines, exit 4):
 
 ```
-cannot approve GATE 'final_render' for run 'northwind-milestone': the final audit did not pass on this deck. Fix what it reports, then re-run `autodeck render northwind-milestone` and `autodeck gate3 northwind-milestone`. Nothing was recorded.
+cannot approve GATE 'final_render' for run 'northwind-milestone': the final audit did not pass on this deck. Failed: 'No deterministic QA findings'; 'At least one native chart, one native diagram and one theme-recolourable icon'. Fix what it reports, then re-run `autodeck render northwind-milestone` and `autodeck gate3 northwind-milestone`. Nothing was recorded.
 ```
 
 So you no longer need to check `status` before you approve as a precaution; the command

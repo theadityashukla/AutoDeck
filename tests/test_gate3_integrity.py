@@ -196,12 +196,15 @@ def test_final_render_cannot_be_approved_over_a_failed_final_audit(tmp_path: Pat
     recorded = json.loads(state_bytes(runs_root))["final_assessment"]
     assert recorded["passes"] is False
     assert recorded["digest"] == canonical_pptx_digest(runs_root / "r1" / "deck.pptx")
+    failed_label = "Post-render audit passes (every claim on its slide, every number traced)"
+    assert recorded["failed"] == [failed_label]
     before = state_bytes(runs_root)
 
     refused = approve_final(runs_root)
 
     assert refused.exit_code == 1, refused.output
     assert "final audit did not pass" in refused.output
+    assert failed_label in refused.output
     assert "autodeck render r1" in refused.output and "autodeck gate3 r1" in refused.output
     assert state_bytes(runs_root) == before
     assert not Orchestrator("r1", runs_root=runs_root).state.is_approved(Gate.FINAL_RENDER)
@@ -265,6 +268,10 @@ def test_the_final_assessment_survives_a_restart_and_old_state_files_load(
     assert reopened.state.final_assessment["at"]
     orchestrator.record_final_assessment("e" * 64, True)  # the latest call wins
     assert Orchestrator("r1", runs_root=tmp_path).state.final_assessment["passes"] is True
+    assert Orchestrator("r1", runs_root=tmp_path).state.final_assessment["failed"] == []
+    orchestrator.record_final_assessment("f" * 64, False, failed=["One", "Two"])
+    reread = Orchestrator("r1", runs_root=tmp_path).state.final_assessment
+    assert reread["failed"] == ["One", "Two"]
 
     # A state.json from before this field existed loads with it empty.
     state_file = orchestrator.paths.state_file
@@ -272,6 +279,26 @@ def test_the_final_assessment_survives_a_restart_and_old_state_files_load(
     del payload["final_assessment"]
     state_file.write_text(json.dumps(payload), encoding="utf-8")
     assert Orchestrator("r1", runs_root=tmp_path).state.final_assessment == {}
+
+
+def test_a_failed_assessment_recorded_before_failed_existed_still_refuses(
+    tmp_path: Path,
+) -> None:
+    """A state file from before `failed` was recorded has `passes: false` and nothing else
+    to say: the refusal is the same sentence, without the names."""
+    runs_root, _knowledge = make_rendered_run(tmp_path)
+    orchestrator = Orchestrator("r1", runs_root=runs_root)
+    digest = canonical_pptx_digest(runs_root / "r1" / "deck.pptx")
+    state_file = orchestrator.paths.state_file
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    payload["final_assessment"] = {"digest": digest, "passes": False, "at": "2026-01-01"}
+    state_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    refused = approve_final(runs_root)
+
+    assert refused.exit_code == 1, refused.output
+    assert "final audit did not pass on this deck. Fix what it reports" in refused.output
+    assert "Failed:" not in refused.output
 
 
 # ---------------------------------------------------------------------------
