@@ -358,3 +358,156 @@ def test_the_prompt_file_documents_the_diagram_schema() -> None:
     assert "framing_reason" in prompt
     for reason in get_args(LabelReason):
         assert reason in prompt
+
+
+# ---------------------------------------------------------------------------
+# End to end: an outline that chooses a diagram component now yields a diagram
+# ---------------------------------------------------------------------------
+
+
+class _PerSlide:
+    """A `content` model answering each slide's call from a script keyed by call order."""
+
+    def __init__(self, *drafts: ContentDraft) -> None:
+        self._drafts = list(drafts)
+
+    def complete_structured(self, prompt, response_model, *, system=None):  # type: ignore[no-untyped-def]
+        return self._drafts.pop(0)
+
+
+def _flow_for_cli(claim_text: str) -> ContentDraft:
+    from tests.test_cli_gate2 import DOC_ID
+    from tests.test_cli_gate2 import QUOTE as CLI_QUOTE
+
+    steps = [
+        framed_step("n1", 1, "Profile"),
+        claim_step(
+            "n2",
+            2,
+            "Throughput rose",
+            claim=ProposedClaim(
+                text=claim_text, citations=[ProposedCitation(doc_id=DOC_ID, quote=CLI_QUOTE)]
+            ),
+        ),
+        framed_step("n3", 3, "Scale"),
+    ]
+    return draft_with(headline_block(), diagram_block(*steps))
+
+
+def _chart_for_cli() -> ContentDraft:
+    from autodeck.agents.content import ProposedChart, ProposedChartSeries
+    from tests.test_cli_gate2 import DOC_ID
+    from tests.test_cli_gate2 import QUOTE as CLI_QUOTE
+
+    chart = ProposedChart(
+        chart_type="bar",
+        title="Sequences per second",
+        categories=["Before", "After"],
+        series=[ProposedChartSeries(name="Throughput", values=[412.0, 671.0])],
+        x_axis_label="",
+        y_axis_label="",
+        source_citations=[ProposedCitation(doc_id=DOC_ID, quote=CLI_QUOTE)],
+    )
+    return draft_with(
+        headline_block(), ProposedBlock(id="c1", kind="chart", slot="chart", chart=chart)
+    )
+
+
+def _pillars_for_cli() -> ContentDraft:
+    labels = [
+        ProposedBlock(id=f"p{n}", kind="framing", slot="pillar_label", text=text)
+        for n, text in enumerate(("Fast", "Safe", "Cheap"), start=1)
+    ]
+    return draft_with(headline_block(), *labels)
+
+
+@pytest.mark.render
+def test_an_outline_choosing_timeline_and_framework_diagram_reaches_gate3_with_diagrams(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`content` -> `validate` -> `approve claims` -> `render` -> `gate3`, all through the CLI
+    with scripted providers, on an approved outline of a `framework_diagram`, a `timeline`,
+    a `chart_focus` and an `icon_pillars` slide. Before B37 the writer could not author a
+    diagram, so the first two could not be filled and GATE 3's criterion 4 (chart, diagram
+    and icon) could not pass on a pipeline-built deck. Nothing here is hand-assembled IR."""
+    from autodeck.agents.art_direction import ArtDirectionPlan
+    from autodeck.audit.verdicts import VerdictJudgement
+    from autodeck.ir.actions import AssignIcons
+    from autodeck.ir.store import IRStore
+    from autodeck.pipeline.orchestrator import Gate, Orchestrator
+    from tests.test_aesthetic import FakeCritic, reply
+    from tests.test_art_direction import FakeArtModel
+    from tests.test_cli_gate2 import QUOTE as CLI_QUOTE
+    from tests.test_cli_gate2 import make_run, run_content, run_validate
+    from tests.test_gate3 import _gate3, _invoke, patch_roles
+    from tests.test_validation import Scripted as ScriptedValidator
+
+    knowledge_root, corpus_root, runs_root = make_run(tmp_path)
+    orchestrator = Orchestrator("r1", runs_root=runs_root, env="dev")
+    outline = orchestrator.ir.load(1)
+    template = outline.slides[0]
+    plan = (
+        ("s1", "framework_diagram", "plan", "Show the kernel rewrite rollout as a sequence."),
+        ("s2", "timeline", "plan", "Show the kernel rewrite throughput gain over time."),
+        ("s3", "chart_focus", "evidence", "Chart the kernel rewrite throughput gain."),
+        ("s4", "icon_pillars", "capabilities", "Name what the kernel rewrite buys."),
+    )
+    slides = [
+        template.model_copy(
+            update={"id": sid, "component": component, "intent": intent, "narrative_role": role}
+        )
+        for sid, component, role, intent in plan
+    ]
+    three = outline.model_copy(update={"slides": slides})
+    orchestrator.run_stage(
+        "outline", lambda: f"wrote {orchestrator.save_ir(three, overwrite=True)}", force=True
+    )
+    orchestrator.approve(Gate.OUTLINE)
+
+    text = "The kernel rewrite raised training throughput, per the cited benchmark."
+    patch_roles(
+        monkeypatch,
+        content=_PerSlide(
+            _flow_for_cli(text), _flow_for_cli(text), _chart_for_cli(), _pillars_for_cli()
+        ),
+    )
+    content = run_content(runs_root, knowledge_root, corpus_root)
+    assert content.exit_code == 0, content.output
+    written = IRStore(runs_root, "r1").load()
+    assert [[b.kind for b in s.blocks] for s in written.slides] == [
+        ["framing", "diagram"],
+        ["framing", "diagram"],
+        ["framing", "chart"],
+        ["framing", "framing", "framing", "framing"],
+    ]
+
+    judgement = VerdictJudgement(
+        verdict="supported", verdict_notes="scripted for the test", supporting_quote=CLI_QUOTE
+    )
+    patch_roles(
+        monkeypatch,
+        validation=ScriptedValidator({"s1:d1:n2": judgement, "s2:d1:n2": judgement}),
+    )
+    validated = run_validate(runs_root, corpus_root)
+    assert validated.exit_code == 0, validated.output
+    approved = _invoke(runs_root, "approve", "r1", "claims", "--by", "tester")
+    assert approved.exit_code == 0, approved.output
+
+    icons = AssignIcons(
+        slide_id="s4", slot="pillar_icon", concepts=["speed", "security", "growth"]
+    )
+    patch_roles(
+        monkeypatch,
+        outline=FakeArtModel(ArtDirectionPlan(rationale="Give s4 its icons.", actions=[icons])),
+        aesthetic=FakeCritic(reply(9.0, rationale="good")),
+    )
+    rendered = _invoke(runs_root, "render", "r1")
+    assert rendered.exit_code == 0, rendered.output
+
+    result = _gate3(runs_root, knowledge_root)
+
+    assert result.exit_code == 0, result.output
+    criterion = next(line for line in result.output.splitlines() if "native diagram" in line)
+    assert criterion.startswith("[PASS]")
+    assert "2 diagram(s)" in criterion
+    print(criterion)
