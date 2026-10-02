@@ -128,7 +128,7 @@ def place_icon(
         shape.line.width = Pt(stroke_width)
         _round_caps_and_joins(shape)
 
-        shape.name = f"icon:{icon.name}"
+        shape.name = f"icon:{icon.family}:{icon.name}"
         shapes.append(shape)
 
     return shapes

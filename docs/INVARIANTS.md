@@ -117,12 +117,14 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
 
 > Every deck ships the frozen IR, an audit report (slide → claim → verdict → doc/page →
 > verbatim quote), and a build manifest (model IDs, prompt hashes, knowledge git commit,
-> component library version). Same manifest + IR re-renders byte-comparable output.
+> component library version). Same manifest + IR re-renders normalised-comparable output
+> under a recorded normalisation.
 
 - **Enforced by:** `autodeck/audit/report.py`, `autodeck/audit/manifest.py`.
 - **Owning phases:** Phase 2b (report + manifest), Phase 3b (render determinism),
   Phase 4 (client-presentable PDF).
-- **Proves it:** render twice from one manifest+IR and diff, excluding timestamps.
+- **Proves it:** render twice from one manifest+IR and compare `canonical_pptx_digest`
+  under the recorded normalisation (`PPTX_NORMALISATION`); raw bytes are never compared.
 - **Watch for:** PPTX zip entry order and embedded creation timestamps will break naive
   byte comparison — normalise before comparing, and record the normalisation.
 
@@ -163,14 +165,14 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | **tested** | | | | | | |
-| A2 numbers | partial | partial | | | | | | |
-| A3 validation | partial | partial | | | | | | |
-| A4 isolation | not-started | **tested** | | | | | | |
-| A5 framing | not-started | partial | | | | | | |
-| A6 reproducibility | partial | partial | | | | | | |
-| A7 gates | **enforced** | **enforced** | | | | | | |
-| A8 uncertainty | not-started | partial | | | | | | |
+| A1 citation | **tested** | **tested** | tested | **tested** | tested | **tested** | | |
+| A2 numbers | partial | partial | partial | **tested** | tested | **tested** | | |
+| A3 validation | partial | partial | partial | **tested** | tested | **tested** | | |
+| A4 isolation | not-started | **tested** | tested | tested | tested | tested | | |
+| A5 framing | not-started | partial | partial | **enforced** | **enforced** | **tested** | | |
+| A6 reproducibility | partial | partial | partial | **enforced** | enforced | **tested** | | |
+| A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | **tested** | | |
+| A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | tested | | |
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
@@ -191,6 +193,66 @@ A5 is `partial` and the gap is worth naming: `value_prop.md` is *typed* as frami
 loaded separately, but nothing yet prevents a claim tracing to it — that enforcement is the
 Phase 2b validator. A8 is `partial` for a similar reason: `FigureDescription.legible` and
 `low_provenance` flagging exist, but nothing checks deck copy for unearned confidence.
+
+**Phase 2a notes.** A8 becomes `enforced`: a key message the evidence-gap check calls
+`thin` or `unsupported` cannot reach a signed brief without a matching `OpenRisk` naming who
+accepted it. That is a schema constraint on `DeckBrief`, not a checker a pass can forget to
+call — and it deliberately does not *block* an unsupported message, because blocking would
+push the planner toward marking things `supported` to get past the validator, which is the
+failure A8 is about. Carrying a gap is free; carrying it silently is impossible.
+
+A7 moves to `tested` on a real gate rather than the stub: the planning session's sign-off is
+approval 1 of 4, `PlannerAction.ready_for_signoff` is never consulted by `sign_off`, and the
+outline agent refuses an unsigned brief outright.
+
+A3 stays `partial` — the validator is Phase 2b — but B25 now binds `validation` to a
+different model from the writer, which is the cheap version of the independence A3 wants.
+
+**Phase 2b notes.** Four cells move up. A2 and A5 gain linters that block rather than warn:
+every numeral must trace to a cited span or a re-executed derivation, and a `framing` block
+carrying a fact is *demoted* to `claim`, where `Claim.citations` refuses to construct it. A3
+gains the behaviour it had no v1 ancestor for — independent re-retrieval with a separate
+contradiction pass, and a rule ordered so that a contradicting span elsewhere in the corpus
+outranks a perfectly valid citation. A8 becomes `tested` rather than `enforced`:
+`open_risks` resurface in the audit report, conflicting sources appear with both spans
+rather than an average, and a provider failure returns `unverified` with a reason instead of
+a guess.
+
+**Corrected after independent review.** The handover this cell's history is drawn from
+originally marked A2, A3 and A5 `tested`. That was true of the tests and false of the code —
+an independent adversarial review found holes the tests did not reach, and twelve commits
+fixed them (`docs/handovers/PHASE-2B.md` §6.9–§6.13). A2 and A3 are corrected in place and
+remain `tested`, each carrying a named residual gap: A2 cannot see numbers written as words
+("forty percent", "four times", "quadrupled", "a third"); A3's `chart` blocks never receive
+a verdict, and the supporting-span ceiling is satisfied by any substring of a retrieved
+element. **A5 alone moves cells, down from `tested` to `enforced`**: the fence is a closed
+list of factual phrasings, tested on what it lists, and ordinary factual language outside
+that list — "Quantisation halves serving cost" as an uncited `section_header`, no numeral,
+no superlative, "halves" not in the multiplier list — passes uncited. Headers are terse by
+construction, which is exactly what strips the patterns A5 matches.
+
+Two of these are worth reading with their traps attached. **A clean `Deck` is no longer
+sufficient evidence that A1 and A5 hold** — a demoted framing block, and a validation pass
+that failed outright, both leave `Deck.blocking_blocks()` empty. `require_safe_to_render` is
+the single place that knows what "safe" means, and the cells above are `tested` on that
+function, not on the deck validating.
+
+**A6's wording was corrected by the owner on 2026-09-27 (DECISIONS.md B29, accepted).** The
+headline used to promise "byte-comparable" output, which is not achievable for PPTX —
+measured, not assumed: two identical saves differ in bytes while the canonical digest
+matches. It now promises normalised-comparability under a recorded normalisation, which is
+what the "watch for" line always said and what `canonical_pptx_digest` implements. This is a
+correction of the statement, not a relaxation of the guarantee. The P2b cell moves from
+`partial` to `enforced`: the report and manifest halves exist and are tested, and the proof
+the invariant names — render twice and compare digests — needs Phase 3b's renderer to run.
+
+**Phase 3a notes.** A1 is **strengthened by construction**: a diagram node cannot hold an
+uncited fact, renderers never compose or resolve citations, and `timeline` takes a
+`DiagramSpec` precisely so no renderer makes an A1 decision. A3's diagram-node claims block
+render. A5 stays `enforced`, for the reason recorded in the Phase 2b notes above, and the
+headers work is where that gap was found. D10/D11/D13 are enforced and tested by
+construction: native shapes, zero grouped shapes, zero baked RGB, zero image parts, blocking
+grammar lints.
 
 Fill each cell as its phase completes. A phase whose brief claims an invariant cannot
 close its gate with that cell below `enforced`.

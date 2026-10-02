@@ -22,6 +22,7 @@ Owning phase: 0 (task 0.3).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -378,6 +379,17 @@ class BaseProvider(ABC):
         images: list[ImageInput],
         salt: str,
     ) -> str:
+        # Include image content hashes in the cache key so that different images with the
+        # same count produce different keys — otherwise a cached reply from a previous render
+        # would be reused even when the model is shown different images.
+        images_key = (
+            "images="
+            + ",".join(
+                f"{img.media_type}:{hashlib.sha256(img.data).hexdigest()}" for img in images
+            )
+            if images
+            else "images="
+        )
         parts = [
             self.name,
             self.config.model,
@@ -385,7 +397,7 @@ class BaseProvider(ABC):
             f"system={system or ''}",
             f"prompt={prompt}",
             f"schema={schema_digest(schema) if schema else ''}",
-            f"images={len(images)}",
+            images_key,
             salt,
         ]
         return ResponseCache.make_key("\n".join(parts))

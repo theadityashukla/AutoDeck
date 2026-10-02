@@ -60,4 +60,10 @@ evals/out/
 # Licensed font binaries — see the Phase 0 font spike before committing any
 fonts/*.ttf
 fonts/*.otf
+# ...and the licence text that scripts/install-dev-fonts.sh places beside them. The OFL
+# asks that the licence travel with the font files; since the files themselves are not
+# committed, a licence sitting here alone would imply vendored fonts this repo does not
+# carry. The script writes both together into a working fonts/, which is where the
+# obligation actually applies.
+fonts/*-LICENSE.txt
 

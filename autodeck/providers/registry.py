@@ -136,13 +136,18 @@ class ModelRegistry:
         binding = self.binding(role)
         provider_class = PROVIDERS[binding.provider]
         key_env = _api_key_env(binding.provider)
-        config = ProviderConfig(
-            model=binding.model,
-            api_key=os.environ.get(key_env, ""),
-            cache=cache,
-            **overrides,
-        )
-        return provider_class(config)
+        # `model` is passed through `overrides` rather than pinned, so a caller can point a
+        # role at a different model of the same provider without editing config. It is the
+        # field most worth overriding — a role whose daily quota is spent, or a one-off
+        # comparison between two models — and hard-coding it here made the only useful
+        # override raise TypeError.
+        settings: dict[str, Any] = {
+            "model": binding.model,
+            "api_key": os.environ.get(key_env, ""),
+            "cache": cache,
+        }
+        settings.update(overrides)
+        return provider_class(ProviderConfig(**settings))
 
     def missing_credentials(self) -> list[str]:
         """Environment variables this environment needs but does not have set.
@@ -152,6 +157,11 @@ class ModelRegistry:
         """
         needed = {_api_key_env(b.provider) for b in self._bindings.values()}
         return sorted(name for name in needed if not os.environ.get(name))
+
+
+def api_key_env(provider: str) -> str:
+    """The environment variable that holds `provider`'s API key."""
+    return _api_key_env(provider)
 
 
 def _api_key_env(provider: str) -> str:

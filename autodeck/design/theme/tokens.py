@@ -142,19 +142,35 @@ class DesignTokens(TokenModel):
         return path
 
     def require_fonts(self) -> None:
-        """Fail now if a declared family is missing.
+        """Fail now if a declared family is missing a face the design system draws with.
 
         Called before anything measures text or renders a preview. Failing at the start of
         a build is the whole value: the alternative is a deck that renders in a substituted
         face and looks *almost* right.
 
+        Checks **regular, bold and italic** per family, not just regular. Every headline in
+        the component library is bold and every pull-quote is italic, so a family shipping
+        only a regular face cannot be budgeted honestly (`fonts.resolve_face` refuses to
+        estimate one it cannot measure) — and finding that out here, once, beats finding it
+        out from the first component that happens to use it.
+
+        Bold-italic is deliberately *not* checked: nothing in the component library draws
+        it today, and Inter Display — the dev token set's major family — ships no such
+        face. Requiring it up front would fail every build in this container to guard
+        against a combination no renderer asks for. The moment one does, `resolve_face`
+        raises at measurement time with the face named, which is loud and specific; what it
+        loses is only the up-front timing, and adding the fourth face here is a one-word
+        change if a component ever needs it.
+
         Raises:
-            FontNotFoundError: a declared family is not installed.
+            FontNotFoundError: a declared family is not installed, or is missing its bold
+                or italic face.
         """
-        from autodeck.design.fonts import resolve_family
+        from autodeck.design.fonts import resolve_face
 
         for family in sorted(self.typography.families()):
-            resolve_family(family)
+            for bold, italic in ((False, False), (True, False), (False, True)):
+                resolve_face(family, bold=bold, italic=italic)
 
 
 def points_to_emu(points: float) -> int:

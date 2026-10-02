@@ -7,10 +7,13 @@ an invariant to make a test pass.
 
 from __future__ import annotations
 
-from typing import cast
+import re
+from pathlib import Path
+from types import UnionType
+from typing import Union, cast, get_args, get_origin
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from autodeck.ir.models import (
     Block,
@@ -22,11 +25,19 @@ from autodeck.ir.models import (
     Deck,
     Derivation,
     DerivationInput,
+    DiagramAxis,
     DiagramEdge,
-    DiagramNode,
     DiagramSpec,
+    FigureRef,
     IconRef,
+    LabelFraming,
+    LayeredStackSpec,
+    ProcessFlowSpec,
+    ProcessStep,
+    QuadrantItem,
     Slide,
+    StackLayer,
+    TwoByTwoSpec,
     quote_digest,
 )
 
@@ -43,6 +54,13 @@ def make_citation(quote: str = QUOTE, **overrides: object) -> Citation:
     }
     fields.update(overrides)
     return Citation.for_quote(**fields)  # type: ignore[arg-type]
+
+
+def step(node_id: str, label: str, order: int) -> ProcessStep:
+    """A framed (non-asserting) step — the shape a stage name takes under A1."""
+    return ProcessStep(
+        id=node_id, label=label, order=order, framing=LabelFraming(reason="stage_name")
+    )
 
 
 def make_claim(**overrides: object) -> Claim:
@@ -294,17 +312,317 @@ def test_chart_series_must_align_with_categories() -> None:
 
 
 def test_diagram_edges_must_resolve_to_nodes() -> None:
-    with pytest.raises(ValidationError, match="unknown node ids"):
-        DiagramSpec(
-            kind="process_flow",
-            nodes=[DiagramNode(id="n1", label="Ingest")],
-            edges=[DiagramEdge(source="n1", target="n2")],
+    """The same contract as before, now held by construction rather than by a validator.
+
+    An edge naming a node that does not exist used to be built and then rejected. Edges are
+    now derived from the geometry's own structure — a process flow's arrows are its step
+    order — so authoring one is refused outright and every edge that exists resolves by
+    definition. Both halves are asserted here: the old failure mode is unreachable, not
+    merely unvalidated.
+    """
+    with pytest.raises(ValidationError, match=r"no longer takes .*edges"):
+        # Through `model_validate`, because a hand-written or stored IR is the only way
+        # this shape can still arrive — the constructor has no such parameter at all.
+        DiagramSpec.model_validate(
+            {
+                "relationship": "sequence",
+                "kind": "process_flow",
+                "edges": [DiagramEdge(source="n1", target="n2").model_dump()],
+                "process_flow": {"steps": [step("n1", "Ingest", 1).model_dump()]},
+            }
         )
+
+    flow = DiagramSpec(
+        relationship="sequence",
+        kind="process_flow",
+        process_flow=ProcessFlowSpec(steps=[step("n1", "Ingest", 1), step("n2", "Fit", 2)]),
+    )
+    known = {node.id for node in flow.nodes}
+    assert flow.edges == (DiagramEdge(source="n1", target="n2", label=None),)
+    assert all({edge.source, edge.target} <= known for edge in flow.edges)
 
 
 def test_diagram_node_ids_must_be_unique() -> None:
     with pytest.raises(ValidationError, match="duplicate diagram node ids"):
         DiagramSpec(
-            kind="cycle",
-            nodes=[DiagramNode(id="n1", label="A"), DiagramNode(id="n1", label="B")],
+            relationship="sequence",
+            kind="process_flow",
+            process_flow=ProcessFlowSpec(steps=[step("n1", "A", 1), step("n1", "B", 2)]),
         )
+
+
+# ---------------------------------------------------------------------------
+# The claim-site walk — the regression insurance for the diagram blind spot
+# ---------------------------------------------------------------------------
+#
+# `Block.blocks_render()` once read `self.claim` and nothing else, so a `contradicted`
+# claim on a `DiagramNode` was invisible to every check that decides render safety. The
+# walk is now single (`Deck.claim_sites`), and the test that matters is not that the walk
+# handles diagrams — it is that **the walk cannot fall behind the IR again**. So the model
+# graph is asked where a `Claim` can live, and the walk is asked where it goes, and the two
+# sets must be equal.
+
+
+def _model_targets(annotation: object) -> list[tuple[type[BaseModel], str]]:
+    """(model class, path suffix) for every IR model one field annotation can reach.
+
+    Unwraps `X | None` and `list[X]`; everything else — `str`, `Literal`, the annotated
+    tuple `BBox` — reaches no model and contributes nothing.
+    """
+    origin = get_origin(annotation)
+    if origin in (Union, UnionType):
+        return [pair for arg in get_args(annotation) for pair in _model_targets(arg)]
+    if origin in (list, tuple, set, frozenset):
+        return [
+            (model, f"[]{suffix}")
+            for arg in get_args(annotation)
+            for model, suffix in _model_targets(arg)
+        ]
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return [(annotation, "")]
+    return []
+
+
+def claim_bearing_paths(
+    model: type[BaseModel] = Deck, *, prefix: str = "", seen: tuple[type, ...] = ()
+) -> set[str]:
+    """Every path from `model` down to a `Claim`, read off the model graph itself.
+
+    Deliberately not a hand-written list. A hand-written list is a second place to forget
+    the thing the first place forgot.
+    """
+    paths: set[str] = set()
+    for name, field in model.model_fields.items():
+        for target, suffix in _model_targets(field.annotation):
+            path = f"{prefix}{name}{suffix}"
+            if target is Claim:
+                paths.add(path)
+            elif target not in seen:
+                paths |= claim_bearing_paths(target, prefix=f"{path}.", seen=(*seen, target))
+    return paths
+
+
+def deck_with_a_claim_at_every_site() -> Deck:
+    """A deck carrying a claim in every place the IR can hold one.
+
+    Every *geometry*, too, and not for tidiness. `DiagramSpec.nodes` is derived, so each
+    geometry keeps its claim-bearing nodes in a field of its own — `process_flow.steps`,
+    `two_by_two.items`, `layered_stack.layers`. Those are three distinct places the model
+    graph can hold a `Claim`, and a walk that reached only the one the fixture happened to
+    build would look complete while two remained unvisited.
+
+    When a new claim-bearing field is added to the IR this fixture stops being complete,
+    and `test_the_claim_walk_visits_every_place_a_claim_can_live` says so by name.
+    """
+
+    def distinct(where: str) -> Claim:
+        """A claim whose citation is unique to its site, so a test can tell which site a
+        downstream walk missed."""
+        return make_claim(citations=[make_citation(f"{QUOTE} ({where})")])
+
+    def flow(where: str) -> DiagramSpec:
+        return DiagramSpec(
+            relationship="sequence",
+            kind="process_flow",
+            process_flow=ProcessFlowSpec(
+                steps=[
+                    step("p1", "Discovery", 1),
+                    ProcessStep(
+                        id="p2", label="Throughput improved.", order=2, claim=distinct(where)
+                    ),
+                ]
+            ),
+        )
+
+    def grid(where: str) -> DiagramSpec:
+        return DiagramSpec(
+            relationship="classification",
+            kind="two_by_two",
+            two_by_two=TwoByTwoSpec(
+                x_axis=DiagramAxis(name="Cost to serve", low="Low", high="High"),
+                y_axis=DiagramAxis(name="Switching effort", low="Low", high="High"),
+                items=[
+                    QuadrantItem(
+                        id="q1",
+                        label="Self-serve",
+                        x=0.2,
+                        y=0.1,
+                        framing=LabelFraming(reason="category_name"),
+                    ),
+                    QuadrantItem(
+                        id="q2",
+                        label="Throughput improved.",
+                        x=0.8,
+                        y=0.7,
+                        claim=distinct(where),
+                    ),
+                ],
+            ),
+        )
+
+    def stack(where: str) -> DiagramSpec:
+        return DiagramSpec(
+            relationship="hierarchy_foundation",
+            kind="layered_stack",
+            layered_stack=LayeredStackSpec(
+                support="rests_on",
+                layers=[
+                    StackLayer(
+                        id="l1",
+                        label="Data platform",
+                        level=1,
+                        framing=LabelFraming(reason="actor_name"),
+                    ),
+                    StackLayer(
+                        id="l2", label="Throughput improved.", level=2, claim=distinct(where)
+                    ),
+                ],
+            ),
+        )
+
+    geometries = (("flow", flow), ("grid", grid), ("stack", stack))
+
+    def diagram_blocks(prefix: str, slot: str, where: str) -> list[Block]:
+        return [
+            Block(
+                id=f"{prefix}{index}",
+                kind="diagram",
+                slot=slot,
+                diagram=build(f"{where} {name}"),
+            )
+            for index, (name, build) in enumerate(geometries, start=2)
+        ]
+
+    return Deck(
+        run_id="r1",
+        project="p",
+        client="c",
+        audience="CTO",
+        version=1,
+        theme_ref="t",
+        component_lib_version="1",
+        slides=[
+            Slide(
+                id="s1",
+                narrative_role="evidence",
+                component="text_block",
+                blocks=[
+                    Block(id="b1", kind="claim", slot="body", claim=distinct("face")),
+                    *diagram_blocks("b", "body", "face node"),
+                ],
+                speaker_notes=[
+                    Block(id="n1", kind="claim", slot="notes", claim=distinct("note")),
+                    *diagram_blocks("n", "notes", "note node"),
+                ],
+            )
+        ],
+    )
+
+
+def test_the_claim_walk_visits_every_place_a_claim_can_live() -> None:
+    """**If this fails, a claim can hide from every blocking check.**
+
+    The IR gained somewhere to put a `Claim` that `Block.claim_sites` (or
+    `Slide.claim_sites`) does not go. Until the walk is taught about it, a claim there is
+    invisible to `Deck.blocking_blocks`, `verdicts.blocking_blocks`,
+    `verdicts.unverified_claims`, `require_safe_to_render` and GATE 2 — which is exactly
+    how a `contradicted` diagram node came to be cleared to render. Add it to the walk (one
+    function), then give `deck_with_a_claim_at_every_site` a claim there too.
+    """
+    deck = deck_with_a_claim_at_every_site()
+
+    visited = {re.sub(r"\[[^\]]*\]", "[]", site.path) for site in deck.claim_sites()}
+    in_the_ir = claim_bearing_paths()
+
+    assert in_the_ir, "introspection found no claim sites at all — it has stopped working"
+    assert visited == in_the_ir, (
+        "the blocking walk does not visit every place the IR can hold a Claim. "
+        f"unvisited: {sorted(in_the_ir - visited)}; "
+        f"visited but not in the IR: {sorted(visited - in_the_ir)}"
+    )
+
+
+def test_every_claim_site_carries_where_it_was_found_and_how_to_write_it_back() -> None:
+    """A site the caller cannot locate or update is a site the caller special-cases."""
+    deck = deck_with_a_claim_at_every_site()
+
+    for site in deck.claim_sites():
+        assert site.slide_id == "s1"
+        assert site.block_id
+        assert site.claim_id.startswith("s1:")
+        site.replace(site.claim.model_copy(update={"verdict": "contradicted"}))
+
+    assert {b.id for b in deck.blocking_blocks()} == {
+        "b1",
+        "b2",
+        "b3",
+        "b4",
+        "n1",
+        "n2",
+        "n3",
+        "n4",
+    }
+    assert all(
+        site.in_speaker_notes == site.block_id.startswith("n") for site in deck.claim_sites()
+    )
+
+
+def _payload_for(kind: str) -> dict[str, object]:
+    """The correct payload for a non-text block kind, as `Block` keyword arguments."""
+    if kind == "claim":
+        return {"claim": make_claim()}
+    if kind == "chart":
+        return {
+            "chart": ChartSpec(
+                chart_type="bar",
+                categories=["Q1", "Q2"],
+                series=[ChartSeries(name="Revenue", values=[10.0, 20.0])],
+                source_citations=[make_citation()],
+            )
+        }
+    if kind == "figure":
+        return {"figure": FigureRef(asset_id="fig-1", citation=make_citation())}
+    if kind == "diagram":
+        return {
+            "diagram": DiagramSpec(
+                relationship="sequence",
+                kind="process_flow",
+                process_flow=ProcessFlowSpec(
+                    steps=[step("n1", "Ingest", 1), step("n2", "Serve", 2)]
+                ),
+            )
+        }
+    if kind == "icon":
+        return {
+            "icon": IconRef(concept="growth", glyph_id="trending-up", color_token="accent1")
+        }
+    raise AssertionError(kind)  # pragma: no cover
+
+
+@pytest.mark.parametrize("kind", ["claim", "chart", "figure", "diagram", "icon"])
+def test_only_text_kinds_may_carry_text(kind: str) -> None:
+    """B36: a non-text block with `text` set, even alongside its correct payload, is a
+    `ValidationError` naming the block and kind; the same block without `text` is fine."""
+    payload = _payload_for(kind)
+    Block(id="b1", kind=cast(BlockKind, kind), slot="body", **payload)  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError, match=rf"block 'b1' of kind '{kind}' carries text"):
+        Block(
+            id="b1",
+            kind=cast(BlockKind, kind),
+            slot="body",
+            text="Revenue up 40%",
+            **payload,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("kind", ["framing", "section_header"])
+def test_text_kinds_still_carry_text(kind: str) -> None:
+    block = Block(id="b1", kind=cast(BlockKind, kind), slot="body", text="Kept as is")
+    assert block.text == "Kept as is"
+
+
+def test_the_golden_fixture_still_loads() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "sample_ir.json"
+    deck = Deck.model_validate_json(fixture.read_text(encoding="utf-8"))
+    assert deck.slides

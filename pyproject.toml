@@ -59,6 +59,12 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # Its fixtures contain the ligatures, curly quotes and thin spaces the matcher exists to
 # tolerate; the characters are the test.
 "tests/test_ingest.py" = ["B011", "RUF001"]
+# The A2 normalisation table is a map *from* the ambiguous characters — the multiplication
+# sign, the en dash in a range, the four space-like thousands separators. Flagging them is
+# the same mistake as flagging them in provenance.py: the rule fires exactly where the
+# module's subject matter lives.
+"autodeck/audit/numeric_linter.py" = ["RUF001", "RUF002"]
+"tests/test_numeric_linter.py" = ["B011", "RUF001", "RUF002"]
 
 # ---------------------------------------------------------------------------
 # Types

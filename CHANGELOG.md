@@ -7,6 +7,266 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Phase 3a: design system
+
+All of Phase 3a's shipped work. **PHASE-3A has no owner gate of its own** — the owner
+reviews this work in a rendered deck at GATE 3, and gate status is **pending**; "What the
+owner actually checked" is nothing yet. Suite at tip: **1098 passed, 0 skipped, 10 live
+deselected**, which requires the three environment dependencies in **B34**. See
+`docs/handovers/PHASE-3A.md`.
+
+### Added
+- `layout_kit.py` — composition layer: `Frame`, `Stack`, `Box.reserve`, `measure_block`;
+  nothing shrinks text, over-budget raises. Renderers 186→115 and 208→154 lines.
+- `components/catalog.py` — registry: `register()` with name, roles, slots, renderer,
+  content class, preview together; variants; `components_missing_previews()`.
+- `ir/models.py` — `DiagramSpec` type system: relationship declared before geometry, typed
+  payloads, `GEOMETRIES`; a node must be exactly one of `claim`/`framing`
+  (unconstructible otherwise, mutation-tested).
+- Merge of the 2b accuracy fixes, including an identity check that verdicts written through
+  a `ClaimSite` reach the stored node; later A2 noun fix.
+- `components/preview.py` — golden-preview loop and `autodeck components preview`.
+- 15 components, each with a committed golden PNG: big_number, two_column_compare (spike);
+  quote, bullets_supporting, callout_takeaway; title, section_divider, agenda, closing_cta,
+  before_after, evidence_with_figure, data_card_grid; framework_diagram, timeline,
+  chart_focus.
+- Budgets resolve a real face per weight/style; exact integer prediction-vs-render
+  line-count cross-check.
+- `theme/` — mode (b) from tokens with inheritance proven; mode (a) extraction against a
+  synthetic template only.
+- `icons/` — licence record first (ISC + MIT carve-out, suitable); semantic library, deck
+  consistency checker, `Frame.icon`.
+- `headers/` — profile loader, profile in the content prompt, `--header-style` one-flag
+  switch on `autodeck content`, horizontal-flow QA.
+- `charts.py` — native charts, data in an embedded workbook referenced by formula, no image
+  part ever.
+- `diagrams.py` + `draw.py` — process_flow, two_by_two, layered_stack as ungrouped native
+  shapes with theme colours.
+- `grammar.py` — D13 lints: word budget, ≤1 diagram, icon+chart+diagram pileup (blocking);
+  concept count (advisory); icon adjacency (blocking, uncalibrated).
+- `ContentResult.incomplete_slots` split from `rejections`.
+- `scripts/install-dev-fonts.sh`; CI fonts; vendored geometry reference — infra: installs
+  dev fonts; CI installs fonts; `ISOSCELES` correction to the vendored geometry reference.
+
+### Fixed
+- **Bold budgets were under-predicted by 3–8.5%** (Inter Display 6.1%, Inter 2.8%,
+  Liberation Sans 8.5%), because face resolution always returned the regular file. Caught
+  only by looking at a golden PNG — a rule struck through a wrapped headline — while every
+  automated check stayed green, because `check_overflow` compares a prediction with itself.
+  The flag was dropped in two places (`measure_block`, `ComponentSlot`). Fixed, plus an
+  **exact integer prediction-vs-render cross-check**. `RENDER_TOLERANCE` was the wrong
+  *shape* (1/N of total height: 36% at one line, 3.3% at six) — replaced by a fraction of
+  one line box.
+- `overflow_width` was discarded by `Canvas.measure`: an unbreakable word measured as one
+  line and rendered past the edge. `big_number`'s supporting points had no overflow check.
+- Chevron labels were centred on the bounding box, but the preset's filled region starts at
+  the notch tip: white text landed in the unfilled notch, invisible on white. Caught only by
+  rendering.
+- The vendored authority was wrong: `ISOCELES_TRIANGLE` is not a python-pptx member —
+  corrected to `ISOSCELES_TRIANGLE`.
+- Registering seven components broke seven citation tests, because those names had been
+  unregistered so budgets had been skipped for them — `ContentResult.rejections` mixed "the
+  writer produced something that does not fit" with "the writer produced nothing for this
+  slot"; split into `incomplete_slots` (B33).
+- CI had no fonts: fresh containers lacked Inter, `libreoffice-impress` and
+  `poppler-utils`, so 32 render tests could not run while CI stayed green (B34).
+
+### Changed
+- Opus writes the scaffold; Sonnet writes the code, in guardrail paths too — superseding
+  B28's "guardrail paths hold their tier" for code (**B32**).
+- A missing required slot is its own finding kind, `ContentResult.incomplete_slots`,
+  separate from `rejections` (**B33**).
+- `scripts/setup-dev-env.sh` installs fonts, `libreoffice-impress` and `poppler-utils`; CI
+  installs the fonts only (**B34**).
+
+### Open
+- **The four PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — theme,
+  icons, charts, diagrams — each a numbered procedure the owner can run in one sitting. See
+  `docs/handovers/PHASE-3A.md` §7.
+- `check_overflow`'s sibling-floor policy passes content the renderer then refuses: each
+  slot's budget assumes siblings take one line, and nothing checks both can hold at once.
+- A dated-axis timeline: `timeline` renders the sequence as chevrons and refuses any
+  non-sequence geometry.
+- Theme mode (a) against a real corporate template — Q5 unanswered; synthetic only proves
+  the path runs.
+
+---
+
+## [Unreleased] — Phase 2b: content, linters, validation
+
+All eleven Phase 2b tasks. **GATE 2 is not closed** — it asks the owner to read the claims
+table and approve or send claims back, and no claims table has been put to them. **No live
+milestone run exists either**: `autodeck content` refuses to run without an approved
+outline, and no flag anywhere approves a gate. See `docs/handovers/PHASE-2B.md` §3 and §10.
+
+### Added
+- `autodeck/audit/numeric_linter.py` — **A2**. Every numeral in deck text traces to a cited
+  span or to a derivation that re-executes to its stated result. Normalisation is
+  declarative (each row carries a `why`, and import fails if two rules claim the same
+  surface form), arithmetic is `Decimal`, and formulas are re-executed by AST walk rather
+  than `eval` — they are model-generated text, so that is a security property.
+- `autodeck/audit/framing_linter.py` — **A5**. A `framing` block carrying a fact is
+  **demoted** to `claim`, and the demotion's `materialise()` raises from `Claim.citations`.
+  The IR's refusal to construct the block *is* the A1 failure; nothing re-implements it.
+- `autodeck/audit/verdicts.py` — **A3**'s rule, in a guardrail path. Four ordered bounds
+  applied to the model's answer after the fact, so a model that ignores its instructions
+  still cannot produce `supported` with no evidence. `ValidatorEvidence` refuses at
+  construction any citation not marked `retrieved_by="validator"`.
+- `autodeck/agents/content.py` — one `content` call per slide. The model picks a verbatim
+  quote; the **code** resolves it into a citation with a real page, bbox and hash. A quote
+  that does not resolve drops the claim rather than producing an uncited block.
+- `autodeck/agents/validation.py` — independent re-retrieval, a separate contradiction
+  pass, six claims per `validation` call. A provider failure returns `unverified` with a
+  reason, never a guess.
+- `autodeck/audit/report.py` — the working shown for every derivation, per-input
+  traceability, and conflicts recorded with **both** spans. A test asserts the averaged
+  figure is absent: averaging two disagreeing sources invents a number nobody measured.
+- `autodeck/audit/manifest.py` — `canonical_pptx_digest`, `knowledge_commit`,
+  `knowledge_dirty`, `Manifest.reproducible()`. Nothing is named `bytes_match` (B29).
+- `autodeck/design/budget_check.py` and per-slot budgets in
+  `autodeck/design/components/catalog.py` — over-budget text is rejected **before** render.
+- `autodeck/pipeline/send_back.py` and four CLI commands — `content`, `validate`, `gate2`,
+  `send-back`. Rejecting a named claim existed nowhere before this phase.
+- `prompts/content.md`, `prompts/validation.md` — the writer and its adversary.
+
+### Fixed
+- **`budgets.py` under-predicted line height by ~7.4%, in the direction that overflows.**
+  Pitch was derived from hhea `ascent + descent` (1.1172 for Liberation Sans); LibreOffice
+  renders **1.20** for every family tested, whose own metrics range 1.059–1.200. It is an
+  engine convention, not a value read from the font, so `LINE_HEIGHT_FACTOR` is now measured
+  rather than derived.
+- **The LibreOffice cross-check could not have caught that**, and read as agreement while
+  being two errors cancelling: it compared rendered *ink* against a predicted *line box*.
+  It now measures line pitch, the quantity the prediction is actually about.
+- **A derivation could cite real spans and still invent its inputs.** B13 required a value
+  *and* a citation, but never that the value appear in the quote — reproduced with inputs
+  900/300 against spans reading 671/412, which passed every check and traced to itself.
+  `check_derivation_inputs` closes it.
+- **A clean `Deck` was no longer sufficient evidence that A1 and A5 hold.** A demoted
+  framing block, and a validation pass that failed outright, both leave
+  `Deck.blocking_blocks()` empty. `require_safe_to_render` is now the single place that
+  knows what "safe to render" means.
+- `prompts/validation.md` asked the model for citation objects with pages and hashes, which
+  no model can compute. It asks for verbatim quotes; the system resolves them, and an
+  unmatched quote is dropped.
+- Two component slots had no budget coverage at all — `big_number.supporting_points` (whose
+  presence also switches the renderer to two columns, halving the *other* slots' widths) and
+  multi-point `two_column_compare` columns.
+
+### Changed
+- Phase branches 2b–3b stack on each other and **merge nothing** until the owner works each
+  gate (**B27**) — BRANCHING rule 3 derives from A7, rule 1 is a topology convention, so the
+  convention yields.
+- Guardrail paths hold their model tier regardless of a task's tag (**B28**). A3's rule and
+  the aesthetic action set were *split* out of their agents so the invariant sits inside a
+  guardrail path rather than being de-tiered with its plumbing.
+- Five invariant cells move to `tested`; **A6 deliberately does not** (see below).
+
+### Fixed (after independent review)
+
+`docs/handovers/PHASE-2B.md` was written from a green suite of 736 tests. An independent
+adversarial review then found holes those tests did not reach — 11 findings, 9 demonstrated
+by executing against the code, 6 of those reproduced independently by the orchestrator
+before acting (run on Opus; the planned Fable 5.1 returned HTTP 429, "requires usage
+credits") — and these twelve commits fixed them. The suite now stands at **839 passed, 0
+skipped, 10 live-marked and deselected**.
+
+- `9ca17d1` — A2 verbatim match was a substring search; branch **dropped** not fenced.
+  `40%` used to source to a span saying `140%`; `12` inside `3,120`; `29` in `1029`; `3x` in
+  `13x`.
+- `a29138c` — A2 derivation rounding had no bound. A computed `0.51×` used to print as `1×`
+  (+96%).
+- `b154ad6` — A2 derivation-input match discarded the unit. `40 ms` used to print as `40%`,
+  `40×`, `$40`.
+- `0864101` — A2/A8 averaging laundered through a derivation, now blocking when the formula
+  re-executes to the exact mean of inputs citing different documents that differ materially
+  (other in-between formulas stay advisory). 412 and 671 from two papers used to average to
+  541.5 and show as audited working with green ticks.
+- `382aed9` — A2 an unrecognised unit word was treated as no unit. `3.2 million requests`
+  used to match `3.2 million dollars` in the bare-numeral tier.
+- `8632609` — A3 a claim on a diagram node was invisible to every blocking check. A
+  `contradicted` node claim used to render while GATE 2 printed `[PASS]` beside a claims row
+  reading `contradicted`.
+- `e8fa666` — A3 a test derived from the pydantic model graph now fails if any place that
+  can hold a `Claim` is not visited by the blocking walk (regression insurance; verified it
+  bites by adding a field).
+- `cacb5d2` — A3/A5 render guard now takes only the deck and recomputes the linters itself;
+  `require_safe_to_render` had no production caller and `cli._gate2_checks` re-implemented 3
+  of its 4 conditions — now one `assess_render_safety` both use. Passing empty reports, or
+  another deck's clean reports, used to clear the guard.
+- `f4a2649` — A5 fence now applies to any block's free text.
+  `"The fastest stack available, proven to outperform every competitor."` used to pass as
+  `text` on a `claim` block.
+- `86ae385` — A2 test pins the linter's own deck walk to the IR claim-site walk.
+- `b555a5f` + `06b54c4` — A2 same number, different noun: a `QUALIFIER_TABLE` of quantity
+  nouns; both listed and different → blocking; unlisted → advisory; stop words → bare.
+  Scaffolded by Opus, implemented by Sonnet (B32 on the 3a branch). `412 requests per
+  second` used to source to `412 tokens per second`; `13B parameters` to `13B tokens`;
+  `40 GPUs` to `40 layers`.
+
+Corpus check on the A2 noun fix: all 16 curated claims → 0 mismatches, 1 advisory ("76%
+model-FLOPS utilisation" vs source "MFU" — same quantity, abbreviated; correctly reported
+not blocked; no table row added from one occurrence).
+
+**Corrected coverage: A5 downgraded `tested` → `enforced`.** The fence is a closed list of
+factual phrasings, tested on what it lists; ordinary factual language outside the list
+passes — demonstrated with "Quantisation halves serving cost" as an uncited
+`section_header`. A2 and A3 are corrected in place and remain `tested`, each with a named
+residual gap (numbers written as words for A2; `chart` blocks never receiving a verdict for
+A3). See `docs/handovers/PHASE-2B.md` §5 and §6.9–§6.13.
+
+### Open
+- **B29 — A6 promises "byte-comparable" PPTX output, which is measurably impossible.** Two
+  identical saves two seconds apart differ in bytes from four causes outside our control,
+  while the canonical digest matches; A6's own "watch for" line contradicts its headline.
+  `docs/INVARIANTS.md` is deliberately unedited — changing what an invariant says is the
+  owner's call, not the implementer's.
+- **A gate approval does not survive the machine.** Approvals live in
+  `runs/<id>/state.json`, which is derived data and not committed (B22).
+
+---
+
+## [Unreleased] — Phase 2a: planning agent & outline
+
+All nine Phase 2a tasks. **GATE 1 is not closed** — it asks the owner whether an outline
+delivers the brief's argument, and no outline has been put to them. See
+`docs/handovers/PHASE-2A.md`.
+
+### Added
+- `DeckBrief` with `KeyMessage`, `OpenRisk` and `LayoutPin`. **A8 lands structurally**: a
+  key message the evidence check calls `thin` or `unsupported` cannot reach a signed brief
+  without a matching `OpenRisk` naming who accepted it. Deliberately not a block on weak
+  messages — blocking would push the planner toward marking things `supported` to get past
+  the validator, which is the failure A8 is about.
+- `autodeck/agents/evidence_gap.py` — the phase's reason for existing (§6.13). Deterministic
+  retrieval, model judgement, and a **ceiling on the judgement**: zero citable spans is
+  `unsupported` with the classifier never called; a single non-curated hit is capped to
+  `thin`. Applied to the model's answer rather than requested in the prompt.
+- `autodeck/agents/planner.py` — the planning session. Ends only on human sign-off, which is
+  A7 approval 1 of 4. `ready_for_signoff` is a suggestion the code never reads.
+- `autodeck/agents/outline.py` — signed brief → IR skeleton, with nowhere to put prose.
+- `autodeck/audit/gate1.py` — GATE 1's mechanical checks. Reports; decides and fixes nothing.
+- `prompts/planner.md`, `prompts/outline.md`; `autodeck plan` and `autodeck outline`.
+- `Slide.intent`, `.message_ids`, `.pin_deviation`; briefs versioned as YAML.
+
+### Fixed
+- **Gemini silently dropped every nullable nested array** (B26). Live sessions produced good
+  briefs in prose and recorded nothing — no error, and non-deterministic. The `gemini` schema
+  flavor now emits `nullable: true` rather than `anyOf: [X, null]`, and the planner's core
+  fields are required.
+- `ModelRegistry.provider_for(role, model=...)` raised `TypeError` — `model` was pinned
+  ahead of `**overrides`, so the only useful override could not be used.
+- Dev bindings pointed at the retired `gemini-2.5-pro` (B23).
+- GATE 1 blocked on a missing `must_include`, which is weak evidence at outline stage. Now
+  advisory; `must_avoid` appearing stays blocking.
+
+### Changed
+- Dev roles spread across five Gemini models (B25) — daily quota is per model, and a
+  validator on a different model from the writer is better for A3.
+- Evidence spans truncated to 500 chars for classification (B24).
+
+---
+
 ## [Unreleased] — Phase 1: ingestion & knowledge
 
 All ten Phase 1 tasks. **GATE 1a approved** 2026-08-02 (DECISIONS.md G1a) — the owner

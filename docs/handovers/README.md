@@ -13,7 +13,7 @@ That pairing is the design; if it stops being true, fix `TEMPLATE.md`.
 | 3b — Renderer & QA | `v2/phase-3b-render-qa` | — | GATE 3 | not started |
 | 3a — Design system | `v2/phase-3a-design-system` | — | internal | not started |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | — | GATE 2 | not started |
-| 2a — Planning & outline | `v2/phase-2a-plan-outline` | — | GATE 1 | not started |
+| 2a — Planning & outline | `v2/phase-2a-plan-outline` | [PHASE-2A.md](PHASE-2A.md) | GATE 1 | **code complete — gate open** |
 | 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | [PHASE-1.md](PHASE-1.md) | GATE 1a | **merged — gate approved** |
 | 0 — Foundations | `v2/phase-0-foundations` | [PHASE-0.md](PHASE-0.md) | GATE 0 | **code complete — gate open** |
 

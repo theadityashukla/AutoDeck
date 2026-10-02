@@ -138,3 +138,58 @@ def test_schema_digest_is_stable_and_order_independent() -> None:
 def test_schema_digest_changes_with_the_schema() -> None:
     """A changed contract must invalidate cached provider responses (task 0.3)."""
     assert schema_digest(export_schema(Claim)) != schema_digest(export_schema(Block))
+
+
+def test_gemini_optional_fields_use_nullable_not_anyof() -> None:
+    """The bug this prevents is silent, which is why it needs a test.
+
+    Pydantic emits `X | None` as a two-branch `anyOf`. Gemini's native response_schema
+    accepts that shape and then omits the field entirely when X is an array of objects —
+    no error, no warning. The Phase 2a planner returned briefs where scalar fields arrived
+    and every `list[Model] | None` field was missing on every call, across three models.
+    """
+    from pydantic import BaseModel
+
+    class Nested(BaseModel):
+        id: str
+
+    class Holder(BaseModel):
+        required_scalar: str
+        optional_scalar: str | None = None
+        optional_objects: list[Nested] | None = None
+
+    schema = export_schema(Holder, "gemini")
+    properties = schema["properties"]
+
+    assert "anyOf" not in properties["optional_scalar"]
+    assert properties["optional_scalar"] == {"type": "string", "nullable": True} | {
+        k: v for k, v in properties["optional_scalar"].items() if k not in ("type", "nullable")
+    }
+    optional_objects = properties["optional_objects"]
+    assert "anyOf" not in optional_objects
+    assert optional_objects["type"] == "array"
+    assert optional_objects["nullable"] is True
+    assert optional_objects["items"]["type"] == "object"
+
+
+def test_collapsing_a_union_keeps_its_description() -> None:
+    """Annotations sit on the union, not the branch. Dropping them would leave the model
+    with a field and no idea what it is for."""
+    from pydantic import BaseModel, Field
+
+    class Holder(BaseModel):
+        note: str | None = Field(default=None, description="Why this matters.")
+
+    assert export_schema(Holder, "gemini")["properties"]["note"]["description"] == (
+        "Why this matters."
+    )
+
+
+def test_a_genuine_union_is_left_alone() -> None:
+    """Only nullable two-branch unions collapse. A real either/or must survive."""
+    from pydantic import BaseModel
+
+    class Holder(BaseModel):
+        value: str | int
+
+    assert "anyOf" in export_schema(Holder, "gemini")["properties"]["value"]

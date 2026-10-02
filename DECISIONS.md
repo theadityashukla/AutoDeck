@@ -547,3 +547,512 @@ the owner with options.
     the sample — if a citation later looks wrong, check those first rather than assuming the
     gate covered all five evenly.
   - Phase 1 merges to `v2/integration`; `v2/phase-2a-plan-outline` is cut from the result.
+
+### B23 — Dev-tier model IDs re-resolved; there is no pro model on the free tier
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active — supersedes the dev bindings recorded under B15
+- **Context:** the first live run of the evidence-gap check (task 2a.4) failed every probe.
+  Two separate causes, both found by running it rather than by reading anything:
+  1. **`gemini-2.5-pro` is retired.** It still appears in the `v1beta/models` listing but
+     every `generateContent` call returns 404 *"no longer available to new users"*. Four dev
+     roles were bound to it (planner, outline, validation, aesthetic), so all four were dead.
+  2. **No pro model is reachable at all on this tier.** `gemini-3.1-pro-preview` and
+     `gemini-pro-latest` both return 429 with no free-tier quota. Only flash models respond.
+- **Decision:** bind the four reasoning roles to `gemini-3.7-flash` in dev, verified by an
+  actual completion rather than by appearing in a listing. Keep `ingest_vlm` on
+  `gemini-2.5-flash`, which still answers.
+- **Rationale:** a listing is not availability — that is the specific trap here, and it is
+  why B15's "resolve, never recall" needs to mean *call it*, not *look it up*. Aliases
+  (`gemini-flash-latest`) were rejected: an alias moves underneath a build, so the same
+  manifest could resolve to a different model on a re-run and A6's byte-comparability claim
+  would be false in a way nothing detects.
+- **Consequences:**
+  - **B8's warning gets stronger.** Dev now runs the reasoning roles on a *flash* model,
+    weaker than this file assumed when it was written. A dev pass on A3 or A8 was already a
+    smoke test; it is now a smoke test on a smaller model. Headline accuracy must be
+    measured on `sit`.
+  - Model IDs go stale mid-project. Re-resolve at the start of any phase that calls a
+    provider, not once per project.
+  - The `sit`/`prod` Claude IDs remain unverified — still no `ANTHROPIC_API_KEY`.
+
+### B24 — Evidence spans are truncated before classification
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** the evidence-gap check shows the classifier up to six retrieved spans. A
+  Docling element is a whole paragraph, and six research-paper paragraphs measured ~9.8k
+  tokens against the real seed corpus — over the Groq free tier's 8000 TPM limit, which
+  returned HTTP 413 and failed the probe rather than returning a verdict.
+- **Decision:** truncate each span to `SPAN_CHARS` (500) for classification, and mark the
+  truncation visibly with `…[truncated]`.
+- **Rationale:** the judgement needs the sentence that does or does not support the message,
+  not the rest of the paragraph. Marking rather than silently cutting matters for A8: a
+  classifier that cannot see the end of a paragraph should not read an absent qualifier as
+  an absent caveat.
+- **Consequences:**
+  - Truncation applies only to what the *classifier* sees. Citations are still resolved
+    verbatim through the document store, so A1 is untouched.
+  - `claims.md` spans are already human-selected quotes and are short by construction, so
+    this rarely affects the curated path.
+
+### B25 — Dev roles are spread across different Gemini models
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** the free tier allows **20 requests per day, per model**. A single planning
+  session — two turns, four key messages probed each turn — spent one model's entire daily
+  allowance on the first run, and every subsequent call that day returned 429.
+- **Decision:** bind each dev role to a different Gemini model (`planner` 3.7-flash,
+  `outline` 3.6-flash, `validation` 3.5-flash, `aesthetic` 3.1-flash-lite, `ingest_vlm`
+  2.5-flash) so each has its own daily bucket.
+- **Rationale:** quota is the immediate reason, but the split is independently right for
+  A3. The validator re-retrieves independently and hunts for contradicting spans, and a
+  validator on the same model as the writer is likelier to share its blind spots. This is
+  the cheap version of that independence and it costs nothing.
+- **Consequences:**
+  - Dev capacity is roughly 20 planner turns per day. A long session will hit it; the
+    Phase 0 response cache is what makes a resumed run not re-pay for completed calls.
+  - `ModelRegistry.provider_for(role, model=...)` now works (it raised `TypeError` before —
+    `model` was pinned ahead of `**overrides`), so a role whose quota is spent can be
+    pointed elsewhere without editing config.
+
+### B26 — Gemini structured output: nullable nested arrays are unreliable
+- **Date:** 2026-08-02
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** the first live planning sessions produced excellent briefs *in prose* and
+  recorded nothing. Investigation, not inference:
+  1. The raw HTTP response was inspected. Scalar fields (`objective`, `probe_messages`)
+     were present; `key_messages`, `layout_pins` and `open_risks` — all typed
+     `list[Model] | None` — were **absent from the JSON entirely**. No error, no warning.
+  2. Two prompt rewrites (hoisting the instruction to the top of `planner.md`, then adding
+     a positional reminder after the context) improved the prose and changed nothing about
+     the fields.
+  3. It is **non-deterministic**: the same model on the same prompt populated the arrays
+     once and omitted them on the next call.
+- **Decision:** two changes, at different layers.
+  - **Schema (all agents):** the `gemini` flavor now collapses `anyOf: [X, {"type":
+    "null"}]` into X with `nullable: true` — Gemini's own representation. Carries
+    annotations across, and leaves genuine two-type unions alone.
+  - **Planner model:** `objective`, `audience` and `key_messages` are **required and
+    non-nullable**. Required fields arrive; nullable nested arrays do not. Empty now means
+    "unchanged" rather than "cleared" — a brief cannot legitimately fall to zero key
+    messages, so an empty list is far likelier to be an omission than an intent to wipe
+    ten minutes of work.
+- **Rationale:** the failure mode is the worst available — nothing raises, the conversation
+  reads perfectly, and the artifact is blank. It cannot be left to prompt discipline, and
+  the schema-level half fixes it for every agent rather than only this one.
+- **Consequences:**
+  - A list cannot be *cleared* through the planner; that is done by editing the signed
+    YAML, which is a deliberate act with a diff.
+  - The model restates the whole brief each turn. That was already the documented contract
+    ("the complete current set, not a delta"), so only the reliability changed.
+  - **Expect this class of bug on other providers.** When an agent's output looks right in
+    prose and empty in the artifact, read the raw response before touching the prompt.
+
+### G1 — GATE 1 approved
+- **Date:** 2026-09-18
+- **Phase / branch:** Phase 2a / `v2/phase-2a-plan-outline`
+- **Status:** active
+- **Context:** GATE 1 asks whether an outline delivers the brief's key messages, in the
+  brief's order, honouring its pins — deliberately not "is this a good outline" (§6.13).
+- **Decision:** **approved.** The owner reviewed the delivered materials and answered "This
+  looks good. Lets go ahead and implement the other phases as well."
+- **What the owner actually reviewed:** `GATE-1-review.md` — the signed brief v1 (objective,
+  audience, four key messages with evidence status, two accepted risks with `accepted_by`,
+  one layout pin), the ten-slide outline with each slide's role, component, served messages
+  and intent, and the mechanical report (0 blocking, 3 advisory) — together with
+  `brief/v1.yaml`. Recorded at this precision rather than as blanket sign-off, per plan
+  §0.3 and the precedent set by G0 and G1a.
+- **Rationale:** the mechanical half was clean. The judgement half — whether the sequence of
+  intents makes the argument — is what the owner answered, and the approval arrived in the
+  same message as the instruction to proceed through the remaining phases.
+- **Consequences:**
+  - A7 approval 1 of 4 is proven end to end on a real run.
+  - Phase 2b may start. Phase 2a merges at the review session (B27), not now.
+  - The outline's messages were all `unprobed` because the classifier hit the daily quota
+    mid-run (B25). The brief was signed anyway, which is legitimate — `unprobed` is honest
+    and GATE 1 surfaced it as advisory — but the evidence-gap check has still not run to
+    completion on a full brief. Phase 2b's validator is the next chance to catch anything it
+    would have found.
+
+### B27 — Phases 2b–3b stack without merging; gates are reviewed as a batch
+- **Date:** 2026-09-18
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** active — deviates from `docs/BRANCHING.md` rule 1 for this batch only
+- **Context:** the owner asked for Phases 2b, 3a and 3b to be built in one pass, stating
+  they cannot take time to review each step. Two BRANCHING rules collide under that
+  instruction: rule 1 (a phase branch is cut from the integration tip) and rule 3 (nothing
+  merges until its gate is approved by the owner in writing; the implementing agent does
+  not self-approve). Honouring rule 1 requires merging 2b before cutting 3a, which requires
+  approving GATE 2 without the owner — exactly what rule 3 and A7 forbid.
+- **Decision:** cut each phase branch from the **previous phase's tip** rather than from
+  `v2/integration`, and **merge nothing**. Every gate stays `pending` in its handover with
+  "what the owner actually checked: nothing yet". At the review session the owner works
+  GATE 2 then GATE 3; each approval is recorded, the branch is re-cut onto the integration
+  tip, and the PR merges `--no-ff` in phase order.
+- **Rationale:** rule 3 is derived from an accuracy invariant (A7) and rule 1 is a
+  topology convention, so the convention yields. Stacking is safe here because nothing else
+  advances `v2/integration` during the batch, making the eventual re-cut a clean replay.
+- **Consequences:**
+  - Three unmerged branches exist at review time, each building on the last. A rejection at
+    GATE 2 invalidates work in 3a and 3b that was built on it — an accepted cost of the
+    owner's instruction, and the reason the accuracy core is built first and each phase
+    boundary is a clean stopping point.
+  - `docs/BRANCHING.md` is not edited. This is a recorded deviation for one batch, not a
+    change to the protocol.
+
+### B28 — Guardrail paths hold their tier; budget de-escalation is recorded per task
+- **Date:** 2026-09-18
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** active
+- **Context:** the owner set a $50 ceiling on delegated implementation and asked that the
+  code be written by Sonnet and Haiku rather than by the orchestrating model.
+  `docs/MODEL_ROUTING.md` makes `autodeck/ir/`, `autodeck/audit/`, `prompts/`,
+  `DECISIONS.md` and `docs/handovers/` top-tier regardless of a task's tag, and states that
+  a tag-versus-guardrail conflict is won by the guardrail.
+- **Decision:** the **guardrail paths keep their tier** and are implemented by Opus
+  subagents. Tasks *tagged* Opus in a phase brief but living outside a guardrail path —
+  `design/budgets.py`, `layout_kit.py`, `components/catalog.py`, `design/grammar.py` — are
+  de-escalated to Sonnet, and each de-escalation is named in the owning handover §8.
+- **Rationale:** the routing doc's own tie-breaker is "the cost of over-tiering is money,
+  the cost of under-tiering is a defect in an accuracy-critical path." A budget makes that
+  trade explicit rather than hypothetical, so the money is spent where a defect would land
+  on an invariant and saved where it would land on a layout.
+- **Consequences:**
+  - Two accuracy-critical modules are **split** so their invariant logic sits inside a
+    guardrail path: A3's verdict assignment and contradiction rule go to
+    `autodeck/audit/verdicts.py` (Opus) with `agents/validation.py` as a Sonnet wrapper; the
+    aesthetic loop's closed action set goes to `autodeck/ir/actions.py` (Opus) with
+    `render/qa/aesthetic.py` as a Sonnet loop. The type system is the invariant in both.
+  - Every task is independently reviewed by a second Sonnet agent against its spec, standing
+    in for the step-by-step human review the owner cannot give.
+  - Spend is tracked per dispatch. At ~$40 the current task is finished, committed and
+    pushed, and the batch stops and reports rather than starting the next one.
+
+### B29 — A6 says "byte-comparable"; that is not achievable for PPTX
+- **Date:** 2026-09-19
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** **accepted by the owner, 2026-09-27, and applied.** The owner's answer: "Okay,
+  no problem." `docs/INVARIANTS.md` A6 now reads "re-renders normalised-comparable output
+  under a recorded normalisation", and its "proves it" line compares digests, never bytes.
+- **Context:** A6's headline says *"Same manifest + IR re-renders byte-comparable output."*
+  Implementing task 2b.10 established that no PPTX can satisfy that, for reasons outside
+  AutoDeck's control. Measured directly in this container: **two `Presentation().save()`
+  calls two seconds apart, on an identical presentation, produce different bytes.**
+
+  ```
+  identical decks, saved 2s apart:  raw bytes 4b504b3cb189… vs 13012257 40ab…  -> DIFFER
+  under canonical_pptx_digest:      8609e277b720…  vs 8609e277b720…            -> SAME
+  ```
+
+  Four independent causes: `zipfile` stamps every entry header with wall-clock save time;
+  entry order follows the writing library's iteration, not the document; the DEFLATE stream
+  depends on the zlib build and compression level, so the same input bytes give different
+  archive bytes on another machine; and `docProps/core.xml` carries `dcterms:modified` and
+  `cp:revision`, which move whenever the file is saved at all.
+- **The invariant already half-concedes it.** A6's own "watch for" line reads *"normalise
+  before comparing, and record the normalisation"* — which contradicts the headline in the
+  same entry. The wording was internally inconsistent before this phase; implementing it
+  is what surfaced that.
+- **Proposed decision (for the owner):** correct A6's headline to **"re-renders
+  normalised-comparable output under a recorded normalisation"**, and keep the existing
+  "watch for" as the definition of the normalisation. This is a wording correction to match
+  what the invariant always meant, not a relaxation — plan §0.4 forbids weakening an
+  invariant, and nothing here proposes accepting a weaker guarantee. It proposes describing
+  the guarantee accurately.
+- **What was built in the meantime.** `canonical_pptx_digest` with a versioned normalisation
+  (`pptx-canonical-v1`) whose three rules each carry `what` / `why` / `safe_because`; the
+  normalisation id is hashed into the digest, so a v1 digest can never be read as a v2 one.
+  Nothing is named `bytes_match`, and
+  `test_naive_byte_comparison_fails_on_two_identical_decks` asserts the failure so the claim
+  is evidenced rather than argued. Excluded: zip entry order, per-entry storage metadata,
+  and five volatile `docProps/core.xml` fields. Not excluded: relationship ids, `app.xml`,
+  and every part's decompressed bytes.
+- **Consequences if the correction is accepted:** A6's coverage cell means
+  normalised-comparability, and Phase 3b's render determinism test targets the digest rather
+  than raw bytes. **If it is rejected**, A6 is unsatisfiable as written and Phase 3b cannot
+  close against it — which is the reason this is flagged now rather than at GATE 3.
+- **Applied:** the accepted branch above holds. Phase 3b's render determinism test compares
+  `canonical_pptx_digest` across two renders of one manifest+IR.
+
+### B30 — A gate approval does not survive the machine. Owner decision needed.
+- **Date:** 2026-09-19
+- **Phase / branch:** Phase 2b / `v2/phase-2b-content-validate`
+- **Status:** **open — no change made.** Flagged for the owner at GATE 2.
+- **Context:** `Orchestrator.approve` records an approval as
+  `state.approvals[gate] = "<timestamp> by <approver>"` in `runs/<run_id>/state.json`.
+  B22 keeps derived artifacts out of git, and `runs/` is squarely derived data — run
+  directories hold model output, intermediate IR versions and caches. So `state.json` is not
+  committed.
+
+  The consequence surfaced while trying to run this phase's milestone. GATE 1 was genuinely
+  approved on 2026-09-18 against a real brief and a real ten-slide outline (**G1**). That
+  approval lived in a container that no longer exists. On a fresh clone there is no record
+  of it that any code can read: `autodeck content` correctly refuses to proceed, and the
+  only surviving trace of the owner's decision is the prose we wrote into this file by
+  convention.
+- **Why this is not simply "re-run it".** Re-creating the run means a fresh `/sign` on a
+  fresh brief — A7 approval 1 of 4, a human act — and a fresh GATE 1 judgement on a
+  different outline, because the planning session is a model conversation and does not
+  reproduce. The owner would not be re-confirming a decision they made; they would be making
+  a new one about different material. **An approval is not reproducible, which is exactly
+  why it is the one thing in a run that should not be treated as derived.**
+- **Why it matters beyond convenience.** A6 asks what produced an artifact and A7 asks who
+  approved it. A build manifest that can name the model IDs, the prompt hashes and the
+  knowledge commit, but cannot name who approved the claims table or when, is missing the
+  only field in it that a human is accountable for. At Phase 4, "who signed off on this
+  deck" is a question a client may ask about a deck that shipped months earlier.
+- **Options for the owner, in the order I would take them:**
+  1. **Commit approvals, not runs.** `autodeck approve` also appends to a small committed
+     ledger (`approvals/<run_id>.yaml`) carrying gate, approver, timestamp, the IR version
+     approved and its hash. Derived data stays out of git; the human act does not. The IR
+     hash matters: it is what stops an approval being read as covering content that changed
+     after it was given.
+  2. **Fold the approval into the build manifest**, which is already the A6 record and is
+     already committed for a shipped deck. Less machinery, but it only exists once a deck is
+     built, so GATE 1 and GATE 2 approvals have nowhere to live in the meantime.
+  3. **Leave it, and rely on `DECISIONS.md`.** Honest, and it is what we have been doing —
+     but it is a convention rather than a mechanism, and conventions are what A7 exists
+     because we do not trust.
+- **Not decided here.** Any of the three touches `autodeck/pipeline/orchestrator.py` and
+  option 1 adds a committed artifact, which is a project-shape decision rather than an
+  implementation detail. **No code was changed on the strength of this entry.**
+- **Consequence either way:** the Phase 2b milestone run starts from `autodeck plan`, and
+  `docs/handovers/PHASE-2B.md` §10 is written on that assumption.
+
+### B31 — Phase 3a starts with three preconditions unmet, knowingly
+- **Date:** 2026-09-19
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active
+- **Context:** `docs/phases/PHASE-3A.md` lists four preconditions. Three are not met, and
+  proceeding anyway is a decision rather than an oversight, so it is recorded here.
+- **1. "GATE 2 approved."** It is not, and cannot be before the review session — **B27** is
+  the standing decision that phases 2b–3b stack unmerged and every gate stays `pending`. The
+  cost was stated when B27 was taken and is restated here: **a GATE 2 rejection invalidates
+  whatever Phase 3a builds on top of it.** The owner accepted that trade when choosing the
+  batch. Nothing in 3a may alter a verified fact, which the phase's own exit criteria
+  already require ("Phase 2b's audit report is still clean").
+- **2. "GATE 0 spikes all passed"** — they passed *on the visual bar only* (**G0**). The
+  icon and theme behaviour has never been confirmed in PowerPoint itself, and PHASE-3A says
+  Phase 3a must check both **before** building on them. There is no PowerPoint in this
+  environment and no way to obtain one. **Resolution: build against headless LibreOffice,
+  which is what the golden-PNG loop uses anyway, and carry the PowerPoint check forward as
+  owner debt rather than claiming it.** Two specific behaviours must be listed in the Phase
+  3a handover for the owner to check at GATE 3 with a real PowerPoint: that a theme appears
+  in PowerPoint's own theme UI and that hand-added slides inherit it (3a.1's done-when), and
+  that icons arrive as recolourable native shapes rather than pictures (3a.7's). LibreOffice
+  agreeing is evidence, not proof; the two engines disagree about OOXML in exactly the areas
+  D10 and D11 care about.
+- **3. "Owner answer to Q5"** (a client with a mandated corporate template). Unanswered.
+  Per the batch plan: **mode (b) — generate from tokens — is built fully; mode (a) is built
+  against a synthetic corporate template and the gap is recorded.** A synthetic template
+  exercises the extraction path but proves nothing about the malformed, decade-old templates
+  real clients mandate, which is the only interesting case.
+- **Also recorded: the budget ceiling was lifted by the owner**, which retires the
+  budget-driven half of **B28**. B28's rule was "guardrail paths keep their tier; Opus-tagged
+  work *outside* them drops to Sonnet under the budget". With no budget pressure, Opus-tagged
+  tasks run on Opus, and the de-escalations 3a.4 and 3a.6 anticipate stay in place because
+  those are *pattern-driven* — the nth mechanical instance of an established component
+  renderer genuinely does not need a top-tier model — not budget-driven. **Fable 5.1 is
+  unavailable on this account** (HTTP 429, "requires usage credits"), so Opus is the top tier
+  actually available, including for the review passes the plan reserved for Fable.
+- **Consequence:** the Phase 3a handover's §3 and §7 carry all three gaps, and none of them
+  may be quietly closed by a later phase noticing the box is ticked.
+
+### B32 — Opus writes the scaffold; Sonnet writes the code
+- **Date:** 2026-09-27
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active — supersedes B28's "guardrail paths hold their tier" for code
+- **Context:** owner instructions during this batch — "use Sonnet and Haiku" (start), "Why
+  is Opus doing all the work? … use the correct model" (2026-09-20), "Opus should only
+  create the scaffolding. The code can be filled in by sonnet" (2026-09-27). Before the
+  correction the batch had run 10 Opus / 12 Sonnet / 0 Haiku dispatches; two Opus dispatches
+  were outside any guardrail path, justified by "foundational" and "accuracy-critical",
+  which is not the rule.
+- **Decision:** Opus writes design decisions, module layout, types, contracts as
+  docstrings, and tests as named stubs stating exact inputs and expected results; Sonnet
+  implements; Opus verifies against the scaffold. **This applies in guardrail paths too**,
+  superseding B28's "guardrail paths hold their tier" for code. Mechanism: the scaffold is
+  its own commit (so history shows design vs implementation), function bodies raise
+  `NotImplementedError`, test stubs are `xfail(strict=True)` so a passing stub still wearing
+  its marker fails the suite and no marker can survive the fill. Documentation follows the
+  same split: Opus writes a skeleton of every fact and judgement, Sonnet writes the prose.
+- **Rationale:** the owner's correction was explicit and repeated; the previous rule (B28)
+  optimised for which module a task touched, not for who should be deciding versus
+  implementing within it.
+- **Consequences:**
+  - Opus reviews every guardrail-path diff.
+  - First two uses (A2 quantity nouns, components 13–15) landed with the contract intact and
+    one scaffold error found and reported by the implementer.
+
+### B33 — Registering a component is not a local change
+- **Date:** 2026-09-20
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active
+- **Context:** commit 6f2c3ae registered seven components; seven citation-resolution tests
+  in `test_content.py` failed, because those names had been unregistered, so budgets had
+  been skipped for them, and `ContentResult.rejections` mixed "the writer produced something
+  that does not fit" with "the writer produced nothing for this slot".
+- **Decision:** a missing required slot is its own finding kind — `ContentResult.incomplete_slots`
+  — separate from `rejections`.
+- **Rationale:** the two failure kinds need different downstream handling (send-back vs
+  a gap in coverage) and conflating them under `rejections` hid which one had actually
+  occurred.
+- **Consequences:**
+  - A test that needs an unregistered component must use a name guaranteed never to be
+    registered.
+  - `headers/flow.py` and `cli.py`'s content summary also change behaviour on registration
+    (the CLI now under-reports `incomplete_slots` — open).
+
+### B34 — The environment is part of the project
+- **Date:** 2026-09-27
+- **Phase / branch:** Phase 3a / `v2/phase-3a-design-system`
+- **Status:** active
+- **Context:** fresh containers lacked the Inter fonts, `libreoffice-impress` and
+  `poppler-utils`. Without the fonts, budgets are refused (B11); without the other two, 32
+  render tests — every prediction-vs-render check — fail. CI deselects render tests (B10),
+  so CI stayed green while those checks could not run.
+- **Decision:** `scripts/setup-dev-env.sh` installs all three; CI installs the fonts only.
+- **Rationale:** CI has no render path to protect (B10), so only the fonts are worth its
+  time; a developer or render machine needs the full set to trust a green suite at all.
+- **Consequences:**
+  - A green local suite is meaningful only after the setup script has run.
+
+### B35 — No component can place an icon on the face; icon-anchored slides need one first
+- **Date:** 2026-10-01
+- **Phase / branch:** Phase 3b / `v2/phase-3b-render-qa`
+- **Status:** active — sequencing decided here; the component itself goes through B33
+- **Context:** filling the aesthetic loop (3b.5) showed that no registered component has a
+  slot an `icon` block can sit in, so `render_deck` refuses a deck with a face icon
+  (`UnplacedBlockError`). `Frame.icon` exists and draws theme-recolourable icons, but no
+  component renderer calls it. Consequences: `SwapGlyph` and `SetIconColour` are correct
+  and tested against the IR, but cannot be exercised on a rendered deck; and the
+  art-direction pass (3b.7) cannot meaningfully assign `icon_anchored` (D13; plan §6.11.2
+  pairs it with "capability pillars"), nor can GATE 3 check 2 ("an icon can be selected and
+  recoloured") be performed on a real deck.
+- **Decision:** treat it as PHASE-3B's escalation case — a component design gap, returned
+  to the 3a catalog rather than special-cased in the renderer. Before 3b.7, register one
+  icon-bearing component (working name `icon_pillars`: 3–4 columns, each an icon, a short
+  label and an optional one-line point), under B33's full procedure (budgets, golden
+  preview, `placeable_slots` entry, grammar lints: icon adjacent to its label, ≤ 50 words).
+  Opus scaffolds the content type and slots; Sonnet fills (B32).
+- **Rationale:** the alternative — have 3b.7 avoid `icon_anchored` — would ship a
+  communication mode that exists in the IR, the grammar lints and the prompt, but can never
+  be rendered, and would leave GATE 3 check 2 unperformable.
+- **Consequences:**
+  - 3b.7 is sequenced after this component lands.
+  - The golden preview for the new component is reviewed by the owner with the rest of
+    GATE 3; it is not self-approved.
+
+### B36 — Art direction: modes by rule, taste by model, no automatic section dividers
+- **Date:** 2026-10-01
+- **Phase / branch:** Phase 3b / `v2/phase-3b-art-direction`
+- **Status:** active
+- **Context:** task 3b.7 asks for deck-level rhythm, component swaps, communication-mode
+  decisions and section dividers, honouring pins, without being able to alter a fact.
+  Designing it surfaced three IR facts: (1) `Block` let any kind carry `text`, so an icon or
+  claim block could hold an uncited sentence that nothing renders and nothing lints;
+  (2) `fact_fingerprint` keyed every block, so adding an icon block — the only way an
+  `icon_pillars` slide gets icons (B35) — would trip the fact-mutation detector; (3) art
+  direction is not one of plan §6.2's six model roles.
+- **Decision:**
+  1. `text` is permitted only on text kinds (`framing`, `section_header`).
+  2. Given (1), icon blocks hold no fact (their `IconRef` was already excluded) and are
+     excluded from `fact_fingerprint`; every other block kind stays keyed in.
+  3. New action `AssignIcons` (art direction only), in a separate vocabulary `ArtAction`
+     that excludes mode-setting and glyph restyling.
+  4. Communication mode is derived by rule from face content (diagram → diagram_led; icons →
+     icon_anchored; else text_led); a brief `communication_mode` pin overrides it.
+  5. The model proposes taste only, through `ArtAction`, accepted per action by the shared
+     `render/trial.try_action` (applies, renders, no new grammar finding) — which the
+     aesthetic loop now also uses.
+  6. Art direction runs on the `outline` role's binding.
+  7. Section dividers are not inserted automatically: a divider's title is slide copy with
+     no fact-safe source. The model may recommend them in its rationale, for a human.
+- **Rationale:** plan §6.11.2 already describes mode as a function of content shape and
+  asks for taste as checkable rules wherever possible; a rule is reproducible (A6) and makes
+  every slide's mode explicit with a recorded source (D13). Closing the `text` hole is what
+  makes excluding icon blocks from the fingerprint safe rather than a new blind spot.
+- **Consequences:**
+  - A deck that relied on `text` on a non-text block now fails to load; none in the repo
+    does (golden fixture checked).
+  - The plan's "section dividers" item is partially delivered; dividers remain a human edit
+    or a future, separately designed, fact-safe mechanism.
+  - The `outline` role's daily quota now also covers one art-direction call per deck.
+
+### B37 — The content writer authors process-flow diagrams; A5 reaches diagram labels
+- **Date:** 2026-10-01
+- **Phase / branch:** Phase 3b / `v2/phase-3b-diagram-content`
+- **Status:** active
+- **Context:** verifying the owner guide against the real CLI showed that no deck built by
+  the pipeline can pass GATE 3: criterion 4 needs a native diagram, the outline can assign
+  `framework_diagram` and `timeline`, but the content writer's schema (2b.4) never included
+  diagrams — "left for the phase that actually assigns those components", which no phase
+  then did. Looking for who would lint the new labels found a second gap: nothing called
+  `DiagramSpec.framing_texts()`, so A5 never read a diagram's uncited text.
+- **Decision:** the writer may propose `kind: "diagram"` blocks, **process_flow only** in
+  this round, through a flat, fully-required schema (B26). Each step declares `status`
+  (`claim` with citations, or `framing` with a `LabelReason`); claims resolve through the
+  same `_resolve_claim` as claim blocks; any failing step drops the whole diagram.
+  `lint_framing` now runs over every diagram's `framing_texts()`, and a finding there
+  demotes the diagram block and blocks render like any other A5 demotion.
+- **Rationale:** process_flow is the geometry `timeline` requires and the plan's own
+  example; one geometry proven live is worth more than three schemas guessed at. Dropping
+  the whole diagram on any failed step follows the same logic as an incomplete
+  `slot_map`: a sequence missing a step is a different fact.
+- **Consequences:**
+  - `two_by_two` and `layered_stack` are still not writer-authorable; Phase 4 or a follow-up.
+  - `prompts/content.md` gains a diagram section (own commit).
+  - Any existing diagram fixture whose labels A5 now flags will fail render-safety — by
+    design.
+
+### B38 — `render` starts from the validated IR, so a render is reproducible
+- **Date:** 2026-10-02
+- **Phase / branch:** Phase 3b / `v2/phase-3b-render-qa`
+- **Status:** active
+- **Context:** verifying the owner guide showed that re-running `autodeck render` with
+  identical model replies produced a different deck, voiding a `final_render` approval.
+  Two causes. (1) `render` loaded the *latest* IR — the previous render's art-directed and
+  critiqued output — so each run art-directed an already art-directed deck and changes
+  compounded. (2) Found while proving the fix: every native chart embeds an `.xlsx` whose
+  `docProps/core.xml` carries its write time, so any deck with a chart digested differently
+  on every render, whatever the IR said.
+- **Decision:** `render` always starts from the IR version the `validate` stage recorded
+  (the facts the claims approval covers, in the presentation content left them). Art
+  direction and the critique then write new IR versions on top as today.
+- **Rationale:** a render becomes a function of approved content plus model replies; with
+  the response cache, re-running reproduces the same deck (A6), and an approval survives an
+  identical re-run instead of being voided by drift nobody asked for.
+- **Consequences:**
+  - A manual presentation edit made to a post-render IR version is not carried into the
+    next render (there is no supported way to make one today).
+  - `gate3` also records which criteria failed, so `approve ... final_render` can name them
+    when it refuses.
+  - The embedded chart workbook's created/modified times are pinned to 1980-01-01T00:00:00Z
+    (the date its zip entries already carry), at the source in `design/charts.py`.
+  - The provider response cache keys vision calls on the images' bytes, not their count, so
+    a cached critique is replayed only for the render it was given. LibreOffice renders were
+    verified byte-stable for the same deck, so reproducibility is kept.
+
+### B39 — Phases 2a–3b merge to `v2/integration` before their gates, so the owner can build a UI
+- **Date:** 2026-10-02
+- **Phase / branch:** Phases 2a–3b / `v2/phase-3b-render-qa` → `v2/integration`
+- **Status:** active — owner's instruction
+- **Context:** B27 stacked Phases 2b–3b and held them off `v2/integration` until the owner
+  had worked the gates. The owner wants to build a UI on top of the pipeline and test the
+  gates through it, which needs the code on the integration branch first.
+- **Decision:** merge `v2/phase-3b-render-qa` (Phases 2a through 3b) into `v2/integration`
+  now, by the owner's explicit instruction, superseding B27's hold for this merge.
+- **What this is not:** a gate approval. GATE 2 (claims) and GATE 3 (final render) are still
+  pending; approvals are recorded only by a person through `approve` / `/sign` (A7), and a
+  UI that triggers them is that person acting, not the merge. Nothing in this merge records
+  or implies an approval.
+- **Consequences:**
+  - `v2/integration` carries code whose GATE 2 and GATE 3 reviews have not happened; issues
+    found in UI testing are fixed on `v2/integration` (or branches off it), not on the old
+    phase branches.
+  - The UI must call the CLI/orchestrator's existing gate paths and must not add a new way
+    to approve — the gate-bypass tests (`test_no_command_can_bypass_a_gate`,
+    `test_none_of_the_new_commands_can_record_an_approval`) should be extended to cover it.

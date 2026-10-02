@@ -403,3 +403,69 @@ def test_every_provider_accepts_images(provider_class: type[BaseProvider]) -> No
         prompt="describe", system=None, schema=None, images=[ImageInput(data=b"\x89PNG")]
     )
     assert "iVBORw==" in json.dumps(body) or "PNG" in json.dumps(body)
+
+
+# ---------------------------------------------------------------------------
+# Cache key tests: images must be keyed by content, not count
+# ---------------------------------------------------------------------------
+
+
+def test_cache_key_with_same_image_bytes_produces_same_key() -> None:
+    """Same prompt + same image bytes → same key."""
+    provider = GeminiProvider(ProviderConfig(model="m", api_key="k"))
+    image_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    img1 = ImageInput(data=image_data, media_type="image/png")
+    img2 = ImageInput(data=image_data, media_type="image/png")
+
+    key1 = provider._cache_key("Describe this", None, None, [img1], "")
+    key2 = provider._cache_key("Describe this", None, None, [img2], "")
+
+    assert key1 == key2
+
+
+def test_cache_key_with_different_image_bytes_produces_different_key() -> None:
+    """Same prompt + different image bytes (same count) → different key."""
+    provider = GeminiProvider(ProviderConfig(model="m", api_key="k"))
+    img1 = ImageInput(data=b"image1_data", media_type="image/png")
+    img2 = ImageInput(data=b"image2_data", media_type="image/png")
+
+    key1 = provider._cache_key("Describe this", None, None, [img1], "")
+    key2 = provider._cache_key("Describe this", None, None, [img2], "")
+
+    assert key1 != key2
+
+
+def test_cache_key_with_image_order_matters() -> None:
+    """Same bytes in different order → different key."""
+    provider = GeminiProvider(ProviderConfig(model="m", api_key="k"))
+    img1 = ImageInput(data=b"image1", media_type="image/png")
+    img2 = ImageInput(data=b"image2", media_type="image/png")
+
+    key1 = provider._cache_key("Analyze", None, None, [img1, img2], "")
+    key2 = provider._cache_key("Analyze", None, None, [img2, img1], "")
+
+    assert key1 != key2
+
+
+def test_cache_key_without_images_is_consistent() -> None:
+    """A text-only call's key is the same when called twice with no images."""
+    provider = GeminiProvider(ProviderConfig(model="m", api_key="k"))
+
+    key1 = provider._cache_key("Just text", None, None, [], "")
+    key2 = provider._cache_key("Just text", None, None, [], "")
+
+    # Without images, the key should be identical on multiple calls
+    assert key1 == key2
+
+
+def test_cache_key_with_different_media_types_produces_different_keys() -> None:
+    """Different media types for the same bytes → different key."""
+    provider = GeminiProvider(ProviderConfig(model="m", api_key="k"))
+    image_data = b"same_image_data"
+    img1 = ImageInput(data=image_data, media_type="image/png")
+    img2 = ImageInput(data=image_data, media_type="image/jpeg")
+
+    key1 = provider._cache_key("Analyze", None, None, [img1], "")
+    key2 = provider._cache_key("Analyze", None, None, [img2], "")
+
+    assert key1 != key2

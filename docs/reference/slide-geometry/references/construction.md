@@ -13,6 +13,13 @@
 >
 > AutoDeck's canvas is set by the theme/master builder (§6.8), not by a pptxgenjs
 > `LAYOUT_*` constant. Keep this copy in sync with the upstream skill as either evolves.
+>
+> **Correction applied to this copy, owed upstream (Phase 3a, task 3a.6a).** The shape
+> vocabulary table gave the triangle's python-pptx member as `ISOCELES_TRIANGLE`. The real
+> member is `ISOSCELES_TRIANGLE` — verified against `pptx.enum.shapes.MSO_SHAPE`, where
+> `ISOCELES_TRIANGLE` does not exist. Since PHASE-3A declares this column authoritative, a
+> renderer copying the cell verbatim got an `AttributeError`. Fixed here; the upstream skill
+> still carries the typo.
 
 Medium-agnostic math plus a shape vocabulary mapping. Work in the target canvas's units; for PowerPoint via pptxgenjs remember the default `LAYOUT_16x9` canvas is 10" × 5.625" (set the layout before adding anything), and for wide decks `LAYOUT_WIDE` is 13.3" × 7.5". Reserve the top band for the slide's talking header; geometry lives in the content region below it.
 
@@ -33,7 +40,7 @@ Use start = 90° so the first item is at 12 o'clock. For a point-up equilateral 
 | Concept | pptxgenjs preset | python-pptx MSO_SHAPE | SVG |
 |---|---|---|---|
 | Node / element | `ellipse`, `roundRect` | OVAL, ROUNDED_RECTANGLE | circle, rect rx |
-| Triangle | `triangle` | ISOCELES_TRIANGLE | path (3 pts) |
+| Triangle | `triangle` | ISOSCELES_TRIANGLE | path (3 pts) |
 | Flow arrow | `line` with `endArrowType` | connector + arrowhead | path + marker-end |
 | Curved arrow | `arc` with arrow | ARC + arrowhead line format | path (A command) + marker |
 | Chevron step | `chevron` | CHEVRON | path |

@@ -10,6 +10,12 @@
       "narrative_role": "big_number",
       "component": "big_number",
       "communication_mode": "text_led",
+      "style": {
+        "type_scale": "standard",
+        "accent": "accent1",
+        "column_balance": "even",
+        "emphasis_block_id": null
+      },
       "blocks": [
         {
           "id": "s1-b1",
@@ -126,13 +132,24 @@
           "diagram": null,
           "icon": null
         }
-      ]
+      ],
+      "intent": "Establish that serving cost is bounded by memory, not compute.",
+      "message_ids": [
+        "km1"
+      ],
+      "pin_deviation": null
     },
     {
       "id": "s2",
       "narrative_role": "evidence",
       "component": "two_column_compare",
       "communication_mode": "icon_anchored",
+      "style": {
+        "type_scale": "standard",
+        "accent": "accent1",
+        "column_balance": "even",
+        "emphasis_block_id": null
+      },
       "blocks": [
         {
           "id": "s2-b1",
@@ -237,7 +254,12 @@
           "icon": null
         }
       ],
-      "speaker_notes": []
+      "speaker_notes": [],
+      "intent": "Show the throughput gain quantisation actually delivers.",
+      "message_ids": [
+        "km2"
+      ],
+      "pin_deviation": null
     }
   ],
   "theme_ref": "themes/acme-health@1",
