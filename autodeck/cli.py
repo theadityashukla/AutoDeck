@@ -1695,6 +1695,14 @@ def render(
     that changes no fact, so the claims approval stays current; a pass that changed a claim
     would void it (and `apply_action` refuses to). There is deliberately no option that
     skips a stage. Approves nothing: GATE 3 is `autodeck gate3`, then `autodeck approve`.
+
+    Always starts from the IR version the `validate` stage recorded (DECISIONS B38) - the
+    facts the claims approval covers - never from the latest version, which after a first
+    render is that render's own art-directed and critiqued output. Starting from the latest
+    would art-direct an already art-directed deck, so each run would differ from the last and
+    a `final_render` approval would be voided by drift nobody asked for. This way a render is
+    a function of the validated content and the model replies: with the response cache an
+    identical re-run produces the same deck, and the approval survives it.
     """
     import shutil
 
@@ -1717,11 +1725,22 @@ def render(
         _echo_error(str(blocked))
         raise typer.Exit(code=3) from None
 
+    validated = orchestrator.state.stages.get("validate")
+    if validated is None or validated.ir_version is None:
+        _echo_error(
+            f"run {run_id!r} does not record which IR version `validate` wrote (a run from "
+            f"before approvals were bound to artifacts), so there is nothing to start the "
+            f"render from. Run `autodeck validate {run_id}` first."
+        )
+        raise typer.Exit(code=3)
     try:
-        deck = orchestrator.ir.load()
+        deck = orchestrator.ir.load(validated.ir_version)
         brief_doc = orchestrator.ir.load_brief()
-    except IRStoreError as exc:
-        _echo_error(str(exc))
+    except (IRStoreError, ValueError) as exc:
+        _echo_error(
+            f"{exc} The IR version `validate` recorded (v{validated.ir_version}) cannot be "
+            f"read. Run `autodeck validate {run_id}` again."
+        )
         raise typer.Exit(code=1) from None
 
     paths = orchestrator.paths
