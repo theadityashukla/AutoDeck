@@ -19,7 +19,7 @@
 | **Approved by / when** | — |
 | **What the owner actually checked** | Nothing yet. The owner's GATE 2 run and GATE 3's five PowerPoint checks are both outstanding; `docs/OWNER-GUIDE.md` walks through both. |
 
-Suite at tip: **1363 passed, 54 deselected** (live + render); **44 render tests passed**
+Suite at tip: **1368 passed, 54 deselected** (live + render); **44 render tests passed**
 with `-m render`. Requires the B34 environment (`scripts/setup-dev-env.sh`).
 
 ## 2. What shipped
@@ -164,7 +164,7 @@ uv sync
 uv run ruff check . && uv run ruff format --check . && uv run pyright
 # expected: All checks passed! / 150 files already formatted / 0 errors
 uv run pytest -q
-# expected: 1363 passed, 54 deselected (plus any added after this handover)
+# expected: 1368 passed, 54 deselected (plus any added after this handover)
 uv run pytest -q -m render
 # expected: 44 passed
 uv run autodeck components preview

@@ -25,9 +25,9 @@ returned HTTP 429, "requires usage credits". The suite on the phase branch stood
 839 passed, 0 skipped, 10 live-marked and deselected at the time — the 13 font-dependent
 skips are gone because fonts are installed, and CI now installs the OFL dev fonts too,
 since `3cac30e` on the 3a branch. The suite at tip, including Phase 3a, was
-**1098 passed, 0 skipped, 10 live-marked and deselected**; with Phase 3b it is **1343 passed
-by default, plus 41 `render`-marked tests (they need LibreOffice and the fonts; all pass
-locally) — 51 deselected by default, 10 of them live**. See `docs/handovers/PHASE-2B.md`
+**1098 passed, 0 skipped, 10 live-marked and deselected**; with Phase 3b it is **1368 passed
+by default, plus 44 `render`-marked tests (they need LibreOffice and the fonts; all pass
+locally) — 54 deselected by default, 10 of them live**. See `docs/handovers/PHASE-2B.md`
 §6.9–§6.13 for what the review found and how it was closed.
 
 **The corrected coverage: A2 and A3 stay `tested`, corrected in place; A5 is downgraded from
@@ -202,9 +202,9 @@ See the tracker in `docs/INVARIANTS.md`.
 
 ## What exists today
 
-Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1343 tests pass by default** (plus 41
+Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1368 tests pass by default** (plus 44
 `render`-marked tests, which need LibreOffice and the fonts and also pass; 10 live-marked
-tests stay deselected). Ruff and pyright were clean at the Phase 3a tip; not re-run for this
+tests stay deselected). Ruff and pyright are clean at the Phase 3b tip; previously not re-run for this
 update.
 
 - **Deck IR** (`autodeck/ir/`) — models, three-dialect JSON-Schema export, versioned store
