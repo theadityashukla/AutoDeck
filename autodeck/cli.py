@@ -2043,12 +2043,20 @@ def gate3(
             fg=typer.colors.GREEN if passed else typer.colors.RED,
         )
         typer.echo(f"         {detail}")
-    typer.secho(
-        f"\nApprove with `autodeck approve {run_id} final_render` after doing the five "
-        "PowerPoint checks above; the approval records the deck digest shown "
-        f"({assessment.deck_digest[:16]}...). A clean run above is not the gate.",
-        fg=typer.colors.YELLOW,
-    )
+    if assessment.passes:
+        typer.secho(
+            f"\nApprove with `autodeck approve {run_id} final_render` after doing the five "
+            "PowerPoint checks above; the approval records the deck digest shown "
+            f"({assessment.deck_digest[:16]}...). A clean run above is not the gate.",
+            fg=typer.colors.YELLOW,
+        )
+    else:
+        typer.secho(
+            f"\nNot approvable: `autodeck approve {run_id} final_render` will refuse this deck "
+            "while a criterion above fails. Fix what it names, run `autodeck render "
+            f"{run_id}` again, then `autodeck gate3 {run_id}`.",
+            fg=typer.colors.YELLOW,
+        )
 
     if not assessment.passes:
         raise typer.Exit(code=4)

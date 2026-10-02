@@ -728,7 +728,8 @@ def test_gate3_exits_4_and_says_so_when_the_rendered_deck_fails_a_criterion(
     assert result.exit_code == 4, result.output
     assert "[FAIL] Post-render audit passes" in result.output
     assert (runs_root / "r1" / "final_audit_report.md").exists()
-    assert "Approve with `autodeck approve r1 final_render`" in result.output
+    assert "Not approvable: `autodeck approve r1 final_render` will refuse" in result.output
+    assert "Approve with" not in result.output
 
 
 def _tamper_claim(pptx: Path) -> None:
