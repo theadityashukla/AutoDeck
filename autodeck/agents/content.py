@@ -715,6 +715,22 @@ def _diagram_slots(component: str) -> list[str]:
     return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is DiagramSpec]
 
 
+def _chart_slots(component: str) -> list[str]:
+    """The slots of `component`'s content type that take a `ChartSpec`.
+
+    Like `_diagram_slots`, a chart's size depends on data dimensions and cannot be predicted
+    from a text budget, so the catalog declares no chart slot. This function reads the
+    component's content dataclass to find which slots require a chart.
+    Empty for a component the catalog does not know.
+    """
+    try:
+        content_type = registration(component).content_type
+    except UnknownComponentError:
+        return []
+    hints = get_type_hints(content_type)
+    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is ChartSpec]
+
+
 def _check_budgets(
     blocks: list[Block], *, component: str, tokens: DesignTokens
 ) -> tuple[list[Block], list[str], list[str], bool]:
@@ -724,10 +740,10 @@ def _check_budgets(
     `DiagramSpec` enforces when the block is built, so an over-long label has already
     dropped its block (as an IR-validation rejection) by the time this runs.
 
-    A component that takes a diagram (`_diagram_slots`) but received none is reported in
-    `incomplete_slots`, in the catalog's own missing-slot form: the catalog's text table
-    cannot see an absent diagram, and the render stage would otherwise be the first to
-    notice.
+    A component that takes a diagram (`_diagram_slots`) or a chart (`_chart_slots`) but
+    received none is reported in `incomplete_slots`, in the catalog's own missing-slot form:
+    the catalog's text table cannot see an absent diagram or chart, and the render stage
+    would otherwise be the first to notice.
 
     `check_overflow` reports overflow and missing-required-slot findings in one list; they
     are split here (`is_missing_slot_finding`) because they mean different things to a
@@ -758,6 +774,12 @@ def _check_budgets(
         missing_slot_finding(component, slot)
         for slot in _diagram_slots(component)
         if slot not in filled_diagrams
+    )
+    filled_charts = {b.slot for b in blocks if b.chart is not None}
+    incomplete_slots.extend(
+        missing_slot_finding(component, slot)
+        for slot in _chart_slots(component)
+        if slot not in filled_charts
     )
     if not overflow_findings:
         return blocks, [], incomplete_slots, True
@@ -971,6 +993,11 @@ def _slide_budgets(component: str, tokens: DesignTokens) -> str:
             f"- {slot}: ONE block of kind 'diagram' (a process flow of 2 to 6 steps). Every "
             f"step label and every transition is at most {flow.max_label_words} words; a "
             "longer one drops the whole diagram. The diagram's own title is not drawn."
+        )
+    for slot in _chart_slots(component):
+        lines.append(
+            f"- {slot}: ONE block of kind 'chart'. The chart's categories, series names, and "
+            "axis labels are measured at render and are not pre-budgeted here."
         )
     return "\n".join(lines)
 
