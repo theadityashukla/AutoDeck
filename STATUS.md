@@ -202,7 +202,7 @@ See the tracker in `docs/INVARIANTS.md`.
 
 ## What exists today
 
-Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1327 tests pass by default** (plus 41
+Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1343 tests pass by default** (plus 41
 `render`-marked tests, which need LibreOffice and the fonts and also pass; 10 live-marked
 tests stay deselected). Ruff and pyright were clean at the Phase 3a tip; not re-run for this
 update.
