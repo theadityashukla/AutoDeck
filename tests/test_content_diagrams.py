@@ -10,6 +10,8 @@ import pytest
 from autodeck.agents.content import (
     ContentDraft,
     ProposedBlock,
+    ProposedChart,
+    ProposedChartSeries,
     ProposedCitation,
     ProposedClaim,
     ProposedDiagram,
@@ -90,6 +92,21 @@ def diagram_block(*steps: ProposedStep, block_id: str = "d1", title: str = "") -
 def headline_block() -> ProposedBlock:
     return ProposedBlock(
         id="h1", kind="framing", slot="headline", text="Serve better before you buy more."
+    )
+
+
+def chart_block(block_id: str = "c1", title: str = "Memory Usage") -> ProposedBlock:
+    return ProposedBlock(
+        id=block_id,
+        kind="chart",
+        slot="chart",
+        chart=ProposedChart(
+            chart_type="bar",
+            title=title,
+            categories=["FP16", "INT8"],
+            series=[ProposedChartSeries(name="Memory (GB)", values=[26.0, 13.0])],
+            source_citations=[ProposedCitation(doc_id="paper-1", quote=QUOTE)],
+        ),
     )
 
 
@@ -268,6 +285,37 @@ def test_a_component_that_takes_a_diagram_reports_it_missing_when_none_survives(
     assert [b.kind for b in result.blocks] == ["framing"]
     assert len(result.rejections) == 1
     assert result.incomplete_slots == ["timeline.diagram: required slot is missing or empty"]
+
+
+# ---------------------------------------------------------------------------
+# Chart slots — same principle as diagram slots
+# ---------------------------------------------------------------------------
+
+
+def test_write_slide_fills_a_chart_focus_slot(tmp_path: Path) -> None:
+    """A scripted ContentModel returning a chart block for `chart_focus`'s chart slot →
+    `write_slide` returns it, budgets checked, no incomplete_slots for `chart`."""
+    result, model = run(
+        tmp_path, draft_with(headline_block(), chart_block()), component="chart_focus"
+    )
+
+    assert not result.rejections
+    assert result.budgets_checked
+    assert result.incomplete_slots == []
+    assert sorted(b.kind for b in result.blocks) == ["chart", "framing"]
+    # The writer is told a chart is required for this slot.
+    assert "chart: ONE block of kind 'chart'" in model.prompts[0]
+
+
+def test_a_component_that_takes_a_chart_reports_it_missing_when_none_survives(
+    tmp_path: Path,
+) -> None:
+    """The catalog's text table cannot see an absent chart; the writer-side check does, so
+    the gap surfaces as `incomplete_slots` (as any required slot does), not at render."""
+    result, _ = run(tmp_path, draft_with(headline_block()), component="chart_focus")
+
+    assert [b.kind for b in result.blocks] == ["framing"]
+    assert result.incomplete_slots == ["chart_focus.chart: required slot is missing or empty"]
 
 
 def flow_deck(*, labels: list[str], title: str = "", transition: str | None = None) -> Deck:

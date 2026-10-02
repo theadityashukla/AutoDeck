@@ -699,20 +699,32 @@ def _block_text(block: Block) -> str:
     return block.text or ""
 
 
-def _diagram_slots(component: str) -> list[str]:
-    """The slots of `component`'s content type that take a `DiagramSpec` (B37).
+def _payload_slots(component: str, payload_type: type) -> list[str]:
+    """The slots of `component`'s content type that take a given payload type.
 
-    The catalog's text table declares no diagram slot — a diagram's boxes depend on node
-    count — so what the component needs is read off its content dataclass, the same
-    classification the render stage's `adapt_slide` fills from. Empty for a component the
-    catalog does not know.
+    Diagrams and charts cannot be predicted from a text budget (diagrams' boxes depend on
+    node count, charts' size depends on data dimensions), so the catalog declares no slot
+    for either. This function reads the component's content dataclass to find which slots
+    require a particular payload type (DiagramSpec, ChartSpec, etc.). The catalog's text
+    table will never know about these slots, so gaps must be detected here rather than at
+    render. Empty for a component the catalog does not know.
     """
     try:
         content_type = registration(component).content_type
     except UnknownComponentError:
         return []
     hints = get_type_hints(content_type)
-    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is DiagramSpec]
+    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is payload_type]
+
+
+def _diagram_slots(component: str) -> list[str]:
+    """The slots of `component` that take a `DiagramSpec` (B37). See `_payload_slots`."""
+    return _payload_slots(component, DiagramSpec)
+
+
+def _chart_slots(component: str) -> list[str]:
+    """The slots of `component` that take a `ChartSpec`. See `_payload_slots`."""
+    return _payload_slots(component, ChartSpec)
 
 
 def _check_budgets(
@@ -724,10 +736,10 @@ def _check_budgets(
     `DiagramSpec` enforces when the block is built, so an over-long label has already
     dropped its block (as an IR-validation rejection) by the time this runs.
 
-    A component that takes a diagram (`_diagram_slots`) but received none is reported in
-    `incomplete_slots`, in the catalog's own missing-slot form: the catalog's text table
-    cannot see an absent diagram, and the render stage would otherwise be the first to
-    notice.
+    A component that takes a diagram (`_diagram_slots`) or a chart (`_chart_slots`) but
+    received none is reported in `incomplete_slots`, in the catalog's own missing-slot form:
+    the catalog's text table cannot see an absent diagram or chart, and the render stage
+    would otherwise be the first to notice.
 
     `check_overflow` reports overflow and missing-required-slot findings in one list; they
     are split here (`is_missing_slot_finding`) because they mean different things to a
@@ -758,6 +770,12 @@ def _check_budgets(
         missing_slot_finding(component, slot)
         for slot in _diagram_slots(component)
         if slot not in filled_diagrams
+    )
+    filled_charts = {b.slot for b in blocks if b.chart is not None}
+    incomplete_slots.extend(
+        missing_slot_finding(component, slot)
+        for slot in _chart_slots(component)
+        if slot not in filled_charts
     )
     if not overflow_findings:
         return blocks, [], incomplete_slots, True
@@ -971,6 +989,11 @@ def _slide_budgets(component: str, tokens: DesignTokens) -> str:
             f"- {slot}: ONE block of kind 'diagram' (a process flow of 2 to 6 steps). Every "
             f"step label and every transition is at most {flow.max_label_words} words; a "
             "longer one drops the whole diagram. The diagram's own title is not drawn."
+        )
+    for slot in _chart_slots(component):
+        lines.append(
+            f"- {slot}: ONE block of kind 'chart'. The chart's categories, series names, and "
+            "axis labels are measured at render and are not pre-budgeted here."
         )
     return "\n".join(lines)
 
