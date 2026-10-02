@@ -1007,3 +1007,23 @@ the owner with options.
   - `prompts/content.md` gains a diagram section (own commit).
   - Any existing diagram fixture whose labels A5 now flags will fail render-safety — by
     design.
+
+### B38 — `render` starts from the validated IR, so a render is reproducible
+- **Date:** 2026-10-02
+- **Phase / branch:** Phase 3b / `v2/phase-3b-render-qa`
+- **Status:** active
+- **Context:** verifying the owner guide showed that re-running `autodeck render` with
+  identical model replies produced a different deck, voiding a `final_render` approval.
+  Cause: `render` loaded the *latest* IR — the previous render's art-directed and critiqued
+  output — so each run art-directed an already art-directed deck and changes compounded.
+- **Decision:** `render` always starts from the IR version the `validate` stage recorded
+  (the facts the claims approval covers, in the presentation content left them). Art
+  direction and the critique then write new IR versions on top as today.
+- **Rationale:** a render becomes a function of approved content plus model replies; with
+  the response cache, re-running reproduces the same deck (A6), and an approval survives an
+  identical re-run instead of being voided by drift nobody asked for.
+- **Consequences:**
+  - A manual presentation edit made to a post-render IR version is not carried into the
+    next render (there is no supported way to make one today).
+  - `gate3` also records which criteria failed, so `approve ... final_render` can name them
+    when it refuses.
