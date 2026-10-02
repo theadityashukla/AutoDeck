@@ -8,6 +8,7 @@ That pairing is the design; if it stops being true, fix `TEMPLATE.md`.
 
 | Phase | Branch | Handover | Gate | Status |
 |---|---|---|---|---|
+| UI 1 — Review UI, first slice | `v2/integration` | [UI-1.md](UI-1.md) | none (must not alter any gate) | **first slice shipped — setup and planning only** |
 | 5 — Evals & hardening | `v2/phase-5-evals-hardening` | — | — | not started |
 | 4 — Consulting workflow | `v2/phase-4-workflow` | — | GATE 4 | not started |
 | 3b — Renderer & QA | `v2/phase-3b-render-qa` | — | GATE 3 | not started |
