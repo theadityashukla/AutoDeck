@@ -7,6 +7,29 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [Unreleased] — Review UI (B40)
+
+The `autodeck ui` command launches a local web front end in a native window (or browser
+fallback) for planning and setup workflows. Phases 2a–3b merged to `v2/integration`
+(B39) to support this. See `docs/OWNER-GUIDE.md` section 2.
+
+### Added
+- `autodeck/ui/` — local HTTP server binding to 127.0.0.1, JSON API, static
+  HTML/CSS/JS. `pywebview` (optional extra `ui`) opens it in OS web view (WebView2 on
+  Windows, WKWebView on macOS), with default-browser fallback.
+- Home screen: recent runs and a "Ready to build" checklist (API keys, fonts, LibreOffice,
+  papers ingested, with fix commands).
+- Planning screen: chat with planner, live draft brief, sign-off with name entry (approval
+  1 of 4).
+- New client screen: writes `client.md` and `value_prop.md`, lints the positioning text
+  for A5 as you type, refuses text naming another client (A4).
+- Runs screen: each run's state and the exact CLI command for next steps.
+- Settings screen: choose dev/sit/prod, show each role's model.
+- `autodeck ui --env dev|sit|prod --port N --browser --knowledge-root … --corpus-root …
+  --runs-root …`
+
+---
+
 ## [Unreleased] — Phase 3a: design system
 
 All of Phase 3a's shipped work. **PHASE-3A has no owner gate of its own** — the owner

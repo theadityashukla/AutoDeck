@@ -39,6 +39,9 @@ percent", "four times"); A3's `chart` blocks never receive a verdict.
 
 ## Next action
 
+**A review UI now exists** (`uv run autodeck ui`, see `docs/OWNER-GUIDE.md` section 2).
+It covers planning and setup; later stages still use the terminal.
+
 **Judge GATE 2, then GATE 3, on a real deck.** Phase 2b is code complete — all eleven tasks —
 and Phase 3b (renderer, QA, art direction and the GATE 3 surface) is now implemented on
 `v2/phase-3b-render-qa`, but **no live milestone run exists** and nobody has yet reviewed

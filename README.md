@@ -34,6 +34,7 @@ See `STATUS.md`.
 | `docs/phases/` | Eight phase briefs — the executable task lists |
 | `docs/handovers/` | One document per completed phase |
 | `docs/reference/slide-geometry/` | Vendored skill seeding the diagram engine |
+| `autodeck/ui/` | Review UI (B40): local web front end in a native window |
 | `legacy/v1/` | **Frozen** v1, with `LEGACY.md` salvage map |
 
 ---

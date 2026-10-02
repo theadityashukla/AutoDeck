@@ -272,6 +272,28 @@ STOPPED: role 'planner' (gemini, model gemini-3.7-flash) was refused: the provid
   Then run `autodeck plan badkey --client northwind-retail --project llm-inference-efficiency` again.
 ```
 
+### Using the review UI instead of the terminal
+
+Everything in this guide works from the command line. If you prefer a graphical interface,
+the review UI (`autodeck ui`) offers an alternative for planning and setup:
+
+```bash
+uv sync --extra ui
+uv run autodeck ui
+```
+
+The `--extra ui` installs the optional pywebview dependency needed for the native window;
+without it, or if the window fails to open, the UI opens in your default browser at a
+printed local address. Command-line options: `--env dev|sit|prod` (default dev), `--port N`
+(default 0 = a free port), `--browser` (skip the native window), plus the usual
+`--knowledge-root`, `--corpus-root`, `--runs-root`.
+
+The UI covers planning (chat with the planner and sign the brief), setup (the Home
+screen's readiness checklist), adding a client (New client writes `client.md` and
+`value_prop.md`), and the Runs view showing each run's state. It does not yet cover
+outline, content, validate, render and the remaining three approvals — those still need
+the terminal commands shown in this guide.
+
 ---
 
 ## 3. Step 1 — the planning conversation, and how to sign

@@ -632,6 +632,7 @@ def test_none_of_the_new_commands_can_record_an_approval() -> None:
         "run",
         "ir_versions",
         "ir_diff",
+        "ui",
     ):
         func = getattr(cli, name)
         parameters = set(inspect.signature(func).parameters)
