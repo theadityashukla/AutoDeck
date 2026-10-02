@@ -1035,3 +1035,24 @@ the owner with options.
   - The provider response cache keys vision calls on the images' bytes, not their count, so
     a cached critique is replayed only for the render it was given. LibreOffice renders were
     verified byte-stable for the same deck, so reproducibility is kept.
+
+### B39 — Phases 2a–3b merge to `v2/integration` before their gates, so the owner can build a UI
+- **Date:** 2026-10-02
+- **Phase / branch:** Phases 2a–3b / `v2/phase-3b-render-qa` → `v2/integration`
+- **Status:** active — owner's instruction
+- **Context:** B27 stacked Phases 2b–3b and held them off `v2/integration` until the owner
+  had worked the gates. The owner wants to build a UI on top of the pipeline and test the
+  gates through it, which needs the code on the integration branch first.
+- **Decision:** merge `v2/phase-3b-render-qa` (Phases 2a through 3b) into `v2/integration`
+  now, by the owner's explicit instruction, superseding B27's hold for this merge.
+- **What this is not:** a gate approval. GATE 2 (claims) and GATE 3 (final render) are still
+  pending; approvals are recorded only by a person through `approve` / `/sign` (A7), and a
+  UI that triggers them is that person acting, not the merge. Nothing in this merge records
+  or implies an approval.
+- **Consequences:**
+  - `v2/integration` carries code whose GATE 2 and GATE 3 reviews have not happened; issues
+    found in UI testing are fixed on `v2/integration` (or branches off it), not on the old
+    phase branches.
+  - The UI must call the CLI/orchestrator's existing gate paths and must not add a new way
+    to approve — the gate-bypass tests (`test_no_command_can_bypass_a_gate`,
+    `test_none_of_the_new_commands_can_record_an_approval`) should be extended to cover it.
