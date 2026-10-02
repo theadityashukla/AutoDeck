@@ -699,36 +699,32 @@ def _block_text(block: Block) -> str:
     return block.text or ""
 
 
-def _diagram_slots(component: str) -> list[str]:
-    """The slots of `component`'s content type that take a `DiagramSpec` (B37).
+def _payload_slots(component: str, payload_type: type) -> list[str]:
+    """The slots of `component`'s content type that take a given payload type.
 
-    The catalog's text table declares no diagram slot — a diagram's boxes depend on node
-    count — so what the component needs is read off its content dataclass, the same
-    classification the render stage's `adapt_slide` fills from. Empty for a component the
-    catalog does not know.
+    Diagrams and charts cannot be predicted from a text budget (diagrams' boxes depend on
+    node count, charts' size depends on data dimensions), so the catalog declares no slot
+    for either. This function reads the component's content dataclass to find which slots
+    require a particular payload type (DiagramSpec, ChartSpec, etc.). The catalog's text
+    table will never know about these slots, so gaps must be detected here rather than at
+    render. Empty for a component the catalog does not know.
     """
     try:
         content_type = registration(component).content_type
     except UnknownComponentError:
         return []
     hints = get_type_hints(content_type)
-    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is DiagramSpec]
+    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is payload_type]
+
+
+def _diagram_slots(component: str) -> list[str]:
+    """The slots of `component` that take a `DiagramSpec` (B37). See `_payload_slots`."""
+    return _payload_slots(component, DiagramSpec)
 
 
 def _chart_slots(component: str) -> list[str]:
-    """The slots of `component`'s content type that take a `ChartSpec`.
-
-    Like `_diagram_slots`, a chart's size depends on data dimensions and cannot be predicted
-    from a text budget, so the catalog declares no chart slot. This function reads the
-    component's content dataclass to find which slots require a chart.
-    Empty for a component the catalog does not know.
-    """
-    try:
-        content_type = registration(component).content_type
-    except UnknownComponentError:
-        return []
-    hints = get_type_hints(content_type)
-    return [f.name for f in dataclasses.fields(content_type) if hints[f.name] is ChartSpec]
+    """The slots of `component` that take a `ChartSpec`. See `_payload_slots`."""
+    return _payload_slots(component, ChartSpec)
 
 
 def _check_budgets(
