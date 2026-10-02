@@ -96,11 +96,16 @@ Owning phase: 3a (task 3a.5).
 
 from __future__ import annotations
 
+import io
+import re
+import zipfile
 from collections.abc import Sequence
+from typing import cast
 
 from pptx.chart.chart import Chart
 from pptx.chart.data import CategoryChartData, XyChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from pptx.parts.chart import ChartPart
 from pptx.shapes.graphfrm import GraphicFrame
 from pptx.text.text import Font
 from pptx.util import Pt
@@ -199,6 +204,7 @@ def place_chart(frame: Frame, box: Box, spec: ChartSpec) -> GraphicFrame:
         height,
         chart_data,  # type: ignore[arg-type]
     )
+    _pin_workbook_timestamps(graphic_frame.chart)
     _style_chart(graphic_frame.chart, canvas, spec)
 
     frame.caption(caption_area, source_line(spec.source_citations))
@@ -208,6 +214,39 @@ def place_chart(frame: Frame, box: Box, spec: ChartSpec) -> GraphicFrame:
 # ---------------------------------------------------------------------------
 # Chart data — the editable half
 # ---------------------------------------------------------------------------
+
+_WORKBOOK_EPOCH = "1980-01-01T00:00:00Z"
+"""The date every embedded workbook says it was made: the one its zip entries already carry."""
+
+_WORKBOOK_DATES = re.compile(rb"(<dcterms:(?:created|modified)[^>]*>)[^<]*(</dcterms:)")
+
+
+def _pin_workbook_timestamps(chart: Chart) -> None:
+    """Make the embedded workbook's own `created`/`modified` dates a constant.
+
+    XlsxWriter stamps the workbook's `docProps/core.xml` with the time it was written, so two
+    renders of one deck seconds apart differ in that part and nowhere else - and
+    `canonical_pptx_digest` hashes the embedded workbook as an opaque part. A deck with a
+    chart therefore never had a stable digest, and a `final_render` approval could not survive
+    re-rendering identical content (DECISIONS B38 needs it to). The dates describe when the
+    file was written, not what the chart says.
+    """
+    # python-pptx types `Chart.part` as the generic `XmlPart`; it is the `ChartPart`.
+    workbook = cast(ChartPart, chart.part).chart_workbook
+    xlsx_part = workbook.xlsx_part
+    if xlsx_part is None:
+        return
+    source = io.BytesIO(xlsx_part.blob)
+    pinned = io.BytesIO()
+    with zipfile.ZipFile(source) as before, zipfile.ZipFile(pinned, "w") as after:
+        for item in before.infolist():
+            data = before.read(item.filename)
+            if item.filename == "docProps/core.xml":
+                data = _WORKBOOK_DATES.sub(
+                    lambda m: m.group(1) + _WORKBOOK_EPOCH.encode("ascii") + m.group(2), data
+                )
+            after.writestr(item, data, compress_type=item.compress_type)
+    workbook.update_from_xlsx_blob(pinned.getvalue())
 
 
 def _chart_data(spec: ChartSpec) -> CategoryChartData | XyChartData:
