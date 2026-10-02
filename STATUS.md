@@ -204,8 +204,7 @@ See the tracker in `docs/INVARIANTS.md`.
 
 Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1368 tests pass by default** (plus 44
 `render`-marked tests, which need LibreOffice and the fonts and also pass; 10 live-marked
-tests stay deselected). Ruff and pyright are clean at the Phase 3b tip; previously not re-run for this
-update.
+tests stay deselected). Ruff and pyright are clean at the Phase 3b tip.
 
 - **Deck IR** (`autodeck/ir/`) — models, three-dialect JSON-Schema export, versioned store
   with an id-keyed diff.
