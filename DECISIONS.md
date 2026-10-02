@@ -981,3 +981,29 @@ the owner with options.
   - The plan's "section dividers" item is partially delivered; dividers remain a human edit
     or a future, separately designed, fact-safe mechanism.
   - The `outline` role's daily quota now also covers one art-direction call per deck.
+
+### B37 — The content writer authors process-flow diagrams; A5 reaches diagram labels
+- **Date:** 2026-10-01
+- **Phase / branch:** Phase 3b / `v2/phase-3b-diagram-content`
+- **Status:** active
+- **Context:** verifying the owner guide against the real CLI showed that no deck built by
+  the pipeline can pass GATE 3: criterion 4 needs a native diagram, the outline can assign
+  `framework_diagram` and `timeline`, but the content writer's schema (2b.4) never included
+  diagrams — "left for the phase that actually assigns those components", which no phase
+  then did. Looking for who would lint the new labels found a second gap: nothing called
+  `DiagramSpec.framing_texts()`, so A5 never read a diagram's uncited text.
+- **Decision:** the writer may propose `kind: "diagram"` blocks, **process_flow only** in
+  this round, through a flat, fully-required schema (B26). Each step declares `status`
+  (`claim` with citations, or `framing` with a `LabelReason`); claims resolve through the
+  same `_resolve_claim` as claim blocks; any failing step drops the whole diagram.
+  `lint_framing` now runs over every diagram's `framing_texts()`, and a finding there
+  demotes the diagram block and blocks render like any other A5 demotion.
+- **Rationale:** process_flow is the geometry `timeline` requires and the plan's own
+  example; one geometry proven live is worth more than three schemas guessed at. Dropping
+  the whole diagram on any failed step follows the same logic as an incomplete
+  `slot_map`: a sequence missing a step is a different fact.
+- **Consequences:**
+  - `two_by_two` and `layered_stack` are still not writer-authorable; Phase 4 or a follow-up.
+  - `prompts/content.md` gains a diagram section (own commit).
+  - Any existing diagram fixture whose labels A5 now flags will fail render-safety — by
+    design.

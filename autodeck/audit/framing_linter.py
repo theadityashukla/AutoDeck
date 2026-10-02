@@ -357,6 +357,11 @@ class Demotion:
     text: str
     reasons: tuple[FramingFinding, ...]
     kind: Literal["claim"] = "claim"
+    sites: tuple[str, ...] = ()
+    """For a diagram block (B37): the text sites A5 read that failed, as
+    `DiagramSpec.framing_texts()` names them (`title`, `node n2`, `step n1 transition`).
+    Empty for a block whose one text is `block.text`."""
+
     from_kind: BlockKind = "framing"
     """What the block was before A5 read its text. Usually `framing` — the exemption being
     fenced — but the fence reads every block's free text, and "framing demoted to claim" is
@@ -415,11 +420,15 @@ class Demotion:
 
     def summary(self) -> str:
         fragments = ", ".join(sorted({r.fragment for r in self.reasons if r.fragment}))
-        what = (
-            "framing demoted to claim"
-            if self.from_kind == "framing"
-            else f"free text on a {self.from_kind} block is an uncited claim"
-        )
+        if self.from_kind == "framing":
+            what = "framing demoted to claim"
+        elif self.from_kind == "diagram":
+            what = (
+                "diagram text declared as framing is an uncited claim "
+                f"({', '.join(self.sites)})"
+            )
+        else:
+            what = f"free text on a {self.from_kind} block is an uncited claim"
         return (
             f"slide {self.slide_id} block {self.block_id}: {what} "
             f"({fragments or 'see findings'})"
@@ -527,6 +536,42 @@ def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
     )
 
 
+def lint_diagram(block: Block, *, slide_id: str = "") -> Demotion | None:
+    """Check one diagram block's uncited text (B37). Returns the demotion it earned, or None.
+
+    A diagram's framed labels, title and transition labels reach the slide with no citation
+    behind them (`DiagramSpec.framing_texts()` — "the A5 surface of a diagram"), so each is
+    held to the fence a framing block is. `LabelFraming` is a declaration that a label
+    asserts nothing about the world; this is what tests it, so "40% cheaper than Oracle"
+    declared `category_name` is caught here and not on the slide. Claimed node labels are not
+    read: a claim has a citation, and the numeric linter already covers it.
+
+    One demotion per block, however many sites fail — the block is what is demoted — with
+    every failing site named in `sites` and in each finding's `location`.
+    """
+    if block.diagram is None:
+        return None
+    where = f"slide {slide_id} block {block.id}" if slide_id else f"block {block.id}"
+    reasons: list[FramingFinding] = []
+    failed: list[tuple[str, str]] = []
+    for site in block.diagram.framing_texts():
+        found = lint_framing_text(site.text, location=f"{where} {site.location}")
+        if found:
+            reasons.extend(found)
+            failed.append((site.location, site.text))
+    if not reasons:
+        return None
+    return Demotion(
+        slide_id=slide_id,
+        block_id=block.id,
+        slot=block.slot,
+        text="; ".join(f"{location}: {text}" for location, text in failed),
+        reasons=tuple(reasons),
+        sites=tuple(location for location, _ in failed),
+        from_kind="diagram",
+    )
+
+
 def lint_framing(deck: Deck) -> FramingReport:
     """Run A5 over every framing block in a deck, faces and speaker notes alike.
 
@@ -534,10 +579,22 @@ def lint_framing(deck: Deck) -> FramingReport:
     reason a framing block on the face is, and it is fenced for the same reason — "nobody
     reads notes in the room" cuts both ways, and an unsourced superlative is worse in the
     place the presenter is reading from.
+
+    A block with a `diagram` is read through `lint_diagram`: every site of
+    `block.diagram.framing_texts()` (title, framed node labels, transition labels) goes
+    through `lint_framing_text`, and a finding there demotes the diagram block exactly as it
+    does a framing block — it counts in `demotions`, `blocking` and `blocks_build`, with a
+    location naming the slide, block and text site. `text_blocks_checked` counts each
+    diagram once.
     """
     report = FramingReport()
     for slide in deck.slides:
         for block in slide.all_blocks():
+            if block.diagram is not None:
+                report.text_blocks_checked += 1
+                diagram_demotion = lint_diagram(block, slide_id=slide.id)
+                if diagram_demotion is not None:
+                    report.demotions.append(diagram_demotion)
             if block.kind == "framing":
                 report.framing_blocks_checked += 1
             if not (block.text and block.text.strip()):

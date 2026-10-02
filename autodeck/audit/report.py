@@ -805,8 +805,15 @@ def _demotion_lines(demotion: Demotion) -> list[str]:
     still typed `framing` in the IR — the demoted object is one the IR cannot hold — so a
     reviewer reading the slide sees a sentence that looks exempt from A1 and is not.
     """
+    if demotion.from_kind == "diagram":
+        heading = (
+            f"**`{demotion.block_id}` — diagram text declared as framing is an uncited "
+            f"claim (A5; {', '.join(demotion.sites)})**"
+        )
+    else:
+        heading = f"**`{demotion.block_id}` — framing demoted to `claim` (A5)**"
     lines = [
-        f"**`{demotion.block_id}` — framing demoted to `claim` (A5)**",
+        heading,
         "",
         f"> {demotion.text}",
         "",
@@ -816,8 +823,13 @@ def _demotion_lines(demotion: Demotion) -> list[str]:
         [
             "",
             "This block is now a claim with no citation, which A1 forbids and A3 marks "
-            f"`{demotion.verdict}`. It bars final render until the sentence is cited or "
-            "rewritten as a statement about the engagement rather than about the world.",
+            f"`{demotion.verdict}`. It bars final render until the "
+            + (
+                "label is made a claim with its citation or reworded"
+                if demotion.from_kind == "diagram"
+                else "sentence is cited or rewritten"
+            )
+            + " as a statement about the engagement rather than about the world.",
             "",
         ]
     )
@@ -979,8 +991,9 @@ def _lint_lines(report: AuditReport) -> list[str]:
         else:
             lines.extend(
                 [
-                    f"{len(report.framing.demotions)} framing block(s) were demoted to "
-                    "`claim`; each is shown on its slide above.",
+                    f"{len(report.framing.demotions)} block(s) were demoted to `claim` "
+                    "(framing blocks, and diagrams whose framed text failed the fence); each "
+                    "is shown on its slide above.",
                     "",
                 ]
             )

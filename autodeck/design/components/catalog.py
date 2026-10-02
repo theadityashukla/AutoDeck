@@ -1637,6 +1637,17 @@ def is_missing_slot_finding(finding: str) -> bool:
     return finding.endswith(f": {_MISSING_SLOT_SUFFIX}")
 
 
+def missing_slot_finding(component: str, slot: str) -> str:
+    """The finding `check_overflow` reports for a required slot with nothing in it.
+
+    Public so a caller that knows of a slot the catalog's text table does not declare (a
+    diagram's, whose boxes depend on node count — see `_framework_diagram_slots`) files its
+    absence in exactly the form `is_missing_slot_finding` recognises, rather than re-deriving
+    the suffix.
+    """
+    return f"{component}.{slot}: {_MISSING_SLOT_SUFFIX}"
+
+
 def check_overflow(
     blocks: Mapping[str, BlockValue], component: str, tokens: DesignTokens
 ) -> list[str]:
@@ -1681,7 +1692,7 @@ def check_overflow(
         text = value if isinstance(value, str) else None
         if not text:
             if slot.required:
-                findings.append(f"{component}.{slot.name}: {_MISSING_SLOT_SUFFIX}")
+                findings.append(missing_slot_finding(component, slot.name))
             continue
         budget = _budget(slot, tokens)
         if not budget.fits(text):
@@ -1708,7 +1719,7 @@ def _check_repeatable(
     items = _items_of(value)
     if not items:
         if slot.required:
-            return [f"{component}.{slot.name}: {_MISSING_SLOT_SUFFIX}"]
+            return [missing_slot_finding(component, slot.name)]
         return []
 
     item_budget = _item_budget(slot, tokens)
