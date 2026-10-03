@@ -78,6 +78,7 @@ from autodeck.audit.numeric_linter import (
     evaluate_formula,
 )
 from autodeck.audit.verdicts import VerdictReport
+from autodeck.ingest.deck_source import DOC_ID_PREFIX
 from autodeck.ir.models import Citation, Claim, Deck, DeckBrief, OpenRisk, Slide, Verdict
 
 #: Worst first. A reader skimming one summary line should meet what stops the build before
@@ -734,7 +735,7 @@ def _citation_lines(citation: Citation) -> list[str]:
     lines = [f"> {line}" for line in citation.quote.strip().splitlines()]
     lines.append("")
     lines.append(
-        f"— `{citation.doc_id}` p.{citation.page} · retrieved by "
+        f"— {_source_label(citation)} · retrieved by "
         f"{citation.retrieved_by} · sha256 `{citation.quote_sha256[:16]}…`"
     )
     lines.append("")
@@ -1034,8 +1035,21 @@ def _capped_lines(verdicts: VerdictReport) -> list[str]:
 # -- small helpers ----------------------------------------------------------
 
 
-def _ref(citation: Citation) -> str:
+def _source_label(citation: Citation) -> str:
+    """Where a citation points, in words a reader can place (3d.3, B41).
+
+    A citation into the client's own deck proves the redesigned wording is faithful to that
+    deck, not that the statement is true, so it must not read like a research citation. It is
+    labelled "client-supplied deck, slide N"; the deck's `doc_id` stays in the line so it can
+    still be matched against the run's source store.
+    """
+    if citation.doc_id.startswith(DOC_ID_PREFIX):
+        return f"client-supplied deck, slide {citation.page} (`{citation.doc_id}`)"
     return f"`{citation.doc_id}` p.{citation.page}"
+
+
+def _ref(citation: Citation) -> str:
+    return _source_label(citation)
 
 
 def _cell(text: str) -> str:

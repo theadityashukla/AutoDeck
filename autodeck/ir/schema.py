@@ -45,12 +45,18 @@ _GEMINI_UNSUPPORTED: frozenset[str] = frozenset(
         "discriminator",
         "exclusiveMaximum",
         "exclusiveMinimum",
+        "maxItems",
         "oneOf",
         "patternProperties",
         "prefixItems",
         "uniqueItems",
     }
 )
+
+# `maxItems` is dropped because Gemini compiles the schema into a constraint automaton and
+# rejects it with "too many states for serving" when a capped array is nested (the draft-first
+# compose schema: slides -> blocks -> diagram steps, capped at 6). The cap is still enforced:
+# every response is re-validated by the pydantic model.
 
 #: Keys whose values are maps of *name -> schema*, so their keys are data, not keywords.
 _SCHEMA_MAPS: frozenset[str] = frozenset({"properties", "$defs", "patternProperties"})

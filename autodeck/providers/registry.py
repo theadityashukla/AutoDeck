@@ -23,15 +23,19 @@ from autodeck.providers.cache import ResponseCache
 from autodeck.providers.claude import ClaudeProvider
 from autodeck.providers.gemini import GeminiProvider
 from autodeck.providers.groq import GroqProvider
+from autodeck.providers.mistral import MistralProvider
 
 DEFAULT_CONFIG_PATH = Path("config/models.yaml")
 
-#: The six agent roles of plan §6.2. A config missing one of these is rejected at load
-#: rather than at the moment that role is first invoked, halfway through a build.
+#: The six agent roles of plan §6.2, plus `composer` (B45: one call writes brief, outline
+#: and slides on a draft-first run; it also asks the clarifying questions and makes scoped
+#: revisions). A config missing one of these is rejected at load rather than at the moment
+#: that role is first invoked, halfway through a build.
 ROLES: tuple[str, ...] = (
     "planner",
     "outline",
     "content",
+    "composer",
     "validation",
     "aesthetic",
     "ingest_vlm",
@@ -41,10 +45,11 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     "gemini": GeminiProvider,
     "groq": GroqProvider,
     "claude": ClaudeProvider,
+    "mistral": MistralProvider,
 }
 
 #: Roles whose invariants are model-sensitive (B8). A `dev` pass on these is a smoke test.
-MODEL_SENSITIVE_ROLES: frozenset[str] = frozenset({"validation", "content"})
+MODEL_SENSITIVE_ROLES: frozenset[str] = frozenset({"validation", "content", "composer"})
 
 #: Roles that send images. `aesthetic` critiques true renders (§6.9); `ingest_vlm`
 #: describes figures (§6.3). Binding a text-only provider to either is a config error.
@@ -169,6 +174,7 @@ def _api_key_env(provider: str) -> str:
         "gemini": "GEMINI_API_KEY",
         "groq": "GROQ_API_KEY",
         "claude": "ANTHROPIC_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
     }[provider]
 
 

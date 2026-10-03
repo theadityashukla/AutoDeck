@@ -40,6 +40,7 @@ environments:
     planner:    {provider: gemini, model: m-pro}
     outline:    {provider: gemini, model: m-pro}
     content:    {provider: groq,   model: m-fast}
+    composer:   {provider: gemini, model: m-long}
     validation: {provider: gemini, model: m-pro}
     aesthetic:  {provider: gemini, model: m-vision}
     ingest_vlm: {provider: gemini, model: m-flash}
@@ -47,6 +48,7 @@ environments:
     planner:    {provider: claude, model: c-strong}
     outline:    {provider: claude, model: c-strong}
     content:    {provider: claude, model: c-mid}
+    composer:   {provider: claude, model: c-mid}
     validation: {provider: claude, model: c-strong}
     aesthetic:  {provider: claude, model: c-strong}
     ingest_vlm: {provider: gemini, model: m-flash}

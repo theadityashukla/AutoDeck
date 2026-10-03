@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 from autodeck.ir.models import BBox
 
@@ -105,6 +106,54 @@ def find_span(haystack: str, needle: str) -> tuple[int, int] | None:
     end_index = position + len(target) - 1
     end = offsets[end_index] + 1 if end_index < len(offsets) else len(haystack)
     return start, end
+
+
+#: Snapping (B52): the share of the model's quote that must be found, in order, in one
+#: passage; how much longer than the quote that passage may run; the shortest quote worth
+#: snapping (a short quote is too ambiguous to place); and the shortest run of agreeing
+#: characters that counts, so scattered common letters cannot add up to a match.
+SNAP_MIN_COVERAGE = 0.85
+SNAP_MAX_STRETCH = 1.5
+SNAP_MIN_QUOTE_CHARS = 20
+_SNAP_MIN_RUN = 4
+
+
+def snap_span(haystack: str, needle: str) -> tuple[tuple[int, int], float] | None:
+    """Locate the passage of `haystack` that `needle` is a slightly-off copy of (B52).
+
+    For when `find_span` fails because a model copied a quote imperfectly: a period added
+    where it cut a sentence short, reference markers like "[50, 51]" left out, a stray
+    extraction space ("( p = 0.76)") tidied away. Whether the passage *supports* the
+    sentence is not decided here — that is the validator's job (A3). This only decides
+    whether the model was pointing at this passage, and returns the passage's **verbatim**
+    offsets, so the citation built from it carries the document's words, never the model's.
+
+    Returns `((start, end), coverage)`, or None when no single passage accounts for at
+    least `SNAP_MIN_COVERAGE` of the quote within `SNAP_MAX_STRETCH` of its length.
+    """
+    target = normalise_for_match(needle)
+    if len(target) < SNAP_MIN_QUOTE_CHARS:
+        return None
+    normalised, offsets = _normalise_with_offsets(haystack)
+    if not normalised:
+        return None
+
+    matcher = SequenceMatcher(None, normalised, target, autojunk=False)
+    runs = [b for b in matcher.get_matching_blocks() if b.size >= _SNAP_MIN_RUN]
+    if not runs:
+        return None
+    coverage = sum(run.size for run in runs) / len(target)
+    start_n, end_n = runs[0].a, runs[-1].a + runs[-1].size
+    if coverage < SNAP_MIN_COVERAGE or end_n - start_n > SNAP_MAX_STRETCH * len(target):
+        return None
+
+    start, end = offsets[start_n], offsets[end_n - 1] + 1
+    # Never cut a word in half: widen to the enclosing word boundaries.
+    while start > 0 and haystack[start - 1].isalnum():
+        start -= 1
+    while end < len(haystack) and haystack[end].isalnum():
+        end += 1
+    return (start, end), coverage
 
 
 #: A hyphen ending a line, seen from that hyphen's position: whitespace including a

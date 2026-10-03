@@ -157,6 +157,21 @@ their workloads, but the claim states it as a single expected multiple and drops
 their benchmark suite'"* is worth more to the next revision than `partially_supported`
 alone, and far more than a confident `supported`.
 
+## When the source is the client's own deck
+
+On a redesign (B41) the evidence is the client's existing deck: its document ids begin
+`client-deck--` and its "pages" are slides. The question changes shape but not strictness:
+**does the new wording say exactly what the original slide said?** `supported` means the
+redesigned sentence states nothing the original slide does not — same figures, same
+conditions, same strength. A reworded claim that drops a condition the slide carried, turns
+"in our pilot" into a general statement, rounds a number, or adds a comparison the slide does
+not make is `partially_supported` or worse, exactly as a paper-backed claim would be. Where
+two slides of the client's deck disagree with each other, that is `contradicted`, and your
+note names both slides — the client should hear about it before their audience does.
+
+A redesign citation proves faithfulness to the client's deck, not truth. Say so in your note
+when it matters; it is not a reason to relax the verdict.
+
 ## What you must not do
 
 - **Do not accept a figure description or any VLM-generated text as evidence.** Those are

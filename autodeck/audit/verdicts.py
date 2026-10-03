@@ -58,7 +58,7 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from autodeck.ingest.provenance import find_span
+from autodeck.ingest.provenance import find_span, snap_span
 from autodeck.ir.models import Citation, Claim, ClaimSite, Deck, Verdict
 
 JudgedVerdict = Literal["supported", "partially_supported", "unsupported", "contradicted"]
@@ -195,9 +195,11 @@ class ValidatorEvidence:
     def find(self, quote: str) -> Citation | None:
         """The evidence span containing `quote`, or None if the model invented it.
 
-        Matching uses `provenance.find_span`, the same tolerant-but-not-approximate matcher
-        the citation resolver uses, so a ligature or a curly quote does not cause a false
-        rejection while a paraphrase still does.
+        Matching uses `provenance.find_span`, the same tolerant matcher the citation
+        resolver uses, so a ligature or a curly quote does not cause a false rejection.
+        Failing that, `provenance.snap_span` (B52) accepts a near-verbatim copy of one span
+        — a period added, reference markers left out — and the span with the best match
+        wins. A paraphrase or a sentence the evidence does not contain still finds nothing.
 
         The span returned is the whole retrieved element, not a slice of it. The claim is
         that this evidence carries the quoted sentence, and the element's own citation is
@@ -206,9 +208,17 @@ class ValidatorEvidence:
         """
         if not quote.strip():
             return None
-        return next(
+        exact = next(
             (span for span in self.spans if find_span(span.quote, quote) is not None), None
         )
+        if exact is not None:
+            return exact
+        best: tuple[float, Citation] | None = None
+        for span in self.spans:
+            found = snap_span(span.quote, quote)
+            if found is not None and (best is None or found[1] > best[0]):
+                best = (found[1], span)
+        return best[1] if best is not None else None
 
     def echoes_of(self, writer_citations: Sequence[Citation]) -> tuple[Citation, ...]:
         """Evidence spans identical to one of the writer's citations.

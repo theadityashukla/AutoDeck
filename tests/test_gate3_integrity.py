@@ -228,10 +228,9 @@ def test_final_render_approval_succeeds_when_claims_are_current_and_gate3_passed
     assert state["final_assessment"]["passes"] is True
     orchestrator = Orchestrator("r1", runs_root=runs_root)
     assert orchestrator.approval_state(Gate.FINAL_RENDER) == (ApprovalState.CURRENT, "approved")
-    assert orchestrator.pending_gates() == [
-        Gate.BRIEF,
-        Gate.OUTLINE,
-    ]
+    # The final approval now needs the brief and outline current too (A7 as amended by
+    # B43), so the fixture approves them and nothing is left pending.
+    assert orchestrator.pending_gates() == []
 
 
 def test_other_gates_keep_their_approval_behaviour(tmp_path: Path) -> None:

@@ -54,6 +54,8 @@ from autodeck.pipeline.orchestrator import (
     Gate,
     GateBlocked,
     Orchestrator,
+    StageRecord,
+    StageStatus,
 )
 from autodeck.providers.base import ProviderError, RateLimitError
 from autodeck.render.qa.aesthetic import catalog_slot_lookup, library_concept_lookup
@@ -156,7 +158,12 @@ def _fixture_deck() -> Deck:
 
 def make_gate3_run(tmp_path: Path, *, approve: bool = True) -> tuple[Path, Path]:
     """A run whose claims stage is validated (and, by default, approved): `(runs_root,
-    knowledge_root)`. The validated deck is the fixture above, as `validate` would save it."""
+    knowledge_root)`. The validated deck is the fixture above, as `validate` would save it.
+
+    The brief and outline are always approved: the final render needs all three earlier
+    approvals current (A7 as amended by B43), and these tests are about what comes after
+    them. The outline stage is recorded against the same IR version, standing in for the
+    skeleton a real `outline` run would have written."""
     runs_root = tmp_path / "runs"
     knowledge_root = build_knowledge(tmp_path)
     orchestrator = Orchestrator("r1", runs_root=runs_root, env="dev")
@@ -180,6 +187,12 @@ def make_gate3_run(tmp_path: Path, *, approve: bool = True) -> tuple[Path, Path]
     orchestrator.run_stage(
         "validate", lambda: f"wrote {orchestrator.save_ir(deck)}", force=True
     )
+    orchestrator.state.stages["outline"] = StageRecord(
+        name="outline", status=StageStatus.COMPLETED, ir_version=deck.version, detail="fixture"
+    )
+    orchestrator.save_state()
+    orchestrator.approve(Gate.BRIEF)
+    orchestrator.approve(Gate.OUTLINE)
     if approve:
         orchestrator.approve(Gate.CLAIMS)
     return runs_root, knowledge_root

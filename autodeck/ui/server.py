@@ -6,26 +6,35 @@ must carry a localhost `Host` header (DNS rebinding), and every POST must be
 `application/json` (a cross-site form or `text/plain` fetch cannot send that without a
 CORS preflight, which this server never grants).
 
-The one approval reachable from here is signing the brief, and it goes through
-`PlannerSession.sign_off`, exactly as `/sign` does in `autodeck plan` (A7, B39).
+Two routes, and only two, reach an approval (A7, B39, B42): signing the brief goes
+through `PlannerSession.sign_off`, exactly as `/sign` does in `autodeck plan`, and
+`POST /api/runs/<id>/approve` goes through `approvals.approve_gate`, which calls the method
+`autodeck approve` calls. Both record the name from Settings > Profile. Pipeline steps run
+as the CLI commands themselves (`jobs.py`), and a job never approves anything.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
+import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
-from autodeck.ui import api
+from autodeck.ui import api, jobs, profile, review, workspace
 from autodeck.ui.api import Roots, UIError
+from autodeck.ui.approvals import approve_gate
 
 if TYPE_CHECKING:
-    from autodeck.agents.planner import PlannerSession
+    from autodeck.agents.planner import Draft, PlannerSession
     from autodeck.providers.guard import ProviderGuard
 
 STATIC_FILES = {
@@ -34,6 +43,10 @@ STATIC_FILES = {
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
 MAX_BODY = 1_000_000
+MAX_UPLOAD = 50 * 1024 * 1024
+"""A client's deck, as a raw request body (B41). Larger is refused before it is read."""
+PPTX_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+UPLOAD_HEADER = "X-AutoDeck-Upload"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 
@@ -46,19 +59,120 @@ class LiveSession:
     client: str
     project: str
     lock: threading.Lock = field(default_factory=threading.Lock)
+    #: When the reply in progress started (`time.monotonic()`), or None. Lets a screen that
+    #: was left and reopened mid-reply show that the planner is still working.
+    busy_since: float | None = None
+    #: The last turn's failure, shown once the person comes back to the screen.
+    last_error: str = ""
+
+
+CLARIFY_TIMEOUT = 600
+"""Seconds the person may wait for the one short clarify call before it is given up on."""
+
+
+def run_cli(argv: list[str]) -> tuple[int, str]:
+    """Run one CLI command to completion and return (exit code, its output).
+
+    Used for the one step that is not a job: `clarify` is a single short call the person
+    waits for, so it is run in the request, through the same command the terminal runs.
+    """
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "NO_COLOR": "1"}
+    try:
+        done = subprocess.run(
+            argv,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=CLARIFY_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, f"{type(exc).__name__}: {exc}"
+    return done.returncode, done.stdout
 
 
 class App:
     """State shared by every request: the roots and the open planning sessions."""
 
-    def __init__(self, roots: Roots) -> None:
+    def __init__(
+        self,
+        roots: Roots,
+        job_manager: jobs.JobManager | None = None,
+        cli_runner: Any = run_cli,
+    ) -> None:
         self.roots = roots
         self.sessions: dict[str, LiveSession] = {}
         self._sessions_lock = threading.Lock()
+        self.cli_runner = cli_runner
+        self.jobs = job_manager or jobs.JobManager(
+            lambda step, run_id, extra=None: jobs.cli_command(
+                step, run_id, roots=roots, extra=extra
+            )
+        )
+
+    # -- runs and jobs ------------------------------------------------------
+
+    def summary(self, run_id: str) -> dict[str, Any]:
+        job = self.jobs.get(run_id)
+        running = job.step if job is not None and job.status == "running" else ""
+        out = api.run_summary(self.roots, run_id, running_step=running)
+        out["job"] = job.to_dict() if job is not None else None
+        return out
+
+    def runs(self) -> list[dict[str, Any]]:
+        out = []
+        for run in api.list_runs(self.roots):
+            job = self.jobs.get(run["id"])
+            run["job"] = job.to_dict() if job is not None else None
+            out.append(run)
+        return out
+
+    def start_job(self, run_id: str, chain: str) -> dict[str, Any]:
+        api._open(self.roots, run_id)  # 404 for an unknown run, before anything starts
+        # A person starts a draft or a revision through its own route, which checks what
+        # that step needs; the generic route is for the gate-first steps.
+        if chain in ("draft", "revise"):
+            raise UIError(f"Start {chain!r} from its own screen.")
+        return self.jobs.start(run_id, chain).to_dict()
+
+    def approve_run(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        run_id = api.check_run_id(run_id)
+        if self.jobs.running(run_id):
+            raise UIError(
+                "A step is still running for this run. Approve once it has finished, so the "
+                "approval covers what you saw.",
+                status=409,
+            )
+        gate = str(body.get("gate", ""))
+        risks = body.get("accepted_risks") or {}
+        if not isinstance(risks, dict):
+            raise UIError("accepted_risks must map key message ids to a description.")
+        result = approve_gate(
+            self.roots,
+            run_id,
+            gate,
+            approver=profile.approver_name(self.roots.profile),
+            accepted_risks={str(k): str(v) for k, v in risks.items()},
+        )
+        # A gate-first run continues the pipeline after an approval. A draft-first run is
+        # already built, so an approval starts nothing; its final deck is built by its own
+        # action ("Build the final deck") once the brief, outline and claims are approved.
+        draft_first = api._open(self.roots, run_id).is_draft_first
+        follow = None if draft_first else {"outline": "content", "claims": "render"}.get(gate)
+        result["job"] = self.jobs.start(run_id, follow).to_dict() if follow else None
+        return result
 
     # -- planning -----------------------------------------------------------
 
-    def start_plan(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _checked_new_run(self, body: dict[str, Any]) -> tuple[str, str, str]:
+        """The run id, client and project of a request that starts or resumes a run.
+
+        Shared by planning and drafting: the client and project must exist, and a run that
+        was not started from this window is never taken over.
+        """
         run_id = api.check_run_id(str(body.get("run_id", "")))
         client = str(body.get("client", "")).strip()
         project = str(body.get("project", "")).strip()
@@ -79,11 +193,153 @@ class App:
                 "the terminal, or pick another name.",
                 status=409,
             )
+        return run_id, client, project
+
+    def start_plan(self, body: dict[str, Any]) -> dict[str, Any]:
+        run_id, client, project = self._checked_new_run(body)
         # Written first, so a session that fails to open (a missing key) leaves a run the
         # UI still recognises as its own and can resume once the cause is fixed.
         api.write_run_meta(self.roots, run_id, client=client, project=project)
         self._open_session(run_id, client, project)
         return {"run_id": run_id}
+
+    # -- drafting (B43, B47, B48) -------------------------------------------
+
+    def start_draft(self, body: dict[str, Any]) -> dict[str, Any]:
+        """One prompt in; the clarify checkpoint out (assumptions and any questions).
+
+        Runs `autodeck clarify` while the person waits (it is one short call), so the
+        terminal command and this route are the same code. Nothing is drafted yet.
+        """
+        run_id, client, project = self._checked_new_run(body)
+        prompt = str(body.get("prompt", "")).strip()
+        if not prompt:
+            raise UIError("Say what the deck is for first.")
+        if self.jobs.running(run_id):
+            raise UIError("A step is already running for this run.", status=409)
+        if api.is_draft_mode(api._open_or_none(self.roots, run_id)):
+            raise UIError(
+                "This run already has a draft. Revise it, or start a new run.", status=409
+            )
+        api.write_run_meta(self.roots, run_id, client=client, project=project)
+        argv = jobs.cli_command(
+            "clarify",
+            run_id,
+            roots=self.roots,
+            extra={"client": client, "project": project, "prompt": prompt},
+        )
+        code, output = self.cli_runner(argv)
+        if code != 0:
+            raise UIError(_cli_failure("clarify", code, output))
+        return api.clarify_view(self.roots, run_id)
+
+    def submit_answers(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Record the person's answers and start writing the draft.
+
+        The draft starts only once every question has an answer (accepting the suggestions
+        counts); nothing is approved by answering.
+        """
+        from autodeck.pipeline.clarify_state import (
+            ClarifyStateError,
+            load_clarify,
+            record_answers,
+            save_clarify,
+        )
+
+        run_id = api.check_run_id(run_id)
+        orch = api._open(self.roots, run_id)
+        if self.jobs.running(run_id):
+            raise UIError("A step is already running for this run.", status=409)
+        answers = body.get("answers") or {}
+        corrections = body.get("corrections") or []
+        if not isinstance(answers, dict) or not isinstance(corrections, list):
+            raise UIError("answers must be an object and corrections a list.")
+        try:
+            data = load_clarify(orch.paths.root)
+            record_answers(
+                data,
+                answers={str(k): str(v) for k, v in answers.items()},
+                corrections=[str(c) for c in corrections],
+                accept_all=bool(body.get("accept_all")),
+            )
+        except ClarifyStateError as exc:
+            raise UIError(str(exc)) from None
+        save_clarify(orch.paths.root, data)
+        return {"job": self.jobs.start(run_id, "draft").to_dict(), "answers": data["answers"]}
+
+    def draft_from_chat(self, run_id: str) -> dict[str, Any]:
+        """ "Draft the deck" at the end of a planning chat: compose keeps its brief verbatim."""
+        run_id = api.check_run_id(run_id)
+        orch = api._open(self.roots, run_id)
+        if not orch.paths.draft_brief.exists():
+            raise UIError("The conversation has not produced a draft brief yet.", status=409)
+        job = self.jobs.start(run_id, "draft", {"from_chat": True})
+        return {"job": job.to_dict()}
+
+    def start_revise(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        run_id = api.check_run_id(run_id)
+        instruction = str(body.get("instruction", "")).strip()
+        if not instruction:
+            raise UIError("Say what to change first.")
+        if not api._open(self.roots, run_id).is_draft_first:
+            raise UIError("There is no draft to revise yet.", status=409)
+        job = self.jobs.start(run_id, "revise", {"instruction": instruction})
+        return {"job": job.to_dict()}
+
+    def start_redesign(self, params: dict[str, str], data: bytes) -> dict[str, Any]:
+        """A client's deck in; the clarify checkpoint out (B41, Phase 3d).
+
+        Saves the upload under `runs/<run>/upload/` and runs `autodeck redesign` on it through
+        the same runner `start_draft` uses, so the terminal command and this route are the
+        same code. Nothing is drafted or approved here.
+        """
+        run_id, client, project = self._checked_new_run(
+            {k: params.get(k, "") for k in ("run_id", "client", "project")}
+        )
+        wording = params.get("wording", "keep") or "keep"
+        if wording not in ("keep", "light"):
+            raise UIError("wording must be 'keep' or 'light'.")
+        if not data[:2] == b"PK":
+            raise UIError("That file is not a .pptx (it is not a zip package).", status=415)
+        if self.jobs.running(run_id):
+            raise UIError("A step is already running for this run.", status=409)
+        if api.is_draft_mode(api._open_or_none(self.roots, run_id)):
+            raise UIError(
+                "This run already has a draft. Revise it, or start a new run.", status=409
+            )
+        name = _upload_name(params.get("name", ""))
+        folder = self.roots.runs / run_id / "upload"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / name
+        target.write_bytes(data)
+        api.write_run_meta(self.roots, run_id, client=client, project=project)
+        argv = jobs.cli_command(
+            "redesign",
+            run_id,
+            roots=self.roots,
+            extra={
+                "client": client,
+                "project": project,
+                "deck": str(target),
+                "wording": wording,
+                "layouts": _flag(params.get("layouts"), default=True),
+                "check_papers": _flag(params.get("check_papers"), default=False),
+            },
+        )
+        code, output = self.cli_runner(argv)
+        if code != 0:
+            raise UIError(_cli_failure("redesign", code, output))
+        return api.clarify_view(self.roots, run_id)
+
+    def chat(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """One conversation per run (B48): the planner first, revisions once a draft exists."""
+        run_id = api.check_run_id(run_id)
+        text = str(body.get("text", "")).strip()
+        if not text:
+            raise UIError("Say something first.")
+        if api._open(self.roots, run_id).is_draft_first:
+            return {"mode": "revise", **self.start_revise(run_id, {"instruction": text})}
+        return {"mode": "plan", **self.plan_say(run_id, body)}
 
     def _open_session(self, run_id: str, client: str, project: str) -> LiveSession:
         from autodeck.pipeline.planning import PlanningSetupError, prepare_planning
@@ -137,7 +393,14 @@ class App:
             "project": live.project,
             "signed": session.signed,
             "draft": render_draft(session.draft),
+            "brief": _brief_fields(session.draft),
+            "blockers": [] if session.signed else _sign_blockers(session.draft, run_id),
             "transcript": [{"role": t.role, "text": t.text} for t in session.transcript.turns],
+            "thinking": live.busy_since is not None,
+            "thinking_for": (
+                round(time.monotonic() - live.busy_since) if live.busy_since is not None else 0
+            ),
+            "error": live.last_error,
         }
 
     def plan_say(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -147,31 +410,122 @@ class App:
         if not text:
             raise UIError("Say something first.")
         if text.startswith("/"):
-            raise UIError("Use the Sign button to sign; there are no slash commands here.")
+            raise UIError(
+                "There are no slash commands here: the draft brief is always shown, and "
+                "Approve & proceed approves it."
+            )
         live = self._live(run_id)
+        if live.busy_since is not None:
+            raise UIError("The planner is still answering your last message.", status=409)
         with live.lock:
+            live.busy_since = time.monotonic()
+            live.last_error = ""
             try:
                 live.session.turn(text)
             except PlannerError as exc:
+                live.last_error = str(exc)
                 raise UIError(str(exc)) from None
             except Exception as exc:
                 live.session.save_draft()
-                raise UIError(_provider_message(live.guard, exc)) from exc
+                live.last_error = _provider_message(live.guard, exc)
+                raise UIError(live.last_error) from exc
+            finally:
+                live.busy_since = None
         return self.plan_state(run_id)
 
     def plan_sign(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
         from autodeck.agents.planner import PlannerError
 
-        approver = str(body.get("name", "")).strip()
-        if not approver:
-            raise UIError("Type your name to sign.")
+        approver = profile.approver_name(self.roots.profile)
         live = self._live(run_id)
         with live.lock:
             try:
                 brief = live.session.sign_off(approver=approver)
             except PlannerError as exc:
                 raise UIError(str(exc)) from None
-        return {"version": brief.version, "approved_by": brief.approved_by}
+        job = self.jobs.start(api.check_run_id(run_id), "outline").to_dict()
+        return {"version": brief.version, "approved_by": brief.approved_by, "job": job}
+
+
+def _brief_fields(draft: Draft) -> dict[str, Any]:
+    """The draft brief as fields, for the planning screen (the CLI shows `render_draft`)."""
+    return {
+        "objective": draft.objective,
+        "audience": draft.audience,
+        "length_target": draft.length_target,
+        "header_style": draft.header_style,
+        "key_messages": [
+            {
+                "id": m.id,
+                "text": m.text,
+                "evidence": m.evidence_status,
+                "notes": m.probe_notes or "",
+                "leads": list(m.supporting_claims),
+            }
+            for m in draft.key_messages
+        ],
+        "must_include": list(draft.must_include),
+        "must_avoid": list(draft.must_avoid),
+        "layout_pins": [
+            {"message_id": p.message_id, "target": p.target, "value": p.value}
+            for p in draft.layout_pins
+        ],
+        "open_risks": [
+            {
+                "message_id": r.message_id,
+                "description": r.description,
+                "accepted_by": r.accepted_by,
+            }
+            for r in draft.open_risks
+        ],
+    }
+
+
+def _sign_blockers(draft: Draft, run_id: str) -> list[str]:
+    """Why the brief cannot be approved yet, in words; empty when it can.
+
+    Informational only: `sign_off` makes the same checks and is what actually refuses.
+    """
+    blockers = []
+    if not draft.objective.strip():
+        blockers.append("No objective yet: say what decision the deck is for.")
+    if not draft.audience.strip():
+        blockers.append("No audience yet: say who will be in the room.")
+    if not draft.key_messages:
+        blockers.append("No key messages yet.")
+    for message in draft.unaccounted_gaps():
+        blockers.append(
+            f"{message.id} is {message.evidence_status}: reword it, drop it, or accept the "
+            "risk in the chat."
+        )
+    if not blockers:
+        try:
+            draft.to_brief(run_id)
+        except Exception as exc:
+            blockers.append(f"The brief is not complete yet: {str(exc).splitlines()[0]}")
+    return blockers
+
+
+def _flag(value: str | None, *, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _upload_name(raw: str) -> str:
+    """A safe file name for an upload: no directories, a conservative alphabet, `.pptx`."""
+    stem = re.sub(r"[^A-Za-z0-9._ -]+", "_", PurePosixPath(raw.replace("\\", "/")).name)
+    stem = stem.strip(" .")
+    if stem.lower().endswith(".pptx"):
+        stem = stem[:-5].strip(" .")
+    return f"{stem or 'deck'}.pptx"
+
+
+def _cli_failure(step: str, code: int, output: str) -> str:
+    """The tail of a failed command's output, in a sentence a person can act on."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    tail = " ".join(lines[-4:]) if lines else "no output"
+    return f"`{step}` stopped with exit code {code}. {tail}"
 
 
 def _provider_message(guard: ProviderGuard, exc: Exception) -> str:
@@ -232,6 +586,30 @@ class Handler(BaseHTTPRequestHandler):
             raise UIError("Expected a JSON object.")
         return data
 
+    def _upload(self) -> dict[str, Any]:
+        """`POST /api/redesign/upload?run_id=&client=&project=&name=...`, body = the .pptx.
+
+        Refused, in this order and before the body is read: no `X-AutoDeck-Upload: 1`
+        header (403), a content type other than `.pptx` (415), no length or a length over
+        `MAX_UPLOAD` (411, 413). The two request headers are what a cross-site page cannot
+        send without a CORS preflight, which this server never grants.
+        """
+        if self.headers.get(UPLOAD_HEADER) != "1":
+            raise UIError(f"Uploads need the {UPLOAD_HEADER}: 1 header.", status=403)
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip() != PPTX_TYPE:
+            raise UIError(f"Expected {PPTX_TYPE}.", status=415)
+        try:
+            length = int(self.headers.get("Content-Length") or "")
+        except ValueError:
+            raise UIError("Content-Length is required.", status=411) from None
+        if length > MAX_UPLOAD:
+            raise UIError("That deck is over the 50 MB limit.", status=413)
+        if length <= 0:
+            raise UIError("The upload is empty.")
+        params = dict(parse_qsl(urlsplit(self.path).query))
+        data = self.rfile.read(length)
+        return self.app.start_redesign(params, data)
+
     # -- routing -----------------------------------------------------------
 
     def do_GET(self) -> None:
@@ -254,6 +632,22 @@ class Handler(BaseHTTPRequestHandler):
             if not path.startswith("/api/"):
                 raise UIError("Not found.", status=404)
             parts = [unquote(p) for p in path[len("/api/") :].split("/") if p]
+            match method, parts:
+                case "GET", ["runs", run_id, "draft-preview", number] if number.isdigit():
+                    data, content_type = api.draft_preview_file(
+                        self.app.roots, run_id, int(number)
+                    )
+                    self._send(HTTPStatus.OK, data, content_type)
+                    return
+                case "GET", ["runs", run_id, "preview", number] if number.isdigit():
+                    data, content_type = review.preview_file(
+                        self.app.roots, run_id, int(number)
+                    )
+                    self._send(HTTPStatus.OK, data, content_type)
+                    return
+            if method == "POST" and parts == ["redesign", "upload"]:
+                self._json(HTTPStatus.OK, self._upload())
+                return
             payload = self._route(method, parts)
             self._json(HTTPStatus.OK, payload)
         except UIError as exc:
@@ -270,9 +664,56 @@ class Handler(BaseHTTPRequestHandler):
             case "GET", ["home"]:
                 return api.home(roots)
             case "GET", ["runs"]:
-                return {"runs": api.list_runs(roots)}
+                return {"runs": app.runs()}
             case "GET", ["runs", run_id]:
-                return api.run_summary(roots, run_id)
+                return app.summary(run_id)
+            case "GET", ["runs", run_id, "job"]:
+                job = app.jobs.get(api.check_run_id(run_id))
+                return {"job": job.to_dict() if job is not None else None}
+            case "POST", ["runs", run_id, "run"]:
+                return {"job": app.start_job(run_id, str(self._body().get("stage", "")))}
+            case "POST", ["runs", run_id, "stop"]:
+                job = app.jobs.stop(api.check_run_id(run_id))
+                return {"job": job.to_dict() if job is not None else None}
+            case "POST", ["runs", run_id, "approve"]:
+                return app.approve_run(run_id, self._body())
+            case "POST", ["draft", "start"]:
+                return app.start_draft(self._body())
+            case "GET", ["runs", run_id, "clarify"]:
+                return api.clarify_view(roots, api.check_run_id(run_id))
+            case "POST", ["runs", run_id, "answers"]:
+                return app.submit_answers(run_id, self._body())
+            case "GET", ["runs", run_id, "draft"]:
+                return api.draft_view(roots, api.check_run_id(run_id))
+            case "POST", ["runs", run_id, "draft-from-chat"]:
+                self._body()
+                return app.draft_from_chat(run_id)
+            case "POST", ["runs", run_id, "revise"]:
+                return app.start_revise(run_id, self._body())
+            case "POST", ["runs", run_id, "chat"]:
+                return app.chat(run_id, self._body())
+            case "GET", ["runs", run_id, "outline"]:
+                return review.outline_view(roots, run_id)
+            case "GET", ["runs", run_id, "claims"]:
+                return review.claims_view(roots, run_id)
+            case "POST", ["runs", run_id, "send-back"]:
+                items = self._body().get("items")
+                if not isinstance(items, list):
+                    raise UIError("Expected a list of {claim_id, reason} items.")
+                return review.send_back(
+                    roots, run_id, items, by=profile.approver_name(roots.profile)
+                )
+            case "GET", ["runs", run_id, "final"]:
+                return review.final_view(roots, run_id)
+            case "POST", ["runs", run_id, "open-copy"]:
+                self._body()
+                return review.open_deck_copy(roots, run_id)
+            case "GET", ["knowledge"]:
+                return workspace.knowledge_view(roots)
+            case "GET", ["profile"]:
+                return profile.read_profile(roots.profile)
+            case "POST", ["profile"]:
+                return profile.save_profile(roots.profile, str(self._body().get("name", "")))
             case "GET", ["clients"]:
                 return {"clients": api.list_clients(roots)}
             case "POST", ["clients"]:

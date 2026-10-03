@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -18,9 +19,9 @@ import pytest
 
 import autodeck
 from autodeck.pipeline.orchestrator import Gate, Orchestrator
-from autodeck.ui import api
+from autodeck.ui import api, jobs, profile
 from autodeck.ui.api import Roots, UIError
-from autodeck.ui.server import make_server
+from autodeck.ui.server import App, make_server
 from tests.gate_artifacts import seed_artifact
 
 
@@ -32,6 +33,7 @@ def roots(tmp_path: Path) -> Roots:
         corpus=tmp_path / "corpus",
         runs=tmp_path / "runs",
         env="dev",
+        profile=tmp_path / "profile.json",
     )
 
 
@@ -326,30 +328,343 @@ def test_plan_start_refuses_a_run_that_was_not_started_here(
 
 
 # ---------------------------------------------------------------------------
-# A7 / B39: the UI cannot approve anything except through the plan sign route
+# Profile (B42): the name approvals carry
 # ---------------------------------------------------------------------------
 
 
-def test_the_ui_source_never_calls_approve() -> None:
-    root = Path(autodeck.__file__).parent
-    files = [*sorted((root / "ui").rglob("*.py")), root / "pipeline" / "planning.py"]
-    assert len(files) >= 4
-    for path in files:
-        assert ".approve(" not in path.read_text(encoding="utf-8"), path
+def test_profile_falls_back_to_git_then_saves(
+    roots: Roots, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(profile, "_git_name", lambda: "Git Person")
+    assert profile.read_profile(roots.profile) == {"name": "Git Person", "source": "git"}
+    assert profile.save_profile(roots.profile, "  Ada   Lovelace ")["name"] == "Ada Lovelace"
+    assert profile.read_profile(roots.profile) == {"name": "Ada Lovelace", "source": "saved"}
 
 
-def test_only_the_plan_sign_route_can_reach_an_approval() -> None:
-    root = Path(autodeck.__file__).parent / "ui"
-    server_src = (root / "server.py").read_text(encoding="utf-8")
-    # `sign_off` is called from exactly one place, `plan_sign`, ...
+def test_profile_without_any_name_refuses_to_approve(
+    roots: Roots, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(profile, "_git_name", lambda: "")
+    monkeypatch.setattr(profile, "_system_name", lambda: "")
+    with pytest.raises(UIError) as caught:
+        profile.approver_name(roots.profile)
+    assert caught.value.status == 409
+
+
+@pytest.mark.parametrize("name", ["", "   ", "x" * 81])
+def test_profile_refuses_a_bad_name(roots: Roots, name: str) -> None:
+    with pytest.raises(UIError):
+        profile.save_profile(roots.profile, name)
+    assert not roots.profile.exists()
+
+
+def test_profile_routes(server: Client) -> None:
+    status, saved = server.json("POST", "/api/profile", {"name": "Ada"})
+    assert status == 200 and saved == {"name": "Ada", "source": "saved"}
+    assert server.json("GET", "/api/profile") == (200, saved)
+
+
+# ---------------------------------------------------------------------------
+# Jobs (B42): pipeline steps run as the CLI commands, one chain per run
+# ---------------------------------------------------------------------------
+
+
+def fake_jobs(codes: dict[str, int]) -> jobs.JobManager:
+    """A JobManager whose steps print their name and exit with the given code."""
+
+    def command_for(step: str, run_id: str) -> list[str]:
+        code = codes.get(step, 0)
+        return [sys.executable, "-c", f"print('ran {step} {run_id}'); raise SystemExit({code})"]
+
+    return jobs.JobManager(command_for)
+
+
+def test_a_chain_runs_every_step_in_order() -> None:
+    manager = fake_jobs({})
+    manager.start("r1", "content")
+    job = manager.wait("r1")
+    assert job is not None and job.status == "done"
+    assert [line for line in job.log if line.startswith("ran")] == [
+        "ran content r1",
+        "ran validate r1",
+        "ran gate2 r1",
+    ]
+
+
+def test_a_report_with_findings_does_not_stop_the_chain() -> None:
+    manager = fake_jobs({"render": 4})
+    manager.start("r1", "render")
+    job = manager.wait("r1")
+    assert job is not None and job.status == "done" and "ran gate3 r1" in job.log
+
+
+def test_a_blocked_gate_stops_the_chain_and_says_so() -> None:
+    manager = fake_jobs({"content": 3})
+    manager.start("r1", "content")
+    job = manager.wait("r1")
+    assert job is not None and job.status == "failed" and job.exit_code == 3
+    assert "ran validate r1" not in job.log
+    assert "nothing was approved" in job.message
+
+
+def test_one_job_per_run_at_a_time() -> None:
+    manager = jobs.JobManager(
+        lambda step, run_id: [sys.executable, "-c", "import time; time.sleep(5)"]
+    )
+    manager.start("r1", "outline")
+    try:
+        with pytest.raises(UIError) as caught:
+            manager.start("r1", "outline")
+        assert caught.value.status == 409
+    finally:
+        manager.stop("r1")
+    job = manager.wait("r1")
+    assert job is not None and job.status == "stopped"
+
+
+def test_an_unknown_chain_is_refused() -> None:
+    with pytest.raises(UIError):
+        fake_jobs({}).start("r1", "approve")
+
+
+def test_cli_commands_carry_the_ui_roots(roots: Roots) -> None:
+    make_run(roots)
+    api.write_run_meta(roots, "r1", client="acme", project="proj")
+    argv = jobs.cli_command("outline", "r1", roots=roots)
+    assert argv[1:5] == ["-m", "autodeck.cli", "outline", "r1"]
+    assert argv[argv.index("--client") + 1] == "acme"
+    assert argv[argv.index("--runs-root") + 1] == str(roots.runs)
+    for step in ("content", "validate", "gate2", "render", "gate3"):
+        argv = jobs.cli_command(step, "r1", roots=roots)
+        assert argv[3:5] == [step, "r1"]
+        assert "--by" not in argv  # no step is an approval
+
+
+# ---------------------------------------------------------------------------
+# Approvals (B42): one route, through `Orchestrator.approve`, under the profile name
+# ---------------------------------------------------------------------------
+
+
+def test_approve_records_the_profile_name(roots: Roots) -> None:
+    orch = make_run(roots)
+    seed_artifact(orch, Gate.OUTLINE)
+    profile.save_profile(roots.profile, "Ada")
+    app = App(roots, fake_jobs({}))
+    result = app.approve_run("r1", {"gate": "outline"})
+    assert result["by"] == "Ada" and result["gate"] == "outline"
+    assert result["job"]["steps"] == ["content", "validate", "gate2"]
+    app.jobs.wait("r1")
+    reloaded = Orchestrator("r1", runs_root=roots.runs, create=False)
+    assert reloaded.state.approvals["outline"].endswith(" by Ada")
+
+
+def test_approve_without_the_artifact_is_a_409(roots: Roots) -> None:
+    make_run(roots)
+    profile.save_profile(roots.profile, "Ada")
+    with pytest.raises(UIError) as caught:
+        App(roots, fake_jobs({})).approve_run("r1", {"gate": "claims"})
+    assert caught.value.status == 409
+
+
+def test_final_render_needs_a_passing_final_audit(roots: Roots) -> None:
+    orch = make_run(roots)
+    seed_artifact(orch, Gate.FINAL_RENDER)
+    profile.save_profile(roots.profile, "Ada")
+    with pytest.raises(UIError) as caught:
+        App(roots, fake_jobs({})).approve_run("r1", {"gate": "final_render"})
+    assert caught.value.status == 409
+    assert (
+        "final_render"
+        not in Orchestrator("r1", runs_root=roots.runs, create=False).state.approvals
+    )
+
+
+@pytest.mark.parametrize("gate", ["brief", "", "BRIEF", "everything"])
+def test_the_brief_and_unknown_gates_cannot_be_approved_here(roots: Roots, gate: str) -> None:
+    orch = make_run(roots)
+    seed_artifact(orch, Gate.BRIEF)
+    profile.save_profile(roots.profile, "Ada")
+    with pytest.raises(UIError):
+        App(roots, fake_jobs({})).approve_run("r1", {"gate": gate})
+    assert Orchestrator("r1", runs_root=roots.runs, create=False).state.approvals == {}
+
+
+def test_no_approval_while_a_step_is_running(roots: Roots) -> None:
+    orch = make_run(roots)
+    seed_artifact(orch, Gate.OUTLINE)
+    profile.save_profile(roots.profile, "Ada")
+    manager = jobs.JobManager(
+        lambda step, run_id: [sys.executable, "-c", "import time; time.sleep(5)"]
+    )
+    app = App(roots, manager)
+    manager.start("r1", "outline")
+    try:
+        with pytest.raises(UIError) as caught:
+            app.approve_run("r1", {"gate": "outline"})
+        assert caught.value.status == 409
+    finally:
+        manager.stop("r1")
+        manager.wait("r1")
+    assert (
+        "outline" not in Orchestrator("r1", runs_root=roots.runs, create=False).state.approvals
+    )
+
+
+def test_the_timeline_waits_on_the_person_after_the_outline(roots: Roots) -> None:
+    orch = make_run(roots)
+    seed_artifact(orch, Gate.BRIEF)
+    orch.approve(Gate.BRIEF, approver="aditya")
+    seed_artifact(orch, Gate.OUTLINE)
+    steps = {s["key"]: s for s in api.run_summary(roots, "r1")["stage_list"]}
+    assert steps["planning"]["status"] == "done"
+    assert steps["outline"]["status"] == "done"
+    assert steps["outline_approval"]["status"] == "yours"
+    assert steps["outline_approval"]["screen"] == "outline"
+    assert steps["content"]["status"] == "locked"
+    assert steps["final_approval"]["status"] == "locked"
+
+
+# ---------------------------------------------------------------------------
+# A7 / B39 / B42: exactly two routes reach an approval, and nothing else does
+# ---------------------------------------------------------------------------
+
+UI_ROOT = Path(autodeck.__file__).parent / "ui"
+
+
+def _ui_sources() -> dict[str, str]:
+    return {p.name: p.read_text(encoding="utf-8") for p in sorted(UI_ROOT.rglob("*.py"))}
+
+
+def test_only_approvals_py_calls_approve() -> None:
+    sources = _ui_sources()
+    calls = {name: len(re.findall(r"\.approve\(", src)) for name, src in sources.items()}
+    assert calls.pop("approvals.py") == 1
+    assert calls.pop("server.py") == 0, "server.py must go through approve_gate"
+    assert all(n == 0 for n in calls.values()), calls
+    approvals_src = sources["approvals.py"]
+    body = approvals_src.split("def approve_gate", 1)[1]
+    assert ".approve(" in body
+    planning = (UI_ROOT.parent / "pipeline" / "planning.py").read_text(encoding="utf-8")
+    assert ".approve(" not in planning
+
+
+def test_approve_gate_is_reachable_only_from_the_approve_route() -> None:
+    sources = _ui_sources()
+    for name, src in sources.items():
+        if name not in ("approvals.py", "server.py"):
+            assert "approve_gate(" not in src, name
+            assert not re.search(r"import[^\n]*\bapprovals\b|ui\.approvals", src), name
+    server_src = sources["server.py"]
+    assert len(re.findall(r"approve_gate\(", server_src)) == 1
+    app_approve = server_src.split("    def approve_run(self", 1)[1].split("\n    def ", 1)[0]
+    assert "approve_gate(" in app_approve
+    assert len(re.findall(r"\.approve_run\(", server_src)) == 1
+    route = re.search(r'case "POST", \["runs", run_id, "approve"\]:\s+return (.*)', server_src)
+    assert route and "app.approve_run(" in route.group(1)
+
+
+def test_only_the_plan_sign_route_can_sign_the_brief() -> None:
+    sources = _ui_sources()
+    server_src = sources["server.py"]
     assert len(re.findall(r"\.sign_off\(", server_src)) == 1
     plan_sign = server_src.split("def plan_sign", 1)[1].split("\ndef ", 1)[0]
     assert ".sign_off(" in plan_sign
-    # ... and that method is reachable only from the sign route.
     assert len(re.findall(r"\.plan_sign\(", server_src)) == 1
     route = re.search(r'case "POST", \["plan", run_id, "sign"\]:\s+return (.*)', server_src)
     assert route and "plan_sign" in route.group(1)
-    # Nothing else in the UI package names an approval.
-    for path in sorted(root.rglob("*.py")):
-        if path.name != "server.py":
-            assert ".sign_off(" not in path.read_text(encoding="utf-8"), path
+    for name, src in sources.items():
+        if name != "server.py":
+            assert ".sign_off(" not in src, name
+
+
+def test_jobs_never_approve() -> None:
+    jobs_src = _ui_sources()["jobs.py"]
+    assert ".approve(" not in jobs_src and "approve_gate" not in jobs_src
+    assert not re.search(r"import[^\n]*\bapprovals\b|ui\.approvals", jobs_src)
+    for chain in jobs.CHAINS.values():
+        assert "approve" not in chain and "send-back" not in chain
+
+
+@pytest.mark.parametrize(
+    ("detail", "shown"),
+    [
+        (
+            "wrote /tmp/Gen AI dir/runs/r1/ir/v1.json · 1 provider call(s)",
+            "wrote v1.json · 1 provider call(s)",
+        ),
+        ("wrote runs/r1/ir/v2.json", "wrote v2.json"),
+        ("nothing written", "nothing written"),
+    ],
+)
+def test_stage_details_show_file_names_not_paths(detail: str, shown: str) -> None:
+    assert api._short_detail(detail) == shown
+
+
+# ---------------------------------------------------------------------------
+# Planning screen: the brief as fields, and why it cannot be approved yet
+# ---------------------------------------------------------------------------
+
+
+def test_an_empty_draft_lists_what_is_missing() -> None:
+    from autodeck.agents.planner import Draft
+    from autodeck.ui.server import _brief_fields, _sign_blockers
+
+    blockers = _sign_blockers(Draft(), "r1")
+    assert any("objective" in b for b in blockers)
+    assert any("audience" in b for b in blockers)
+    assert any("key messages" in b for b in blockers)
+    fields = _brief_fields(Draft())
+    assert fields["key_messages"] == [] and fields["objective"] == ""
+
+
+def test_a_thin_message_without_a_risk_blocks_and_a_complete_draft_does_not() -> None:
+    from autodeck.agents.planner import Draft
+    from autodeck.ir.models import KeyMessage, OpenRisk
+    from autodeck.ui.server import _brief_fields, _sign_blockers
+
+    draft = Draft(
+        objective="Decide whether to buy GPUs.",
+        audience="CTO",
+        key_messages=[
+            KeyMessage(id="km1", text="Memory is the bottleneck.", evidence_status="thin")
+        ],
+    )
+    assert any(b.startswith("km1 is thin") for b in _sign_blockers(draft, "r1"))
+    draft.open_risks.append(
+        OpenRisk(message_id="km1", description="One source only.", accepted_by="Ada")
+    )
+    assert _sign_blockers(draft, "r1") == []
+    [message] = _brief_fields(draft)["key_messages"]
+    assert message["evidence"] == "thin" and message["id"] == "km1"
+
+
+def _stub_live(roots: Roots) -> tuple[App, Any]:
+    from types import SimpleNamespace
+
+    from autodeck.agents.planner import Draft
+    from autodeck.ui.server import LiveSession
+
+    session = SimpleNamespace(
+        signed=False,
+        draft=Draft(),
+        transcript=SimpleNamespace(turns=[SimpleNamespace(role="human", text="Hello")]),
+    )
+    app = App(roots, fake_jobs({}))
+    live = LiveSession(session, None, "acme", "proj")  # type: ignore[arg-type]
+    app.sessions["r1"] = live
+    return app, live
+
+
+def test_a_reply_in_progress_shows_as_thinking_when_the_screen_is_reopened(
+    roots: Roots,
+) -> None:
+    import time
+
+    app, live = _stub_live(roots)
+    assert app.plan_state("r1")["thinking"] is False
+    live.busy_since = time.monotonic() - 7
+    state = app.plan_state("r1")
+    assert state["thinking"] is True and state["thinking_for"] >= 7
+    with pytest.raises(UIError) as caught:
+        app.plan_say("r1", {"text": "another message"})
+    assert caught.value.status == 409

@@ -39,14 +39,36 @@ corpus contains, the fix is a model call that proposes the contradiction query p
 before this one that judges the evidence it finds — a second call per claim, still batched,
 not a return to one call per claim per query.
 
-## The batch size is a number you should be able to see, not infer
+## Batching is by prompt size, and independence is who judges, not how many calls (B44)
 
-`BATCH_SIZE` claims go into one structured-output call. A ten-slide deck with, say, three
-claim-bearing blocks per slide (faces and notes together) is on the order of thirty claims;
-at the default batch size that is `ceil(30 / BATCH_SIZE)` calls to the `validation` role,
-comfortably inside the dev tier's 20-requests-per-day-per-model allowance (B25) without the
-deck needing one call per claim, let alone one call per claim per retry. `ValidationResult`
-carries `provider_calls` so this number is measured on a real run rather than estimated.
+Claims are packed into structured-output calls by an approximate **token budget** for the
+batch prompt (`batch_budget_tokens`, default 48,000; a token is estimated as
+`len(text) // 4` characters, which is crude and deliberately so — it only has to keep a
+prompt from growing without bound, not predict a bill). The budget counts what actually
+makes a prompt large: each claim, the writer's citations, and the evidence that claim's own
+independent retrieval found. A five-slide deck's ~15 claims is therefore ONE call. A hard
+cap, `MAX_BATCH_CLAIMS`, stops a single response growing past a sane size however short the
+evidence is. (`BATCH_SIZE` is kept as an alias of that cap for older importers; it used to
+be a fixed 6, which turned a 15-claim deck into three calls for no reason.)
+
+Why this is safe: A3's independence is a property of *who judges and from what evidence* —
+a different model, evidence this module retrieved itself, `retrieved_by="validator"` — and
+none of that depends on how many claims share a call. Retrieval and the contradiction
+query run per claim exactly as before. `ValidationResult.provider_calls` still reports the
+number, so it is measured on a real run rather than estimated. The dev tier's
+20-requests-per-day-per-model allowance (B25) is why fewer calls matter at all.
+
+## Unchanged claims keep their verdict
+
+A revision redoes only what it touches (B44). When `validate_deck` is given the `previous`
+deck, a claim whose identity — its site (`slide:block[:node]`), its text, and the
+`(doc_id, page, quote_sha256)` of each of its citations — matches a claim in `previous`
+that already carries a judged verdict is not sent to the model again: its verdict, notes and
+contradicting spans are copied across verbatim, and `ValidationResult.reused` counts them.
+A claim still `unverified` in `previous` (never judged, or its batch failed) is judged
+afresh, never "reused". The key is deliberately strict: change the text or swap one cited
+quote and the claim is re-judged, because a verdict is a statement about that exact claim
+against that exact evidence. If nothing changed there are zero calls.
 
 ## Failure is `unverified`, never a guess
 
@@ -98,6 +120,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from autodeck.audit.verdicts import (
     ClaimBlock,
     ValidatorEvidence,
+    VerdictAssessment,
     VerdictJudgement,
     VerdictReport,
     assess_claim,
@@ -110,15 +133,22 @@ logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path("prompts/validation.md")
 
-#: How many claims one structured-output call judges at once. See the module docstring's
-#: worked arithmetic for why this, not one call per claim, is what keeps a deck's validation
-#: pass inside the dev tier's daily quota (B25).
-BATCH_SIZE = 6
+#: Default approximate token budget for one batch prompt (claims + writer citations + the
+#: evidence each claim's independent retrieval found). Tokens are estimated as
+#: `len(text) // 4`. See the module docstring (B44).
+BATCH_BUDGET_TOKENS = 48_000
+
+#: Hard cap on claims in one call, so a single response stays a sane size however small the
+#: prompt is.
+MAX_BATCH_CLAIMS = 40
+
+#: Older name for the claim cap; it used to be a fixed batch size of 6.
+BATCH_SIZE = MAX_BATCH_CLAIMS
 
 #: Citable spans retrieved per claim, per search. Two searches per claim (support and
 #: contradiction), each capped here — generous enough to show the model a real spread of
-#: what the corpus says, small enough that a batch of `BATCH_SIZE` claims stays a reasonable
-#: single prompt (the same shape of concern `evidence_gap.py`'s `SPAN_CHARS` names, B24).
+#: what the corpus says, small enough that a batch stays a reasonable single
+#: prompt (the same shape of concern `evidence_gap.py`'s `SPAN_CHARS` names, B24).
 SUPPORT_LIMIT = 5
 CONTRADICTION_LIMIT = 5
 
@@ -197,9 +227,34 @@ def _claim_sites(deck: Deck) -> list[ClaimSite]:
     return deck.claim_sites()
 
 
-def _chunks(items: Sequence[ClaimSite], size: int) -> Iterator[list[ClaimSite]]:
-    for start in range(0, len(items), size):
-        yield list(items[start : start + size])
+def _estimate_tokens(text: str) -> int:
+    """Approximate token count: four characters to a token. Crude on purpose (B44)."""
+    return len(text) // 4
+
+
+def _pack_batches(
+    sites: Sequence[ClaimSite],
+    evidence: dict[str, ValidatorEvidence],
+    *,
+    budget_tokens: int,
+    max_claims: int,
+) -> Iterator[list[ClaimSite]]:
+    """Greedily pack sites, in deck order, into batches under the token and claim caps.
+
+    A single claim whose own prompt exceeds the budget still gets a batch of one — it is
+    judged, never dropped.
+    """
+    batch: list[ClaimSite] = []
+    used = 0
+    for site in sites:
+        cost = _estimate_tokens(_render_claim_section(site, evidence[site.claim_id]))
+        if batch and (len(batch) >= max_claims or used + cost > budget_tokens):
+            yield batch
+            batch, used = [], 0
+        batch.append(site)
+        used += cost
+    if batch:
+        yield batch
 
 
 # ---------------------------------------------------------------------------
@@ -277,18 +332,20 @@ def _render_evidence(evidence: ValidatorEvidence) -> str:
     )
 
 
+def _render_claim_section(site: ClaimSite, evidence: ValidatorEvidence) -> str:
+    return (
+        f"## claim_id: {site.claim_id}\n\n"
+        f"claim: {site.claim.text}\n\n"
+        f"{_render_writer_citation(site.claim)}\n\n"
+        f"independently retrieved evidence (support and contradiction searches, "
+        f"combined):\n{_render_evidence(evidence)}"
+    )
+
+
 def _render_batch_prompt(
     sites: Sequence[ClaimSite], evidence: dict[str, ValidatorEvidence]
 ) -> str:
-    parts = []
-    for site in sites:
-        parts.append(
-            f"## claim_id: {site.claim_id}\n\n"
-            f"claim: {site.claim.text}\n\n"
-            f"{_render_writer_citation(site.claim)}\n\n"
-            f"independently retrieved evidence (support and contradiction searches, "
-            f"combined):\n{_render_evidence(evidence[site.claim_id])}"
-        )
+    parts = [_render_claim_section(site, evidence[site.claim_id]) for site in sites]
     return (
         f"Judge each of the following {len(sites)} claim(s). Return one judgement per "
         "claim_id, copied exactly as shown.\n\n" + "\n\n---\n\n".join(parts)
@@ -356,6 +413,44 @@ class ValidationResult:
     claims_table: list[ClaimBlock] = field(default_factory=list)
     provider_calls: int = 0
     """One per batch — the number this module's docstring asks you to be able to see."""
+    reused: int = 0
+    """Claims whose verdict was copied from `previous` rather than judged again."""
+
+
+def _identity(site: ClaimSite) -> tuple[object, ...]:
+    """What makes a claim "the same claim" for verdict reuse: where it is, what it says, and
+    exactly which quotes it cites."""
+    return (
+        site.claim_id,
+        site.claim.text,
+        tuple((c.doc_id, c.page, c.quote_sha256) for c in site.claim.citations),
+    )
+
+
+def _reusable(previous: Deck | None) -> dict[tuple[object, ...], Claim]:
+    if previous is None:
+        return {}
+    return {
+        _identity(site): site.claim
+        for site in _claim_sites(previous)
+        if site.claim.verdict != "unverified"
+    }
+
+
+def _assessment_from_claim(claim: Claim) -> VerdictAssessment:
+    """A report row for a reused verdict.
+
+    The model's chosen supporting span is not stored on the claim, so a reused `supported`
+    verdict is reported against the claim's own first citation purely to satisfy
+    `VerdictAssessment`'s shape check; the report prints verdict and notes, not that span.
+    """
+    return VerdictAssessment(
+        claim_text=claim.text,
+        verdict=claim.verdict,
+        notes=claim.verdict_notes or "",
+        supporting_span=claim.citations[0] if claim.verdict == "supported" else None,
+        contradicting_spans=tuple(claim.contradicting_spans),
+    )
 
 
 def validate_deck(
@@ -365,14 +460,19 @@ def validate_deck(
     store: DocumentStore,
     model: ValidationModel,
     prompt_path: Path = PROMPT_PATH,
-    batch_size: int = BATCH_SIZE,
+    batch_budget_tokens: int = BATCH_BUDGET_TOKENS,
+    max_batch_claims: int = MAX_BATCH_CLAIMS,
+    previous: Deck | None = None,
 ) -> ValidationResult:
     """Validate every claim in `deck` — faces, notes, and diagram-node claims alike.
 
     Mutates `deck` in place (see `ValidationResult`) and returns it alongside the claims
     table data and the blocking set's inputs. Retrieval is deterministic and free; only the
-    `ceil(len(claims) / batch_size)` structured-output calls count against the `validation`
-    role's quota.
+    structured-output calls count against the `validation` role's quota. Claims are packed
+    into calls by `batch_budget_tokens` (about `len(text) // 4` tokens of prompt per batch)
+    and at most `max_batch_claims` per call. When `previous` is given, claims identical to a
+    judged claim there reuse its verdict instead of being judged again (see the module
+    docstring); `ValidationResult.reused` counts them.
 
     Raises:
         ValidationAgentError: the prompt file named by `prompt_path` is missing. Never
@@ -381,38 +481,71 @@ def validate_deck(
     system = _read_prompt(prompt_path)
     sites = _claim_sites(deck)
 
-    report = VerdictReport()
-    claims_table: list[ClaimBlock] = []
+    known = _reusable(previous)
+    reused_claims: dict[str, Claim] = {}
+    to_judge: list[ClaimSite] = []
+    for site in sites:
+        earlier = known.get(_identity(site))
+        if earlier is None:
+            to_judge.append(site)
+        else:
+            reused_claims[site.claim_id] = earlier
+
+    evidence = {
+        site.claim_id: gather_validator_evidence(site.claim, index=index, store=store)
+        for site in to_judge
+    }
+    assessments: dict[str, VerdictAssessment] = {}
     provider_calls = 0
 
-    for batch in _chunks(sites, batch_size):
-        evidence = {
-            site.claim_id: gather_validator_evidence(site.claim, index=index, store=store)
-            for site in batch
-        }
+    for batch in _pack_batches(
+        to_judge, evidence, budget_tokens=batch_budget_tokens, max_claims=max_batch_claims
+    ):
         judgements = _judge_batch(batch, evidence, model=model, system=system)
         provider_calls += 1
-
         for site in batch:
             assessment = assess_claim(
                 site.claim,
                 evidence=evidence[site.claim_id],
                 judgement=judgements.get(site.claim_id),
             )
-            report.add(assessment)
-            claims_table.append(
-                ClaimBlock(
-                    slide_id=site.slide_id,
-                    block_id=site.block_id,
-                    verdict=assessment.verdict,
-                    notes=assessment.notes,
-                    node_id=site.node_id,
-                )
-            )
+            assessments[site.claim_id] = assessment
             site.replace(assessment.apply(site.claim))
 
+    report = VerdictReport()
+    claims_table: list[ClaimBlock] = []
+    for site in sites:  # deck order, whether judged or reused
+        earlier = reused_claims.get(site.claim_id)
+        if earlier is not None:
+            assessment = _assessment_from_claim(earlier)
+            site.replace(
+                site.claim.model_copy(
+                    update={
+                        "verdict": earlier.verdict,
+                        "verdict_notes": earlier.verdict_notes,
+                        "contradicting_spans": list(earlier.contradicting_spans),
+                    }
+                )
+            )
+        else:
+            assessment = assessments[site.claim_id]
+        report.add(assessment)
+        claims_table.append(
+            ClaimBlock(
+                slide_id=site.slide_id,
+                block_id=site.block_id,
+                verdict=assessment.verdict,
+                notes=assessment.notes,
+                node_id=site.node_id,
+            )
+        )
+
     return ValidationResult(
-        deck=deck, report=report, claims_table=claims_table, provider_calls=provider_calls
+        deck=deck,
+        report=report,
+        claims_table=claims_table,
+        provider_calls=provider_calls,
+        reused=len(reused_claims),
     )
 
 

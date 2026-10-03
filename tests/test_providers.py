@@ -34,6 +34,7 @@ from autodeck.providers.cache import ResponseCache
 from autodeck.providers.claude import ClaudeProvider
 from autodeck.providers.gemini import GeminiProvider
 from autodeck.providers.groq import GroqProvider
+from autodeck.providers.mistral import MistralProvider
 
 
 class Answer(IRModel):
@@ -396,7 +397,56 @@ def test_groq_surfaces_a_refusal_instead_of_returning_empty_text() -> None:
         provider.parse_response({"choices": [{"message": {"refusal": "I cannot help"}}]})
 
 
-@pytest.mark.parametrize("provider_class", [GeminiProvider, GroqProvider, ClaudeProvider])
+def test_mistral_uses_strict_json_schema_and_max_tokens() -> None:
+    from autodeck.ir.schema import export_schema
+
+    shape = _shape(MistralProvider, export_schema(Answer, "strict"))
+    body = shape["body"]
+    assert body["response_format"]["json_schema"]["strict"] is True
+    # Mistral's cap is `max_tokens`; the OpenAI-era `max_completion_tokens` is rejected.
+    assert "max_tokens" in body and "max_completion_tokens" not in body
+    assert body["messages"][0]["role"] == "system"
+
+
+def test_mistral_image_url_is_the_data_url_itself() -> None:
+    provider = MistralProvider(ProviderConfig(model="m", api_key="k"))
+    _, _, body = provider.build_request(
+        prompt="describe", system=None, schema=None, images=[ImageInput(data=b"\x89PNG")]
+    )
+    image_part = body["messages"][0]["content"][1]
+    assert image_part["image_url"].startswith("data:image/png;base64,")
+
+
+def test_mistral_joins_text_chunks_of_a_chunked_reply() -> None:
+    provider = MistralProvider(ProviderConfig(model="m", api_key="k"))
+    parsed = provider.parse_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "thinking", "thinking": [{"type": "text", "text": "x"}]},
+                            {"type": "text", "text": '{"city": "Oslo", "population": 709000}'},
+                        ]
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 6},
+        }
+    )
+    assert Answer.model_validate_json(parsed.text).city == "Oslo"
+    assert parsed.usage.input_tokens == 5
+
+
+def test_mistral_with_no_choices_is_a_response_error() -> None:
+    provider = MistralProvider(ProviderConfig(model="m", api_key="k"))
+    with pytest.raises(ProviderResponseError, match="no choices"):
+        provider.parse_response({"choices": []})
+
+
+@pytest.mark.parametrize(
+    "provider_class", [GeminiProvider, GroqProvider, ClaudeProvider, MistralProvider]
+)
 def test_every_provider_accepts_images(provider_class: type[BaseProvider]) -> None:
     provider = provider_class(ProviderConfig(model="m", api_key="k"))
     _, _, body = provider.build_request(

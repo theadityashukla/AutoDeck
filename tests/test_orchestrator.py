@@ -135,8 +135,9 @@ def test_replacing_the_rendered_deck_invalidates_the_final_render_approval(
     tmp_path: Path,
 ) -> None:
     orchestrator = make(tmp_path)
-    seed_artifact(orchestrator, Gate.CLAIMS)
-    orchestrator.approve(Gate.CLAIMS)
+    for gate in (Gate.BRIEF, Gate.OUTLINE, Gate.CLAIMS):
+        seed_artifact(orchestrator, gate)
+        orchestrator.approve(gate)
     seed_artifact(orchestrator, Gate.FINAL_RENDER, marker="one")
     seed_passing_final_assessment(orchestrator)
     orchestrator.approve(Gate.FINAL_RENDER)
@@ -199,15 +200,20 @@ def test_no_command_can_bypass_a_gate() -> None:
         parameters = set(inspect.signature(getattr(cli, name)).parameters)
         assert not (parameters & banned), f"cli.{name} exposes a gate bypass"
 
-    # Who may call `.approve(`: `cli.approve` and `PlannerSession.sign_off`, nothing else.
+    # Who may call `.approve(`: `cli.approve`, `PlannerSession.sign_off` and the UI's one
+    # approval route, `ui/approvals.approve_gate` (B42), nothing else. `tests/test_ui.py`
+    # pins that the UI function is reachable only from `POST /api/runs/<id>/approve`.
     root = Path(autodeck.__file__).parent
     callers = {
         str(path.relative_to(root)): len(re.findall(r"\.approve\(", path.read_text()))
         for path in root.rglob("*.py")
         if ".approve(" in path.read_text()
     }
-    assert callers == {"cli.py": 1, "agents/planner.py": 1}, callers
+    assert callers == {"cli.py": 1, "agents/planner.py": 1, "ui/approvals.py": 1}, callers
     assert ".approve(" in inspect.getsource(cli.approve)
+    from autodeck.ui import approvals
+
+    assert ".approve(" in inspect.getsource(approvals.approve_gate)
 
     # No environment variable decides an approval: the gate code never reads the environment.
     for relative in ("pipeline/orchestrator.py", "agents/planner.py"):

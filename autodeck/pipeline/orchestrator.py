@@ -43,7 +43,7 @@ from typing import Any
 from autodeck.audit.framing_linter import FramingReport, lint_framing
 from autodeck.audit.numeric_linter import NumericReport, lint_deck
 from autodeck.audit.verdicts import ClaimBlock, blocking_blocks, unverified_claims
-from autodeck.ir.actions import facts_digest
+from autodeck.ir.actions import facts_digest, outline_digest
 from autodeck.ir.models import Deck
 from autodeck.ir.store import IRStore, IRStoreError, RunPaths, run_paths
 
@@ -363,7 +363,11 @@ class Orchestrator:
         """sha256 of the artifact `gate` covers, as it is on disk now.
 
         - brief: the latest brief file.
-        - outline: the IR version the outline stage wrote.
+        - outline: the IR version the outline stage wrote. On a draft-first run (B43), where
+          the `compose` stage writes outline and slide text into one IR version, the
+          `outline_digest` of the version compose last wrote — valid only while the newest
+          IR has the same outline, so a revision that rewords slides keeps the approval and
+          one that adds, drops, reorders or re-purposes a slide voids it.
         - claims: the facts of the IR version the validate stage wrote (`facts_digest`),
           valid only while the newest IR has the same facts. A later IR that changes a
           claim, citation, verdict or block text makes the table the owner reviewed stale;
@@ -381,7 +385,12 @@ class Orchestrator:
                 raise ArtifactMissing(
                     gate, run, f"the run has no brief. Run `autodeck plan {run}` first"
                 )
-            return _sha256_file(self.ir.brief_version_path(version))
+            path = self.ir.brief_version_path(version)
+            if self.is_draft_first and self.paths.draft_brief.exists():
+                # A revision rewrites the draft brief, not the recorded one: the approval
+                # covers the recorded brief only while the draft still says the same (B43).
+                self._require_draft_matches_brief(path)
+            return _sha256_file(path)
 
         if gate is Gate.FINAL_RENDER:
             pptx = self.paths.deck_pptx
@@ -392,6 +401,9 @@ class Orchestrator:
             from autodeck.audit.manifest import canonical_pptx_digest
 
             return canonical_pptx_digest(pptx)
+
+        if gate is Gate.OUTLINE and self.is_draft_first:
+            return self._draft_outline_fingerprint()
 
         stage = "outline" if gate is Gate.OUTLINE else "validate"
         command = f"autodeck {stage} {run}"
@@ -428,6 +440,56 @@ class Orchestrator:
                 )
             return validated
         return _sha256_file(self.ir.version_path(record.ir_version))
+
+    def _require_draft_matches_brief(self, recorded: Path) -> None:
+        import yaml
+
+        try:
+            draft = json.loads(self.paths.draft_brief.read_text(encoding="utf-8"))
+            brief = yaml.safe_load(recorded.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError, yaml.YAMLError) as unreadable:
+            raise ArtifactMissing(
+                Gate.BRIEF, self.run_id, f"the brief cannot be read ({unreadable})"
+            ) from unreadable
+        if _brief_substance(draft) != _brief_substance(brief):
+            raise ArtifactMissing(
+                Gate.BRIEF,
+                self.run_id,
+                "the draft's brief changed after the brief was approved; review it and "
+                "approve it again",
+            )
+
+    @property
+    def is_draft_first(self) -> bool:
+        """Whether this run was built draft-first (B43): its outline came from `compose`."""
+        record = self.state.stages.get("compose")
+        return record is not None and record.status is StageStatus.COMPLETED
+
+    def _draft_outline_fingerprint(self) -> str:
+        gate, run = Gate.OUTLINE, self.run_id
+        record = self.state.stages["compose"]
+        if record.ir_version is None or not self.ir.version_path(record.ir_version).exists():
+            raise ArtifactMissing(
+                gate,
+                run,
+                f"the compose stage recorded no IR version. Re-run `autodeck draft {run}`",
+            )
+        latest = self.ir.latest_version()
+        try:
+            composed = outline_digest(self.ir.load(record.ir_version))
+            latest_digest = outline_digest(self.ir.load(latest))
+        except (IRStoreError, ValueError) as unreadable:
+            raise ArtifactMissing(
+                gate, run, f"an IR version cannot be read ({unreadable})"
+            ) from unreadable
+        if latest_digest != composed:
+            raise ArtifactMissing(
+                gate,
+                run,
+                f"the outline changed after the draft was composed (IR v{latest}); revise or "
+                f"re-draft `{run}` so the outline has one source",
+            )
+        return composed
 
     def approval_state(self, gate: Gate) -> tuple[ApprovalState, str]:
         """Whether `gate`'s approval counts, and if not, why. Reads the disk; writes nothing."""
@@ -497,6 +559,17 @@ class Orchestrator:
     def _check_final_render_preconditions(self, deck_digest: str) -> None:
         gate = Gate.FINAL_RENDER
         run = self.run_id
+        # All three earlier approvals, not only claims: on a draft-first run (B43) they can
+        # be given in any order, so none of them is implied by the others being current.
+        for earlier in (Gate.BRIEF, Gate.OUTLINE):
+            earlier_state, earlier_detail = self.approval_state(earlier)
+            if earlier_state is not ApprovalState.CURRENT:
+                raise ApprovalRefused(
+                    gate,
+                    run,
+                    f"the {earlier.value} approval does not count: {earlier_detail}. "
+                    f"Approve the {earlier.value} first.",
+                )
         claims_state, claims_detail = self.approval_state(Gate.CLAIMS)
         if claims_state is not ApprovalState.CURRENT:
             raise ApprovalRefused(
@@ -550,6 +623,25 @@ class Orchestrator:
         return [
             gate for gate in Gate if self.approval_state(gate)[0] is not ApprovalState.CURRENT
         ]
+
+
+def _brief_substance(payload: dict[str, Any]) -> dict[str, Any]:
+    """What a brief approval is about, from a draft (`Draft.to_dict`) or a recorded brief.
+
+    Objective, audience, length, includes/avoids and each key message's id, text and
+    evidence status. Open risks and the approver are left out: they are what approving adds.
+    """
+    return {
+        "objective": (payload.get("objective") or "").strip(),
+        "audience": (payload.get("audience") or "").strip(),
+        "length_target": payload.get("length_target"),
+        "must_include": list(payload.get("must_include") or []),
+        "must_avoid": list(payload.get("must_avoid") or []),
+        "key_messages": [
+            (m.get("id"), (m.get("text") or "").strip(), m.get("evidence_status"))
+            for m in payload.get("key_messages") or []
+        ],
+    }
 
 
 _ARTIFACT_NAMES: dict[Gate, str] = {

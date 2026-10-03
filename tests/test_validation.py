@@ -354,7 +354,7 @@ def test_provider_calls_matches_the_number_of_batches(tmp_path: Path) -> None:
         text="Quantisation speeds up inference.",
         citations=[writer_citation(store, SUPPORT_QUOTE)],
     )
-    blocks = [claim_block(f"b{i}", claim) for i in range(BATCH_SIZE + 3)]
+    blocks = [claim_block(f"b{i}", claim) for i in range(BATCH_SIZE + 3)]  # cap, not budget
     slide = Slide(id="s1", narrative_role="evidence", component="big_number", blocks=blocks)
     model = Scripted(
         {

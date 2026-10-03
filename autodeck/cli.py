@@ -13,15 +13,19 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, NoReturn
+from typing import Annotated, NoReturn
 
 import typer
 from pydantic import BaseModel
 
+from autodeck.audit.gate2 import gate2_checks
 from autodeck.audit.manifest import build_manifest
 from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 from autodeck.design.theme.tokens import DesignTokens
+from autodeck.dotenv import load_dotenv
+from autodeck.ingest.document_store import Document
 from autodeck.ir.models import Block, Citation, Claim, Deck, DeckBrief, Slide
 from autodeck.ir.store import IRStore, diff_decks
 from autodeck.pipeline.orchestrator import (
@@ -35,13 +39,10 @@ from autodeck.pipeline.orchestrator import (
     Orchestrator,
     UnknownRunError,
 )
+from autodeck.pipeline.planning import PlanningContext
 from autodeck.providers.cache import ResponseCache
 from autodeck.providers.guard import ProviderFailureRecord, ProviderGuard
 from autodeck.providers.registry import ModelRegistry
-
-if TYPE_CHECKING:
-    from autodeck.audit.report import AuditReport
-    from autodeck.pipeline.orchestrator import RenderSafety
 
 app = typer.Typer(
     name="autodeck",
@@ -49,6 +50,13 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+
+@app.callback()
+def _load_local_env() -> None:
+    """Fill provider keys missing from the environment from `./.env` (never overrides)."""
+    load_dotenv()
+
 
 ir_app = typer.Typer(help="Inspect and diff Deck IR versions.", no_args_is_help=True)
 spike_app = typer.Typer(help="GATE 0 spike artifacts.", no_args_is_help=True)
@@ -329,6 +337,16 @@ def approve(
     gate: Annotated[Gate, typer.Argument(help="Which A7 gate to approve.")],
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     approver: Annotated[str, typer.Option("--by")] = "owner",
+    accept_risk: Annotated[
+        list[str],
+        typer.Option(
+            "--accept-risk",
+            help=(
+                "Draft-first runs, brief only: carry a weak key message as a named risk, "
+                "e.g. --accept-risk km2 or --accept-risk 'km2=one trial only'. Repeatable."
+            ),
+        ),
+    ] = [],  # noqa: B006 — typer reads the default; it is never mutated
 ) -> None:
     """Record a human approval for one of the four A7 gates.
 
@@ -336,8 +354,22 @@ def approve(
     there must never be one. The approval is bound to the artifact as it is now (its
     sha256 is stored beside your name), and it is refused when that artifact does not exist
     yet.
+
+    On a draft-first run (B43) approving the brief first records the draft's brief, with
+    each weak key message carried only if you name it in `--accept-risk` (B48).
     """
     orchestrator = _open_run(run_id, runs_root)
+    if gate is Gate.BRIEF and orchestrator.is_draft_first:
+        from autodeck.pipeline.draft import DraftBriefError, finalise_draft_brief
+
+        accepted = dict(
+            [*item.split("=", 1), ""][:2] for item in (r.strip() for r in accept_risk) if item
+        )
+        try:
+            finalise_draft_brief(orchestrator, approver=approver, accepted_risks=accepted)
+        except DraftBriefError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from None
     try:
         orchestrator.approve(gate, approver=approver)
     except (ArtifactMissing, ApprovalRefused) as exc:
@@ -1377,7 +1409,8 @@ def validate(
     from autodeck.retrieval.hybrid import build_index
 
     orchestrator = _open_run(run_id, runs_root, env)
-    if not orchestrator.state.is_complete("content"):
+    composed = orchestrator.state.is_complete("compose")
+    if not (orchestrator.state.is_complete("content") or composed):
         _echo_error(
             f"run {run_id!r} has no content yet. Run `autodeck content {run_id}` first."
         )
@@ -1389,14 +1422,43 @@ def validate(
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
 
-    store = DocumentStore(corpus_root / deck.project)
-    documents = list(store.documents())
-    if not documents:
-        _echo_error(
-            f"no ingested documents under {corpus_root / deck.project}. Run "
-            f"`autodeck knowledge ingest {deck.project}` first."
+    # Draft-first runs revalidate after revisions; claims unchanged since the last completed
+    # validate keep their verdicts (B44). The gate-first path never passes `previous`.
+    previous = None
+    last_validated = orchestrator.state.stages.get("validate")
+    if composed and last_validated is not None and last_validated.ir_version is not None:
+        try:
+            previous = orchestrator.ir.load(last_validated.ir_version)
+        except IRStoreError:
+            previous = None
+
+    redesign_settings = _redesign_settings(orchestrator.paths.root)
+    if redesign_settings is not None:
+        # A redesign is checked against what it was built from: the run-local deck, plus the
+        # papers only if the person turned that check on (B41, B49). The index is still
+        # built here, independently of the writer's pack (A3).
+        from autodeck.ingest.deck_source import run_source_root
+        from autodeck.ingest.multi_store import MultiStore
+
+        store = MultiStore(
+            run_source_root(runs_root, run_id),
+            corpus_root / deck.project if redesign_settings["check_papers"] else None,
         )
-        raise typer.Exit(code=2)
+        documents = list(store.documents())
+        if not documents:
+            _echo_error(
+                f"the redesign's deck is missing from {run_source_root(runs_root, run_id)}."
+            )
+            raise typer.Exit(code=2)
+    else:
+        store = DocumentStore(corpus_root / deck.project)
+        documents = list(store.documents())
+        if not documents:
+            _echo_error(
+                f"no ingested documents under {corpus_root / deck.project}. Run "
+                f"`autodeck knowledge ingest {deck.project}` first."
+            )
+            raise typer.Exit(code=2)
     index = build_index(documents, project=deck.project)
     guard = ProviderGuard(
         ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
@@ -1418,7 +1480,9 @@ def validate(
     def do_validate() -> str:
         nonlocal result
         deck_to_validate = deck.model_copy(update={"version": next_version})
-        result = validate_deck(deck_to_validate, index=index, store=store, model=model)
+        result = validate_deck(
+            deck_to_validate, index=index, store=store, model=model, previous=previous
+        )
         path = orchestrator.save_ir(result.deck)
         if guard.failures:
             # The validation pass swallows a provider failure on purpose (an unjudged claim
@@ -1499,7 +1563,7 @@ def gate2(
         "GATE 2 checkable criteria (docs/phases/PHASE-2B.md)", bold=True, fg=typer.colors.CYAN
     )
     all_pass = True
-    for label, passed, detail in _gate2_checks(brief_doc, safety, report):
+    for label, passed, detail in gate2_checks(brief_doc, safety, report):
         all_pass = all_pass and passed
         typer.secho(
             f"  [{'PASS' if passed else 'FAIL'}] {label}",
@@ -1541,110 +1605,752 @@ def gate2(
         raise typer.Exit(code=4)
 
 
-def _gate2_checks(
-    brief_doc: DeckBrief | None,
-    safety: RenderSafety,
-    report: AuditReport,
-) -> list[tuple[str, bool, str]]:
-    """The six checkable criteria `docs/phases/PHASE-2B.md` names for GATE 2.
+_gate2_checks = gate2_checks  # kept for tests and callers that import the old name
 
-    Every check reads an existing report field — nothing here re-derives a verdict, a
-    numeral match or a demotion, and **this function is not given the deck**, so it cannot
-    start. The first three criteria are `assess_render_safety`'s own four conditions,
-    printed one per line: this used to call `blocking_blocks`, `unverified_claims` and read
-    two reports of its own, which is three of the render guard's four conditions
-    re-implemented at a second call site. The guard's docstring warns that three checks at
-    three call sites is how one gets forgotten; it had already happened, and both copies
-    shared the diagram blind spot. Phase 3b's render stage inherits one answer.
 
-    The one deliberate broadening over "unsupported/contradicted": criterion 1 also fails
-    on an `unverified` claim. A validation pass that never reached a claim leaves
-    `blocking_blocks()` empty, which would otherwise let an unvalidated deck read as passing
-    every GATE 2 criterion — the same trap `assess_render_safety` names.
+# ---------------------------------------------------------------------------
+# draft-first: clarify / answer / draft / revise (Phase 3c, B43 to B48)
+# ---------------------------------------------------------------------------
+#
+# One prompt, one deterministic evidence pack, then three model calls before a draft can be
+# read: `clarify` (what the draft will assume, and the few questions that would change it),
+# `draft` (brief, outline and every slide, citations resolved in code) and `validate`.
+# `revise` redoes only what an instruction touches. Nothing here approves anything: the four
+# approvals are `autodeck approve`, given on the assembled draft (A7, B43), and no command
+# in this section takes an option that approves.
+
+EXIT_NEEDS_INPUT = 3
+
+COMPOSE_MAX_OUTPUT_TOKENS = 32768
+
+
+@dataclass
+class RedesignPlanning(PlanningContext):
+    """`PlanningContext` for a redesign run: the store is a `MultiStore`, and the deck and
+    settings travel with it so every later step builds the same deck-as-evidence pack."""
+
+    settings: dict
+    deck_document: Document
+
+
+def _draft_setup(
+    run_id: str,
+    *,
+    client: str | None,
+    project: str | None,
+    env: str,
+    knowledge_root: Path,
+    corpus_root: Path,
+    runs_root: Path,
+    clarify_data: dict | None,
+):  # type: ignore[no-untyped-def]
+    """Open an existing run and load what a compose-family call needs (A4 enforced).
+
+    Client and project come from the options, else the clarify file, else the UI's run
+    meta. Returns the planning context (orchestrator, guard, assembled context, index,
+    store, claims) and the resolved client and project.
     """
-    checks: list[tuple[str, bool, str]] = []
+    from autodeck.pipeline.planning import PlanningSetupError, prepare_planning
+    from autodeck.ui.api import Roots, read_run_meta
 
-    blocking, unverified = safety.blocking, safety.unverified
-    checks.append(
-        (
-            "zero blocks verdict unsupported/contradicted (and none left unverified)",
-            not blocking and not unverified,
-            (
-                f"{len(blocking)} blocking block(s), {len(unverified)} unverified claim(s)"
-                if blocking or unverified
-                else ""
+    opened = _open_run(run_id, runs_root, env)  # a mistyped id must not create a run
+    meta = read_run_meta(Roots(runs=runs_root, env=env), run_id)
+    data = clarify_data or {}
+    client = client or data.get("client") or meta.get("client")
+    project = project or data.get("project") or meta.get("project")
+    if not client or not project:
+        _echo_error(
+            f"run {run_id!r} does not say which client and project it is for. Pass "
+            "--client and --project."
+        )
+        raise typer.Exit(code=1)
+    settings = _redesign_settings(opened.paths.root)
+    if settings is not None:
+        return (
+            _redesign_planning(
+                run_id,
+                client=client,
+                project=project,
+                env=env,
+                knowledge_root=knowledge_root,
+                corpus_root=corpus_root,
+                runs_root=runs_root,
+                settings=settings,
             ),
+            client,
+            project,
         )
+    try:
+        planning = prepare_planning(
+            run_id,
+            client=client,
+            project=project,
+            env=env,
+            knowledge_root=knowledge_root,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
+        )
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
+    return planning, client, project
+
+
+def _redesign_settings(run_root: Path) -> dict | None:
+    """The run's redesign settings, or None for an ordinary draft-first run."""
+    from autodeck.ingest.redesign_settings import RedesignSettingsError, load_redesign
+
+    try:
+        return load_redesign(run_root)
+    except RedesignSettingsError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+def _redesign_planning(  # type: ignore[no-untyped-def]
+    run_id: str,
+    *,
+    client: str,
+    project: str,
+    env: str,
+    knowledge_root: Path,
+    corpus_root: Path,
+    runs_root: Path,
+    settings: dict,
+):
+    """What a compose-family call needs for a redesign run (B41, B49, A4).
+
+    Like `prepare_planning`, but the sources are the run-local deck and — only with the paper
+    check on — the project's papers, read through one `MultiStore`. With the check off the
+    corpus folder is never touched, so a project with no ingested papers still redesigns.
+    """
+    from autodeck.ingest.deck_source import run_source_root
+    from autodeck.ingest.document_store import IngestError
+    from autodeck.ingest.multi_store import MultiStore
+    from autodeck.knowledge.context_assembler import ContextAssembler
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+    from autodeck.retrieval.hybrid import build_index
+
+    try:
+        assembler = ContextAssembler(knowledge_root, client=client, project=project)
+        assembled = assembler.assemble()
+        knowledge = KnowledgeLoader(knowledge_root).load_project(project)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    check_papers = bool(settings["check_papers"])
+    store = MultiStore(
+        run_source_root(runs_root, run_id), corpus_root / project if check_papers else None
+    )
+    try:
+        deck_document = store.get(settings["deck_doc_id"])
+    except IngestError as exc:
+        _echo_error(f"the run's deck is missing: {exc}")
+        raise typer.Exit(code=2) from None
+    documents = list(store.documents())
+    if check_papers and len(documents) < 2:
+        _echo_error(
+            f"the paper check is on but there are no ingested documents under "
+            f"{corpus_root / project}. Run `autodeck knowledge ingest {project}` first, or "
+            "turn the check off."
+        )
+        raise typer.Exit(code=2)
+    index = assembler.use_index(build_index(documents, project=project))
+    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    guard = ProviderGuard(
+        ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
+    )
+    return RedesignPlanning(
+        orchestrator=orchestrator,
+        guard=guard,
+        assembled=assembled,
+        index=index,
+        store=store,
+        claims=list(knowledge.claims) if check_papers else [],
+        settings=settings,
+        deck_document=deck_document,
     )
 
-    numeric = safety.numeric
-    checks.append(
-        (
-            "numeric linter: zero unmatched numerals, every derivation re-executes",
-            numeric.passes,
-            "" if numeric.passes else f"{len(numeric.blocking)} blocking A2 finding(s)",
+
+def _pack_for(planning, text: str):  # type: ignore[no-untyped-def]
+    from autodeck.agents.evidence_pack import build_evidence_pack, build_redesign_pack
+
+    if isinstance(planning, RedesignPlanning):
+        return build_redesign_pack(
+            planning.deck_document,
+            check_papers=bool(planning.settings["check_papers"]),
+            project_md=planning.assembled.project_md,
+            claims=planning.claims,
+            index=planning.index,
         )
+    return build_evidence_pack(
+        text,
+        project_md=planning.assembled.project_md,
+        claims=planning.claims,
+        index=planning.index,
     )
 
-    framing = safety.framing
-    checks.append(
-        (
-            "framing linter clean, no unresolved demotions",
-            not framing.blocks_build,
-            (
-                f"{len(framing.demotions)} block(s) demoted to claim"
-                if framing.blocks_build
-                else ""
-            ),
-        )
+
+def _write_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _read_coverage_file(orchestrator: Orchestrator) -> dict:
+    try:
+        data = json.loads((orchestrator.paths.root / "coverage.json").read_text("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_coverage_file(orchestrator: Orchestrator, result, *, ir_version: int) -> None:  # type: ignore[no-untyped-def]
+    # A redesign's layout notes survive a revision, which does not produce its own.
+    changes = getattr(result, "changes", None) or _read_coverage_file(orchestrator).get(
+        "changes"
+    )
+    _write_json(
+        orchestrator.paths.root / "coverage.json",
+        {
+            **({"changes": changes} if changes else {}),
+            "ir_version": ir_version,
+            "coverage": result.coverage,
+            "origins": result.origins,
+            "rejections": result.rejections,
+            "corrections": result.corrections,
+            "incomplete_slots": result.incomplete_slots,
+            "notes": result.notes if isinstance(result.notes, str) else "; ".join(result.notes),
+        },
     )
 
-    rows = report.claim_rows()
-    fully_cited = all(
-        row.citations
-        and all(c.quote.strip() and c.page >= 1 and c.doc_id for c in row.citations)
-        for row in rows
-    )
-    checks.append(
-        (
-            "every claim shows doc, page and a verbatim quote",
-            fully_cited,
-            "" if fully_cited else "a claim row is missing a citation with doc/page/quote",
-        )
-    )
 
-    conflicts_ok = all(
-        bool(row.contradicting_spans) for row in rows if row.verdict == "contradicted"
-    )
-    checks.append(
-        (
-            "conflicts section present where sources disagree (A8)",
-            conflicts_ok,
-            "" if conflicts_ok else "a contradicted claim has no contradicting span recorded",
+def _print_draft_summary(result, deck: Deck) -> None:  # type: ignore[no-untyped-def]
+    typer.echo(f"\n{len(deck.slides)} slide(s), {len(deck.claim_sites())} claim(s):")
+    for slide in deck.slides:
+        served = ", ".join(slide.message_ids) or "-"
+        typer.echo(
+            f"  {slide.id:<8} {slide.component:<22} {len(slide.blocks)} block(s)  [{served}]"
         )
-    )
-
-    if brief_doc is None:
-        checks.append(
-            (
-                "open_risks from the brief appear in the report",
-                False,
-                "no brief could be loaded for this run — risks cannot be resurfaced",
+    typer.echo("\nKey messages:")
+    for message in result.draft_brief.key_messages:
+        typer.echo(
+            f"  {message.id:<6} {message.evidence_status.upper():<12} "
+            f"{_shorten(message.text, 80)}"
+        )
+    if result.coverage:
+        typer.echo("\nCoverage:")
+        for entry in result.coverage:
+            typer.echo(
+                f"  {entry['status']:<9} {_shorten(entry['item'], 60)} — "
+                f"{_shorten(entry['detail'], 100)}"
             )
+    if result.rejections:
+        typer.secho(f"\n{len(result.rejections)} block(s) dropped:", fg=typer.colors.YELLOW)
+        for reason in result.rejections:
+            typer.echo(f"  {reason}")
+    for correction in result.corrections:
+        typer.secho(f"corrected: {correction}", fg=typer.colors.YELLOW)
+    for finding in result.incomplete_slots:
+        typer.secho(f"incomplete: {finding}", fg=typer.colors.YELLOW)
+
+
+@app.command()
+def clarify(
+    run_id: Annotated[str, typer.Argument(help="Run identifier (created if new).")],
+    client: Annotated[str, typer.Option("--client", help="Client namespace (A4).")],
+    project: Annotated[str, typer.Option("--project", help="Project whose corpus to use.")],
+    prompt: Annotated[str, typer.Option("--prompt", help="What the deck is for.")],
+    env: EnvOption = "dev",
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Show what the draft will assume and ask what would change it (B47, B48).
+
+    One short model call over the request and the evidence pack. Writes
+    `runs/<run>/clarify.json` (assumptions, questions, no answers yet). Answer with
+    `autodeck answer`, then `autodeck draft`. Approves nothing.
+    """
+    from autodeck.pipeline.planning import PlanningSetupError, prepare_planning
+    from autodeck.ui.api import Roots, write_run_meta
+
+    if not prompt.strip():
+        _echo_error("--prompt is empty: say what the deck is for.")
+        raise typer.Exit(code=1)
+    try:
+        planning = prepare_planning(
+            run_id,
+            client=client,
+            project=project,
+            env=env,
+            knowledge_root=knowledge_root,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
+        )
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
+
+    write_run_meta(Roots(runs=runs_root, env=env), run_id, client=client, project=project)
+    _clarify_checkpoint(
+        planning,
+        run_id=run_id,
+        client=client,
+        project=project,
+        prompt=prompt,
+        command=f"clarify {run_id} --client {client} --project {project} --prompt ...",
+    )
+
+
+def _clarify_checkpoint(  # type: ignore[no-untyped-def]
+    planning,
+    *,
+    run_id: str,
+    client: str,
+    project: str,
+    prompt: str,
+    command: str,
+) -> None:
+    """Run the clarify call, write `clarify.json`, and print the checkpoint.
+
+    Shared by `clarify` and `redesign`: for a `RedesignPlanning` the pack is the client's
+    deck and the call is told it is a redesign (and the person's settings).
+    """
+    from autodeck.agents.compose import ComposeError
+    from autodeck.agents.compose import clarify as run_clarify
+    from autodeck.pipeline.clarify_state import new_clarify, save_clarify
+
+    orchestrator, guard = planning.orchestrator, planning.guard
+    pack = _pack_for(planning, prompt)
+    redesign = planning.settings if isinstance(planning, RedesignPlanning) else None
+    payload: dict = {}
+
+    def do_clarify() -> str:
+        with _ends_on_provider_failure(
+            guard,
+            command=command,
+            saved=lambda: "nothing was written. " + _cache_note(orchestrator),
+        ):
+            model = guard.provider("composer")
+            result = run_clarify(
+                prompt, pack=pack, context=planning.assembled, model=model, redesign=redesign
+            )
+        payload.update(
+            new_clarify(
+                prompt=prompt,
+                client=client,
+                project=project,
+                assumptions=[a.model_dump(mode="json") for a in result.assumptions],
+                questions=[q.model_dump(mode="json") for q in result.questions],
+            )
+        )
+        path = save_clarify(orchestrator.paths.root, payload)
+        return f"wrote {path}"
+
+    try:
+        orchestrator.run_stage("clarify", do_clarify, force=True)
+    except ComposeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    typer.secho("The draft will assume:", bold=True)
+    for assumption in payload["assumptions"]:
+        typer.echo(f"  - [{assumption['topic']}] {assumption['statement']}")
+    if payload["questions"]:
+        typer.secho("\nQuestions:", bold=True)
+        for question in payload["questions"]:
+            typer.echo(f"  {question['id']}: {question['question']}")
+            typer.echo(f"      why: {question['why']}")
+            typer.echo(f"      suggested: {question['suggested_answer']}")
+            if question["options"]:
+                typer.echo(f"      options: {' | '.join(question['options'])}")
+        typer.echo(
+            f'\nNext: autodeck answer {run_id} --accept-all   (or --answer q1="..." for each)'
         )
     else:
-        risk_ids = {risk.message_id for risk in brief_doc.open_risks}
-        reported_ids = {row.risk.message_id for row in report.risks}
-        missing_ids = sorted(risk_ids - reported_ids)
-        checks.append(
-            (
-                "open_risks from the brief appear in the report",
-                risk_ids == reported_ids,
-                "" if risk_ids == reported_ids else f"missing: {missing_ids}",
-            )
-        )
+        typer.echo("\nNo questions: nothing in the request needs asking.")
+        typer.echo(f"Next: autodeck answer {run_id} --accept-all")
 
-    return checks
+
+@app.command()
+def redesign(
+    run_id: Annotated[str, typer.Argument(help="Run identifier (created if new).")],
+    client: Annotated[str, typer.Option("--client", help="Client namespace (A4).")],
+    project: Annotated[str, typer.Option("--project", help="Project the deck belongs to.")],
+    deck: Annotated[Path, typer.Option("--deck", help="The client's existing deck (.pptx).")],
+    wording: Annotated[
+        str,
+        typer.Option(
+            "--wording",
+            help="keep: reuse the deck's sentences, trim only to fit; light: allow rewording.",
+        ),
+    ] = "keep",
+    no_layouts: Annotated[
+        bool, typer.Option("--no-layouts", help="Do not change any slide's layout.")
+    ] = False,
+    check_papers: Annotated[
+        bool,
+        typer.Option(
+            "--check-papers",
+            help="Also check the deck's figures against the project's papers (off by default).",
+        ),
+    ] = False,
+    env: EnvOption = "dev",
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Start a redesign of a deck the client already has (B41, Phase 3d).
+
+    Ingests the deck into the run's own source store (`runs/<run>/source/`, never the project
+    corpus), writes `redesign.json` (the settings) and runs the clarify step over the whole
+    deck, writing `clarify.json`. Then `answer`, `draft`, `validate` and `preview` follow as
+    for any draft; `draft` sees `redesign.json` and rebuilds the deck, every statement citing
+    the original slide. Approves nothing.
+    """
+    from autodeck.ingest.deck_source import ingest_deck, run_source_root
+    from autodeck.ingest.document_store import IngestError
+    from autodeck.ingest.redesign_settings import (
+        RedesignSettingsError,
+        save_redesign,
+    )
+    from autodeck.ui.api import Roots, write_run_meta
+
+    settings = {
+        "wording": wording,
+        "layouts": not no_layouts,
+        "check_papers": check_papers,
+        "source_file": deck.name,
+        "deck_doc_id": "pending",
+    }
+    if wording not in ("keep", "light"):
+        _echo_error("--wording must be 'keep' or 'light'.")
+        raise typer.Exit(code=1)
+    try:
+        document = ingest_deck(deck, store_root=run_source_root(runs_root, run_id))
+        settings["deck_doc_id"] = document.doc_id
+        orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+        save_redesign(orchestrator.paths.root, settings)
+    except (IngestError, RedesignSettingsError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    write_run_meta(Roots(runs=runs_root, env=env), run_id, client=client, project=project)
+    typer.echo(
+        f"Ingested {deck.name}: {document.page_count} slide(s), "
+        f"{len(document.citable_elements())} citable text element(s)."
+    )
+
+    planning = _redesign_planning(
+        run_id,
+        client=client,
+        project=project,
+        env=env,
+        knowledge_root=knowledge_root,
+        corpus_root=corpus_root,
+        runs_root=runs_root,
+        settings=settings,
+    )
+    _clarify_checkpoint(
+        planning,
+        run_id=run_id,
+        client=client,
+        project=project,
+        prompt=f"Redesign the client's existing deck ({deck.name}) in their brand.",
+        command=f"redesign {run_id} --client {client} --project {project} --deck ...",
+    )
+
+
+@app.command()
+def answer(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    answer: Annotated[
+        list[str] | None,
+        typer.Option("--answer", help='An answer, as q1="..." (repeat for each question).'),
+    ] = None,
+    accept_all: Annotated[
+        bool, typer.Option("--accept-all", help="Take the suggested answer to every question.")
+    ] = False,
+    correct: Annotated[
+        list[str] | None,
+        typer.Option("--correct", help="Correct one of the draft's assumptions (repeatable)."),
+    ] = None,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Record answers to the clarify questions, so the draft can start. No model call.
+
+    Accepting the suggestions counts as answering (B48); leaving a question unanswered does
+    not. Approves nothing: an answer is input to the draft, never an approval.
+    """
+    from autodeck.pipeline.clarify_state import (
+        ClarifyStateError,
+        load_clarify,
+        record_answers,
+        save_clarify,
+    )
+
+    orchestrator = _open_run(run_id, runs_root)
+    parsed: dict[str, str] = {}
+    for item in answer or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            _echo_error(f'--answer {item!r} must look like q1="your answer".')
+            raise typer.Exit(code=1)
+        parsed[key.strip()] = value
+    try:
+        data = load_clarify(orchestrator.paths.root)
+        record_answers(data, answers=parsed, corrections=correct or [], accept_all=accept_all)
+    except ClarifyStateError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    save_clarify(orchestrator.paths.root, data)
+    for qid, text in (data["answers"] or {}).items():
+        typer.echo(f"  {qid}: {text}")
+    for correction in data["corrections"]:
+        typer.echo(f"  correction: {correction}")
+    typer.secho("Answers recorded.", fg=typer.colors.GREEN)
+    typer.echo(f"Next: autodeck draft {run_id}")
+
+
+@app.command()
+def draft(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    env: EnvOption = "dev",
+    from_chat: Annotated[
+        bool,
+        typer.Option(
+            "--from-chat",
+            help="Draft to the brief the planning conversation left (chat mode, B47).",
+        ),
+    ] = False,
+    client: Annotated[str | None, typer.Option("--client")] = None,
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    tokens: TokensOption = Path("config/tokens/dev.json"),
+) -> None:
+    """Write the brief, the outline and every slide in one call (B45).
+
+    Refused (exit 3) until the clarify answers are recorded (`autodeck answer`) — or, with
+    `--from-chat`, until the planning conversation left a draft brief, which compose then
+    keeps verbatim. Citations are resolved in code, key-message evidence is computed from
+    what resolved, and a coverage report says what the draft did with everything asked.
+    Records a `compose` stage; approves nothing. Next: `validate`, then `preview`.
+    """
+    from autodeck.agents.compose import ComposeError, compose_deck
+    from autodeck.pipeline.clarify_state import (
+        ClarifyStateError,
+        answer_pairs,
+        is_answered,
+        load_clarify,
+        missing_answers,
+    )
+    from autodeck.pipeline.draft import DraftBriefError, load_draft_brief, save_draft_brief
+
+    orchestrator = _open_run(run_id, runs_root, env)
+    try:
+        clarify_data = load_clarify(orchestrator.paths.root)
+    except ClarifyStateError as exc:
+        clarify_data = None
+        clarify_error = str(exc)
+    chat_brief = None
+    if from_chat:
+        try:
+            chat_brief = load_draft_brief(orchestrator)
+        except DraftBriefError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=EXIT_NEEDS_INPUT) from None
+    elif clarify_data is None:
+        _echo_error(f"{clarify_error}")
+        raise typer.Exit(code=EXIT_NEEDS_INPUT)
+    elif not is_answered(clarify_data):
+        left = missing_answers(clarify_data)
+        _echo_error(
+            "the clarify questions have not been answered"
+            + (f" ({', '.join(left)})" if left else "")
+            + f". Run `autodeck answer {run_id} --accept-all` (or answer each) first (B47)."
+        )
+        raise typer.Exit(code=EXIT_NEEDS_INPUT)
+
+    request = (clarify_data or {}).get(
+        "prompt"
+    ) or f"Write the deck for this brief: {chat_brief.objective if chat_brief else ''}"
+    planning, client, project = _draft_setup(
+        run_id,
+        client=client,
+        project=project,
+        env=env,
+        knowledge_root=knowledge_root,
+        corpus_root=corpus_root,
+        runs_root=runs_root,
+        clarify_data=clarify_data,
+    )
+    guard = planning.guard
+    pack = _pack_for(planning, request)
+    redesign_args = (
+        {"mode": "redesign", "settings": planning.settings}
+        if isinstance(planning, RedesignPlanning)
+        else {}
+    )
+    design_tokens = DesignTokens.load(tokens)
+    command = f"draft {run_id}"
+    built: list = []
+
+    def draft_saved() -> str:
+        return "no IR version was written. " + _cache_note(orchestrator)
+
+    with _ends_on_provider_failure(guard, command=command, saved=draft_saved):
+        model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+
+    def do_compose() -> str:
+        result = compose_deck(
+            request,
+            answers=answer_pairs(clarify_data or {}),
+            pack=pack,
+            context=planning.assembled,
+            store=planning.store,
+            tokens=design_tokens,
+            model=model,
+            run_id=run_id,
+            client=client,
+            project=project,
+            theme_ref=str(tokens),
+            component_lib_version=COMPONENT_LIB_VERSION,
+            chat_brief=chat_brief,
+            **redesign_args,
+        )
+        deck = result.deck.model_copy(update={"version": orchestrator.ir.next_version()})
+        result.deck = deck
+        save_draft_brief(orchestrator, result.draft_brief)
+        path = orchestrator.save_ir(deck)
+        _write_coverage_file(orchestrator, result, ir_version=deck.version)
+        built.append(result)
+        return f"wrote {path} · {result.provider_calls} provider call(s)"
+
+    try:
+        with _ends_on_provider_failure(guard, command=command, saved=draft_saved):
+            orchestrator.run_stage("compose", do_compose, force=True)
+    except ComposeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    [result] = built
+    typer.secho(f"wrote IR v{result.deck.version}", fg=typer.colors.GREEN)
+    if result.notes:
+        typer.secho(f"\nread first: {result.notes}", fg=typer.colors.YELLOW)
+    _print_draft_summary(result, result.deck)
+    typer.echo(f"\nNext: autodeck validate {run_id}, then autodeck preview {run_id}")
+
+
+@app.command()
+def revise(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    instruction: Annotated[str, typer.Option("--instruction", help="What to change.")],
+    env: EnvOption = "dev",
+    client: Annotated[str | None, typer.Option("--client")] = None,
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Change the draft the way an instruction says, touching only what it names (3c.9).
+
+    One call. Slides the model does not return are kept exactly — same wording, citations
+    and verdicts — so `validate` re-judges only what changed and approvals that covered the
+    untouched parts stay current. Saved as a new `compose` version, with a line appended to
+    `revisions.jsonl`. Approves nothing.
+    """
+    from autodeck.agents.compose import ComposeError, revise_deck
+    from autodeck.ir.store import IRStoreError
+    from autodeck.pipeline.clarify_state import ClarifyStateError, load_clarify
+    from autodeck.pipeline.draft import DraftBriefError, load_draft_brief, save_draft_brief
+
+    if not instruction.strip():
+        _echo_error("--instruction is empty: say what to change.")
+        raise typer.Exit(code=1)
+    orchestrator = _open_run(run_id, runs_root, env)
+    if not orchestrator.is_draft_first:
+        _echo_error(f"run {run_id!r} has no draft yet. Run `autodeck draft {run_id}` first.")
+        raise typer.Exit(code=EXIT_NEEDS_INPUT)
+    try:
+        deck = orchestrator.ir.load()
+        brief = load_draft_brief(orchestrator)
+    except (IRStoreError, DraftBriefError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    try:
+        clarify_data = load_clarify(orchestrator.paths.root)
+    except ClarifyStateError:
+        clarify_data = None
+
+    planning, client, project = _draft_setup(
+        run_id,
+        client=client or deck.client,
+        project=project or deck.project,
+        env=env,
+        knowledge_root=knowledge_root,
+        corpus_root=corpus_root,
+        runs_root=runs_root,
+        clarify_data=clarify_data,
+    )
+    guard = planning.guard
+    base = (clarify_data or {}).get("prompt") or brief.objective
+    pack = _pack_for(planning, f"{base} {instruction}")
+    design_tokens = DesignTokens.load(Path(deck.theme_ref))
+    origins = _read_coverage_file(orchestrator).get("origins") or {}
+    command = f"revise {run_id} --instruction ..."
+    built: list = []
+
+    def revise_saved() -> str:
+        return f"the draft is unchanged (still v{deck.version}). " + _cache_note(orchestrator)
+
+    with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
+        model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+
+    def do_revise() -> str:
+        result = revise_deck(
+            instruction,
+            deck=deck,
+            draft_brief=brief,
+            pack=pack,
+            context=planning.assembled,
+            store=planning.store,
+            tokens=design_tokens,
+            model=model,
+            origins=origins,
+        )
+        save_draft_brief(orchestrator, result.draft_brief)
+        path = orchestrator.save_ir(result.deck)
+        _write_coverage_file(orchestrator, result, ir_version=result.deck.version)
+        with (orchestrator.paths.root / "revisions.jsonl").open("a", encoding="utf-8") as log:
+            log.write(
+                json.dumps(
+                    {"instruction": instruction, "reply": result.reply, "at": _iso_now()}
+                )
+                + "\n"
+            )
+        built.append(result)
+        return f"wrote {path} · {result.provider_calls} provider call(s)"
+
+    try:
+        with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
+            orchestrator.run_stage("compose", do_revise, force=True)
+    except ComposeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    [result] = built
+    typer.secho(f"wrote IR v{result.deck.version}", fg=typer.colors.GREEN)
+    typer.echo(f"\n{result.reply}")
+    if result.changed_slide_ids:
+        typer.echo(f"changed: {', '.join(result.changed_slide_ids)}")
+    for note in result.notes:
+        typer.secho(f"note: {note}", fg=typer.colors.YELLOW)
+    _print_draft_summary(result, result.deck)
+    typer.echo(f"\nNext: autodeck validate {run_id}, then autodeck preview {run_id}")
 
 
 def _describe_action(action: BaseModel) -> str:
@@ -1652,6 +2358,60 @@ def _describe_action(action: BaseModel) -> str:
     fields = action.model_dump(mode="json", exclude_none=True)
     kind = fields.pop("kind", type(action).__name__)
     return " ".join([str(kind), *(f"{name}={value}" for name, value in fields.items())])
+
+
+@app.command()
+def preview(
+    run_id: Annotated[str, typer.Argument(help="Run identifier.")],
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    env: EnvOption = "dev",
+) -> None:
+    """Render a DRAFT preview of the latest IR into `runs/<run>/previews/draft` (3c.8, B43).
+
+    Works on any deck - blocking verdicts, no approvals - because a draft is what an owner
+    reads *before* approving. Every slide is stamped "DRAFT - not approved" and the file is
+    `previews/draft/draft.pptx`; `deck.pptx` is never written (that is `autodeck render`,
+    behind the gates). No art direction, no model calls. Records a `preview` stage and
+    approves nothing; there is deliberately no option that does.
+    """
+    from autodeck.design.fonts import FontNotFoundError
+    from autodeck.ir.store import IRStoreError
+    from autodeck.render.draft import DraftPreview, render_draft
+
+    orchestrator = _open_run(run_id, runs_root, env)
+    try:
+        deck = orchestrator.ir.load()
+    except (IRStoreError, ValueError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+    out_dir = orchestrator.paths.previews / "draft"
+    tokens = DesignTokens.load(Path(deck.theme_ref))
+    result: DraftPreview | None = None
+
+    def do_preview() -> str:
+        nonlocal result
+        result = render_draft(deck, out_dir=out_dir, tokens=tokens)
+        return f"wrote {result.pptx} ({len(result.images)} image(s))"
+
+    try:
+        orchestrator.run_stage("preview", do_preview, force=True)
+    except (FileNotFoundError, FontNotFoundError, ValueError) as exc:
+        _echo_error(f"the draft could not be drawn: {exc}")
+        raise typer.Exit(code=1) from None
+
+    assert result is not None
+    typer.secho(f"Wrote {result.pptx}", fg=typer.colors.GREEN)
+    if result.rendered:
+        typer.echo(f"Rendered {len(result.images)} slide(s) to PNG in {out_dir}")
+    else:
+        typer.secho(f"No PNGs rendered: {result.note}", fg=typer.colors.YELLOW)
+    for slide_id, flag in result.flags.items():
+        typer.echo(f"  {slide_id:<12} {flag or 'ok'}")
+    for slide_id, reason in result.placeholders.items():
+        typer.secho(
+            f"  {slide_id:<12} drawn as a placeholder: {reason}", fg=typer.colors.YELLOW
+        )
 
 
 @app.command()
@@ -1694,7 +2454,10 @@ def render(
 
     orchestrator = _open_run(run_id, runs_root, env)
     try:
-        orchestrator.require_gate(Gate.CLAIMS)
+        # The final deck needs the three approvals before it current (A7 as amended by B43):
+        # on a draft-first run they can be given in any order, so none is implied by another.
+        for gate in (Gate.BRIEF, Gate.OUTLINE, Gate.CLAIMS):
+            orchestrator.require_gate(gate)
     except GateBlocked as blocked:
         _echo_error(str(blocked))
         raise typer.Exit(code=3) from None
@@ -2087,9 +2850,13 @@ def send_back(
     `autodeck content` on its next run. See `autodeck/pipeline/send_back.py` for the full
     design and what it does not guarantee.
     """
-    from autodeck.audit.report import build_audit_report
     from autodeck.ir.store import IRStoreError
-    from autodeck.pipeline.send_back import SendBackRecord, append_send_backs
+    from autodeck.pipeline.send_back import (
+        EmptyReasonError,
+        UnknownClaimError,
+        append_send_backs,
+        build_send_backs,
+    )
 
     if len(claim) != len(reason):
         _echo_error(
@@ -2108,43 +2875,22 @@ def send_back(
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
 
-    report = build_audit_report(deck, brief=None)
-    by_claim_id = {f"{row.slide_id}:{row.block_id}": row for row in report.claim_rows()}
-
-    records: list[SendBackRecord] = []
-    unknown: list[str] = []
-    for claim_id, why in zip(claim, reason, strict=True):
-        if not why.strip():
-            _echo_error(
-                f"empty --reason for claim {claim_id!r}. A send-back with no reason teaches "
-                "the writer nothing."
-            )
-            raise typer.Exit(code=2)
-        row = by_claim_id.get(claim_id)
-        if row is None:
-            unknown.append(claim_id)
-            continue
-        records.append(
-            SendBackRecord(
-                claim_id=claim_id,
-                ir_version=deck.version,
-                slide_id=row.slide_id,
-                block_id=row.block_id,
-                claim_text=row.claim_text,
-                verdict=row.verdict,
-                citations=tuple((c.doc_id, c.page, c.quote) for c in row.citations),
-                reason=why.strip(),
-                by=by,
-                at=_iso_now(),
-            )
+    try:
+        records = build_send_backs(
+            deck, list(zip(claim, reason, strict=True)), by=by, at=_iso_now()
         )
-
-    if unknown:
+    except EmptyReasonError as exc:
         _echo_error(
-            f"unknown claim id(s): {', '.join(unknown)}. Run `autodeck gate2 {run_id}` to "
-            "see the current claim ids — they change across content passes."
+            f"empty --reason for claim {exc.claim_id!r}. A send-back with no reason teaches "
+            "the writer nothing."
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2) from None
+    except UnknownClaimError as exc:
+        _echo_error(
+            f"unknown claim id(s): {', '.join(exc.claim_ids)}. Run `autodeck gate2 {run_id}` "
+            "to see the current claim ids — they change across content passes."
+        )
+        raise typer.Exit(code=1) from None
 
     path = append_send_backs(orchestrator.paths.root, records)
     for record in records:
@@ -2217,7 +2963,13 @@ def spike_build(
 
 @app.command()
 def ui(
-    env: EnvOption = "dev",
+    env: Annotated[
+        str | None,
+        typer.Option(
+            "--env",
+            help="Provider environment. Default: the one last chosen in the UI, else config.",
+        ),
+    ] = None,
     port: Annotated[int, typer.Option("--port", help="Local port; 0 picks a free one.")] = 0,
     browser: Annotated[
         bool, typer.Option("--browser", help="Open in the browser instead of a window.")
@@ -2229,13 +2981,18 @@ def ui(
     """Open the review UI (B40): a local window over the same pipeline these commands run.
 
     Uses a native window when the `ui` extra is installed (`uv sync --extra ui`), and the
-    default browser otherwise. Serves on 127.0.0.1 only. It records no approval of its own:
-    the brief is signed through the planner, as `/sign` is here (A7).
+    default browser otherwise. Serves on 127.0.0.1 only. Steps run as these same commands,
+    and an approval is a person clicking Approve in it: the brief through the planner, as
+    `/sign` is here, the other gates through the method `approve` calls (A7, B42).
     """
-    from autodeck.ui.api import Roots
+    from autodeck.ui.api import Roots, restore_env
     from autodeck.ui.launch import serve
 
-    roots = Roots(knowledge=knowledge_root, corpus=corpus_root, runs=runs_root, env=env)
+    roots = Roots(knowledge=knowledge_root, corpus=corpus_root, runs=runs_root)
+    if env:
+        roots.env = env
+    else:
+        restore_env(roots)
     serve(roots, port=port, window=not browser, say=typer.echo)
 
 

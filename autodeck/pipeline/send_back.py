@@ -47,14 +47,33 @@ Owning phase: 2b (task 2b.11).
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from autodeck.ir.models import Deck
 
 SEND_BACKS_FILENAME = "send_backs.json"
 
 
 class SendBackError(RuntimeError):
     """A send-back record could not be read or written."""
+
+
+class EmptyReasonError(ValueError):
+    """A send-back was given with a blank reason."""
+
+    def __init__(self, claim_id: str) -> None:
+        super().__init__(f"empty reason for claim {claim_id!r}")
+        self.claim_id = claim_id
+
+
+class UnknownClaimError(ValueError):
+    """A send-back named claim ids the deck does not have."""
+
+    def __init__(self, claim_ids: list[str]) -> None:
+        super().__init__(f"unknown claim id(s): {', '.join(claim_ids)}")
+        self.claim_ids = claim_ids
 
 
 @dataclass(frozen=True)
@@ -130,6 +149,47 @@ class SendBackRecord:
         )
 
 
+def build_send_backs(
+    deck: Deck, items: Sequence[tuple[str, str]], *, by: str, at: str
+) -> list[SendBackRecord]:
+    """Validate `(claim_id, reason)` pairs against `deck` and snapshot each claim.
+
+    The one place a `SendBackRecord` is built, used by `autodeck send-back` and the review
+    UI. Raises `EmptyReasonError` (checked first, per item, in order) for a blank reason and
+    `UnknownClaimError` (naming every unknown id) for ids not in the deck. Writes nothing.
+    """
+    from autodeck.audit.report import build_audit_report
+
+    report = build_audit_report(deck, brief=None)
+    by_claim_id = {f"{row.slide_id}:{row.block_id}": row for row in report.claim_rows()}
+    records: list[SendBackRecord] = []
+    unknown: list[str] = []
+    for claim_id, why in items:
+        if not why.strip():
+            raise EmptyReasonError(claim_id)
+        row = by_claim_id.get(claim_id)
+        if row is None:
+            unknown.append(claim_id)
+            continue
+        records.append(
+            SendBackRecord(
+                claim_id=claim_id,
+                ir_version=deck.version,
+                slide_id=row.slide_id,
+                block_id=row.block_id,
+                claim_text=row.claim_text,
+                verdict=row.verdict,
+                citations=tuple((c.doc_id, c.page, c.quote) for c in row.citations),
+                reason=why.strip(),
+                by=by,
+                at=at,
+            )
+        )
+    if unknown:
+        raise UnknownClaimError(unknown)
+    return records
+
+
 def send_backs_path(run_root: Path) -> Path:
     """Where a run's send-backs live, given its root (`Orchestrator.paths.root`)."""
     return Path(run_root) / SEND_BACKS_FILENAME
@@ -169,9 +229,12 @@ def append_send_backs(run_root: Path, records: list[SendBackRecord]) -> Path:
 
 __all__ = [
     "SEND_BACKS_FILENAME",
+    "EmptyReasonError",
     "SendBackError",
     "SendBackRecord",
+    "UnknownClaimError",
     "append_send_backs",
+    "build_send_backs",
     "load_send_backs",
     "send_backs_path",
 ]

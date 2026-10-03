@@ -313,6 +313,30 @@ def facts_digest(deck: Deck) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def outline_digest(deck: Deck) -> str:
+    """sha256 hex of `deck`'s outline: its slides in order, each slide's id, narrative role,
+    intent and the key messages it serves.
+
+    The outline gate (A7) binds to this on a draft-first run (B43), where one IR version
+    holds the outline *and* the slide text: a revision that rewords a slide must not void
+    the outline approval, and one that adds, drops, reorders or re-purposes a slide must.
+    Component and communication mode are left out on purpose — art direction may change them
+    (they are presentation, as `facts_digest` treats them), and the outline approval is about
+    the argument's shape. Pure; deterministic across processes.
+    """
+    outline = [
+        {
+            "id": slide.id,
+            "role": slide.narrative_role,
+            "intent": slide.intent or "",
+            "messages": list(slide.message_ids),
+        }
+        for slide in deck.slides
+    ]
+    encoded = json.dumps(outline, sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Address lookups — private, shared by `_apply_unchecked`
 # ---------------------------------------------------------------------------

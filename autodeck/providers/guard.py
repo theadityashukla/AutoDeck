@@ -86,10 +86,13 @@ class ProviderGuard:
         self.cache = cache
         self.failures: list[ProviderFailureRecord] = []
 
-    def provider(self, role: str) -> Any:
-        """The provider bound to `role`. Records and re-raises a missing API key."""
+    def provider(self, role: str, **overrides: Any) -> Any:
+        """The provider bound to `role`. Records and re-raises a missing API key.
+
+        `overrides` are passed to `ModelRegistry.provider_for` (e.g. `max_output_tokens`).
+        """
         try:
-            inner = self.registry.provider_for(role, cache=self.cache)
+            inner = self.registry.provider_for(role, cache=self.cache, **overrides)
         except ProviderAuthError as exc:
             self.record(role, exc, constructing=True)
             raise

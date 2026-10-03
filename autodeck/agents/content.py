@@ -88,6 +88,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol, get_type_hints
@@ -106,6 +107,7 @@ from autodeck.design.components.catalog import (
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ingest.document_store import DocumentStore, IngestError
+from autodeck.ingest.provenance import snap_span
 from autodeck.ir.models import (
     GEOMETRIES,
     Block,
@@ -403,7 +405,7 @@ def _gather_spans(query: str, index: HybridIndex) -> list[RetrievedSpan]:
     Non-citable hits (figure descriptions, page furniture) are kept rather than filtered:
     `prompts/content.md` says descriptions are retrievable for finding the right page even
     though they can never be cited, and a writer that never sees one cannot be shown the
-    resolver refusing to cite it. `_render_evidence` marks each one plainly.
+    resolver refusing to cite it. `render_evidence` marks each one plainly.
     """
     return search(index, query, limit=SPAN_LIMIT, citable_only=False)
 
@@ -413,7 +415,12 @@ def _slide_query(slide: Slide, messages: Sequence[KeyMessage]) -> str:
     return " ".join(part for part in parts if part)
 
 
-def _render_evidence(claims: Sequence[CachedClaim], spans: Sequence[RetrievedSpan]) -> str:
+def render_evidence(claims: Sequence[CachedClaim], spans: Sequence[RetrievedSpan]) -> str:
+    """Render curated claims then retrieved spans as the text a model is shown.
+
+    Public for the same reason as `resolve_blocks`: the evidence pack renders with the very
+    function slides use, so what the model saw is what the resolver will accept.
+    """
     lines: list[str] = []
     for claim in claims:
         lines.append(f"[claims.md · {claim.doc_id} p.{claim.page}] {claim.claim}")
@@ -477,11 +484,67 @@ def _resolve_citation(
             last_error = exc
             continue
 
+    snapped = _snap_citation(proposed, store=store, spans=candidates, retrieved_by=retrieved_by)
+    if snapped is not None:
+        return snapped
+
     assert last_error is not None
     raise CitationResolutionError(
         f"quote for {proposed.doc_id!r} did not resolve against any evidence span shown "
         f"for this slide: {last_error}"
     ) from last_error
+
+
+#: Where `_snap_citation` reports, set by `resolve_blocks` for the duration of one call:
+#: `(location, notes)`. A context variable rather than a parameter because the resolver
+#: sits four calls deep (block -> claim/chart/diagram -> step -> citation).
+_SNAP_NOTES: ContextVar[tuple[str, list[str]] | None] = ContextVar("_SNAP_NOTES", default=None)
+
+
+def _snap_citation(
+    proposed: ProposedCitation,
+    *,
+    store: DocumentStore,
+    spans: Sequence[RetrievedSpan],
+    retrieved_by: Literal["writer"],
+) -> Citation | None:
+    """The citation a near-verbatim quote was pointing at, in the document's words (B52).
+
+    Only the spans this slide was shown are searched, so a snap can never reach evidence
+    the writer did not see. The citation is resolved through `to_citation` with the
+    passage's verbatim text, the same A1 path as an exact quote; the model's version of the
+    words is discarded. Whether the passage supports the sentence is the validator's call.
+    """
+    best: tuple[float, RetrievedSpan, str] | None = None
+    for span in spans:
+        if not span.citable:
+            continue
+        element = store.get(span.doc_id).element(span.element_id)
+        if element is None:
+            continue
+        found = snap_span(element.text, proposed.quote)
+        if found is None:
+            continue
+        (start, end), coverage = found
+        if best is None or coverage > best[0]:
+            best = (coverage, span, element.text[start:end])
+    if best is None:
+        return None
+
+    coverage, span, verbatim = best
+    try:
+        citation = span.to_citation(store, quote=verbatim, retrieved_by=retrieved_by)
+    except IngestError:
+        return None
+    sink = _SNAP_NOTES.get()
+    if sink is not None:
+        location, notes = sink
+        notes.append(
+            f"{location}: quote for {proposed.doc_id!r} was not verbatim; cited the "
+            f"source's own words instead ({coverage:.0%} match). Model: "
+            f"{proposed.quote[:80]!r} -> source: {verbatim[:80]!r}"
+        )
+    return citation
 
 
 def _resolve_claim(
@@ -727,7 +790,7 @@ def _chart_slots(component: str) -> list[str]:
     return _payload_slots(component, ChartSpec)
 
 
-def _check_budgets(
+def check_budgets(
     blocks: list[Block], *, component: str, tokens: DesignTokens
 ) -> tuple[list[Block], list[str], list[str], bool]:
     """Drop any face block whose slot overflows its budget. Chart and diagram blocks are
@@ -904,8 +967,8 @@ def write_slide(
     query = _slide_query(slide, served)
     matched_claims = _gather_claims(query, claims)
     matched_spans = _gather_spans(query, index)
-    evidence_text = _render_evidence(matched_claims, matched_spans)
-    budgets_text = _slide_budgets(slide.component, tokens)
+    evidence_text = render_evidence(matched_claims, matched_spans)
+    budgets_text = slide_budgets(slide.component, tokens)
 
     prompt = _content_prompt(
         slide, brief, context, budgets=budgets_text, evidence=evidence_text
@@ -919,7 +982,7 @@ def write_slide(
         ) from exc
 
     rejections: list[str] = []
-    blocks = _resolve_blocks(
+    blocks = resolve_blocks(
         draft.blocks,
         store=store,
         claims=matched_claims,
@@ -927,7 +990,7 @@ def write_slide(
         location=f"slide {slide.id} face",
         rejections=rejections,
     )
-    speaker_notes = _resolve_blocks(
+    speaker_notes = resolve_blocks(
         draft.speaker_notes,
         store=store,
         claims=matched_claims,
@@ -936,7 +999,7 @@ def write_slide(
         rejections=rejections,
     )
 
-    kept, overflow_rejections, incomplete_slots, budgets_checked = _check_budgets(
+    kept, overflow_rejections, incomplete_slots, budgets_checked = check_budgets(
         blocks, component=slide.component, tokens=tokens
     )
     rejections.extend(overflow_rejections)
@@ -950,7 +1013,7 @@ def write_slide(
     )
 
 
-def _resolve_blocks(
+def resolve_blocks(
     proposed: Sequence[ProposedBlock],
     *,
     store: DocumentStore,
@@ -958,23 +1021,41 @@ def _resolve_blocks(
     spans: Sequence[RetrievedSpan],
     location: str,
     rejections: list[str],
+    snapped: list[str] | None = None,
 ) -> list[Block]:
+    """Resolve every proposed block's citations through the store; drop what fails.
+
+    Public so that compose (whole-deck drafting) resolves citations with exactly the code
+    a single slide uses — one resolver, no third path. Each refusal is appended to
+    `rejections` as a plain sentence naming `location`; a block that resolves to nothing is
+    omitted, never half-built. A quote that was not verbatim but clearly points at one
+    passage is cited in the source's own words (B52), and noted in `snapped` if given.
+    """
     resolved: list[Block] = []
-    for item in proposed:
-        block = _resolve_block(
-            item,
-            store=store,
-            claims=claims,
-            spans=spans,
-            location=location,
-            rejections=rejections,
-        )
-        if block is not None:
-            resolved.append(block)
+    token = _SNAP_NOTES.set((location, snapped) if snapped is not None else None)
+    try:
+        for item in proposed:
+            block = _resolve_block(
+                item,
+                store=store,
+                claims=claims,
+                spans=spans,
+                location=location,
+                rejections=rejections,
+            )
+            if block is not None:
+                resolved.append(block)
+    finally:
+        _SNAP_NOTES.reset(token)
     return resolved
 
 
-def _slide_budgets(component: str, tokens: DesignTokens) -> str:
+def slide_budgets(component: str, tokens: DesignTokens) -> str:
+    """Render the declared per-slot budgets for `component` as prompt text.
+
+    Public so compose states budgets in the same words as a single-slide write. A component
+    with no catalog entry yet gets a plain note instead of an error.
+    """
     try:
         text = render_budgets(component, tokens)
     except UnknownComponentError as exc:
@@ -1006,3 +1087,11 @@ def _read_prompt(path: Path) -> str:
             "and their hashes go into the build manifest — there is no inline fallback."
         )
     return path.read_text(encoding="utf-8")
+
+
+# Private names kept as aliases: the public resolver API above is the contract; these keep
+# older call sites and tests working unchanged.
+_resolve_blocks = resolve_blocks
+_check_budgets = check_budgets
+_render_evidence = render_evidence
+_slide_budgets = slide_budgets
