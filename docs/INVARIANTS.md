@@ -54,6 +54,11 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
 - **Proves it:** a test constructing a `claim` block with `citations=[]` and asserting
   `ValidationError`; a test mutating a stored quote and asserting the hash check fails.
 - **Watch for:** speaker notes are blocks too. A1 applies to notes, not just slide faces.
+- **What "verbatim" binds (B52):** the *citation* carries the document's exact words; the
+  model's copy of them does not have to be exact. A quote that clearly points at one passage
+  the model was shown (≥85% of it found in order, within 1.5× its length) is cited as that
+  passage's verbatim text and hash, and reported as snapped. A paraphrase still resolves to
+  nothing. Whether the passage supports the sentence is A3's question, not A1's.
 
 ## A2 — Numbers are copied or derived, never invented
 
@@ -77,6 +82,10 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
 > final render while any block is `unsupported` or `contradicted`. The validator
 > **re-retrieves independently** and searches for contradicting spans; it never merely
 > trusts the writer's citation.
+>
+> *Clarified by B44 (Phase 3c):* independence is about who judges — its own retrieval and a
+> model different from the writer's — not how many calls; the whole deck may be judged in
+> one batched call.
 
 - **Enforced by:** `autodeck/agents/validation.py` + an orchestrator guard that refuses
   to enter the render phase on a failing verdict.
@@ -132,6 +141,11 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
 
 > Four mandatory approvals per deck: planning brief, outline, post-validation claims
 > table, final render. The pipeline never auto-approves.
+>
+> *Amended by B43 (Phase 3c, draft-first):* the pipeline may build an **unapproved draft**
+> end to end before any approval; it may not write the final `deck.pptx`, export, or label
+> anything final without all four approvals current. An approval binds to the fingerprint
+> of what it covers, so changing an artifact voids exactly the approvals that covered it.
 
 - **Enforced by:** `autodeck/pipeline/orchestrator.py` gate stops.
 - **Owning phases:** Phase 0 (gate stubs), Phase 2a/2b, Phase 4 (all four wired).

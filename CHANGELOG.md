@@ -7,6 +7,32 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## Phase 3d (in progress): redesign an existing deck — .pptx ingested one element per bullet as a run-local source, redesign compose mode citing original slides, code-checked coverage of dropped lines, faithfulness validation, "client-supplied deck" audit label, upload route and UI (B41, B49, B50)
+
+---
+
+## Phase 3c (in progress): draft-first build — evidence pack, clarify checkpoint, one-call compose with citations as output contract, whole-deck validation with verdict reuse, DRAFT previews, scoped revise, approvals on the draft (B43–B48)
+
+---
+
+## [Unreleased] — Review UI covers the whole flow (B42)
+
+The UI now runs every step end to end: planning chat, outline, content and claims review (with send-back), render, and final audit with all four approvals. The run screen shows each step's progress and log.
+
+### Added
+- Run screen with step progress, logs, and state display for all deck-building steps
+- Outline review screen with "Approve & proceed"
+- Claims review screen with individual claim selection, send-back, and "Rewrite claims"
+- Final render review screen with five PowerPoint checks (user ticks them, code does not verify)
+- "Approve & proceed" and "Approve final deck" record approvals under the admin name from Settings › Profile
+- Settings › Profile to set the approver name (defaults to git `user.name`; persists in `~/.autodeck/profile.json`)
+- Provider keys status display in Settings
+- Knowledge library accessible from the UI
+- Subprocess-based step running with chain control: `outline`; `content` → `validate` → `gate2`; `render` → `gate3`
+- Gate bypass tests extended to cover UI approval routes
+
+---
+
 ## [Unreleased] — Review UI (B40)
 
 The `autodeck ui` command launches a local web front end in a native window (or browser

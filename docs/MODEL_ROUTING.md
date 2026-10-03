@@ -188,11 +188,14 @@ resolved in config.
 |---|---|---|---|
 | `planner` | Strong interactive judgment; evidence-gap probe (§6.13) | Gemini pro-tier | Claude strong-tier |
 | `outline` | Structural reasoning; runs once per deck | Gemini pro-tier | Claude strong-tier |
+| `composer` | Draft-first (B45): one long-context call writes brief, outline and slides with citations; also the clarifying questions (B47/B48) and scoped revisions. Long context budget. dev: gemini-3.6-flash (the outline role's model and daily bucket — a draft-first run never calls `outline`); sit/prod: claude-sonnet-5, deliberately not the validation model (B44). | Gemini flash-tier | Claude mid-tier |
 | `content` | High volume, tightly constrained by budgets and citations | Groq fast-tier | Claude mid-tier |
 | `validation` | **Judgment-critical** (A3) | Gemini pro-tier | Claude strong-tier |
 | `aesthetic` | Vision over true renders (§6.9) | Gemini vision-tier | Claude vision-tier |
 | `ingest_vlm` | High-volume figure description; **metadata only, never citable** | Gemini flash-tier | Gemini flash-tier |
 
+`composer` binds to the same model as `outline` in dev (they share a daily quota, since a draft-first
+run never calls `outline`), but is deliberately bound to a different tier in sit/prod (B44).
 `ingest_vlm` stays on Gemini in all environments — its output is metadata that can never
 back a claim (enforced structurally in the document store), so there is no accuracy reason
 to pay for it.
@@ -206,14 +209,15 @@ environments:
   dev:
     planner:    {provider: gemini, model: <resolved-at-P0>}
     outline:    {provider: gemini, model: <resolved-at-P0>}
+    composer:   {provider: gemini, model: <resolved-at-P0>}
     content:    {provider: groq,   model: <resolved-at-P0>}
     validation: {provider: gemini, model: <resolved-at-P0>}
     aesthetic:  {provider: gemini, model: <resolved-at-P0>}
     ingest_vlm: {provider: gemini, model: <resolved-at-P0>}
   sit:
-    # same role keys, Claude bindings
+    # same role keys, Claude bindings (composer on claude-sonnet-5, validation on claude-opus-5)
   prod:
-    # same role keys, Claude bindings
+    # same role keys, Claude bindings (composer on claude-sonnet-5, validation on claude-opus-5)
 ```
 
 Selected with `--env`, defaulting to `dev`. **The manifest records the environment and

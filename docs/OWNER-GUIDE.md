@@ -274,25 +274,158 @@ STOPPED: role 'planner' (gemini, model gemini-3.7-flash) was refused: the provid
 
 ### Using the review UI instead of the terminal
 
-Everything in this guide works from the command line. If you prefer a graphical interface,
-the review UI (`autodeck ui`) offers an alternative for planning and setup:
+Everything in this guide can be done from the command line, but the review UI covers the whole flow — planning, outline, content review, rendering, and all four approvals:
 
 ```bash
 uv sync --extra ui
 uv run autodeck ui
 ```
 
-The `--extra ui` installs the optional pywebview dependency needed for the native window;
-without it, or if the window fails to open, the UI opens in your default browser at a
-printed local address. Command-line options: `--env dev|sit|prod` (default dev), `--port N`
-(default 0 = a free port), `--browser` (skip the native window), plus the usual
-`--knowledge-root`, `--corpus-root`, `--runs-root`.
+The `--extra ui` installs the optional pywebview dependency for the native window; without it, or if the window fails to open, the UI opens in your default browser. Command-line options: `--env dev|sit|prod` (default dev), `--port N` (default 0 = auto), `--browser` (skip native window), plus `--knowledge-root`, `--corpus-root`, `--runs-root`.
 
-The UI covers planning (chat with the planner and sign the brief), setup (the Home
-screen's readiness checklist), adding a client (New client writes `client.md` and
-`value_prop.md`), and the Runs view showing each run's state. It does not yet cover
-outline, content, validate, render and the remaining three approvals — those still need
-the terminal commands shown in this guide.
+The UI shows each step's progress on a run screen (planning chat and sign-off, outline review, claims review, rendering, final audit). Every step runs the same CLI commands underneath, so everything in this guide describes what the UI does. Approvals are straightforward: on each review screen, click "Approve & proceed" (for brief, outline, or claims) or "Approve final deck" (at the end). The click records the approval under the name in Settings › Profile, which defaults to your git `user.name` and you can change once. Approving starts the next step automatically. You cannot approve while a step is running.
+
+If you disagree with claims during review, select them, type why, click "Send back", then "Rewrite claims". The five PowerPoint checks on the final screen are for you to tick in PowerPoint on a copy ("Open a copy in PowerPoint" makes one on the Desktop); nothing in the code ticks them — you do.
+
+Redesigning an existing deck appears on the start screen but is not available yet (B41).
+
+---
+
+## 2b. Draft-first: one prompt to a checked draft (Phase 3c)
+
+**In the UI:** describe the deck in a sentence or two, then a checkpoint appears showing what the draft will assume and asking only the questions that would change it. Accept the suggested answers with one click. The draft is then written in one model call, every quote and number checked in code, and a second model checks the whole deck in one call — three model calls in all. Previews are marked DRAFT. Review the draft: verdict colours on claims, sources appear on click, a coverage list shows anything the draft could not do. Weak-evidence messages are kept and hedged, not dropped.
+
+Revise by typing what to change in the chat — only the slides you name are redone; their approvals reset, the rest stay. You can plan in a chat first before drafting.
+
+Approvals are given on the draft: brief (where you accept each weak-evidence key message as a named risk), outline, claims, then "Build the final deck" runs art direction and the final audit, then the five PowerPoint checks and the final approval.
+
+**Terminal equivalents**, each in its own ```bash block:
+
+```bash
+uv run autodeck clarify <run> --client <c> --project <p> --prompt "<what the deck is for>"
+```
+
+```bash
+uv run autodeck answer <run> --accept-all
+```
+
+```bash
+uv run autodeck draft <run>
+```
+
+```bash
+uv run autodeck validate <run>
+```
+
+```bash
+uv run autodeck preview <run>
+```
+
+```bash
+uv run autodeck revise <run> --instruction "<what to change>"
+```
+
+```bash
+uv run autodeck approve <run> brief --by "Your Name" --accept-risk km2
+```
+
+Then outline and claims approvals:
+
+```bash
+uv run autodeck approve <run> outline --by "Your Name"
+```
+
+```bash
+uv run autodeck approve <run> claims --by "Your Name"
+```
+
+Then render and final approval:
+
+```bash
+uv run autodeck render <run>
+```
+
+```bash
+uv run autodeck gate3 <run>
+```
+
+```bash
+uv run autodeck approve <run> final_render --by "Your Name"
+```
+
+**The gate-first flow in sections 3–6b still works.** This section describes draft-first. If you choose the terminal path without the UI or prefer the older gate-first approach, the commands below cover it end to end.
+
+---
+
+## 2c. Redesign an existing deck (Phase 3d)
+
+**In the UI:** from the home screen, choose "From an existing deck" and upload a PowerPoint file (up to 50 MB). The deck becomes the source for the run — stored only in that run, inside your client's namespace. Every statement on the redesigned deck will cite the original slide's exact words.
+
+Set your preferences:
+
+- **Wording:** "Keep my words, trim only to fit" keeps the original wording and just removes phrases that do not fit the new layout; "Allow light rewording" lets the compose step reword to fit the space better.
+- **Layouts:** by default, the redesign keeps one original slide per redesigned slide, in order. If you allow layout changes, the checkpoint may ask whether to merge or split when the deck plainly needs it.
+- **Check figures against papers:** off by default. Turn on to also check figures and numbers against the project's papers; this costs an extra pass over your papers.
+
+The checkpoint appears with no questions if the settings are clear. The draft is then written in one model call, every claim resolved to your original slides and checked in code, and a separate model validates faithfulness to the original — three calls in all. Previews are marked DRAFT.
+
+Review the draft: each slide shows the original beside the proposal. The layout line reads either the reason the layout changed ("Merged for focus", "Split for detail") or "Layout kept". A coverage section lists any line from your deck the redesign does not carry — if it is missing on purpose, move on; if you meant to say it, revise.
+
+Citations to your deck appear in the audit report as "client-supplied deck, slide N" — they prove faithfulness to your own text, not that your text is right. The optional paper check proves the figures against research.
+
+Approvals are given on the draft exactly as in section 2b: brief, outline, claims, then "Build the final deck".
+
+**Terminal equivalents**, each in its own ```bash block:
+
+```bash
+uv run autodeck redesign <run> --client <c> --project <p> --deck path/to/deck.pptx
+```
+
+Options: `--wording light` (allow rewording; default is "trim only"), `--no-layouts` (disallow layout changes; default allows them), `--check-papers` (also check figures; default is off).
+
+```bash
+uv run autodeck answer <run> --accept-all
+```
+
+```bash
+uv run autodeck draft <run>
+```
+
+```bash
+uv run autodeck validate <run>
+```
+
+```bash
+uv run autodeck preview <run>
+```
+
+```bash
+uv run autodeck approve <run> brief --by "Your Name" --accept-risk km2
+```
+
+Then outline and claims approvals:
+
+```bash
+uv run autodeck approve <run> outline --by "Your Name"
+```
+
+```bash
+uv run autodeck approve <run> claims --by "Your Name"
+```
+
+Then render and final approval:
+
+```bash
+uv run autodeck render <run>
+```
+
+```bash
+uv run autodeck gate3 <run>
+```
+
+```bash
+uv run autodeck approve <run> final_render --by "Your Name"
+```
 
 ---
 

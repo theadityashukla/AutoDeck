@@ -7,13 +7,13 @@ every phase handover. If this file disagrees with your memory, this file is righ
 
 | | |
 |---|---|
-| **Current phase** | Phase 3b — renderer, QA and art direction: **implemented, awaiting the owner's GATE 2 and GATE 3 reviews** |
-| **Integration branch** | `v2/integration` — **unchanged since Phase 1.** 2a, 2b, 3a and 3b are stacked and unmerged (B27) |
-| **Active phase branch** | `v2/phase-3b-render-qa` (carries 3a, which is stacked under it) |
+| **Current phase** | Phase 3c — draft-first build: **in progress (decisions B43–B48 recorded)** |
+| **Integration branch** | `v2/integration` — **carries Phases 2a–3b** (merged 2026-10-02, B39) |
+| **Active phase branch** | Phase 3c work on `v2/phase-3c-draft-first` |
 | **Last gate passed** | **GATE 1** — approved 2026-09-18 (DECISIONS.md G1), at the precision that entry records |
-| **Next gate** | **GATE 2 — open**, then **GATE 3 — open too**: both can now be reviewed in one run, in order (`docs/OWNER-GUIDE.md`, sections 6 and 6b) |
-| **Latest handovers** | `docs/handovers/PHASE-2B.md`, `docs/handovers/PHASE-3A.md` (no Phase 3b handover written yet) |
-| **Updated** | 2026-10-01 |
+| **Next gate** | **GATE 3c** (replaces separate GATE 2 / GATE 3 reviews, B46) — draft-first pipeline: in ≤3 calls (clarify, compose, validate), every claim resolved and verified, DRAFT previews, scoped revision, approvals on the draft (B43–B48) |
+| **Latest handovers** | `docs/handovers/PHASE-2B.md`, `docs/handovers/PHASE-3A.md` |
+| **Updated** | 2026-10-03 |
 
 ## What the adversarial review found
 
@@ -39,21 +39,22 @@ percent", "four times"); A3's `chart` blocks never receive a verdict.
 
 ## Next action
 
-**A review UI now exists** (`uv run autodeck ui`, see `docs/OWNER-GUIDE.md` section 2).
-It covers planning and setup; later stages still use the terminal.
+**Phase 3c — draft-first build is underway.** The plan is at `docs/phases/PHASE-3C.md`; decisions are recorded as B43–B48 in `DECISIONS.md`. The pipeline will produce a rendered draft from one prompt in ≤3 model calls (clarify, compose, validate), where the brief, outline and every slide are written in one compose call with citations as an output contract, and a separate validator judges the whole deck in one call.
 
-**Judge GATE 2, then GATE 3, on a real deck.** Phase 2b is code complete — all eleven tasks —
-and Phase 3b (renderer, QA, art direction and the GATE 3 surface) is now implemented on
-`v2/phase-3b-render-qa`, but **no live milestone run exists** and nobody has yet reviewed
-GATE 2 or GATE 3. That is the invariant working rather than a shortfall. `autodeck content` refuses to run without an approved outline, and no flag
-anywhere approves a gate. GATE 1's approval was given against a run whose `runs/` directory
-was derived data on a machine that no longer exists, so the milestone starts from the
-planning session again.
+**Phase 3c is built, not yet live-tested (2026-10-03).** Draft-first works end to end in the
+CLI and the UI: describe the deck → checkpoint (assumptions + only questions that matter) →
+one compose call → citation/number checks → one validation call → DRAFT previews → review with
+verdicts and coverage → revise in the chat (only touched slides redone, verdicts reused) →
+approvals on the draft (weak messages must be carried as named risks) → final render. Verified
+in the browser with scripted stand-in models in place of Gemini (no API key on the build
+machine): every step, the 409 refusal for an unaccepted risk, and the final render's
+three-approval check. **Not yet run against a real model** — that, on `dev`, is the first
+GATE 3c action. The gate-first UI (B42) still works (`docs/OWNER-GUIDE.md` sections 2–6b);
+draft-first is section 2b.
 
-**The owner's step-by-step is `docs/OWNER-GUIDE.md`** (commands, what you will see, how to sign, what to
-send back), covering all four approvals: GATE 2 is its section 6 and GATE 3 — `render`, `gate3`, the five hands-on
-PowerPoint checks, `approve … final_render` — is its section 6b. It is the only copy of those
-instructions; start with its "Before you start".
+**Phase 3d (redesign) is built on top of it, also not yet live-tested.** Upload a .pptx, the deck becomes the run's own source (stored only in that run, B41), compose rebuilds it one-for-one citing original slides, code reports any line of the deck the redesign drops, validation checks faithfulness. Two provisional decisions need the owner: B49 (one-for-one by default; paper check opt-in) and B50 (one slide of the client's deck supports a message). Guide section 2c.
+
+**The gate-first flow (guide sections 3–6b) still works** alongside draft-first.
 
 Budget the quota: 20 requests per model per day, roughly one `content` call per slide and
 one `validation` call per six claims, spread across five models (B25).

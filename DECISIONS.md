@@ -1105,3 +1105,241 @@ the owner with options.
   - An optional check of figures against the project's papers can be offered.
   - The deck is a source for that run only and stays inside the client's namespace (A4).
   - The four approvals (A7) apply unchanged.
+
+### B42 — The UI runs the whole deck flow, approving through the CLI's own approval path
+- **Date:** 2026-10-02
+- **Phase / branch:** UI / `v2/integration`
+- **Status:** active — owner's decision (design approved on the canvas, built on request)
+- **Context:** B40's UI covered planning and setup; the outline, claims and final-deck
+  approvals still needed the terminal. The owner approved a design for every screen and
+  asked for it to be built, with approvals signed automatically under the admin's name
+  ("since it's a UI, that's kinda obvious") and a profile in Settings to pick that name.
+- **Decision:**
+  - **Steps run as the CLI.** `autodeck/ui/jobs.py` runs `python -m autodeck.cli <step>`
+    in a subprocess, one chain per person action: `outline`; `content` → `validate` →
+    `gate2`; `render` → `gate3`. The UI runs exactly what the terminal runs, gate checks
+    included; exit 4 (a report with findings) continues a chain, any other non-zero stops it.
+  - **One approval path.** `POST /api/runs/<id>/approve` → `approvals.approve_gate` →
+    `Orchestrator.approve`, the method `autodeck approve` calls, so every CLI refusal applies
+    unchanged. The brief stays signed through `PlannerSession.sign_off`. "Approve & proceed"
+    approves, then starts the next chain; the approval is the click, never the chain.
+  - **The name comes from the profile.** Settings › Profile stores the approver name in
+    `~/.autodeck/profile.json` (the person at this machine, not the project); until saved it
+    defaults to `git config user.name`, then the system account. Approving with no name at
+    all is refused.
+  - **No approval while a step runs** for that run, so an approval always covers what the
+    person saw.
+- **Rationale:** A7 is about who decides, not about typing. A name typed into a box on every
+  approval proves nothing a saved profile does not; the click on a reviewed screen is the
+  human act, and the orchestrator still binds it to the artifact's sha256.
+- **Consequences:**
+  - The A7 guard tests in `tests/test_ui.py` now pin exactly two routes: only `approvals.py`
+    calls `.approve(`, reachable only from the approve route; only `plan_sign` calls
+    `.sign_off(`; `jobs.py` never imports the approvals module.
+  - The five PowerPoint checks are ticked in the browser only; nothing in the code verifies
+    them, as before (`docs/OWNER-GUIDE.md` §6b).
+  - Redesign (B41) appears on the start screen but stays disabled until it is built.
+  - B30 is unchanged: approvals still live in the run's uncommitted `state.json`.
+
+### B43 — Phase 3c: draft-first build (A7 amended: approvals are given on the assembled draft)
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c / `v2/integration` (phase plan `docs/phases/PHASE-3C.md`)
+- **Status:** active — owner's decision. The owner, after using the B42 UI: *"It should be
+  able to brief and outline after the first prompt itself, it is AutoDeck. Whenever it
+  writes something it should cite it. All of this should happen in the same call."* On the
+  phase plan's proposals (D-A7, D-A3, D-PLAN, D-SIZE, D-GATES): *"Aligned with the
+  implementation, lets go."*
+- **Context:** the gate-first pipeline asks for a brief and an outline approval before any
+  slide exists, and spends ~25–35 model calls before a draft is visible. The owner's view:
+  people find what is missing only once the pieces assemble.
+- **Decision (D-A7):** the four approvals stay mandatory and stay a person's. The pipeline
+  may build an **unapproved draft** end to end — brief, outline, slides, citation checks,
+  validation and DRAFT-marked previews — without any approval. It may not write the final
+  `deck.pptx`, export, or label anything final without all four approvals current, and an
+  approval still binds to the fingerprint of what it covers, so a revision that changes an
+  artifact voids exactly the approvals that covered it.
+- **Rationale:** A7 protects who decides, not the order things are built in. Approving a
+  brief after seeing the slides it produced is a better-informed approval of the same brief.
+  Rejected: fewer approvals (the audit trail records four; the UI makes each a click).
+- **Consequences:** `docs/INVARIANTS.md` A7 is amended to this wording. The gate-bypass
+  tests stay and extend to the new commands; new tests pin that no draft path writes
+  `deck.pptx` or reads as final.
+
+### B44 — A3 independence is about who judges, not how many calls
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's decision (D-A3 in the phase plan, approved with B43)
+- **Decision:** the validator keeps its own retrieval and a model different from the
+  writer's, and judges the whole deck in as few batched calls as its token budget allows
+  (one for a typical deck) instead of a fixed six claims per call. The writer's citations
+  never count as validation; code-side resolution (A1) proves a quote exists, the validator
+  (A3) judges whether it supports the sentence.
+- **Consequences:** `validation.BATCH_SIZE` becomes a token-budgeted batcher; the A3
+  contradiction test must still pass on the new path.
+
+### B45 — One compose call writes brief, outline and slides; citations are its output contract
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's decision (the phase's core; D-PLAN and D-SIZE approved with B43)
+- **Decision:** a new `composer` role makes one structured call from the prompt and a
+  deterministic evidence pack, returning brief + outline + every slide's blocks. Every claim
+  and every key message carries `(span id, verbatim quote)` pairs, resolved in code through
+  the existing resolvers (`agents/content.py`), never composed. Key-message evidence status
+  is computed from what resolved, with the existing `_cap` rule — no per-message probe call.
+  Above a token budget (roughly 10–12 slides) the brief and outline come in one call and the
+  slides in section-sized calls under the same contract. The planner conversation becomes
+  optional: a way to revise the draft.
+- **Consequences:** the evidence-gap probe leaves the default path (kept as a library);
+  per-slide content writing remains only as the scoped path for a revision.
+
+### B46 — The pending GATE 2 / GATE 3 reviews move to GATE 3c
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's decision (D-GATES, approved with B43)
+- **Decision:** GATE 2 and GATE 3 are not run on the gate-first flow. Phase 3c keeps every
+  component they judge (validation, render, QA, audit) and GATE 3c exercises them on the
+  draft-first flow; the owner reviews once.
+- **Consequences:** `STATUS.md` names GATE 3c as the next gate when the phase lands.
+
+### B47 — Draft-first always asks first; a chat mode stays available before drafting
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's decision; **refines B45's planner clause (D-PLAN)**. The owner,
+  on the phase plan: *"There should be a way to switch to chat mode before planning. And in
+  any case, it should always ask questions/clarifications before jumping into the deck."*
+- **Decision:**
+  - **Clarify, always.** Between the prompt and the compose call there is one `clarify`
+    call: from the prompt and the evidence pack it asks a few (one to four) questions the
+    draft genuinely depends on — audience, decision, length, and above all the gaps the
+    evidence shows ("the review has no head-to-head data against X: include the comparison
+    or leave it out?"). Each question carries a suggested answer the person can accept as
+    is. The person's answers go into the compose call. The draft never starts without this
+    step. First draft: three calls (clarify, compose, validate) instead of two.
+  - **Chat mode, optional.** The start screen offers "Draft from a prompt" or "Plan in a
+    chat first". Chat mode is the existing planner conversation; it ends in "Draft the
+    deck", and compose takes the conversation's brief as given (writing the outline and
+    slides to it) instead of writing a brief of its own.
+- **Rationale:** the questions are where the owner's knowledge enters before the expensive
+  call, at the cost of one short turn; grounding them in the evidence pack makes them about
+  this deck's real gaps rather than a form. Chat mode keeps the planner for people who want
+  to think aloud first.
+- **Consequences:** `docs/phases/PHASE-3C.md` gains the clarify step and chat mode;
+  `prompts/clarify.md` is a new Opus-owned prompt; the gate 3c call budget is ≤ 3 calls.
+
+### B48 — Ask only what changes the deck; one conversation; agreed messages are never silently dropped
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's decision; **refines B47**. Proposed by the orchestrator, the
+  owner's answers: *"Aligned on ask if required"*; on one chat: *"Okay"*; on calling out what
+  the draft skipped: *"Yes, I agree, anything that's skipped should be called out. Better
+  yet, if it's aligned and then skipped due to thin evidence, keep it and call out."*
+- **Decision:**
+  - **The checkpoint always appears; questions only when they matter.** Before the compose
+    call the person always sees what the draft will assume (audience, decision, length, the
+    evidence it will lean on) and zero to three questions — only those whose answer would
+    change the deck, each with a suggested answer. One click drafts. Refines B47's "always
+    ask": the step is never skipped, a question is never invented to fill it.
+  - **One conversation.** A single chat on the run: before a draft exists, a message shapes
+    the brief (the planner); once it exists, a message is a scoped revision. One transcript
+    for the person; the two jobs keep their own prompts underneath.
+  - **Coverage is called out, and agreed messages stay.** A key message the person agreed to
+    (in their prompt, their answers or the chat) is never dropped for weak evidence. If the
+    evidence is `thin`, the message stays on its slides, hedged as `prompts/content.md`'s A8
+    section requires, and is flagged. If it is `unsupported`, it stays in the brief and the
+    review screen shows it as a gap with the three options (source it, reword it, carry it as
+    a named risk); no uncited sentence is written for it (A1 is not relaxed). Anything the
+    draft leaves out — an answer it could not honour, a `must_include` with no slide — is
+    listed in a coverage section of the review screen and the audit report.
+- **Consequences:** compose returns a coverage report beside the draft; approving the brief
+  of a draft with `thin` or `unsupported` messages asks the person to accept each as a named
+  risk, which is how `DeckBrief`'s `_gaps_are_accounted_for` rule is met.
+
+### B49 — Phase 3d defaults: one-for-one redesign; figure check against papers is opt-in
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3d (redesign, B41) on top of Phase 3c
+- **Status:** **provisional** — taken by the orchestrator under plan §0.6 while the owner was
+  away ("then pick up the existing deck part"); the owner should confirm or reverse both.
+- **Context:** `docs/phases/PHASE-3D.md` left two questions open: may a redesign merge or
+  split slides, and is checking figures against the project's papers on by default?
+- **Decision:**
+  - **One-for-one by default.** Each original slide becomes one redesigned slide, in order.
+    The clarify checkpoint may *ask* to merge or split when the deck plainly needs it (an
+    overloaded slide, two half-empty ones); only the person's answer allows it.
+  - **The paper check is opt-in.** B41 calls it optional; it costs evidence-pack space and a
+    second store, and a redesign's first promise is faithfulness to the client's own deck.
+- **Rationale:** both are the smallest reasonable reading of B41 and both are easy to widen;
+  the reverse (merging slides or checking papers the person did not ask for) changes their
+  deck in ways they did not request.
+- **Consequences:** `prompts/redesign.md` states the one-for-one rule and the exception;
+  the redesign settings default `check_papers` to false.
+
+### B50 — On a redesign, a key message stated on one slide of the client's deck is "supported"
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3d
+- **Status:** **provisional** — taken by the orchestrator while the owner was away; confirm.
+- **Context:** key-message evidence status uses `evidence_gap._cap`: one non-curated passage
+  is `thin`. On a redesign every message cites the client's own slides, so almost every
+  message would be `thin`, and approving the brief would mean accepting a named risk for each.
+- **Decision:** when every resolved citation of a key message is to the client-supplied deck
+  (`client-deck--`), the message is `supported`, noted "stated in the client's deck: slide N".
+  A message mixing deck and paper citations, or citing papers only, is graded as before.
+- **Rationale:** B41 — a redesign citation proves faithfulness to the client's deck, not
+  truth, and the audit report labels it so. `_cap` exists because one research passage is a
+  thin basis for a general claim; one slide of the client's own deck is the whole basis a
+  redesign claims.
+- **Consequences:** a redesign's brief approval asks about risks only for messages the deck
+  does not state at all (`unsupported`). The truth of the deck's claims is what the opt-in
+  paper check (B49) is for.
+
+### B51 — A `dev-mistral` environment on small paid Mistral models
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's instruction ("We only have $10 so lets use a small model")
+- **Context:** the Gemini free tier stopped being usable for a full run: 20 requests per day
+  per model (B25) and frequent 503s. The owner wants no token spend beyond the $10/month API
+  allowance included in their Mistral plan. Hugging Face's free inference credit ($0.10/month)
+  and the free tiers that cap input at 8k–12k tokens (Groq, Cerebras, GitHub Models) cannot
+  take a compose call of about 30k tokens.
+- **Decision:** add a Mistral adapter (`autodeck/providers/mistral.py`, strict schema
+  dialect) and a `dev-mistral` environment. `ministral-14b-2512` serves every role except
+  `validation` and `ingest_vlm`, which run on `ministral-8b-2512`, so the judge is not the
+  writer (B44). Mistral Small and Medium were the first choice, but this account's limit
+  on both is 0 requests per minute; the Ministral models allow 30 and 188.
+  `ingest_vlm` moves to Mistral in this environment only. `dev` itself is unchanged.
+- **Rationale:** at about $0.20/M tokens a draft run costs a few
+  cents, so the allowance covers hundreds of runs. Small models fit the B8 position that a
+  dev result is a smoke test, not an accuracy measurement.
+- **Consequences:** B8's "Gemini and Groq back every role in dev" and "`ingest_vlm` stays on
+  Gemini everywhere" hold for `dev`, not for `dev-mistral`. A3 and A8 results from this
+  environment say nothing about `sit`.
+
+### B52 — A near-verbatim quote is cited in the source's words, not dropped
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c
+- **Status:** active — owner's decision ("the focus should be on ensuring that the meaning
+  does not change. That's why we have LLMs checking it rather than static code")
+- **Context:** the first live draft (`dev-mistral`, run `Xls`) dropped 10 of 12 citations as
+  "not verbatim". Most were the right passage copied imperfectly: a period added where the
+  model cut a sentence short (3), reference markers like "[50, 51]" left out (1), a PDF
+  extraction space in "( p = 0.76)" tidied away (1). Two were real splices of two sentences.
+  The dropped blocks emptied two chart slots, and the draft preview then crashed.
+- **Decision:**
+  - The model's quote decides only *which passage* it points at. When it is not found
+    exactly, `provenance.snap_span` looks for one passage among the evidence that slide was
+    shown which accounts for ≥85% of the quote, in order, within 1.5× its length (quotes
+    under 20 characters never snap). The citation is then built from that passage's
+    verbatim text through the usual A1 path (`to_citation` → `resolve_quote`), with its
+    hash; the model's wording is discarded. Compose and revise list each snap in
+    `corrections`.
+  - The validator's quotes use the same rule (`ValidatorEvidence.find`), so a judge that
+    copies its supporting span slightly wrong is not capped to `unsupported` for it.
+  - Whether the passage supports the slide's sentence stays the validator's judgement (A3).
+  - The draft preview draws a slide its component cannot draw (a required slot emptied by a
+    dropped block) as a labelled placeholder instead of failing the whole preview.
+- **Rationale:** A1 exists so every citation is the document's real words at a real
+  location. That holds: nothing the model wrote reaches a citation. What changes is that an
+  imperfect pointer to the right passage no longer costs the claim. A paraphrase, or text
+  the evidence does not contain, still resolves to nothing, so a fabricated quote cannot
+  pass.
+- **Consequences:** re-running the `Xls` quotes: 5 of the 7 failures snap; the 2 splices are
+  still dropped. Thresholds are constants in `autodeck/ingest/provenance.py`.
