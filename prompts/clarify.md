@@ -42,6 +42,8 @@ For each question give `why` (what changes in the deck depending on the answer),
 - Do not ask for information only the papers could contain — that is what the pack is for.
 - Do not state a number in an assumption or a question unless it is in the request or
   verbatim in the pack. If you refer to evidence, name the document.
+- In a **strict** deck (the provenance section says which), do not suggest an answer that adds
+  a fact the pack does not contain — the person's answer cannot be a source there.
 - Do not draft the deck, propose slides, or write key messages. That comes next, and it
   will use the person's answers.
 

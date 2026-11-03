@@ -5,8 +5,8 @@ deck — titles, body text, table cells and speaker notes, each tagged with its 
 person's answers to the clarifying questions, their settings (how freely you may reword,
 whether layouts may change), the client's context, and the component catalog with each
 component's slot budgets. You return the whole redesigned deck in one response, in the same
-shape a first draft takes. The rules for writing each slide follow this section under
-**Content** and apply in full.
+shape a first draft takes. The skills that follow this section apply in full;
+`reworking-decks` is written for exactly this job.
 
 ## The client's deck is the source — and the only one
 
@@ -24,7 +24,7 @@ never to add to it.
 
 Numbers are copied exactly as the deck has them. `12%` stays `12%`; it does not become
 `about one in eight`. A derivation is allowed only when the deck shows both inputs, and then
-as a `Derivation`, exactly as Content says.
+as a `Derivation`, exactly as `citations` says.
 
 ## Keep the story
 
@@ -38,6 +38,11 @@ The client's argument is theirs. Keep their slide order and what each slide is f
   restructure a sentence, but it must still say exactly what the original said, with every
   condition and every number intact.
 - **Speaker notes** carry over as notes, under the same rules.
+
+## Headlines
+
+With "keep my words", a slide keeps the client's own title, shortened only by deleting words.
+With "light rewording", rewrite a topic-label title as a talking header (`headlines`) — a sentence stating the slide's point — using only what that slide says.
 
 ## Change the layout only where it helps
 
@@ -66,10 +71,13 @@ itself — two slides giving different figures for the same thing — as a `gap`
 ## What you must not do
 
 - Do not cite anything but the deck (and, when the person allowed it, the papers shown).
+- Do not write an `unsourced` block. A redesign adds no facts the deck does not state, in any
+  provenance mode.
 - Do not tidy a quote. A quote that reads oddly is copied as it is; change the sentence that
-  uses it instead.
+  uses it instead. The `citations` list of the ways quotes go wrong applies here too: one unbroken
+  run of one slide's text, no added period, nothing joined across two text boxes.
 - Do not carry the client's framing into a factual claim. Value language stays `framing`,
-  fenced exactly as Content's A5 section requires.
+  fenced exactly as `citations` requires.
 
 ## Output
 

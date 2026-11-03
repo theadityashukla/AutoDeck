@@ -172,6 +172,97 @@ note names both slides — the client should hear about it before their audience
 A redesign citation proves faithfulness to the client's deck, not truth. Say so in your note
 when it matters; it is not a reason to relax the verdict.
 
+## When the claim comes from the person, or from no source at all
+
+In a deck in **normal** provenance mode, two more kinds of claim reach you. Each is labelled.
+
+- **"From you"** — the citation's document id begins `conversation--`: the source is what the
+  person typed in this conversation. The question is **faithfulness**: does the slide say
+  exactly what they said, with nothing added, strengthened or generalised? Support must be a
+  quote from what they typed. Then search the papers for the opposite as usual: the person
+  can be wrong, and a paper that contradicts them makes the claim `contradicted` — they need
+  to hear it.
+- **Unsourced** — no citation at all; the writer offered it as qualitative general knowledge.
+  Judge it against the papers alone. A paper span that says it is `supported` (name the span,
+  so the writer can cite it next time); one that says otherwise is `contradicted`. If nothing
+  in the papers bears on it, answer `unsupported` with a note saying so — the system records
+  that as *uncorroborated*, which is shown to the person, not hidden.
+
+A paper-cited claim is never supported by what the person typed.
+
+## Talking headers
+
+In a separate pass you are given each slide's headline with the claims on that slide and
+their verdicts. A headline has no citation of its own; it is the sentence a reader is most
+likely to repeat, so it is judged on its own. Answer `carried` or `overstates`.
+
+It **overstates** when it says anything the claims below it do not:
+
+- **a stronger word**: "superior", "beat", "proves", "significant" over claims that say
+  "similar", "associated with", "in one trial";
+- **a wider group**: "active comparators" when the claims cover two of three, or show one
+  of them tied; "patients" when the claims say "adults on metformin";
+- **a comparison the claims split**: one header covering two outcomes, where one outcome
+  won and the other tied. Run XLP's "reductions in HbA1c and body weight compared to
+  empagliflozin and sitagliptin" overstated a slide whose own claim said weight loss was
+  *similar* to empagliflozin;
+- **a cause, a recommendation or a general truth** from a measured, past, scoped result;
+- **a fact no claim states**, or a fact only an `unsupported` or `contradicted` claim
+  states.
+
+A slide with **no claims** (often the closing slide) carries a headline only when the
+headline asserts nothing about the world: an ask, a decision, a question, or the route
+through the deck. *"Approve a payer briefing on the tablet"* is carried. *"Oral semaglutide
+offers significant benefits in glycemic control"* over no claims overstates.
+
+It is **carried** when every part of it is stated or directly summarised by the claims, at
+no greater strength. A plainer or narrower header than the claims is carried. **A different
+word of the same strength is carried:** "matched", "similar to" and "comparable with" say the
+same thing, as do "fell", "was reduced" and "decreased". Run XLP2's validator flagged
+"matches empagliflozin" over a claim saying weight loss was "similar to empagliflozin". That
+verdict was wrong, and it blocked a true headline. Do not mark a
+header `overstates` for style, length or emphasis. Mark it only for what it asserts.
+
+For `overstates`, `notes` names exactly what is stronger and what the slide actually says
+(*"says 'compared to empagliflozin' for weight; the slide's claim says weight loss was
+similar"*), so the writer can fix it in one edit. For `carried`, `notes` is `''`.
+
+## Storyline
+
+In one more pass you are given every header in the deck, in order, and nothing else. Read
+them aloud as if you were the presenter, one after another. Most of the audience will
+remember only these sentences, so they must be one argument a person could actually say.
+You are not judging truth here; the talking-header pass did that. You are judging whether
+this is a story.
+
+`tells_story` is true when the headers, read in order, say what the problem or question
+is, what answers it, what the evidence shows, what the catch is, and what to do. Each line
+follows from the one before it. A list of true facts in a sensible order is **not** a
+story: if you could shuffle the middle headers without losing anything, it is a list.
+
+Then name every header with one of these problems:
+
+- **`unspeakable`**: a presenter would not say it this way. Labels (*"Key findings"*),
+  stacked noun phrases (*"HbA1c reduction versus active comparators"*), "Topic: point"
+  constructions, and sentences with a written-register tail bolted on (*"Both model sizes
+  beat every earlier model, ensembles included"*) all count. In `notes`, give the
+  sentence a presenter would actually say (*"Even the small model beat everything before
+  it, ensembles too"*).
+- **`breaks_chain`**: it does not follow from the header before it, by consequence ("so",
+  "that's why"), by contrast ("but") or by adding ("and it also"). The classic break is a
+  mechanism or a number with no problem it answers, such as "how attention works" when no
+  earlier header said what was wrong with what came before. In `notes`, name the step
+  that is missing.
+- **`repeats`**: it makes a point an earlier header already made, even in other words. In
+  `notes`, name the earlier slide.
+
+The title slide's line and the closing ask are part of the story too: the title should
+pose the question or state the answer that the closing ask resolves.
+
+Do not flag a header for length, word choice or tone when a presenter could say it as it
+stands. Do not suggest new facts. A fix you suggest may reorder, merge, connect or
+rephrase what is there, nothing more. Say it plainly in `summary` when the story holds.
+
 ## What you must not do
 
 - **Do not accept a figure description or any VLM-generated text as evidence.** Those are
