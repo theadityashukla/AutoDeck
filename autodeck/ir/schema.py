@@ -1,10 +1,9 @@
 """JSON-Schema export for LLM structured output.
 
 Providers disagree about JSON Schema, and they disagree in ways that fail at request time
-rather than at review time. Gemini's schema dialect rejects `$ref` and several validation
-keywords; OpenAI-compatible strict mode (which Groq serves) requires every property to
-appear in `required` and forbids open objects; Anthropic accepts near-full JSON Schema as
-a tool input schema. Emitting one shape and hoping is how a provider swap turns into a
+rather than at review time. OpenAI-compatible strict mode (Mistral, OpenAI, Nebius)
+requires every property to appear in `required` and forbids open objects; Anthropic
+accepts near-full JSON Schema as a tool input schema. Emitting one shape and hoping is how a provider swap turns into a
 day of debugging, so the differences are handled here, once, behind a flavour argument.
 
 The models themselves stay authoritative — this module only reshapes what pydantic emits.
@@ -21,42 +20,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-SchemaFlavor = Literal["standard", "strict", "gemini"]
+SchemaFlavor = Literal["standard", "strict"]
 """Which dialect to emit.
 
 - `standard` — pydantic's own output, `$defs` intact. Fine for Anthropic tool schemas and
   for writing the schema to disk.
-- `strict` — OpenAI-compatible strict mode (Groq, and Gemini's OpenAI shim): every
+- `strict` — OpenAI-compatible strict mode (Mistral, OpenAI, Nebius): every
   property listed in `required`, `additionalProperties: false` on every object.
-- `gemini` — the native Gemini `response_schema` dialect: references inlined, unsupported
-  keywords dropped.
 """
-
-#: Keywords the Gemini schema dialect does not accept. `$ref` is absent because references
-#: are inlined before this set is applied.
-_GEMINI_UNSUPPORTED: frozenset[str] = frozenset(
-    {
-        "$defs",
-        "$schema",
-        "additionalProperties",
-        "allOf",
-        "const",
-        "default",
-        "discriminator",
-        "exclusiveMaximum",
-        "exclusiveMinimum",
-        "maxItems",
-        "oneOf",
-        "patternProperties",
-        "prefixItems",
-        "uniqueItems",
-    }
-)
-
-# `maxItems` is dropped because Gemini compiles the schema into a constraint automaton and
-# rejects it with "too many states for serving" when a capped array is nested (the draft-first
-# compose schema: slides -> blocks -> diagram steps, capped at 6). The cap is still enforced:
-# every response is re-validated by the pydantic model.
 
 #: Keys whose values are maps of *name -> schema*, so their keys are data, not keywords.
 _SCHEMA_MAPS: frozenset[str] = frozenset({"properties", "$defs", "patternProperties"})
@@ -94,36 +65,6 @@ def _map_schema_objects(node: Any, fn: Callable[[dict[str, Any]], dict[str, Any]
     return result
 
 
-def _inline_refs(node: Any, defs: dict[str, Any], stack: tuple[str, ...] = ()) -> Any:
-    """Replace every `$ref` with the definition it points at.
-
-    Raises `SchemaError` on a recursive model rather than recursing forever. No IR model is
-    currently recursive; if one becomes so, the Gemini path needs a real answer and a silent
-    stack overflow is the worst way to find that out.
-    """
-    if isinstance(node, list):
-        return [_inline_refs(item, defs, stack) for item in node]
-    if not isinstance(node, dict):
-        return node
-
-    ref = node.get("$ref")
-    if isinstance(ref, str):
-        name = ref.rsplit("/", 1)[-1]
-        if name in stack:
-            raise SchemaError(
-                f"recursive model definition {name!r} (via {' -> '.join(stack)}); "
-                "the Gemini schema dialect cannot express it because it has no $ref"
-            )
-        if name not in defs:
-            raise SchemaError(f"unresolved schema reference {ref!r}")
-        target = _inline_refs(defs[name], defs, (*stack, name))
-        siblings = {k: v for k, v in node.items() if k != "$ref"}
-        # Sibling keys (description, title) annotate the reference site and win.
-        return {**target, **_inline_refs(siblings, defs, stack)}
-
-    return {key: _inline_refs(value, defs, stack) for key, value in node.items()}
-
-
 def _require_all_properties(schema: dict[str, Any]) -> dict[str, Any]:
     """OpenAI strict mode: every declared property must be listed in `required`.
 
@@ -134,39 +75,6 @@ def _require_all_properties(schema: dict[str, Any]) -> dict[str, Any]:
         schema["required"] = list(schema["properties"].keys())
         schema.setdefault("additionalProperties", False)
     return schema
-
-
-def _strip_gemini_unsupported(schema: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in schema.items() if k not in _GEMINI_UNSUPPORTED}
-
-
-def _collapse_nullable_unions(schema: dict[str, Any]) -> dict[str, Any]:
-    """Rewrite `anyOf: [X, {"type": "null"}]` as X with `nullable: true`.
-
-    Pydantic emits `X | None` as a two-branch `anyOf`. Gemini's native `response_schema`
-    accepts that shape without complaint and then **silently omits the field** when X is an
-    array of objects — no error, no warning, just a response missing the key.
-
-    That was not a theoretical concern. The Phase 2a planner returned briefs where
-    `objective` and `probe_messages` (plain scalars) came through while `key_messages`,
-    `layout_pins` and `open_risks` (all `list[Model] | None`) were absent on every call,
-    across three models and two prompt rewrites. The conversation read perfectly and the
-    artifact was empty, which is the worst failure shape available: nothing errors.
-
-    `nullable: true` is Gemini's own way of saying the same thing, and it survives.
-    """
-    branches = schema.get("anyOf")
-    if not isinstance(branches, list) or len(branches) != 2:
-        return schema
-
-    non_null = [b for b in branches if not (isinstance(b, dict) and b.get("type") == "null")]
-    if len(non_null) != 1 or not isinstance(non_null[0], dict):
-        return schema
-
-    # Annotations sit on the union, not the branch, so they must be carried across or the
-    # field arrives with no description telling the model what it is for.
-    annotations = {k: v for k, v in schema.items() if k != "anyOf"}
-    return {**non_null[0], **annotations, "nullable": True}
 
 
 def export_schema(model: type[BaseModel], flavor: SchemaFlavor = "standard") -> dict[str, Any]:
@@ -187,10 +95,7 @@ def export_schema(model: type[BaseModel], flavor: SchemaFlavor = "standard") -> 
     if flavor == "strict":
         return _map_schema_objects(schema, _require_all_properties)
 
-    defs = schema.pop("$defs", {})
-    inlined = _inline_refs(schema, defs)
-    stripped = _map_schema_objects(inlined, _strip_gemini_unsupported)
-    return _map_schema_objects(stripped, _collapse_nullable_unions)
+    raise SchemaError(f"unknown schema flavor {flavor!r}")
 
 
 def schema_digest(schema: dict[str, Any]) -> str:

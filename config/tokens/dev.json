@@ -1,5 +1,5 @@
 {
-  "name": "AutoDeck Dev (Inter)",
+  "name": "AutoDeck Dev (Carlito)",
   "palette": {
     "dk1": "15202B",
     "lt1": "FFFFFF",
@@ -15,12 +15,12 @@
     "followed_hyperlink": "5E5A80"
   },
   "typography": {
-    "major": "Inter Display",
-    "minor": "Inter",
+    "major": "Carlito",
+    "minor": "Carlito",
     "display": 54.0,
     "title": 32.0,
-    "heading": 22.0,
-    "body": 16.0,
+    "heading": 24.0,
+    "body": 18.0,
     "caption": 12.0,
     "minimum": 10.0,
     "line_height": 1.25

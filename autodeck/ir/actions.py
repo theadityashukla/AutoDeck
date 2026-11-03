@@ -269,6 +269,8 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
         refuses `text` on it — so it holds no fact, and `AssignIcons` may add or replace
         icon blocks without tripping the detector. Every other block kind stays keyed in,
         so a deleted claim, framing line, chart, diagram or figure still changes it.
+      - Covers `Deck.provenance` (B55): the same claims mean something different under a
+        strict and a normal deck.
       - Pure; never mutates `deck`.
     """
     claim_entries: list[tuple[tuple[str, str, str | None, bool], object]] = []
@@ -298,7 +300,9 @@ def fact_fingerprint(deck: Deck) -> tuple[object, ...]:
                 block_entries.append(((slide.id, block.id, in_notes), content))
     block_entries.sort(key=lambda entry: (entry[0][0], entry[0][1], entry[0][2]))
 
-    return (tuple(claim_entries), tuple(block_entries))
+    # The provenance mode decides which claims are legitimate at all (B55), so a deck that
+    # changes mode has changed what the claims table approved.
+    return (deck.provenance, tuple(claim_entries), tuple(block_entries))
 
 
 def facts_digest(deck: Deck) -> str:

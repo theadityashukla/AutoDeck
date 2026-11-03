@@ -55,6 +55,9 @@ STEP_LABELS = {
     "gate3": "Final audit",
 }
 
+#: The same steps when the deck agent does the work (Phase 4c).
+AGENT_LABELS = {"draft": "Agent drafting", "revise": "Agent revising"}
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -76,12 +79,18 @@ class Job:
     #: Per-job inputs a step needs beyond the run (the revise instruction, chat mode).
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def _label(self) -> str:
+        if self.extra.get("agent") and self.step in AGENT_LABELS:
+            return AGENT_LABELS[self.step]
+        return STEP_LABELS.get(self.step, self.step)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
+            "agent": bool(self.extra.get("agent")),
             "steps": list(self.steps),
             "step": self.step,
-            "step_label": STEP_LABELS.get(self.step, self.step),
+            "step_label": self._label(),
             "status": self.status,
             "exit_code": self.exit_code,
             "started_at": self.started_at,
@@ -250,7 +259,7 @@ def cli_command(
         ]
     if step == "clarify":
         meta = read_run_meta(roots, run_id)
-        return [
+        argv = [
             *base,
             "--client",
             str(extra.get("client") or meta.get("client", "")),
@@ -265,6 +274,11 @@ def cli_command(
             str(roots.corpus),
             *runs,
         ]
+        if extra.get("provenance"):
+            argv += ["--provenance", str(extra["provenance"])]
+        if extra.get("design_mode"):
+            argv += ["--design-mode", str(extra["design_mode"])]
+        return argv
     if step == "redesign":
         meta = read_run_meta(roots, run_id)
         argv = [
@@ -284,6 +298,10 @@ def cli_command(
             str(roots.corpus),
             *runs,
         ]
+        if extra.get("provenance"):
+            argv += ["--provenance", str(extra["provenance"])]
+        if extra.get("design_mode"):
+            argv += ["--design-mode", str(extra["design_mode"])]
         if extra.get("layouts") is False:
             argv.append("--no-layouts")
         if extra.get("check_papers"):
@@ -303,6 +321,8 @@ def cli_command(
             argv += ["--tokens", str(roots.tokens)]
             if extra.get("from_chat"):
                 argv.append("--from-chat")
+            if extra.get("agent"):
+                argv.append("--agent")
         else:
             argv += ["--instruction", str(extra.get("instruction", ""))]
         return argv

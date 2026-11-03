@@ -6,7 +6,7 @@ Marked `live`, so deselected by default. CI holds no credentials and these cost 
     uv run pytest -m live -q -k claude  # one provider
 
 This is the test that answers `docs/MODEL_ROUTING.md`'s structured-output parity watch
-item: JSON-mode and tool-use support varies by provider, and within Groq by the open model
+item: JSON-mode and tool-use support varies by provider, and within a provider by the model
 being served. Where a provider is weaker the repair path carries more load, and finding
 that out here is much cheaper than finding it out in Phase 2b, where structured output is
 load-bearing for every claim.
@@ -22,8 +22,7 @@ from pydantic import Field
 from autodeck.ir.models import IRModel
 from autodeck.providers.base import BaseProvider, ProviderConfig, StructuredOutputError
 from autodeck.providers.claude import ClaudeProvider
-from autodeck.providers.gemini import GeminiProvider
-from autodeck.providers.groq import GroqProvider
+from autodeck.providers.mistral import MistralProvider
 from autodeck.providers.registry import ModelRegistry
 
 pytestmark = pytest.mark.live
@@ -41,8 +40,7 @@ PROMPT = "Describe the planet Mars. Confirmed moons only."
 
 #: provider class, env var, and the dev/sit model id each is exercised against.
 CASES = [
-    pytest.param(GeminiProvider, "GEMINI_API_KEY", "gemini-2.5-flash", id="gemini"),
-    pytest.param(GroqProvider, "GROQ_API_KEY", "openai/gpt-oss-120b", id="groq"),
+    pytest.param(MistralProvider, "MISTRAL_API_KEY", "ministral-14b-2512", id="mistral"),
     pytest.param(ClaudeProvider, "ANTHROPIC_API_KEY", "claude-sonnet-5", id="claude"),
 ]
 

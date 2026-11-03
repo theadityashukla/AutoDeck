@@ -1573,7 +1573,9 @@ def render_budgets(component: str, tokens: DesignTokens) -> str:
 
     lines = [f"{component} text budgets:"]
     lines.extend(
-        f"- {_describe_slot(slot, tokens)}{_optional_tag(slot)}" for slot in default.slots
+        f"- {_describe_slot(slot, tokens)}"
+        f"{'' if slot.name in CODE_FILLED_SLOTS else _optional_tag(slot)}"
+        for slot in default.slots
     )
 
     for variant in entry.variants:
@@ -1595,14 +1597,47 @@ def _changed_slots(spec: ComponentSpec, default: ComponentSpec) -> list[Componen
     return [slot for slot in spec.slots if by_name.get(slot.name) != slot]
 
 
+#: How many lines a slot of each type-scale role should *aim* for, whatever its ceiling.
+#: A slot's budget is the most it could hold alone ("upper bounds a slot could use alone",
+#: above) — 357 characters for a chart headline — which tells a writer nothing about how long
+#: it should be. Headers and display text read best in at most two lines; headings and
+#: captions in one; body text may use what it has.
+TARGET_LINES: dict[str, int] = {"display": 2, "title": 2, "heading": 1, "caption": 1, "body": 4}
+"""Lines to aim for, per role. `body` was uncapped: a target of 85% of every line a body box
+could hold (eleven on `before_after`) was more than the slot's region could hold beside its
+neighbours, and four lines is about as much prose as a slide should carry (design gallery,
+2026-10-13)."""
+
+#: The share of a target line count's average capacity to aim for: the ceiling's character
+#: count is an average-glyph estimate, and wide letters fill a line sooner.
+TARGET_SHARE = 0.85
+
+
+def target_chars(budget: SlotBudget, role: str) -> int:
+    """The length to aim for in a slot: below its ceiling, sized to how the role reads."""
+    lines = min(budget.max_lines, TARGET_LINES.get(role, budget.max_lines))
+    per_line = budget.max_chars / max(budget.max_lines, 1)
+    return max(1, round(TARGET_SHARE * per_line * lines))
+
+
+#: Slots the renderer fills itself (`renderer._COMPUTED_FIELDS`): the source line from the
+#: slide's citations, a divider's number from its position. Listed so the writer knows they
+#: exist, and told not to write them — a block there is rejected as `computed_slot`.
+CODE_FILLED_SLOTS: frozenset[str] = frozenset({"source", "section_number"})
+
+
 def _describe_slot(slot: ComponentSlot, tokens: DesignTokens) -> str:
+    if slot.name in CODE_FILLED_SLOTS:
+        return f"{slot.name}: filled by code — do not write a block for it"
     if not slot.repeatable:
-        return _budget(slot, tokens).describe()
+        budget = _budget(slot, tokens)
+        return f"{budget.describe()}; aim ≤ {target_chars(budget, slot.role)} characters"
     item = _item_budget(slot, tokens)
     return (
         f"{slot.name}: a LIST of items, up to {_max_items(slot)} of them, each at most "
         f"{item.max_lines} line(s), roughly {item.max_chars} characters, at "
-        f"{item.size_pt:g}pt {item.family}"
+        f"{item.size_pt:g}pt {item.family}; aim ≤ {target_chars(item, slot.role)} "
+        "characters each, one block per item"
     )
 
 

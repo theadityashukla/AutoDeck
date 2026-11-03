@@ -388,7 +388,7 @@ def test_a_spent_art_direction_quota_explains_the_missing_icons_in_plain_words(
     runs_root, _knowledge = make_gate3_run(tmp_path)
     patch_roles(
         monkeypatch,
-        outline=FakeArtModel(RateLimitError("gemini: rate limited (429)")),
+        outline=FakeArtModel(RateLimitError("mistral: rate limited (429)")),
         aesthetic=FakeCritic(),
     )
 
@@ -439,7 +439,7 @@ def test_the_cache_note_is_what_the_render_command_prints(
     runs_root, _knowledge = make_gate3_run(tmp_path)
     patch_roles(
         monkeypatch,
-        outline=FakeArtModel(RateLimitError("gemini: rate limited (429)")),
+        outline=FakeArtModel(RateLimitError("mistral: rate limited (429)")),
         aesthetic=FakeCritic(),
     )
     result = _invoke(runs_root, "render", "r1")

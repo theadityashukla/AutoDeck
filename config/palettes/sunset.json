@@ -1,0 +1,19 @@
+{
+  "name": "sunset",
+  "description": "Warm cream, aubergine, orange accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "2B1A33",
+    "lt1": "FFF8F0",
+    "dk2": "6B5A70",
+    "lt2": "F7EDE2",
+    "accent1": "E8551F",
+    "accent2": "3B1F4A",
+    "accent3": "F7B32B",
+    "accent4": "2EC4B6",
+    "accent5": "B03030",
+    "accent6": "D8CBC0",
+    "hyperlink": "E8551F",
+    "followed_hyperlink": "3B1F4A"
+  }
+}

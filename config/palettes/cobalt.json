@@ -1,0 +1,19 @@
+{
+  "name": "cobalt",
+  "description": "White ground, graphite ink, one saturated cobalt accent; modern consulting.",
+  "dark": false,
+  "palette": {
+    "dk1": "1A1D24",
+    "lt1": "FFFFFF",
+    "dk2": "586070",
+    "lt2": "F2F4F7",
+    "accent1": "2350F5",
+    "accent2": "F2694B",
+    "accent3": "13A894",
+    "accent4": "F5B700",
+    "accent5": "C2412A",
+    "accent6": "C7CCD6",
+    "hyperlink": "2350F5",
+    "followed_hyperlink": "F2694B"
+  }
+}

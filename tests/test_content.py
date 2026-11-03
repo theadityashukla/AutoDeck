@@ -23,6 +23,7 @@ from autodeck.agents.content import (
     ProposedClaim,
     ProposedDerivation,
     ProposedDerivationInput,
+    resolve_blocks,
     write_slide,
 )
 from autodeck.design.fonts import is_available
@@ -131,11 +132,11 @@ def brief(**overrides) -> DeckBrief:  # type: ignore[no-untyped-def]
 
 #: A component genuinely registered in the catalog (`closing_cta`, task 3a's component
 #: fan-out, `6f2c3ae`) but never the one these fixtures write to: every block below fills
-#: `slot="figure"`, a slot `closing_cta` does not declare, so its own required slots
-#: (`headline`, `cta`) are always left empty. That used to matter here — before
-#: `is_missing_slot_finding` split `check_overflow`'s two finding kinds, a missing required
-#: slot landed in `ContentResult.rejections` indistinguishably from a real citation failure,
-#: which is exactly what broke every citation test below when `closing_cta` was registered.
+#: `slot="headline"`, so its other required slot (`cta`) is always left empty. That used to
+#: matter here — before `is_missing_slot_finding` split `check_overflow`'s two finding kinds,
+#: a missing required slot landed in `ContentResult.rejections` indistinguishably from a real
+#: citation failure, which is exactly what broke every citation test below when
+#: `closing_cta` was registered.
 #: It is deliberately still exercised here, unchanged, rather than swapped for an
 #: unregistered placeholder: these tests are about citation resolution, and a component that
 #: is registered but genuinely incomplete for what the fixture writes is the more honest
@@ -171,7 +172,7 @@ def draft_with(
 def claim_block(
     block_id: str = "b1",
     *,
-    slot: str = "figure",
+    slot: str = "headline",
     text: str = "Quantisation cuts the memory needed for inference by half.",
     doc_id: str = "paper-1",
     quote: str = QUOTE,
@@ -372,7 +373,7 @@ def test_a_derivation_input_citation_is_folded_into_the_claims_own_citations(
     block = ProposedBlock(
         id="b1",
         kind="claim",
-        slot="figure",
+        slot="headline",
         claim=ProposedClaim(
             text="Weights and the KV cache together are 95% of memory.",
             citations=[ProposedCitation(doc_id="paper-1", quote=weights)],
@@ -648,9 +649,12 @@ def test_an_overbudget_block_is_rejected_before_render(tmp_path: Path) -> None:
     # `headline`/`figure` were never filled by this fixture either, but leaving them blank
     # is a different event from figure_label overflowing — it belongs in incomplete_slots,
     # not folded into the same rejection count (see ContentResult.incomplete_slots).
+    # `figure_label` is listed too: it is required, and its only block was just dropped, so
+    # the slot really is empty afterwards (incomplete slots are read after the drops).
     assert {s.split(":", 1)[0] for s in result.incomplete_slots} == {
         "big_number.headline",
         "big_number.figure",
+        "big_number.figure_label",
     }
 
 
@@ -715,3 +719,226 @@ def test_missing_prompt_file_raises(tmp_path: Path) -> None:
             model=Scripted(draft_with(claim_block())),
             prompt_path=tmp_path / "no-such-prompt.md",
         )
+
+
+# ---------------------------------------------------------------------------
+# Budgets drop only the block at fault; structured rejections
+# ---------------------------------------------------------------------------
+
+
+def _framing(block_id: str, slot: str, text: str):  # type: ignore[no-untyped-def]
+    from autodeck.ir.models import Block
+
+    return Block(id=block_id, kind="framing", slot=slot, text=text)
+
+
+@requires_test_font
+def test_an_overflowing_item_drops_only_its_own_block() -> None:
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    blocks = [
+        _framing("h", "headline", "A headline"),
+        _framing("p0", "points", "x" * 60),
+        _framing("p1", "points", "y" * 140),
+        _framing("p2", "points", "z" * 70),
+    ]
+    records: list[Rejection] = []
+    kept, rejections, incomplete, checked = check_budgets(
+        blocks, component="bullets_supporting", tokens=tokens_for(), records=records,
+        slide_id="s5",
+    )
+    assert checked is True and incomplete == []
+    assert [b.id for b in kept] == ["h", "p0", "p2"]
+    [rejection] = rejections
+    assert "p1" in rejection and "140 characters" in rejection
+    [record] = records
+    assert (record.kind, record.block_id, record.item_index, record.slide_id) == (
+        "overflow_item", "p1", 1, "s5"
+    )
+    assert record.detail["chars"] == 140 and record.detail["max_chars"] > 0
+
+
+@requires_test_font
+def test_a_stack_that_is_too_tall_sheds_blocks_from_the_end() -> None:
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    blocks = [_framing("h", "headline", "A headline")]
+    blocks += [_framing(f"p{i}", "points", f"point {i}") for i in range(10)]
+    records: list[Rejection] = []
+    kept, rejections, _incomplete, _ = check_budgets(
+        blocks, component="bullets_supporting", tokens=tokens_for(), records=records
+    )
+    # How many fit depends on the theme's type scale; what matters is that the stack keeps
+    # its first items in order and sheds from the end.
+    fitted = len(kept) - 1
+    assert 3 <= fitted < 10
+    assert [b.id for b in kept] == ["h", *(f"p{i}" for i in range(fitted))]
+    assert [r.block_id for r in records] == [f"p{i}" for i in range(9, fitted - 1, -1)]
+    assert {r.kind for r in records} == {"overflow_stack"}
+    assert len(rejections) == 10 - fitted
+
+
+@requires_test_font
+def test_a_single_text_slot_that_overflows_is_overflow_text() -> None:
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    records: list[Rejection] = []
+    kept, _rej, incomplete, _ = check_budgets(
+        [_framing("h", "headline", "word " * 400), _framing("p0", "points", "fine")],
+        component="bullets_supporting",
+        tokens=tokens_for(),
+        records=records,
+    )
+    assert [b.id for b in kept] == ["p0"]
+    assert [r.kind for r in records if r.block_id == "h"] == ["overflow_text"]
+    assert any("headline" in f for f in incomplete)
+    assert any(r.kind == "missing_slot" and r.slot == "headline" for r in records)
+
+
+@requires_test_font
+def test_a_second_block_in_a_single_slot_is_rejected() -> None:
+    """Run XLP3: two `takeaway` blocks on a callout reached the preview, which drew the
+    whole slide as a placeholder. The first stays; the second is rejected for repair."""
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    records: list[Rejection] = []
+    kept, rejections, _incomplete, _ = check_budgets(
+        [
+            _framing("l", "label", "Key takeaways"),
+            _framing("t1", "takeaway", "The first takeaway"),
+            _framing("t2", "takeaway", "A second takeaway"),
+        ],
+        component="callout_takeaway",
+        tokens=tokens_for(),
+        records=records,
+    )
+    assert [b.id for b in kept] == ["l", "t1"]
+    [record] = records
+    assert (record.block_id, record.kind) == ("t2", "overflow_text")
+    assert record.detail["reason"] == "second_block_in_single_slot"
+    assert "holds one block" in rejections[0]
+
+
+@requires_test_font
+def test_slots_that_fit_alone_but_not_together_drop_the_optional_part_first() -> None:
+    """Design gallery: a big_number whose label and support each fit their own budget did not
+    fit the figure block together, and the renderer crashed. The trial layout now drops the
+    optional support first, and says why."""
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    words = "weight fell more on the tablet than on the comparator across the trial period "
+    records: list[Rejection] = []
+    kept, rejections, _incomplete, _ = check_budgets(
+        [
+            _framing("h", "headline", "Weight fell more on the tablet"),
+            _framing("f", "figure", "Fell"),
+            _framing("l", "figure_label", (words * 4)[:280].strip()),
+            _framing("s", "support", (words * 8)[:520].strip()),
+        ],
+        component="big_number",
+        tokens=tokens_for(),
+        records=records,
+    )
+    assert [b.id for b in kept] == ["h", "f", "l"]
+    [record] = records
+    assert record.block_id == "s" and record.detail["reason"] == "slide_does_not_fit_as_a_whole"
+    assert "does not fit as a whole" in rejections[0]
+
+
+@requires_test_font
+def test_list_slots_still_take_many_blocks() -> None:
+    from autodeck.agents.content import check_budgets
+
+    kept, rejections, _incomplete, _ = check_budgets(
+        [_framing("h", "headline", "A headline")]
+        + [_framing(f"p{i}", "points", f"point {i}") for i in range(4)],
+        component="bullets_supporting",
+        tokens=tokens_for(),
+    )
+    assert len(kept) == 5 and rejections == []
+
+
+@requires_test_font
+def test_a_block_in_no_slot_of_the_layout_is_unknown_slot() -> None:
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    records: list[Rejection] = []
+    kept, rejections, _inc, _ = check_budgets(
+        [_framing("h", "headline", "A headline"), _framing("x", "sidebar", "stray")],
+        component="bullets_supporting",
+        tokens=tokens_for(),
+        records=records,
+    )
+    assert [b.id for b in kept] == ["h"]
+    [record] = [r for r in records if r.block_id == "x"]
+    assert record.kind == "unknown_slot" and "sidebar" in record.message
+    assert any("'x'" in r for r in rejections)
+
+
+@requires_test_font
+def test_a_block_written_to_the_computed_source_slot_is_computed_slot() -> None:
+    from autodeck.agents.content import check_budgets
+    from autodeck.agents.rejections import Rejection
+
+    records: list[Rejection] = []
+    kept, _rej, _inc, _ = check_budgets(
+        [_framing("h", "headline", "A headline"), _framing("src", "source", "Source: me")],
+        component="bullets_supporting",
+        tokens=tokens_for(),
+        records=records,
+    )
+    assert [b.id for b in kept] == ["h"]
+    assert [r.kind for r in records if r.block_id == "src"] == ["computed_slot"]
+
+
+def test_a_rejection_is_json_serialisable_with_its_proposed_block() -> None:
+    import json
+
+    from autodeck.agents.rejections import Rejection
+
+    proposed = claim_block("b9")
+    record = Rejection(
+        kind="quote_splice",
+        where="face",
+        slide_id="s3",
+        block_id="b9",
+        slot="chart",
+        message="quote joined two passages",
+        detail={"parts": [{"passage": 0, "coverage": 0.5}], "best_coverage": 0.5},
+        proposed=proposed,
+    )
+    data = json.loads(json.dumps(record.to_dict()))
+    assert data["kind"] == "quote_splice" and data["proposed"]["id"] == "b9"
+    assert data["item_index"] is None
+
+
+def test_a_quote_that_is_not_in_the_source_is_recorded_with_its_kind(tmp_path: Path) -> None:
+    from autodeck.agents.rejections import Rejection
+    from autodeck.retrieval.hybrid import RetrievedSpan
+
+    store = store_with(tmp_path, element("e1", QUOTE, page=3))
+    span = RetrievedSpan(
+        doc_id="paper-1", element_id="e1", page=3, text=QUOTE, score=1.0, citable=True
+    )
+    records: list[Rejection] = []
+    resolve_blocks(
+        [claim_block(quote="Patients overwhelmingly preferred the tablet to injections.")],
+        store=store, claims=[], spans=[span], location="slide s1 face", rejections=[],
+        records=records, slide_id="s1",
+    )
+    [record] = records
+    assert record.kind == "quote_not_found" and record.detail["doc_id"] == "paper-1"
+    assert record.proposed is not None and record.slide_id == "s1"
+
+    records.clear()
+    resolve_blocks(
+        [claim_block(doc_id="ghost")], store=store, claims=[], spans=[span],
+        location="slide s1 face", rejections=[], records=records,
+    )
+    assert [r.kind for r in records] == ["doc_not_shown"]

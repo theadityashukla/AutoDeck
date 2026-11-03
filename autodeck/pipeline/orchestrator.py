@@ -187,7 +187,7 @@ class RunState:
     """
 
     run_id: str
-    env: str = "dev"
+    env: str = "dev-mistral"
     stages: dict[str, StageRecord] = field(default_factory=dict)
     approvals: dict[str, str] = field(default_factory=dict)
     """Gate value -> "<ISO timestamp> by <approver>"."""
@@ -215,7 +215,7 @@ class RunState:
     def from_dict(cls, payload: dict[str, Any]) -> RunState:
         return cls(
             run_id=payload["run_id"],
-            env=payload.get("env", "dev"),
+            env=payload.get("env", "dev-mistral"),
             stages={
                 name: StageRecord.from_dict(record)
                 for name, record in (payload.get("stages") or {}).items()
@@ -271,7 +271,7 @@ class Orchestrator:
         run_id: str,
         *,
         runs_root: Path = DEFAULT_RUNS_ROOT,
-        env: str = "dev",
+        env: str = "dev-mistral",
         create: bool = True,
     ) -> None:
         """Open a run.
@@ -701,11 +701,14 @@ class RenderSafety:
     unverified: tuple[ClaimBlock, ...]
     framing: FramingReport
     numeric: NumericReport
+    overstated_headlines: tuple[str, ...] = ()
+    """B62: one line per slide whose talking header the validator found `overstates`."""
 
     @property
     def reasons(self) -> list[str]:
         """Every reason this deck may not render, in invariant order. Empty when safe."""
         reasons = [f"A3 {block}" for block in self.blocking]
+        reasons.extend(f"A3 {line}" for line in self.overstated_headlines)
         reasons.extend(
             f"A3 {block} — no verdict; the validator never reached this claim"
             for block in self.unverified
@@ -746,6 +749,12 @@ def assess_render_safety(deck: Deck) -> RenderSafety:
         unverified=tuple(unverified_claims(deck)),
         framing=lint_framing(deck),
         numeric=lint_deck(deck),
+        overstated_headlines=tuple(
+            f"slide {slide.id} headline: overstates — {slide.headline_check.notes}"
+            for slide in deck.slides
+            if slide.headline_check is not None
+            and slide.headline_check.verdict == "overstates"
+        ),
     )
 
 

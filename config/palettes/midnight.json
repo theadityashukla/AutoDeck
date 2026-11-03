@@ -1,0 +1,19 @@
+{
+  "name": "midnight",
+  "description": "Deep navy ground, violet accent; dark keynote.",
+  "dark": true,
+  "palette": {
+    "dk1": "EEF0FF",
+    "lt1": "0B1026",
+    "dk2": "A3A8C8",
+    "lt2": "151B38",
+    "accent1": "8B7CFF",
+    "accent2": "4FD1C5",
+    "accent3": "FF9F6E",
+    "accent4": "F6E05E",
+    "accent5": "FF9F6E",
+    "accent6": "343B63",
+    "hyperlink": "8B7CFF",
+    "followed_hyperlink": "4FD1C5"
+  }
+}

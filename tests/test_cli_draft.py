@@ -52,6 +52,11 @@ class Counting:
         self.prompts.append(prompt)
         return self.answers.pop(0)
 
+    def complete(self, prompt, *, system=None):  # type: ignore[no-untyped-def]
+        """The advisor role is asked for plain text (the cold read, B76)."""
+        self.prompts.append(prompt)
+        return "Looks fine."
+
 
 class Judge:
     """A validation fake: every claim named in the prompt is supported."""
@@ -81,7 +86,7 @@ def claim_slide(sid: str, text: str, message_ids: list[str]) -> ComposedSlide:
             ProposedBlock(
                 id="b1",
                 kind="claim",
-                slot="figure",
+                slot="headline",
                 claim=ProposedClaim(
                     text=text, citations=[ProposedCitation(doc_id=DOC_ID, quote=QUOTE)]
                 ),
@@ -339,3 +344,183 @@ def test_a_missing_run_is_an_error_not_a_new_run(
         result = w.run(*command)
         assert result.exit_code == 1
     assert not (w.runs / "nope").exists()
+
+
+# -- the agent path (4c): `draft --agent`, `revise` over its session ----------------------
+
+
+class AgentComposer(Counting):
+    """A composer that also speaks `converse`: scripted tool-call turns, in order."""
+
+    def __init__(self, *answers: Any) -> None:
+        super().__init__(*answers)
+        self.turns: list[Any] = []
+        self.systems: list[str | None] = []
+
+    def converse(self, messages, tools, *, system=None):  # type: ignore[no-untyped-def]
+        self.systems.append(system)
+        return self.turns.pop(0)
+
+
+def agent_turn(name: str, i: int, /, **arguments: Any):  # type: ignore[no-untyped-def]
+    from autodeck.providers.base import AssistantTurn, ToolCall, Usage
+
+    return AssistantTurn(
+        tool_calls=[ToolCall(id=f"c{i}", name=name, arguments=arguments)], usage=Usage(5, 1)
+    )
+
+
+def quote_slide(sid: str, text: str) -> dict[str, Any]:
+    """A `quote` slide that passes every draft check (headline, quote, attribution)."""
+    slide = ComposedSlide(
+        id=sid,
+        narrative_role="evidence",
+        component="quote",
+        intent=f"Land {sid}.",
+        message_ids=["km1"],
+        blocks=[
+            ProposedBlock(
+                id=bid,
+                kind="claim",
+                slot=slot,
+                claim=ProposedClaim(
+                    text=text, citations=[ProposedCitation(doc_id=DOC_ID, quote=QUOTE)]
+                ),
+            )
+            for bid, slot in (("b1", "headline"), ("b2", "quote"))
+        ]
+        + [ProposedBlock(id="b3", kind="framing", slot="attribution", text="Kaplan")],
+        speaker_notes=[],
+    )
+    return {"slide": slide.model_dump(mode="json")}
+
+
+def agent_brief(length_target: int) -> dict[str, Any]:
+    from autodeck.agents.workspace import DeckBriefDraft
+
+    return DeckBriefDraft(
+        objective="Decide whether to ship the kernel rewrite.",
+        audience="CTO",
+        length_target=length_target,
+        key_messages=COMPOSED.key_messages,
+        must_include=[],
+        must_avoid=[],
+    ).model_dump(mode="json")
+
+
+def agent_script(
+    length_target: int, text: str = "The rewrite raised throughput, per the paper."
+):  # type: ignore[no-untyped-def]
+    return [
+        agent_turn("set_brief", 1, **agent_brief(length_target)),
+        agent_turn("read_passage", 2, doc_id=DOC_ID, page=4),
+        agent_turn("write_slide", 3, **quote_slide("s1", text)),
+        # The advisor role is wired, so finish needs a cold read of the whole deck first.
+        agent_turn(
+            "ask_advisor",
+            4,
+            question="Read cold.",
+            slide_ids=["all"],
+            headlines_only=True,
+            include_notes=False,
+            skills=[],
+            pages=[],
+        ),
+        agent_turn("finish", 5, coverage=[], notes="Drafted by the agent."),
+    ]
+
+
+def agent_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *answers: Any) -> World:
+    w = World(tmp_path, monkeypatch, *answers)
+    w.composer = AgentComposer(*answers)
+    roles = {"composer": w.composer, "validation": w.judge, "advisor": Counting()}
+    monkeypatch.setattr(
+        registry_module.ModelRegistry, "provider_for", lambda self, role, **kw: roles[role]
+    )
+    assert w.clarify().exit_code == 0
+    assert w.run("answer", "r1", "--accept-all", *w.roots).exit_code == 0
+    return w
+
+
+def test_draft_agent_writes_the_ir_and_session_meta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    w = agent_world(tmp_path, monkeypatch, CLARIFIED)
+    w.composer.turns = agent_script(length_target=2)
+
+    result = w.run("draft", "r1", "--agent", *w.data_roots)
+    assert result.exit_code == 0, result.output
+    assert "· step 3 write_slide" in result.output  # the stream the UI job log shows
+    deck = IRStore(w.runs, "r1").load()
+    assert [s.id for s in deck.slides] == ["s1"]
+    meta = json.loads((w.runs / "r1" / "session" / "meta.json").read_text())
+    assert meta == {
+        "stop_reason": "finished",
+        "steps": 5,
+        "provider_calls": 5,
+        "fell_back": False,
+        "reason": None,
+    }
+    assert (w.runs / "r1" / "session" / "transcript.jsonl").is_file()
+    assert len(w.composer.prompts) == 1  # only clarify used the one-shot interface
+
+
+def test_draft_agent_falls_back_when_it_writes_too_few_slides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    w = agent_world(tmp_path, monkeypatch, CLARIFIED, COMPOSED)
+    w.composer.turns = agent_script(length_target=6)  # one slide of six is under half
+
+    result = w.run("draft", "r1", "--agent", *w.data_roots)
+    assert result.exit_code == 0, result.output
+    assert "agent fell back to one-shot compose" in result.output
+    deck = IRStore(w.runs, "r1").load()
+    assert [s.id for s in deck.slides] == ["s1", "s2"]  # the one-shot draft
+    meta = json.loads((w.runs / "r1" / "session" / "meta.json").read_text())
+    assert meta["fell_back"] is True and "1 slide(s)" in meta["reason"]
+    coverage = json.loads((w.runs / "r1" / "coverage.json").read_text())
+    assert any("fell back to one-shot" in c for c in coverage["corrections"])
+
+
+def test_revise_continues_the_agent_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    w = agent_world(tmp_path, monkeypatch, CLARIFIED)
+    w.composer.turns = agent_script(length_target=2)
+    assert w.run("draft", "r1", "--agent", *w.data_roots).exit_code == 0
+    store = IRStore(w.runs, "r1")
+    first = store.load()
+
+    w.composer.turns = [
+        agent_turn("write_slide", 6, **quote_slide("s1", "The rewrite raised speed, per it.")),
+        agent_turn("finish", 7, coverage=[], notes="Reworded slide one."),
+    ]
+    result = w.run("revise", "r1", "--instruction", "Reword it.", *w.data_roots)
+    assert result.exit_code == 0, result.output
+    assert "Reworded slide one." in result.output and "changed: s1" in result.output
+    assert store.load().version == first.version + 1
+    log = [
+        json.loads(line)
+        for line in (w.runs / "r1" / "revisions.jsonl").read_text().splitlines()
+    ]
+    assert log[-1]["agent"] is True and log[-1]["reply"] == "Reworded slide one."
+    transcript = (w.runs / "r1" / "session" / "transcript.jsonl").read_text()
+    assert "Reword it." in transcript
+
+    # --no-agent forces the one-shot path, which the agent session does not block.
+    w.composer.answers.append(REVISED)
+    result = w.run("revise", "r1", "--instruction", "Soften.", "--no-agent", *w.data_roots)
+    assert result.exit_code == 0, result.output
+    assert "Softened slide two." in result.output
+
+
+def test_revise_agent_without_a_session_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    w = World(tmp_path, monkeypatch, CLARIFIED, COMPOSED)
+    assert w.clarify().exit_code == 0
+    assert w.run("answer", "r1", "--accept-all", *w.roots).exit_code == 0
+    assert w.run("draft", "r1", *w.data_roots).exit_code == 0
+    result = w.run("revise", "r1", "--instruction", "x", "--agent", *w.data_roots)
+    assert result.exit_code == 1
+    assert "no agent session for this run" in result.output

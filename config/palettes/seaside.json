@@ -1,0 +1,19 @@
+{
+  "name": "seaside",
+  "description": "Sand ground, sea blue, apricot.",
+  "dark": false,
+  "palette": {
+    "dk1": "1D2B36",
+    "lt1": "FBF6EC",
+    "dk2": "5A6872",
+    "lt2": "F2EADA",
+    "accent1": "0E7FA6",
+    "accent2": "0E5E7E",
+    "accent3": "0E8FB8",
+    "accent4": "E07A3F",
+    "accent5": "B4521C",
+    "accent6": "CEC6B6",
+    "hyperlink": "0E7FA6",
+    "followed_hyperlink": "0E5E7E"
+  }
+}

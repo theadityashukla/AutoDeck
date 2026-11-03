@@ -126,3 +126,49 @@ def test_every_curated_quote_resolves_through_the_shared_resolver(tmp_path: Path
     )
     assert not rejections
     assert len(blocks) == len(pack.claims) >= 1
+
+
+# -- section leads and answer queries (run XLP2) ---------------------------------------------
+
+RESULT = (
+    "Oral semaglutide 14 mg was found to be superior in reducing HbA1c versus empagliflozin "
+    "at 26 weeks, the trial's primary endpoint, when used as second-line treatment."
+)
+
+
+def _paper(tmp_path: Path):
+    """A paper whose key result sits under a heading no prompt word would retrieve."""
+    elements = [
+        element("h1", "4.1.1 Active-Comparator Trials", page=7, kind="section_header"),
+        element("t1", RESULT, page=7),
+        element("h2", "References", page=9, kind="section_header"),
+        element("t2", "Smith J, Jones K. A long reference entry that is not evidence " * 3, page=9),
+        element("t3", OTHER * 2, page=3),
+    ]
+    store = store_with(tmp_path, *elements)
+    return store, build_index([store.get("paper-1")], project="p")
+
+
+def test_section_leads_bring_in_results_no_query_found(tmp_path: Path) -> None:
+    """XLP2: the review's headline HbA1c result was never in the pack, because nothing in
+    the prompt or project.md retrieved it. A section's opening paragraph now is."""
+    _, index = _paper(tmp_path)
+    without = _pack(index, [], section_leads=False)
+    with_leads = _pack(index, [])
+    assert RESULT not in without.text
+    assert RESULT in " ".join(with_leads.text.split())
+
+
+def test_boilerplate_sections_are_not_section_leads(tmp_path: Path) -> None:
+    from autodeck.agents.evidence_pack import section_lead_spans
+
+    _, index = _paper(tmp_path)
+    ids = [s.element_id for s in section_lead_spans(index)]
+    assert any(i.endswith("t1") for i in ids)
+    assert not any(i.endswith("t2") for i in ids)
+
+
+def test_answers_are_queried_right_after_the_prompt(tmp_path: Path) -> None:
+    _, index, claims = _setup(tmp_path)
+    pack = _pack(index, claims, extra_queries=("Include comparisons? Yes, with trial specifics",))
+    assert pack.queries[:2] == (PROMPT, "Include comparisons? Yes, with trial specifics")

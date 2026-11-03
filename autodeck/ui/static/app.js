@@ -18,10 +18,10 @@ const esc = (value) =>
 
 const enc = encodeURIComponent;
 
-async function api(path, body) {
+async function api(path, body, method = "POST") {
   const init = body === undefined
     ? { method: "GET" }
-    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const res = await fetch(path, init);
   let data = {};
   try { data = await res.json(); } catch { /* empty body */ }
@@ -65,11 +65,11 @@ function stepsHtml(stages) {
   ).join("")}</div>`;
 }
 
-const ENV_WORD = { dev: "Draft", sit: "Verification", prod: "Production" };
+const ENV_WORD = { "dev-mistral": "Draft", sit: "Verification", prod: "Production" };
 
 function tierChip(env) {
   if (!env) return "";
-  const draft = env.name === "dev";
+  const draft = env.name.startsWith("dev");
   return `<a class="chip" href="#/settings/models"><span class="dot ${draft ? "dot-warn" : "dot-ok"}"></span>${esc(env.label)} · change in Settings</a>`;
 }
 
@@ -230,7 +230,7 @@ async function homeView() {
         <h1 class="page-title">What should this deck do?</h1>
         <p class="page-sub">Describe it in a sentence or two. AutoDeck drafts the brief, outline and every slide, with a source on every line.</p>
       </div>
-      ${tierChip(data.env)}
+      <span class="row gap-8"><span id="prov-chip"></span>${tierChip(data.env)}</span>
     </div>
     <div class="grid-2">
       <form class="panel" id="draft-form">
@@ -247,6 +247,7 @@ async function homeView() {
             <div class="small strong muted">Or start from an example</div>
             <div class="chips-row">${EXAMPLES.map(([label], i) => `<button type="button" class="chip-btn" data-ex="${i}">${esc(label)}</button>`).join("")}</div>
           </div>
+          <label class="switch"><input type="checkbox" id="agent-on"><span class="track" aria-hidden="true"></span><span>Let the agent build it (beta)</span></label>
         </div>
         <div class="stack gap-16" id="deck-wrap" hidden>
           <label class="dropzone" id="deck-drop" for="deck-file">
@@ -279,6 +280,13 @@ async function homeView() {
             <span class="field-hint">Letters, numbers, dots, dashes and underscores.</span>
           </label>
         </div>
+        <fieldset class="field" role="radiogroup" aria-label="Design">
+          <legend>Design</legend>
+          ${["structured", "creative"].map((m) => `
+            <label class="radio-row"><input type="radio" name="design_mode" value="${m}" ${(data.env.design_mode || "structured") === m ? "checked" : ""}>
+              <span><span class="strong">${esc(DESIGN_LABEL[m])}</span>${(data.env.design_mode || "structured") === m ? ` <span class="small-13 muted">(default for ${esc(data.env.name)})</span>` : ""}<br><span class="small-13 muted">${esc(DESIGN_BLURB[m])}</span></span></label>`).join("")}
+          <span class="field-hint">A run keeps the design mode it started with. Any model can run either mode.</span>
+        </fieldset>
         <div class="note">${ICON.lock}<span>Only this client's knowledge is loaded. Nothing from other clients reaches the models.</span></div>
         <div id="go-row" class="row between wrap">
           <span class="muted small-13" id="go-hint">AutoDeck asks what it needs to know, then drafts. Nothing is approved until you approve it.</span>
@@ -312,6 +320,15 @@ async function homeView() {
 
   const form = document.getElementById("draft-form");
   const prompt = document.getElementById("prompt");
+  // The project's provenance mode, shown before the run starts; it follows the project picker.
+  const paintProv = async () => {
+    const chip = document.getElementById("prov-chip");
+    const name = form.elements.project?.value;
+    if (!chip || !name) return;
+    try { chip.innerHTML = provenanceChip((await api(`/api/projects/${enc(name)}/settings`)).provenance); } catch { chip.innerHTML = ""; }
+  };
+  form.elements.project?.addEventListener("change", paintProv);
+  paintProv();
   let mode = "draft";
   let deckFile = null;
   const MODE_TEXT = {
@@ -347,6 +364,11 @@ async function homeView() {
     deckFile = file;
     label.textContent = `${file.name} · ${sizeText(file.size)}`;
   };
+  const agentBox = document.getElementById("agent-on");
+  try { if (agentBox && localStorage.getItem("autodeck.agent") === "1") agentBox.checked = true; } catch { /* optional */ }
+  if (agentBox) agentBox.addEventListener("change", () => {
+    try { localStorage.setItem("autodeck.agent", agentBox.checked ? "1" : "0"); } catch { /* optional */ }
+  });
   document.getElementById("deck-file").addEventListener("change", (e) => pickDeck(e.target.files[0]));
   const drop = document.getElementById("deck-drop");
   ["dragover", "dragenter"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
@@ -364,6 +386,7 @@ async function homeView() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(form).entries());
+    if (mode === "draft" && agentBox?.checked) body.agent = true;
     if (mode === "deck" && !deckFile) {
       deckErr.hidden = false;
       if (!deckErr.textContent.trim()) deckErr.innerHTML = `${ICON.warn}<span>Choose the .pptx you want redesigned.</span>`;
@@ -416,6 +439,7 @@ async function uploadDeck(file, body, opts) {
     run_id: body.run_id, client: body.client, project: body.project, name: file.name,
     wording: opts.wording, layouts: String(opts.layouts), check_papers: String(opts.check_papers),
   });
+  if (body.design_mode) q.set("design_mode", body.design_mode);
   const res = await fetch(`/api/redesign/upload?${q}`, {
     method: "POST",
     headers: {
@@ -792,7 +816,8 @@ async function outlineView(runId) {
 
 // ---- claims -----------------------------------------------------------------
 
-const VERDICT_KIND = { supported: "ok", partially_supported: "warn", unsupported: "bad", contradicted: "bad", unverified: "neutral" };
+// "amber" is `uncorroborated` (B55): general knowledge nothing in the papers confirms. It never blocks, so never red.
+const VERDICT_KIND = { supported: "ok", partially_supported: "warn", unsupported: "bad", contradicted: "bad", unverified: "neutral", uncorroborated: "amber" };
 const vChip = (v) => `<span class="badge v-${VERDICT_KIND[v] || "neutral"}"><span class="dot"></span>${esc(v)}</span>`;
 
 async function claimsView(runId) {
@@ -866,7 +891,7 @@ async function claimsView(runId) {
       <div class="kv"><div class="eyebrow">The quote${(c.citations || []).length > 1 ? "s" : ""}</div>
         ${(c.citations || []).map((q) => `
           <blockquote class="quote"><div class="quote-text">${esc(q.quote)}</div>
-          <div class="small muted">${esc(q.doc_id)} · p.${esc(q.page)}${q.retrieved_by ? " · retrieved by " + esc(q.retrieved_by) : ""}${q.sha256 ? ` · sha256 <span class="mono">${esc(String(q.sha256).slice(0, 8))}…</span>` : ""}</div></blockquote>`).join("")
+          <div class="small muted">${esc(docLabel(q.doc_id, q.page))} · p.${esc(q.page)}${q.retrieved_by ? " · retrieved by " + esc(q.retrieved_by) : ""}${q.sha256 ? ` · sha256 <span class="mono">${esc(String(q.sha256).slice(0, 8))}…</span>` : ""}</div></blockquote>`).join("")
           || '<div class="note warn">' + ICON.warn + '<span>This claim has no quote attached.</span></div>'}
       </div>
       ${(c.contradicting || []).length ? `<div class="kv"><div class="eyebrow">Contradicting passages</div>${c.contradicting.map((q) => `<blockquote class="quote bad"><div class="quote-text">${esc(q.quote)}</div><div class="small muted">${esc(q.doc_id)} · p.${esc(q.page)}</div></blockquote>`).join("")}</div>` : ""}
@@ -1160,15 +1185,15 @@ async function runView(runId) {
             </div>`).join("") || `<div class="empty">${esc(r.next || "No stage information yet.")}</div>`}
         </div>
         <div id="job-box"></div>
-        ${r.env === "dev" ? `<div class="note warn">${ICON.warn}<span><b>Draft models:</b> a free-tier model can run out of requests for the day. If it does, run the same step again tomorrow; finished slides are kept. <a href="#/settings/models">Switch models</a></span></div>` : ""}
+        ${(r.env || "").startsWith("dev") ? `<div class="note warn">${ICON.warn}<span><b>Draft models:</b> a draft model can hit its request limit. If it does, run the same step again later; finished slides are kept. <a href="#/settings/models">Switch models</a></span></div>` : ""}
       </section>
       <div class="stack gap-14">
         <section class="panel tight">
           <h2 class="h3">This run</h2>
           <div class="kvrow"><span class="muted">Client</span><span>${esc(r.client || "—")}</span></div>
           <div class="kvrow"><span class="muted">Project</span><span>${esc(r.project || "—")}</span></div>
-          <div class="kvrow"><span class="muted">Environment</span><span><span class="dot ${r.env === "dev" ? "dot-warn" : "dot-ok"}"></span> ${esc(ENV_WORD[r.env] || r.env || "—")}${r.env ? ` (${esc(r.env)})` : ""}</span></div>
-          ${r.env === "dev" ? '<div class="small t-warn text-right">Draft, never a client deliverable</div>' : ""}
+          <div class="kvrow"><span class="muted">Environment</span><span><span class="dot ${(r.env || "").startsWith("dev") ? "dot-warn" : "dot-ok"}"></span> ${esc(ENV_WORD[r.env] || r.env || "—")}${r.env ? ` (${esc(r.env)})` : ""}</span></div>
+          ${(r.env || "").startsWith("dev") ? '<div class="small t-warn text-right">Draft, never a client deliverable</div>' : ""}
         </section>
         <section class="panel tight">
           <h2 class="h3">Approvals</h2>
@@ -1412,14 +1437,35 @@ const ROLE_LABEL = {
   aesthetic: "Art direction", ingest_vlm: "Reading slides (images)",
 };
 const ENV_BLURB = {
-  dev: "Free-tier models. Fine for trying the flow. A dev deck is a draft, never a client deliverable.",
   sit: "The models production uses, for checking accuracy before a real deck.",
   prod: "For real client deliverables.",
 };
 
 const asList = (x) => (Array.isArray(x) ? x : Array.isArray(x?.keys) ? x.keys : Array.isArray(x?.checks) ? x.checks : Array.isArray(x?.items) ? x.items : []);
 
-const SETTINGS_TABS = [["profile", "Profile"], ["models", "Models"], ["system", "Keys and rendering"]];
+const SETTINGS_TABS = [["profile", "Profile"], ["models", "Models"], ["project", "Project"], ["memory", "Memory"], ["system", "Keys and rendering"]];
+const PROVENANCE_BLURB = {
+  normal: "Normal: facts are checked against your papers, and the deck may also use what you told us and the model's general knowledge. Each is labelled.",
+  strict: "Strict (MLR): every statement must quote your papers. Nothing you typed and no general knowledge reaches the deck.",
+};
+const DESIGN_LABEL = { structured: "Structured (catalog layouts)", creative: "Creative (writer designs each slide)" };
+const DESIGN_BLURB = {
+  structured: "Each slide uses a layout from the catalog. Safest for smaller models.",
+  creative: "The writer places every element of every slide. Stronger models do this best.",
+};
+const PROVENANCE_LABEL = { normal: "Normal", strict: "Strict (MLR)" };
+
+// A small "Design: Structured" chip next to the provenance chip, reusing its styling.
+function designChip(mode) {
+  if (!mode) return "";
+  return `<span class="chip" title="${esc(DESIGN_BLURB[mode] || "")}">Design: ${esc(mode === "creative" ? "Creative" : "Structured")}</span>`;
+}
+
+// A small "Provenance: Normal" chip; the run's own mode once a draft exists.
+function provenanceChip(mode) {
+  if (!mode) return "";
+  return `<span class="chip" title="${esc(PROVENANCE_BLURB[mode] || "")}"><span class="dot ${mode === "strict" ? "dot-ok" : "dot-warn"}"></span>Provenance: ${esc(PROVENANCE_LABEL[mode] || mode)}</span>`;
+}
 const PROFILE_SOURCE = { saved: "saved here", git: "taken from git config until you save one", system: "taken from this computer's user name until you save one" };
 
 function initials(name) {
@@ -1470,10 +1516,10 @@ async function settingsView(tab = "profile") {
           <button type="button" role="radio" class="envcard ${e.name === env.name ? "on" : ""}" aria-checked="${e.name === env.name}" data-env="${esc(e.name)}">
             <span class="row between"><span class="strong">${esc(e.label)}</span><span class="mono muted small">${esc(e.name)}</span></span>
             <span class="small-13">${esc(e.note || ENV_BLURB[e.name] || "")}</span>
-            ${e.name === "dev" ? '<span class="badge warn self-start">Daily request limits</span>' : ""}
+            ${e.name.startsWith("dev") ? '<span class="badge warn self-start">Daily request limits</span>' : ""}
           </button>`).join("")}
       </div>
-      <div class="note ${env.name === "dev" ? "warn" : ""}">${ICON.info}<span>${esc(env.note)}</span></div>
+      <div class="note ${env.name.startsWith("dev") ? "warn" : ""}">${ICON.info}<span>${esc(env.note)}</span></div>
       ${(env.missing_credentials || []).length ? `<div class="note bad">${ICON.info}<span>Missing keys: <span class="mono">${env.missing_credentials.map(esc).join(", ")}</span> · <a href="#/settings/system">see Keys</a></span></div>` : ""}
       <div class="strong small-13">Who does what</div>
       <div>
@@ -1503,6 +1549,85 @@ async function settingsView(tab = "profile") {
       </section>
     </div>`;
 
+  let projectPage = "";
+  let projectState = null;
+  if (tab === "project") {
+    const names = (await api("/api/projects")).projects || [];
+    let chosen = names[0] || "";
+    try { chosen = names.includes(sessionStorage.getItem("autodeck.settings.project")) ? sessionStorage.getItem("autodeck.settings.project") : chosen; } catch { /* optional */ }
+    if (chosen) {
+      const ps = await api(`/api/projects/${enc(chosen)}/settings`);
+      projectState = { name: chosen, names, ps };
+      projectPage = `
+        <section class="panel">
+          <h2 class="h2">Project settings</h2>
+          <form id="project-form" class="stack gap-10">
+            <label class="field">Project
+              <select class="input" name="project">${names.map((n) => `<option value="${esc(n)}" ${n === chosen ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+            </label>
+            <fieldset class="field" role="radiogroup" aria-label="Provenance">
+              <legend>Provenance</legend>
+              ${["normal", "strict"].map((m) => `
+                <label class="radio-row"><input type="radio" name="provenance" value="${m}" ${ps.provenance === m ? "checked" : ""}>
+                  <span><span class="strong">${esc(PROVENANCE_LABEL[m])}</span><br><span class="small-13 muted">${esc(PROVENANCE_BLURB[m])}</span></span></label>`).join("")}
+              <span class="field-hint">A run keeps the mode it started with; a change applies to new runs. Use Strict for decks that go through MLR review.</span>
+            </fieldset>
+            <label class="field">Names that contain numbers (e.g. Type 2 diabetes)
+              <textarea class="input" name="named_terms" rows="6" spellcheck="false">${esc((ps.named_terms || []).join("\n"))}</textarea>
+              <span class="field-hint">One per line. The number checks treat these as names, not as quantities.</span>
+            </label>
+            <div class="row-end"><button class="btn" type="submit">Save</button></div>
+          </form>
+        </section>`;
+    } else {
+      projectPage = '<section class="panel"><div class="empty">No projects yet.</div></section>';
+    }
+  }
+
+  let memoryPage = "";
+  let memoryState = null;
+  if (tab === "memory") {
+    const clients = (await api("/api/clients")).clients || [];
+    const names = (await api("/api/projects")).projects || [];
+    const pick = (key, list) => {
+      let v = list[0] || "";
+      try { const saved = sessionStorage.getItem(key); if (list.includes(saved)) v = saved; } catch { /* optional */ }
+      return v;
+    };
+    const client = pick("autodeck.settings.memory.client", clients);
+    const project = pick("autodeck.settings.memory.project", names);
+    if (client && project) {
+      const mem = await api(`/api/memory?client=${enc(client)}&project=${enc(project)}`);
+      memoryState = { client, project };
+      const opts = (list, chosen) => list.map((n) => `<option value="${esc(n)}" ${n === chosen ? "selected" : ""}>${esc(n)}</option>`).join("");
+      memoryPage = `
+        <section class="panel">
+          <h2 class="h2">Agent memory</h2>
+          <p class="small-13 muted">What the drafting agent carries from one run to the next. It is context for spelling and style; it is never a source, so nothing here reaches a slide without a citation. You can edit either file; a note that names a client or states a figure is refused in the owner file.</p>
+          <div class="stack gap-10">
+            <div class="grid-2">
+              <label class="field">Client
+                <select class="input" id="memory-client">${opts(clients, client)}</select>
+              </label>
+              <label class="field">Project
+                <select class="input" id="memory-project">${opts(names, project)}</select>
+              </label>
+            </div>
+            ${[["engagement", "This engagement", "Terms, people, open actions, decisions and deck preferences for this client and project."], ["owner", "How I like to work", "Note style and deck habits, for every client. Never a client fact."]].map(([scope, label, hint]) => `
+              <label class="field">${label}
+                <textarea class="input mono" id="memory-${scope}" rows="12" spellcheck="false">${esc(mem[scope] || "")}</textarea>
+                <span class="field-hint">${hint}</span>
+              </label>
+              <div class="row-end"><button class="btn" type="button" data-memory-save="${scope}">Save ${scope === "owner" ? "owner" : "engagement"} memory</button></div>`).join("")}
+            <div class="strong small-13">Recent changes</div>
+            ${(mem.audit || []).length ? `<div class="stack gap-8">${mem.audit.map((a) => `<div class="small-13"><span class="mono muted">${esc(a.at || "")}</span> · ${esc(a.scope)} · ${esc(a.op)}${a.section ? " · " + esc(a.section) : ""}${a.text ? " · " + esc(a.text) : ""}</div>`).join("")}</div>` : '<div class="small muted">Nothing remembered yet.</div>'}
+          </div>
+        </section>`;
+    } else {
+      memoryPage = '<section class="panel"><div class="empty">Add a client and a project first.</div></section>';
+    }
+  }
+
   view.innerHTML = `
     <div class="page-head"><div>
       <h1 class="page-title">Settings</h1>
@@ -1511,7 +1636,44 @@ async function settingsView(tab = "profile") {
     <nav class="segmented self-start" aria-label="Settings sections">
       ${SETTINGS_TABS.map(([k, l]) => `<a href="#/settings/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}
     </nav>
-    ${{ profile: profilePage, models: modelsPage, system: systemPage }[tab]}`;
+    ${{ profile: profilePage, models: modelsPage, project: projectPage, memory: memoryPage, system: systemPage }[tab]}`;
+
+  if (memoryState) {
+    for (const [id, key] of [["memory-client", "client"], ["memory-project", "project"]]) {
+      document.getElementById(id).addEventListener("change", (e) => {
+        try { sessionStorage.setItem(`autodeck.settings.memory.${key}`, e.target.value); } catch { /* optional */ }
+        settingsView("memory");
+      });
+    }
+    view.querySelectorAll("[data-memory-save]").forEach((b) => b.addEventListener("click", async () => {
+      const scope = b.dataset.memorySave;
+      try {
+        await api("/api/memory", { ...memoryState, scope, content: document.getElementById(`memory-${scope}`).value }, "PUT");
+        toast("Saved.");
+        settingsView("memory");
+      } catch (err) { toast(err.message, true); }
+    }));
+  }
+
+  const pform = document.getElementById("project-form");
+  if (pform && projectState) {
+    pform.elements.project.addEventListener("change", (e) => {
+      try { sessionStorage.setItem("autodeck.settings.project", e.target.value); } catch { /* optional */ }
+      settingsView("project");
+    });
+    pform.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fd = new FormData(pform);
+      try {
+        await api(`/api/projects/${enc(projectState.name)}/settings`, {
+          provenance: String(fd.get("provenance") || ""),
+          named_terms: String(fd.get("named_terms") || "").split("\n").map((t) => t.trim()).filter(Boolean),
+        });
+        toast("Saved. New runs in this project use these settings.");
+        settingsView("project");
+      } catch (err) { toast(err.message, true); }
+    });
+  }
 
   view.querySelectorAll("[data-env]").forEach((b) => b.addEventListener("click", async () => {
     try {
@@ -1539,17 +1701,22 @@ async function settingsView(tab = "profile") {
 const DRAFT_STEPS = ["draft", "revise", "validate", "preview"];
 const draftPill = (text = "Draft — not approved") => `<span class="draft-pill"><span class="dot"></span>${esc(text)}</span>`;
 
-const docLabel = (id) => {
+const docLabel = (id, page) => {
   const s = String(id ?? "");
+  if (s.startsWith("conversation--")) return page != null && page !== "" ? `from you · message ${page}` : "from you";
   return s.startsWith("client-deck--") ? `client-supplied deck · ${s.slice("client-deck--".length)}` : s;
 };
+// A block that makes a claim: judged, cited, or the model's own general knowledge (unsourced).
+const isClaimBlk = (b) => !!(b.verdict || (b.citations || []).length || b.basis === "unsourced");
 
 const slideTitle = (s) => {
   const t = (s.blocks || []).find((b) => /title|head/i.test(b.slot || "") && b.text);
   return t?.text || s.intent || `Slide ${s.n}`;
 };
+// A headline with a verdict (B62) or a storyline finding (B70) stays in the list, so its note can be opened.
 const isTitleOnly = (s, b) => /title|head/i.test(b.slot || "") && !b.verdict && !(b.citations || []).length
-  && slideTitle(s) === b.text;
+  && slideTitle(s) === b.text
+  && !(b.slot === "headline" && (s.headline_check || (s.storyline_findings || []).length));
 
 // verdict -> display info; "" is framing (a connecting line with no source and no check).
 function verdictOf(v) {
@@ -1560,7 +1727,7 @@ function verdictOf(v) {
 
 function draftCounts(d) {
   const blocks = (d.slides || []).flatMap((s) => s.blocks || []);
-  const claims = blocks.filter((b) => b.verdict || (b.citations || []).length);
+  const claims = blocks.filter((b) => isClaimBlk(b));
   const n = (f) => claims.filter(f).length;
   return {
     slides: (d.slides || []).length,
@@ -1575,7 +1742,7 @@ function draftCounts(d) {
 function slideLevel(s) {
   const vs = (s.blocks || []).map((b) => b.verdict);
   if (vs.some((v) => v === "unsupported" || v === "contradicted") || s.flag === "blocking") return "bad";
-  if (vs.some((v) => v === "partially_supported") || s.flag) return "warn";
+  if (vs.some((v) => v === "partially_supported") || s.flag === "partial") return "warn";
   return "";
 }
 
@@ -1635,6 +1802,7 @@ async function clarifyView(runId) {
   const state = {
     corrections: {},   // assumption index -> corrected text
     editing: new Set(),
+    picked: new Set(),  // answers chosen from the model's own options: not typed, so not "from you"
     values: Object.fromEntries(questions.map((q) => [q.id, prior[q.id] ?? q.suggested_answer ?? ""])),
   };
   const optLabel = (o) => (typeof o === "string" ? o : o?.label ?? o?.text ?? o?.value ?? "");
@@ -1714,12 +1882,14 @@ async function clarifyView(runId) {
     const b = e.target.closest("[data-opt]");
     if (!b) return;
     state.values[b.dataset.q] = b.dataset.opt;
+    state.picked.add(b.dataset.q);
     paintQs();
   });
   qEl.addEventListener("input", (e) => {
     const f = e.target.closest("[data-qin]");
     if (!f) return;
     state.values[f.dataset.qin] = f.value;
+    state.picked.delete(f.dataset.qin);
     // Keep focus while the option chips and the "suggested" hint catch up.
     f.closest(".q-row").querySelectorAll("[data-opt]").forEach((o) => o.setAttribute("aria-pressed", String(o.dataset.opt === f.value)));
   });
@@ -1736,6 +1906,8 @@ async function clarifyView(runId) {
     try {
       await api(`/api/runs/${enc(runId)}/answers`, {
         accept_all: untouched, answers: untouched ? {} : state.values, corrections,
+        // Left as suggested or picked from the offered options: the model's wording (B55).
+        accepted: questions.filter((q) => state.picked.has(q.id) || (state.values[q.id] ?? "") === (q.suggested_answer ?? "")).map((q) => q.id),
       });
       location.hash = runHref(runId);
     } catch (err) {
@@ -1752,6 +1924,40 @@ function showAssembling(r) {
   if (j?.status === "running") return (j.steps || []).some((s) => DRAFT_STEPS.includes(s)) || DRAFT_STEPS.includes(j.step);
   const render = (r.stage_list || []).find((s) => s.key === "render");
   return !render || render.status === "locked";
+}
+
+// ---- the deck agent's session (Phase 4c) -------------------------------------------
+
+const agentSess = { runId: null, data: null, all: false };
+
+async function loadAgentSession(runId) {
+  if (agentSess.runId !== runId) Object.assign(agentSess, { runId, data: null, all: false });
+  try { agentSess.data = await api(`/api/runs/${enc(runId)}/session`); } catch { /* keep the last one */ }
+  return agentSess.data;
+}
+
+// A compact timeline of what the agent has done so far; the newest row is last.
+function agentTimelineHtml(runId) {
+  const rows = agentSess.runId === runId ? agentSess.data?.timeline || [] : [];
+  if (!rows.length) return "";
+  const shown = agentSess.all ? rows : rows.slice(-30);
+  return `<div class="agent-tl" aria-label="What the agent has done">
+    ${shown.map((x) => `<div class="agent-row${x.error ? " err" : ""}"><span class="mono muted">${esc(x.step)}</span> · ${esc(x.tool || x.role)} — ${esc(x.summary || "")}</div>`).join("")}
+    ${rows.length > 30 ? `<button type="button" class="link-btn small" data-agent-all>${agentSess.all ? "Show the last 30" : `Show all ${rows.length}`}</button>` : ""}
+  </div>`;
+}
+
+function agentMetaLine(runId) {
+  const m = agentSess.runId === runId ? agentSess.data?.meta : null;
+  if (!m) return "";
+  const n = m.steps ?? m.step_count ?? m.n_steps ?? "?";
+  const fell = m.fell_back ?? m.fallback ?? false;
+  return `<div class="small-13 muted">Agent: ${esc(n)} steps · ${esc(m.stop_reason ?? "unknown")} · fell back: ${fell ? "yes" : "no"}</div>`;
+}
+
+function bindAgentToggle(root, repaint) {
+  const b = root.querySelector("[data-agent-all]");
+  if (b) b.addEventListener("click", () => { agentSess.all = !agentSess.all; repaint(); });
 }
 
 const STEP_STAGE = { clarify: "clarify", draft: "compose", revise: "compose", validate: "validate", preview: "preview" };
@@ -1826,9 +2032,11 @@ async function assemblingView(runId, r0) {
             <div class="row gap-8"><span class="tl-name st-${esc(status)}">${esc(s.label)}</span>${STAGE_TAG[status] ? `<span class="tag tag-${esc(status)}">${STAGE_TAG[status]}</span>` : ""}<span class="sr-only">${esc(status)}</span></div>
             <div class="small-13 muted">${esc(note)}</div>
             ${status === "running" ? '<div class="bar"><i></i></div>' : ""}
+            ${s.key === "compose" ? (status === "running" ? agentTimelineHtml(runId) : agentMetaLine(runId)) : ""}
           </div>
         </div>`;
     }).join("") || `<div class="empty">${esc(r.next || "No stage information yet.")}</div>`;
+    bindAgentToggle(stepsEl, paint);
 
     const box = document.getElementById("job-box");
     if (job) {
@@ -1915,6 +2123,7 @@ async function assemblingView(runId, r0) {
     try { state.d = await api(`/api/runs/${enc(runId)}/draft`); } catch { /* not composed yet */ }
   };
   await fetchDraft();
+  await loadAgentSession(runId);
   paint();
   if (state.job?.status === "running") {
     stopPolling();
@@ -1923,6 +2132,7 @@ async function assemblingView(runId, r0) {
       try {
         const [r, j] = await Promise.all([api(`/api/runs/${enc(runId)}`), api(`/api/runs/${enc(runId)}/job`)]);
         state.r = r; state.job = j.job || r.job || null;
+        await loadAgentSession(runId);
         await fetchDraft();
         paint();
         if (!state.job || state.job.status !== "running") stopPolling();
@@ -1958,10 +2168,41 @@ async function draftView(runId) {
   const defaultBlock = () => {
     const s = d.slides[st.slide];
     if (!s) return null;
-    const worst = s.blocks.find((b) => b.verdict && b.verdict !== "supported") || s.blocks.find((b) => b.verdict || (b.citations || []).length);
+    const worst = s.blocks.find((b) => b.verdict && b.verdict !== "supported") || s.blocks.find((b) => isClaimBlk(b));
     return (worst || s.blocks[0])?.id ?? null;
   };
   st.block = defaultBlock();
+  await loadAgentSession(runId);
+  // Rejections grouped by what went wrong; old runs without `failures` fall back to the strings.
+  const FAILURE_LABEL = {
+    quote_not_found: "Quote not found in the source",
+    quote_splice: "Quote joined two passages",
+    doc_not_shown: "Quote not found in the source",
+    uncitable: "Quote not found in the source",
+    overflow_item: "Too long for its slot",
+    overflow_stack: "Too long for its slot",
+    overflow_text: "Too long for its slot",
+    unknown_slot: "Not a slot of this layout",
+    computed_slot: "Not a slot of this layout",
+    framing_fence: "Framing carried a fact",
+    numeral_unmatched: "Number not in a cited source",
+    header_fact_unbacked: "Headline fact not backed on the slide",
+    subjectless_point: "Comparison point does not name its side",
+    mode_blocked: "Not allowed in strict mode",
+    missing_slot: "Required part empty",
+    ir_invalid: "Could not be built",
+  };
+  const failureGroups = (xs) => {
+    const groups = new Map();
+    (xs || []).forEach((r) => {
+      if (!r || typeof r !== "object") return;
+      const label = FAILURE_LABEL[r.kind] || "Dropped";
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(r);
+    });
+    return [...groups.entries()];
+  };
+
   const coverageFlag = () => (d.coverage || []).filter((c) => c.status && c.status !== "covered").length;
 
   view.innerHTML = `
@@ -2009,7 +2250,7 @@ async function draftView(runId) {
 
   const blockBtn = (s, b, n) => {
     const v = verdictOf(b.verdict);
-    const claim = b.verdict || (b.citations || []).length;
+    const claim = isClaimBlk(b);
     return `<button type="button" class="blk ${v.cls} ${b.id === st.block ? "on" : ""}" data-b="${esc(b.id)}" aria-pressed="${b.id === st.block}">${esc(b.text)}${claim ? `<sup>${n}</sup>` : ""}<span class="sr-only"> ${esc(v.label)}</span></button>`;
   };
 
@@ -2035,7 +2276,7 @@ async function draftView(runId) {
     const s = d.slides[st.slide];
     if (!s) { stageEl.innerHTML = '<div class="empty">The draft has no slides.</div>'; return; }
     let n = 0;
-    const list = s.blocks.filter((b) => !isTitleOnly(s, b)).map((b) => blockBtn(s, b, (b.verdict || (b.citations || []).length) ? ++n : 0)).join("");
+    const list = s.blocks.filter((b) => !isTitleOnly(s, b)).map((b) => blockBtn(s, b, (isClaimBlk(b)) ? ++n : 0)).join("");
     const lvl = slideLevel(s);
     stageEl.innerHTML = `
       <div class="row between wrap"><div class="small strong muted">Slide ${esc(s.n)} of ${d.slides.length} · ${esc(s.role)}</div>
@@ -2061,6 +2302,26 @@ async function draftView(runId) {
       ${m.notes && m.evidence !== "supported" ? `<div class="small-13 muted">${esc(m.notes)}</div>` : ""}
     </div>`;
 
+  // B62: a talking header carries no citation; the validator judges it against the slide's claims.
+  const STORY_ISSUE = { unspeakable: "Can't be said aloud", breaks_chain: "Doesn't follow from the slide before", repeats: "Repeats an earlier slide" };
+  // B70: advisory storyline findings for this slide's header; they never block.
+  const storyNotes = (s) => (s.storyline_findings || []).map((f) => `<div class="note plain">${ICON.info}<span><b>${esc(STORY_ISSUE[f.issue] || f.issue)}.</b> ${esc(f.notes)}</span></div>`).join("");
+  const storyLine = (d) => {
+    const c = d.storyline_check;
+    if (!c) return "";
+    const n = (c.findings || []).length;
+    return `<div class="note plain">${ICON.info}<span><b>Storyline: ${c.tells_story && !n ? "tells one story" : `${n} issue${n === 1 ? "" : "s"}`}.</b> ${esc(c.summary)} Advisory; it never blocks.</span></div>`;
+  };
+  const headlineNote = (s) => storyNotes(s) ? headlineVerdict(s) + storyNotes(s) : headlineVerdict(s);
+  const headlineVerdict = (s) => {
+    const h = s.headline_check;
+    if (!h) return `<div class="note plain">${ICON.info}<span>Headline. It cites nothing itself; every fact in it must be stated by a sourced sentence on this slide. Not checked yet.</span></div>`;
+    if (h.verdict === "carried") return `<div class="kv"><div class="eyebrow">Checked by</div><div class="row gap-8">${checkMark(true, "sm")}<span class="small-13">Independent check: <b>carried by the slide's claims</b></span></div></div>`;
+    setTimeout(() => document.getElementById("fixh")?.addEventListener("click", () => fillChat(`Slide ${s.n}: the headline overstates the slide (${h.notes}). Rewrite it to say only what the slide's claims say.`)));
+    return `<div class="note warn">${ICON.warn}<span><b>Headline says more than the slide.</b> ${esc(h.notes)} This blocks the final render.</span></div>
+      <div class="row gap-10 wrap"><button type="button" class="btn btn-quiet" id="fixh">Ask AutoDeck to fix</button></div>`;
+  };
+
   const paintInsp = () => {
     const covN = coverageFlag();
     const tabs = [["claim", "Claim"], ["brief", "Brief"], ["outline", "Outline"], ["coverage", "Coverage"]];
@@ -2071,25 +2332,29 @@ async function draftView(runId) {
       else {
         const v = verdictOf(b.verdict);
         const cites = b.citations || [];
-        const isClaim = b.verdict || cites.length;
+        const isClaim = isClaimBlk(b);
+        const unsourced = b.basis === "unsourced";
         const unsupported = b.verdict === "unsupported" || b.verdict === "contradicted";
         const fix = unsupported ? `Slide ${s.n}: "${b.text}" is not supported by its source. Narrow it to what the source says, or remove it.`
           : b.verdict === "partially_supported" ? `Slide ${s.n}: reword "${b.text}" to match what the source says`
           : `Slide ${s.n}: tighten the wording of "${b.text}"`;
         body = `
-          <div class="row between gap-12 wrap"><span class="mono muted">${esc(b.id)}</span>${isClaim ? vChip(b.verdict || "unverified") : '<span class="badge v-neutral">Framing</span>'}</div>
+          <div class="row between gap-12 wrap"><span class="mono muted">${esc(b.id)}</span><span class="row gap-8">${unsourced ? '<span class="badge v-amber" title="The model\'s general knowledge, not quoted from a source">unsourced</span>' : ""}${(b.citations || []).some((q) => q.source_class === "conversation") ? '<span class="badge accent">from you</span>' : ""}${isClaim ? vChip(b.verdict || "unverified") : '<span class="badge v-neutral">Framing</span>'}</span></div>
           <div class="claim-text sm">${esc(b.text)}</div>
           ${isClaim ? `
             <div class="kv"><div class="eyebrow">Source</div>
               ${cites.map((q) => `<blockquote class="quote"><div class="quote-text">${esc(q.quote)}</div>
-                <div class="small muted"><span class="strong">${esc(docLabel(q.doc_id))}</span> · ${q.page != null && q.page !== "" ? `p.${esc(q.page)}` : "no page"}</div></blockquote>`).join("")
-                || `<div class="note warn">${ICON.warn}<span>No source resolved for this sentence.</span></div>`}
+                <div class="small muted"><span class="strong">${esc(docLabel(q.doc_id, q.page))}</span> · ${q.page != null && q.page !== "" ? `p.${esc(q.page)}` : "no page"}</div></blockquote>`).join("")
+                || (unsourced
+                  ? `<div class="note plain">${ICON.info}<span>General knowledge: the model wrote this without a source. It is checked against your papers; if they do not confirm it, it is marked uncorroborated.</span></div>`
+                  : `<div class="note warn">${ICON.warn}<span>No source resolved for this sentence.</span></div>`)}
             </div>
             <div class="kv"><div class="eyebrow">Checked by</div>
               <div class="row gap-8">${checkMark(cites.length > 0, "sm")}<span class="small-13">Code: ${cites.length ? "quote found on its page" : "no citation resolved"}</span></div>
               <div class="row gap-8">${checkMark(b.verdict === "supported", "sm")}<span class="small-13">Independent check: <b>${esc(v.label === "Framing" ? "not checked yet" : v.label)}</b>${b.verdict_notes ? ` — ${esc(b.verdict_notes)}` : ""}</span></div>
             </div>
             <div class="row gap-10 wrap"><button type="button" class="btn btn-quiet" id="fix">Ask AutoDeck to fix</button><button type="button" class="btn btn-outline" id="rm">Remove this claim</button></div>`
+          : b.slot === "headline" ? headlineNote(s)
           : `<div class="note plain">${ICON.info}<span>Framing. A connecting line with no factual claim, so it carries no source and no check. It is yours to read.</span></div>`}`;
         setTimeout(() => {
           document.getElementById("fix")?.addEventListener("click", () => fillChat(fix));
@@ -2115,11 +2380,16 @@ async function draftView(runId) {
       const odd = (xs) => (xs || []).map((x) => (typeof x === "string" ? x : Object.values(x || {}).filter((v) => typeof v === "string" || typeof v === "number").join(" · ")));
       body = `
         <div class="small-13 muted">Every message you agreed to, and what the draft did with it. Nothing is dropped silently.</div>
+        ${storyLine(d)}
         ${items.map((c) => `
           <div class="km-card"><div class="row between gap-12"><div class="small-13">${esc(c.item)}</div><span class="badge ${COVER_KIND[c.status] || ""}">${esc(COVER_LABEL[c.status] || c.status)}</span></div>
           ${c.detail ? `<div class="small muted">${esc(c.detail)}</div>` : ""}</div>`).join("")
           || '<div class="empty">No coverage items were recorded for this draft.</div>'}
-        ${odd(d.rejections).length ? `<div class="eyebrow">Dropped for a citation that did not resolve</div>${odd(d.rejections).map((t) => `<div class="small-13 muted">${esc(t)}</div>`).join("")}` : ""}
+        ${failureGroups(d.failures).length
+          ? failureGroups(d.failures).map(([label, rows]) => `<div class="eyebrow">${esc(label)}</div>${rows.map((r) => `<div class="small-13 muted">${r.slide_id ? `<span class="mono">${esc(r.slide_id)}</span> · ` : ""}${esc(r.message)}</div>`).join("")}`).join("")
+          : (odd(d.rejections).length ? `<div class="eyebrow">Dropped for a citation that did not resolve</div>${odd(d.rejections).map((t) => `<div class="small-13 muted">${esc(t)}</div>`).join("")}` : "")}
+        ${odd(d.repairs).length ? `<div class="eyebrow">Repaired</div>${odd(d.repairs).map((t) => `<div class="small-13 muted">${esc(t)}</div>`).join("")}` : ""}
+        ${(d.advisories || []).length ? `<div class="eyebrow">Suggestions</div>${d.advisories.map((r) => `<div class="small-13 muted">${r.slide_id ? `<span class="mono">${esc(r.slide_id)}</span> · ` : ""}${esc(r.message ?? r)}</div>`).join("")}` : ""}
         ${odd(d.incomplete_slots).length ? `<div class="eyebrow">Left incomplete</div>${odd(d.incomplete_slots).map((t) => `<div class="small-13 muted">${esc(t)}</div>`).join("")}` : ""}`;
     }
     inspEl.innerHTML = `
@@ -2128,6 +2398,7 @@ async function draftView(runId) {
       <div class="insp-body">${body}</div>`;
   };
 
+  const agentRun = () => agentSess.runId === runId && !!agentSess.data?.timeline?.length;
   const paintChat = () => {
     const turns = (d.revisions || []).flatMap((r) => [
       r.instruction ? { role: "human", text: r.instruction } : null,
@@ -2137,6 +2408,9 @@ async function draftView(runId) {
     chatEl.innerHTML = turns.map((t) => `<div class="bubble ${t.role === "human" ? "human" : "planner"}">${esc(t.text)}</div>`).join("")
       || '<div class="empty">Nothing yet. Ask for a change and only the slides it touches are redone.</div>';
     chatEl.scrollTop = chatEl.scrollHeight;
+    reviseEl.placeholder = agentRun()
+      ? "The agent that built this deck will make the change"
+      : "For example: Slide 2: say what the mechanism does in one line";
   };
 
   const paintAll = () => { paintHead(); paintFilm(); paintStage(); paintInsp(); paintChat(); };
@@ -2180,7 +2454,7 @@ async function draftView(runId) {
       let tag;
       if (!rv.diffed && !finished) tag = '<div class="rc-state wait">Waiting for the rewrite…</div>';
       else if (isNew) tag = finished && !failed
-        ? `<div class="rc-state chg"><span class="badge accent">Changed</span><span class="small muted">${plural((s.blocks || []).filter((b) => b.verdict || (b.citations || []).length).length, "claim")}</span></div>`
+        ? `<div class="rc-state chg"><span class="badge accent">Changed</span><span class="small muted">${plural((s.blocks || []).filter((b) => isClaimBlk(b)).length, "claim")}</span></div>`
         : '<div class="rc-state run"><span class="spin" aria-hidden="true"></span>Revising…</div>';
       else tag = '<div class="rc-state keep"><span aria-hidden="true">✓</span>Unchanged — verdicts kept</div>';
       return `<div class="rcard ${isNew ? "hot" : ""}"><div class="rc-thumb">${thumbBody(s)}</div><div class="small strong"><span class="mono muted">${esc(s.id)}</span> ${esc(slideTitle(s))}</div>${tag}</div>`;
@@ -2188,7 +2462,7 @@ async function draftView(runId) {
     revEl.innerHTML = `
       <div class="grid-2 equal align-start">
         <section class="panel" aria-labelledby="rv-h">
-          <div class="panel-head"><h2 class="h2" id="rv-h">The draft · ${d.slides.length} slide${d.slides.length === 1 ? "" : "s"}</h2>${draftPill()}</div>
+          <div class="panel-head"><h2 class="h2" id="rv-h">The draft · ${d.slides.length} slide${d.slides.length === 1 ? "" : "s"}</h2><span class="row gap-8">${provenanceChip(d.provenance)}${designChip(d.design_mode)}${draftPill()}</span></div>
           <div class="rcards">${cards}</div>
           <div class="note plain">${ICON.info}<span>A revision redoes the slides it touches and nothing else. The other slides keep the checks they already passed.</span></div>
         </section>
@@ -2203,11 +2477,13 @@ async function draftView(runId) {
           }).join("")}</div>
           <div class="note warn">${ICON.warn}<span>Anything you approved that covers a changed slide stops counting. Approvals for the rest stay.</span></div>
           ${running ? '<div class="bar"><i></i></div>' : ""}
+          ${running ? agentTimelineHtml(runId) : agentMetaLine(runId)}
           <div class="row gap-12 wrap">${finished ? '<button class="btn" id="back" type="button">Back to the draft</button>' : ""}<a class="btn btn-quiet" href="#/approve/${enc(runId)}">Review approvals</a></div>
         </section>
       </div>`;
     const back = document.getElementById("back");
     if (back) back.addEventListener("click", () => leaveRevising());
+    bindAgentToggle(revEl, () => paintRev(j));
   };
 
   const leaveRevising = () => {
@@ -2234,6 +2510,7 @@ async function draftView(runId) {
       try {
         const res = await api(`/api/runs/${enc(runId)}/job`);
         const cur = res.job;
+        await loadAgentSession(runId);
         const rv = st.revising;
         if (!rv) { stopPolling(); return; }
         const running = cur?.status === "running";

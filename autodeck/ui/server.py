@@ -2,7 +2,7 @@
 
 Standard library only (`http.server`), bound to 127.0.0.1. It is a single-user local tool
 with no login, so it defends the two ways a web page elsewhere could reach it: requests
-must carry a localhost `Host` header (DNS rebinding), and every POST must be
+must carry a localhost `Host` header (DNS rebinding), and every POST and PUT must be
 `application/json` (a cross-site form or `text/plain` fetch cannot send that without a
 CORS preflight, which this server never grants).
 
@@ -200,6 +200,10 @@ class App:
         # Written first, so a session that fails to open (a missing key) leaves a run the
         # UI still recognises as its own and can resume once the cause is fixed.
         api.write_run_meta(self.roots, run_id, client=client, project=project)
+        # A chat-started run is planned before any CLI step, so fix its design mode now (B69).
+        api.snapshot_run_design_mode(
+            self.roots, run_id, _design_mode_field(body.get("design_mode"))
+        )
         self._open_session(run_id, client, project)
         return {"run_id": run_id}
 
@@ -221,12 +225,20 @@ class App:
             raise UIError(
                 "This run already has a draft. Revise it, or start a new run.", status=409
             )
-        api.write_run_meta(self.roots, run_id, client=client, project=project)
+        api.write_run_meta(
+            self.roots, run_id, client=client, project=project, agent=bool(body.get("agent"))
+        )
         argv = jobs.cli_command(
             "clarify",
             run_id,
             roots=self.roots,
-            extra={"client": client, "project": project, "prompt": prompt},
+            extra={
+                "client": client,
+                "project": project,
+                "prompt": prompt,
+                "provenance": _provenance_field(body.get("provenance")),
+                "design_mode": _design_mode_field(body.get("design_mode")),
+            },
         )
         code, output = self.cli_runner(argv)
         if code != 0:
@@ -261,11 +273,19 @@ class App:
                 answers={str(k): str(v) for k, v in answers.items()},
                 corrections=[str(c) for c in corrections],
                 accept_all=bool(body.get("accept_all")),
+                accepted={str(q) for q in body.get("accepted") or []},
             )
         except ClarifyStateError as exc:
             raise UIError(str(exc)) from None
         save_clarify(orch.paths.root, data)
-        return {"job": self.jobs.start(run_id, "draft").to_dict(), "answers": data["answers"]}
+        job = self.jobs.start(run_id, "draft", self._agent_extra(run_id, body))
+        return {"job": job.to_dict(), "answers": data["answers"]}
+
+    def _agent_extra(self, run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """`{"agent": True}` when the draft should be built by the deck agent, else nothing."""
+        if (body or {}).get("agent") or api.run_uses_agent(self.roots, run_id):
+            return {"agent": True}
+        return {}
 
     def draft_from_chat(self, run_id: str) -> dict[str, Any]:
         """ "Draft the deck" at the end of a planning chat: compose keeps its brief verbatim."""
@@ -273,7 +293,7 @@ class App:
         orch = api._open(self.roots, run_id)
         if not orch.paths.draft_brief.exists():
             raise UIError("The conversation has not produced a draft brief yet.", status=409)
-        job = self.jobs.start(run_id, "draft", {"from_chat": True})
+        job = self.jobs.start(run_id, "draft", {"from_chat": True, **self._agent_extra(run_id)})
         return {"job": job.to_dict()}
 
     def start_revise(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -283,7 +303,11 @@ class App:
             raise UIError("Say what to change first.")
         if not api._open(self.roots, run_id).is_draft_first:
             raise UIError("There is no draft to revise yet.", status=409)
-        job = self.jobs.start(run_id, "revise", {"instruction": instruction})
+        extra: dict[str, Any] = {"instruction": instruction}
+        # `autodeck revise` picks the agent by itself when a session transcript exists.
+        if (self.roots.runs / run_id / "session" / "transcript.jsonl").is_file():
+            extra["agent"] = True
+        job = self.jobs.start(run_id, "revise", extra)
         return {"job": job.to_dict()}
 
     def start_redesign(self, params: dict[str, str], data: bytes) -> dict[str, Any]:
@@ -324,6 +348,8 @@ class App:
                 "wording": wording,
                 "layouts": _flag(params.get("layouts"), default=True),
                 "check_papers": _flag(params.get("check_papers"), default=False),
+                "provenance": _provenance_field(params.get("provenance")),
+                "design_mode": _design_mode_field(params.get("design_mode")),
             },
         )
         code, output = self.cli_runner(argv)
@@ -506,6 +532,24 @@ def _sign_blockers(draft: Draft, run_id: str) -> list[str]:
     return blockers
 
 
+def _provenance_field(value: Any) -> str | None:
+    """An optional `provenance` from a start request: 'strict', 'normal' or none."""
+    if value in (None, ""):
+        return None
+    if value not in ("strict", "normal"):
+        raise UIError("provenance must be 'strict' or 'normal'.")
+    return str(value)
+
+
+def _design_mode_field(value: Any) -> str | None:
+    """An optional `design_mode` from a start request: 'structured', 'creative' or none."""
+    if value in (None, ""):
+        return None
+    if value not in ("structured", "creative"):
+        raise UIError("design_mode must be 'structured' or 'creative'.")
+    return str(value)
+
+
 def _flag(value: str | None, *, default: bool) -> bool:
     if value is None or value == "":
         return default
@@ -618,6 +662,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._dispatch("POST")
 
+    def do_PUT(self) -> None:
+        self._dispatch("PUT")
+
     def _dispatch(self, method: str) -> None:
         if not self._host_ok():
             self._json(HTTPStatus.FORBIDDEN, {"error": "AutoDeck only answers on localhost."})
@@ -670,6 +717,9 @@ class Handler(BaseHTTPRequestHandler):
             case "GET", ["runs", run_id, "job"]:
                 job = app.jobs.get(api.check_run_id(run_id))
                 return {"job": job.to_dict() if job is not None else None}
+            case "GET", ["runs", run_id, "session"]:
+                run_id = api.check_run_id(run_id)
+                return api.session_view(roots, run_id, active=app.jobs.running(run_id))
             case "POST", ["runs", run_id, "run"]:
                 return {"job": app.start_job(run_id, str(self._body().get("stage", "")))}
             case "POST", ["runs", run_id, "stop"]:
@@ -714,6 +764,18 @@ class Handler(BaseHTTPRequestHandler):
                 return profile.read_profile(roots.profile)
             case "POST", ["profile"]:
                 return profile.save_profile(roots.profile, str(self._body().get("name", "")))
+            case "GET", ["memory"]:
+                query = dict(parse_qsl(urlsplit(self.path).query))
+                return api.memory_view(roots, query.get("client", ""), query.get("project", ""))
+            case "PUT", ["memory"]:
+                body = self._body()
+                return api.save_memory(
+                    roots,
+                    str(body.get("client", "")),
+                    str(body.get("project", "")),
+                    str(body.get("scope", "")),
+                    str(body.get("content", "")),
+                )
             case "GET", ["clients"]:
                 return {"clients": api.list_clients(roots)}
             case "POST", ["clients"]:
@@ -732,6 +794,18 @@ class Handler(BaseHTTPRequestHandler):
             case "POST", ["settings"]:
                 api.set_env(roots, str(self._body().get("env", "")))
                 return api.settings(roots)
+            case "GET", ["projects"]:
+                return {"projects": api.list_projects(roots)}
+            case "GET", ["projects", project, "settings"]:
+                return api.project_settings_view(roots, project)
+            case "POST", ["projects", project, "settings"]:
+                body = self._body()
+                return api.save_project_settings_view(
+                    roots,
+                    project,
+                    provenance=body.get("provenance"),
+                    named_terms=body.get("named_terms"),
+                )
             case "POST", ["plan", "start"]:
                 return app.start_plan(self._body())
             case "GET", ["plan", run_id]:

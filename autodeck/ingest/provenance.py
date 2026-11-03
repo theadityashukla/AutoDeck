@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from difflib import SequenceMatcher
+from typing import Any
 
 from autodeck.ir.models import BBox
 
@@ -154,6 +156,94 @@ def snap_span(haystack: str, needle: str) -> tuple[tuple[int, int], float] | Non
     while end < len(haystack) and haystack[end].isalnum():
         end += 1
     return (start, end), coverage
+
+
+def _covered_runs(passage: str, target: str) -> list[tuple[int, int]]:
+    """Spans of `target` (normalised) that `passage` accounts for, as (start, end) in target."""
+    normalised, _offsets = _normalise_with_offsets(passage)
+    if not normalised or not target:
+        return []
+    matcher = SequenceMatcher(None, normalised, target, autojunk=False)
+    return [
+        (b.b, b.b + b.size) for b in matcher.get_matching_blocks() if b.size >= _SNAP_MIN_RUN
+    ]
+
+
+def diagnose_quote(quote: str, passages: Sequence[str]) -> dict[str, Any]:
+    """Say whether a quote that matched nowhere is two passages joined together.
+
+    A model sometimes stitches the end of one sentence onto the start of another ("A ... B")
+    and the result is in no passage. No single passage snaps (`snap_span` is None for each),
+    but two passages (or two disjoint regions of one) each cover a substantial contiguous
+    part of the quote and together nearly all of it.
+
+    Returns `{"splice": bool, "best_coverage": float, "parts": [...]}`. `best_coverage` is the
+    best single-passage coverage of the quote; `parts` lists, for a splice, the two covering
+    pieces as `{"passage": index, "start": .., "end": .., "coverage": ..}` (offsets into the
+    normalised quote). A quote some passage already snaps is never a splice.
+    """
+    target = normalise_for_match(quote)
+    result: dict[str, Any] = {"splice": False, "best_coverage": 0.0, "parts": []}
+    if len(target) < SNAP_MIN_QUOTE_CHARS:
+        return result
+
+    per_passage: list[list[tuple[int, int]]] = []
+    best = 0.0
+    for text in passages:
+        runs = _covered_runs(text, target)
+        per_passage.append(runs)
+        best = max(best, sum(e - s for s, e in runs) / len(target))
+        if snap_span(text, quote) is not None:
+            result["best_coverage"] = best
+            return result
+    result["best_coverage"] = best
+
+    # Candidate regions: each passage's matching runs, grouped into one contiguous region of
+    # the quote (runs closer than a gap tolerance belong together).
+    regions: list[dict[str, Any]] = []
+    for index, runs in enumerate(per_passage):
+        group: list[tuple[int, int]] = []
+        for run in runs:
+            if group and run[0] - group[-1][1] > max(8, len(target) // 20):
+                regions.append(_region(index, group, len(target)))
+                group = []
+            group.append(run)
+        if group:
+            regions.append(_region(index, group, len(target)))
+
+    best_pair: tuple[float, dict[str, Any], dict[str, Any]] | None = None
+    for i, first in enumerate(regions):
+        for second in regions[i + 1 :]:
+            left, right = sorted((first, second), key=lambda r: r["start"])
+            if left["coverage"] < 0.3 or right["coverage"] < 0.3:
+                continue
+            if right["start"] < left["end"] - len(target) * 0.05:
+                continue  # overlapping parts are one region seen twice, not a join
+            if first["passage"] == second["passage"] and first["span"] == second["span"]:
+                continue
+            combined = left["coverage"] + right["coverage"]
+            if combined >= SNAP_MIN_COVERAGE and (best_pair is None or combined > best_pair[0]):
+                best_pair = (combined, left, right)
+    if best_pair is not None:
+        _combined, left, right = best_pair
+        result["splice"] = True
+        result["parts"] = [
+            {k: left[k] for k in ("passage", "start", "end", "coverage")},
+            {k: right[k] for k in ("passage", "start", "end", "coverage")},
+        ]
+    return result
+
+
+def _region(passage: int, runs: list[tuple[int, int]], length: int) -> dict[str, Any]:
+    start, end = runs[0][0], runs[-1][1]
+    matched = sum(e - s for s, e in runs)
+    return {
+        "passage": passage,
+        "start": start,
+        "end": end,
+        "coverage": matched / length,
+        "span": (start, end),
+    }
 
 
 #: A hyphen ending a line, seen from that hyphen's position: whitespace including a

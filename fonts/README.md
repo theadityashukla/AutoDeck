@@ -56,7 +56,9 @@ file alone is not enough; see the per-face section above.
 **Headless LibreOffice needs them too.** The preview loop (D5) renders through LibreOffice,
 so if Aptos is missing there, the PNGs come back in a substituted face and the design loop
 is judging something that is not the deliverable. Install into `~/.local/share/fonts/` and
-run `fc-cache -f` before trusting a preview.
+run `fc-cache -f` before trusting a preview. **On macOS** headless LibreOffice uses CoreText,
+not fontconfig, so install into `~/Library/Fonts/` instead (or as well); `~/.local/share/fonts/`
+is invisible to it and it will substitute silently. `render_pptx` checks both.
 
 Verify with:
 
@@ -71,26 +73,24 @@ have Aptos: it cannot be legally fetched. Work in those environments uses the OF
 (`config/tokens/dev.json`) so that previews are **true renders of a font that is genuinely
 installed**, never a substituted Aptos. Preview output records which family it rendered in.
 
-Aptos remains the deliverable default and the target for any visual sign-off.
+**The dev token set uses Carlito, which ships with LibreOffice.** Carlito (SIL OFL 1.1,
+metric-compatible with Calibri) is bundled in LibreOffice's own font directory, so headless
+LibreOffice renders it with nothing installed, and `autodeck.design.fonts` finds the same
+files for glyph metrics. Searched, after `AUTODECK_FONT_DIRS` and the usual system folders:
 
-**A fresh container has neither font.** That statement above describes the intent, not the
-state a container starts in: Inter is not preinstalled either, so `autodeck fonts check`
-fails against *both* token sets and the D5 preview loop cannot run at all. That is B11
-behaving correctly in an environment nobody had set up, not a bug — but it does need one
-command:
+| Platform | LibreOffice bundled fonts |
+|---|---|
+| macOS | `/Applications/LibreOffice.app/Contents/Resources/fonts/truetype/` |
+| Linux | `/usr/lib/libreoffice/share/fonts/truetype/`, `/opt/libreoffice*/share/fonts/truetype/` |
 
-```bash
-./scripts/install-dev-fonts.sh
-```
+So no font install is needed for previews. Aptos remains the deliverable default and the
+target for any visual sign-off.
 
-It fetches Inter (SIL OFL 1.1, so unlike Aptos it can legally be fetched) and installs the
-nine faces the dev token set uses into **both** `fonts/` — where
-`autodeck.design.fonts.resolve_family()` looks, for glyph metrics — and
-`~/.local/share/fonts/`, where fontconfig looks, so headless LibreOffice renders the same
-face the budgets were computed from. Installing only the first is worse than installing
-neither: budgets in Inter, previews in whatever LibreOffice substitutes, and nothing saying
-so. The binaries stay uncommitted; `.gitignore` still excludes `fonts/*.ttf`.
+### Inter (optional / legacy)
 
-For the whole dev environment, not just fonts — `libreoffice-impress` and `poppler-utils`
-are needed too, and every render test fails without them — run `./scripts/setup-dev-env.sh`
-instead, which calls this script as one of its steps (B34).
+Earlier the dev token set used Inter / Inter Display. `./scripts/install-dev-fonts.sh`
+still fetches Inter (SIL OFL 1.1) into `fonts/`, `~/.local/share/fonts/` and, on macOS,
+`~/Library/Fonts/`; it is only needed for custom token sets or the Inter-based tests, which
+skip when Inter is absent. The binaries stay uncommitted (`.gitignore` excludes
+`fonts/*.ttf`). `./scripts/setup-dev-env.sh` still calls it as an optional step; the
+LibreOffice and poppler packages it installs are what previews actually require.

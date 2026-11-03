@@ -88,14 +88,15 @@ class HeaderStyleProfile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    style: str = Field(default="topic_led", min_length=1)
+    style: str = Field(default="blot", min_length=1)
     """A name, not an enum. `headers.yaml` seeds included `assertion`; this task adds
-    `question_led` and the `topic_led` default. A client or a future style is free to name
-    its own — `guidance_for` falls back to a generic description for a name it does not
-    recognise rather than rejecting it, because an unrecognised style name is a reason to
-    add guidance, not a reason to fail the build."""
+    `question_led` and `topic_led`; B55 adds `blot` (bottom line on top), the default.
+    A client or a future style is free to name its own — `guidance_for` falls back to a
+    generic description for a name it does not recognise rather than rejecting it,
+    because an unrecognised style name is a reason to add guidance, not a reason to fail
+    the build."""
 
-    max_words: int = Field(default=14, ge=1)
+    max_words: int = Field(default=18, ge=1)
     sentence_case: bool = True
     terminal_punctuation: bool = False
     numbers_in_headers: NumbersPolicy = "allowed"
@@ -151,6 +152,13 @@ class HeaderStyleProfile(BaseModel):
 #: still name any style it likes (see `HeaderStyleProfile.style`'s docstring); a name not
 #: listed here gets `_FALLBACK_GUIDANCE` instead of a build failure.
 STYLE_GUIDANCE: dict[str, str] = {
+    "blot": (
+        "A full sentence that puts the slide's bottom line first. It may assert a finding or "
+        "synthesise the overall picture. It carries no citation of its own, so every specific "
+        "fact in it — a number, a named trial or study, a comparator — must be stated by a "
+        "cited block on the same slide, and it is never stronger than the weakest claim it "
+        "summarises. Read in order, the headlines alone tell the whole argument."
+    ),
     "assertion": (
         'State the finding, not the topic — "KV-cache waste is the binding constraint", '
         'never "KV cache". The header is the argument; the slide body is the evidence '

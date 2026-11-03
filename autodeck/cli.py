@@ -21,7 +21,7 @@ import typer
 from pydantic import BaseModel
 
 from autodeck.audit.gate2 import gate2_checks
-from autodeck.audit.manifest import build_manifest
+from autodeck.audit.manifest import build_manifest, session_record
 from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.dotenv import load_dotenv
@@ -42,7 +42,7 @@ from autodeck.pipeline.orchestrator import (
 from autodeck.pipeline.planning import PlanningContext
 from autodeck.providers.cache import ResponseCache
 from autodeck.providers.guard import ProviderFailureRecord, ProviderGuard
-from autodeck.providers.registry import ModelRegistry
+from autodeck.providers.registry import ModelRegistry, default_env_name
 
 app = typer.Typer(
     name="autodeck",
@@ -69,10 +69,24 @@ app.add_typer(ir_app, name="ir")
 app.add_typer(spike_app, name="spike")
 app.add_typer(fonts_app, name="fonts")
 app.add_typer(components_app, name="components")
+memory_app = typer.Typer(
+    help="What the agent remembers between runs (engagement and owner).", no_args_is_help=True
+)
 app.add_typer(knowledge_app, name="knowledge")
+app.add_typer(memory_app, name="memory")
+meeting_app = typer.Typer(
+    help="Local, offline transcription of meeting recordings.", no_args_is_help=True
+)
+app.add_typer(meeting_app, name="meeting")
+
+#: The registry's `default_env` (config/models.yaml), not a hard-coded name.
+DEFAULT_ENV = default_env_name()
 
 EnvOption = Annotated[
-    str, typer.Option("--env", help="Provider environment: dev, sit or prod.")
+    str,
+    typer.Option(
+        "--env", help="Provider environment from config/models.yaml (see `autodeck models`)."
+    )
 ]
 RunsRoot = Annotated[Path, typer.Option("--runs-root", help="Where run directories live.")]
 TokensOption = Annotated[Path, typer.Option("--tokens", help="Path to a tokens.json.")]
@@ -145,19 +159,11 @@ def _provider_failure_message(
 ) -> str:
     who = f"role '{failure.role}' ({failure.provider}, model {failure.model})"
     if failure.kind == "rate_limit":
-        # Free tiers limit differently: Gemini per model per day, Groq per minute
-        # (config/models.yaml). Saying "daily" about Groq would send the owner away for a
-        # day over a limit that clears in a minute.
-        if failure.provider == "groq":
-            meaning = (
-                "Groq's free tier is limited per minute (tokens), so waiting a minute or "
-                "two is usually enough."
-            )
-        else:
-            meaning = (
-                "On a free tier this is almost always that model's daily quota: it resets "
-                "daily, so running the command again sooner will not help."
-            )
+        # Limits differ by provider and plan: some are per minute, some per day.
+        meaning = (
+            "This is a request limit. A per-minute limit clears in a minute or two; a "
+            "daily quota resets daily, so running the command again sooner will not help."
+        )
         what = (
             f"STOPPED: {who} was rate limited.\n"
             "  The provider refused the call (HTTP 429) and waiting inside the command did "
@@ -198,7 +204,7 @@ def _ends_on_provider_failure(
         raise typer.Exit(code=EXIT_PROVIDER_FAILURE) from None
 
 
-def _open_run(run_id: str, runs_root: Path, env: str = "dev") -> Orchestrator:
+def _open_run(run_id: str, runs_root: Path, env: str = DEFAULT_ENV) -> Orchestrator:
     """Open a run that must already exist.
 
     Every command except `plan` (and the Phase 0 stub, which starts a run by design) goes
@@ -218,10 +224,11 @@ def _open_run(run_id: str, runs_root: Path, env: str = "dev") -> Orchestrator:
 
 
 @app.command()
-def models(env: EnvOption = "dev") -> None:
+def models(env: EnvOption = DEFAULT_ENV) -> None:
     """Show the resolved provider bindings for an environment."""
     registry = ModelRegistry.load(env)
     typer.secho(f"environment: {registry.env}", bold=True)
+    typer.echo(f"  design mode  {registry.design_mode} (default for this environment)")
     for role, binding in sorted(registry.bindings().items()):
         typer.echo(f"  {role:<12} {binding.provider:<8} {binding.model}")
 
@@ -229,7 +236,7 @@ def models(env: EnvOption = "dev") -> None:
     if missing:
         typer.secho(f"\nmissing credentials: {', '.join(missing)}", fg=typer.colors.YELLOW)
 
-    if registry.env == "dev":
+    if registry.env.startswith("dev"):
         typer.secho(
             "\nNote: A3 and A8 are model-sensitive (B8). A dev-environment accuracy result "
             "is a smoke test, not a verification — measure headline metrics on sit.",
@@ -245,7 +252,7 @@ def models(env: EnvOption = "dev") -> None:
 @app.command()
 def run(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     stub: Annotated[
         bool, typer.Option("--stub", help="Run the Phase 0 stub pipeline.")
@@ -278,6 +285,8 @@ def run(
             models=registry.manifest_entry(),
             prompts_dir=Path("prompts"),
             ir_path=latest,
+            provenance_mode=orchestrator.ir.load().provenance,
+            run_sources=run_source_hashes(orchestrator.paths.root),
         )
         manifest.save(orchestrator.paths.manifest_file)
         return f"wrote {orchestrator.paths.manifest_file}"
@@ -454,13 +463,13 @@ def ir_diff(
 @ir_app.command("schema")
 def ir_schema(
     flavor: Annotated[
-        str, typer.Option("--flavor", help="standard, strict or gemini.")
+        str, typer.Option("--flavor", help="standard or strict.")
     ] = "standard",
 ) -> None:
     """Print the Deck IR JSON schema in a provider dialect."""
     from autodeck.ir.schema import SchemaFlavor, export_schema
 
-    if flavor not in ("standard", "strict", "gemini"):
+    if flavor not in ("standard", "strict"):
         _echo_error(f"unknown flavor {flavor!r}")
         raise typer.Exit(code=2)
     schema: SchemaFlavor = flavor  # type: ignore[assignment]
@@ -569,6 +578,97 @@ def components_preview(
 # ---------------------------------------------------------------------------
 # knowledge
 # ---------------------------------------------------------------------------
+
+
+def _open_memory(knowledge_root: Path, client: str, project: str, run_id: str):  # type: ignore[no-untyped-def]
+    """A `MemoryStore` for a client and project that exist in the knowledge root.
+
+    The store's isolation guard resolves paths, so a crafted name such as `../globex` would
+    pass it; the names are therefore checked against the folders that exist.
+    """
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+    from autodeck.knowledge.memory import MemoryStore
+    from autodeck.ui.profile import owner_memory_path
+
+    loader = KnowledgeLoader(knowledge_root)
+    if client not in loader.client_names() or project not in loader.project_names():
+        raise KnowledgeError(
+            f"no client {client!r} with project {project!r} in {knowledge_root}"
+        )
+    return MemoryStore(
+        knowledge_root,
+        client=client,
+        project=project,
+        run_id=run_id,
+        owner_path=owner_memory_path(),
+    )
+
+
+def _memory_store(knowledge_root: Path, client: str, project: str, run_id: str):  # type: ignore[no-untyped-def]
+    """The agent's memory for this build (B77), or None (with a note) when it cannot open."""
+    from autodeck.knowledge.loader import KnowledgeError
+
+    try:
+        return _open_memory(knowledge_root, client, project, run_id)
+    except KnowledgeError as exc:
+        typer.secho(f"agent memory is off for this build: {exc}", fg=typer.colors.YELLOW)
+        return None
+
+
+def _memory_cli_store(knowledge_root: Path, client: str, project: str):  # type: ignore[no-untyped-def]
+    from autodeck.knowledge.loader import KnowledgeError
+
+    try:
+        return _open_memory(knowledge_root, client, project, "cli")
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+@memory_app.command("show")
+def memory_show(
+    client: Annotated[str, typer.Option("--client", help="The client's folder name.")],
+    project: Annotated[str, typer.Option("--project", help="The project's folder name.")],
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+) -> None:
+    """Print the engagement memory for a client and project, and the owner memory."""
+    from autodeck.knowledge.loader import KnowledgeError
+
+    store = _memory_cli_store(knowledge_root, client, project)
+    try:
+        engagement = store.read("engagement")
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    typer.echo(f"Engagement memory ({store.engagement_path})\n")
+    typer.echo(engagement)
+    typer.echo(f"Owner memory ({store.owner_path})\n")
+    typer.echo(store.read("owner"))
+
+
+@memory_app.command("forget")
+def memory_forget(
+    client: Annotated[str, typer.Option("--client", help="The client's folder name.")],
+    project: Annotated[str, typer.Option("--project", help="The project's folder name.")],
+    scope: Annotated[str, typer.Option("--scope", help="engagement or owner.")],
+    section: Annotated[str, typer.Option("--section", help="The section the item is under.")],
+    item: Annotated[
+        str, typer.Option("--item", help="The item's text (a unique part is enough).")
+    ],
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+) -> None:
+    """Drop one remembered item."""
+    from autodeck.knowledge.loader import KnowledgeError
+
+    if scope not in ("engagement", "owner"):
+        _echo_error("--scope is engagement or owner")
+        raise typer.Exit(code=1)
+    store = _memory_cli_store(knowledge_root, client, project)
+    try:
+        typer.echo(store.remove(scope, section, item))  # type: ignore[arg-type]
+    except KnowledgeError as exc:  # MemoryWriteError and ClientIsolationError
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
 
 
 @knowledge_app.command("validate")
@@ -896,7 +996,7 @@ def plan(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     client: Annotated[str, typer.Option("--client", help="Client namespace (A4).")],
     project: Annotated[str, typer.Option("--project", help="Project whose corpus to probe.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
@@ -1048,7 +1148,7 @@ def outline(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     client: Annotated[str, typer.Option("--client")],
     project: Annotated[str, typer.Option("--project")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     tokens: TokensOption = Path("config/tokens/dev.json"),
@@ -1163,7 +1263,7 @@ def _iso_now() -> str:
 @app.command()
 def content(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
@@ -1392,7 +1492,7 @@ def content(
 @app.command()
 def validate(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
 ) -> None:
@@ -1459,6 +1559,13 @@ def validate(
                 f"`autodeck knowledge ingest {deck.project}` first."
             )
             raise typer.Exit(code=2)
+        if deck.provenance == "normal":
+            # B55: a claim that cites the person's own words is checked against them too. The
+            # conversation is read from the run's own folder, never put into the index (A3).
+            from autodeck.ingest.deck_source import run_source_root
+            from autodeck.ingest.multi_store import MultiStore
+
+            store = MultiStore(run_source_root(runs_root, run_id), corpus_root / deck.project)
     index = build_index(documents, project=deck.project)
     guard = ProviderGuard(
         ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
@@ -1773,7 +1880,145 @@ def _redesign_planning(  # type: ignore[no-untyped-def]
     )
 
 
-def _pack_for(planning, text: str):  # type: ignore[no-untyped-def]
+ProvenanceOption = Annotated[
+    str | None,
+    typer.Option(
+        "--provenance",
+        help=(
+            "strict (MLR: document spans only) or normal (also what you typed, and checked "
+            "general knowledge). Default: the project's setting. Only valid before the run's "
+            "mode is fixed (B55)."
+        ),
+    ),
+]
+
+
+def _provenance_override(value: str | None):  # type: ignore[no-untyped-def]
+    if value is None:
+        return None
+    if value not in ("strict", "normal"):
+        _echo_error("--provenance must be 'strict' or 'normal'.")
+        raise typer.Exit(code=1)
+    return value
+
+
+def _start_run_mode(  # type: ignore[no-untyped-def]
+    run_root: Path, *, knowledge_root: Path, project: str, override: str | None = None
+):
+    """Fix (or read) the run's provenance mode when a draft-first run starts (B55).
+
+    The project's setting is snapshotted into `runs/<run>/provenance.json`; an `override` is
+    refused once a snapshot exists and differs. Failures are clean CLI errors (exit 1).
+    """
+    from autodeck.knowledge.loader import KnowledgeError, load_project_settings
+    from autodeck.pipeline.provenance import ProvenanceModeError, resolve_mode
+
+    try:
+        return resolve_mode(
+            run_root,
+            load_project_settings(knowledge_root, project),
+            _provenance_override(override),
+        )
+    except (KnowledgeError, ProvenanceModeError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+DesignModeOption = Annotated[
+    str | None,
+    typer.Option(
+        "--design-mode",
+        help=(
+            "structured (catalog layouts) or creative (the writer designs each slide). "
+            "Default: the environment's setting in config/models.yaml. Only valid before the "
+            "run's mode is fixed (B69)."
+        ),
+    ),
+]
+
+
+def _start_design_mode(  # type: ignore[no-untyped-def]
+    run_root: Path, *, env: str, override: str | None = None
+):
+    """Fix (or read) the run's design mode when a run starts (B69), as a clean CLI error."""
+    from autodeck.pipeline.design_mode import DesignModeError, resolve_design_mode
+
+    if override is not None and override not in ("structured", "creative"):
+        _echo_error("--design-mode must be 'structured' or 'creative'.")
+        raise typer.Exit(code=1)
+    try:
+        return resolve_design_mode(run_root, ModelRegistry.load(env).design_mode, override)
+    except DesignModeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+def _design_mode(run_root: Path):  # type: ignore[no-untyped-def]
+    """The run's fixed design mode (`structured` when it has none)."""
+    from autodeck.pipeline.design_mode import DesignModeError, load_design_mode
+
+    try:
+        return load_design_mode(run_root)
+    except DesignModeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+def _project_named_terms(knowledge_root: Path, project: str) -> list[str]:
+    """The project's glossary of names that contain digits (B58), as a clean CLI error."""
+    from autodeck.knowledge.loader import KnowledgeError, load_project_settings
+
+    try:
+        return list(load_project_settings(knowledge_root, project).named_terms)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+def _run_mode(run_root: Path):  # type: ignore[no-untyped-def]
+    """The run's fixed mode (`strict` when it has none), as a clean error on a bad file."""
+    from autodeck.pipeline.provenance import ProvenanceModeError, load_mode
+
+    try:
+        return load_mode(run_root)
+    except ProvenanceModeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+def _with_conversation_source(  # type: ignore[no-untyped-def]
+    planning, pack, *, run_id: str, runs_root: Path, corpus_root: Path, project: str, mode
+):
+    """`(pack, store)` for a compose-family call in `mode` (B55).
+
+    `normal`: what the person typed is written to `runs/<run>/source/` and added to the pack,
+    and the store reads that folder as well as the project's papers, so a `conversation--`
+    quote resolves. `strict` and any redesign: unchanged.
+    """
+    if mode != "normal" or isinstance(planning, RedesignPlanning):
+        return pack, planning.store
+    from autodeck.agents.evidence_pack import with_conversation
+    from autodeck.ingest.conversation_source import conversation_document, ingest_conversation
+    from autodeck.ingest.deck_source import run_source_root
+    from autodeck.ingest.multi_store import MultiStore
+
+    run_root = planning.orchestrator.paths.root
+    ingest_conversation(run_root, run_id)
+    store = MultiStore(run_source_root(runs_root, run_id), corpus_root / project)
+    return with_conversation(pack, conversation_document(run_root, run_id), mode), store
+
+
+def run_source_hashes(run_root: Path) -> dict[str, str]:
+    """`{doc_id: sha256}` of the run-local documents in `runs/<run>/source/` (A6, B55)."""
+    from autodeck.audit.manifest import file_sha256
+
+    folder = Path(run_root) / "source"
+    if not folder.is_dir():
+        return {}
+    return {path.stem: file_sha256(path) for path in sorted(folder.glob("*.json"))}
+
+
+def _pack_for(planning, text: str, extra_queries: tuple[str, ...] = ()):  # type: ignore[no-untyped-def]
     from autodeck.agents.evidence_pack import build_evidence_pack, build_redesign_pack
 
     if isinstance(planning, RedesignPlanning):
@@ -1789,7 +2034,18 @@ def _pack_for(planning, text: str):  # type: ignore[no-untyped-def]
         project_md=planning.assembled.project_md,
         claims=planning.claims,
         index=planning.index,
+        extra_queries=extra_queries,
     )
+
+
+def _answer_queries(clarify_data: dict | None) -> tuple[str, ...]:
+    """Each answered clarify question as one retrieval query: the question and its answer."""
+    from autodeck.pipeline.clarify_state import answer_pairs
+
+    out: list[str] = []
+    for pair in answer_pairs(clarify_data or {}):
+        out.append(pair if isinstance(pair, str) else f"{pair[0]} {pair[1]}")
+    return tuple(out)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -1820,6 +2076,12 @@ def _write_coverage_file(orchestrator: Orchestrator, result, *, ir_version: int)
             "coverage": result.coverage,
             "origins": result.origins,
             "rejections": result.rejections,
+            "failures": [r.to_dict() for r in getattr(result, "failures", [])],
+            "advisories": [r.to_dict() for r in getattr(result, "advisories", [])],
+            "repairs": list(getattr(result, "repairs", [])),
+            "repair_ran": bool(getattr(result, "repair_ran", False)),
+            "provider_calls": getattr(result, "provider_calls", 1),
+            "provenance": result.deck.provenance,
             "corrections": result.corrections,
             "incomplete_slots": result.incomplete_slots,
             "notes": result.notes if isinstance(result.notes, str) else "; ".join(result.notes),
@@ -1851,6 +2113,15 @@ def _print_draft_summary(result, deck: Deck) -> None:  # type: ignore[no-untyped
         typer.secho(f"\n{len(result.rejections)} block(s) dropped:", fg=typer.colors.YELLOW)
         for reason in result.rejections:
             typer.echo(f"  {reason}")
+    if getattr(result, "repair_ran", False):
+        repairs = list(getattr(result, "repairs", []))
+        declined = sum(1 for line in repairs if "declin" in line.casefold())
+        typer.secho(
+            f"\nrepair call: {len(repairs) - declined} replaced, {declined} declined",
+            fg=typer.colors.YELLOW,
+        )
+        for line in repairs:
+            typer.echo(f"  {line}")
     for correction in result.corrections:
         typer.secho(f"corrected: {correction}", fg=typer.colors.YELLOW)
     for finding in result.incomplete_slots:
@@ -1863,10 +2134,12 @@ def clarify(
     client: Annotated[str, typer.Option("--client", help="Client namespace (A4).")],
     project: Annotated[str, typer.Option("--project", help="Project whose corpus to use.")],
     prompt: Annotated[str, typer.Option("--prompt", help="What the deck is for.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    provenance: ProvenanceOption = None,
+    design_mode: DesignModeOption = None,
 ) -> None:
     """Show what the draft will assume and ask what would change it (B47, B48).
 
@@ -1894,6 +2167,16 @@ def clarify(
         _echo_error(str(exc))
         raise typer.Exit(code=exc.exit_code) from None
 
+    mode = _start_run_mode(
+        planning.orchestrator.paths.root,
+        knowledge_root=knowledge_root,
+        project=project,
+        override=provenance,
+    )
+    typer.echo(f"Provenance: {mode}")
+    typer.echo(
+        f"Design mode: {_start_design_mode(planning.orchestrator.paths.root, env=env, override=design_mode)}"
+    )
     write_run_meta(Roots(runs=runs_root, env=env), run_id, client=client, project=project)
     _clarify_checkpoint(
         planning,
@@ -1998,10 +2281,12 @@ def redesign(
             help="Also check the deck's figures against the project's papers (off by default).",
         ),
     ] = False,
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    provenance: ProvenanceOption = None,
+    design_mode: DesignModeOption = None,
 ) -> None:
     """Start a redesign of a deck the client already has (B41, Phase 3d).
 
@@ -2029,6 +2314,18 @@ def redesign(
     if wording not in ("keep", "light"):
         _echo_error("--wording must be 'keep' or 'light'.")
         raise typer.Exit(code=1)
+    from autodeck.ir.store import run_paths
+
+    mode = _start_run_mode(
+        run_paths(runs_root, run_id).root,
+        knowledge_root=knowledge_root,
+        project=project,
+        override=provenance,
+    )
+    typer.echo(f"Provenance: {mode}")
+    typer.echo(
+        f"Design mode: {_start_design_mode(run_paths(runs_root, run_id).root, env=env, override=design_mode)}"
+    )
     try:
         document = ingest_deck(deck, store_root=run_source_root(runs_root, run_id))
         settings["deck_doc_id"] = document.doc_id
@@ -2073,6 +2370,14 @@ def answer(
     accept_all: Annotated[
         bool, typer.Option("--accept-all", help="Take the suggested answer to every question.")
     ] = False,
+    accept: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--accept",
+            help="Take the suggested answer to one question, e.g. q2 (repeatable). Accepted "
+            "answers are the model's wording, never citable as 'from you' (B55).",
+        ),
+    ] = None,
     correct: Annotated[
         list[str] | None,
         typer.Option("--correct", help="Correct one of the draft's assumptions (repeatable)."),
@@ -2101,7 +2406,18 @@ def answer(
         parsed[key.strip()] = value
     try:
         data = load_clarify(orchestrator.paths.root)
-        record_answers(data, answers=parsed, corrections=correct or [], accept_all=accept_all)
+        suggested = {q["id"]: str(q.get("suggested_answer", "")) for q in data["questions"]}
+        accepted = {a.strip() for a in accept or [] if a.strip()}
+        for qid in sorted(accepted):
+            if qid in suggested:
+                parsed.setdefault(qid, suggested[qid])
+        record_answers(
+            data,
+            answers=parsed,
+            corrections=correct or [],
+            accept_all=accept_all,
+            accepted=accepted & suggested.keys(),
+        )
     except ClarifyStateError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
@@ -2117,7 +2433,7 @@ def answer(
 @app.command()
 def draft(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     from_chat: Annotated[
         bool,
         typer.Option(
@@ -2127,12 +2443,23 @@ def draft(
     ] = False,
     client: Annotated[str | None, typer.Option("--client")] = None,
     project: Annotated[str | None, typer.Option("--project")] = None,
+    agent: Annotated[
+        bool,
+        typer.Option(
+            "--agent/--no-agent",
+            help="Write the deck in an agent session that searches, reads and checks as it "
+            "goes (B71) instead of one call. Falls back to one call if the session fails.",
+        ),
+    ] = False,
+    agent_steps: Annotated[
+        int, typer.Option("--agent-steps", min=1, help="Model turns the agent may take.")
+    ] = 40,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     tokens: TokensOption = Path("config/tokens/dev.json"),
 ) -> None:
-    """Write the brief, the outline and every slide in one call (B45).
+    """Write the brief, the outline and every slide in one call (B45), or with `--agent`.
 
     Refused (exit 3) until the clarify answers are recorded (`autodeck answer`) — or, with
     `--from-chat`, until the planning conversation left a draft brief, which compose then
@@ -2189,12 +2516,41 @@ def draft(
         clarify_data=clarify_data,
     )
     guard = planning.guard
-    pack = _pack_for(planning, request)
+    run_root = orchestrator.paths.root
+    if from_chat:
+        # A chat-started run has no snapshot yet (the planner is gate-first): fix it now.
+        mode = _start_run_mode(run_root, knowledge_root=knowledge_root, project=project)
+        run_design_mode = _start_design_mode(run_root, env=env)
+    else:
+        mode = _run_mode(run_root)
+        run_design_mode = _design_mode(run_root)
+    named_terms = _project_named_terms(knowledge_root, project)
+    pack, store = _with_conversation_source(
+        planning,
+        _pack_for(
+            planning,
+            request,
+            # What the person answered steers retrieval too (run XLP2: "comparisons to
+            # empagliflozin and sitagliptin" never reached the pack's queries).
+            _answer_queries(clarify_data),
+        ),
+        run_id=run_id,
+        runs_root=runs_root,
+        corpus_root=corpus_root,
+        project=project,
+        mode=mode,
+    )
     redesign_args = (
         {"mode": "redesign", "settings": planning.settings}
         if isinstance(planning, RedesignPlanning)
         else {}
     )
+    use_agent = agent
+    if agent and isinstance(planning, RedesignPlanning):
+        typer.secho(
+            "the agent does not do redesigns yet; drafting in one call", fg=typer.colors.YELLOW
+        )
+        use_agent = False
     design_tokens = DesignTokens.load(tokens)
     command = f"draft {run_id}"
     built: list = []
@@ -2202,16 +2558,19 @@ def draft(
     def draft_saved() -> str:
         return "no IR version was written. " + _cache_note(orchestrator)
 
+    advisor = None
     with _ends_on_provider_failure(guard, command=command, saved=draft_saved):
         model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+        if use_agent:
+            advisor = guard.provider("advisor")
 
-    def do_compose() -> str:
-        result = compose_deck(
+    def one_shot():  # type: ignore[no-untyped-def]
+        return compose_deck(
             request,
             answers=answer_pairs(clarify_data or {}),
             pack=pack,
             context=planning.assembled,
-            store=planning.store,
+            store=store,
             tokens=design_tokens,
             model=model,
             run_id=run_id,
@@ -2220,8 +2579,84 @@ def draft(
             theme_ref=str(tokens),
             component_lib_version=COMPONENT_LIB_VERSION,
             chat_brief=chat_brief,
+            provenance=mode,
+            named_terms=named_terms,
+            design_mode=run_design_mode,
             **redesign_args,
         )
+
+    def with_agent():  # type: ignore[no-untyped-def]
+        """The agent's draft and the `session/meta.json` payload, or the one-shot draft
+        (with the reason on its corrections) when the session cannot be used."""
+        from autodeck.agents.deck_agent import compose_deck_agent
+        from autodeck.agents.session import SessionLimits
+        from autodeck.ingest.conversation_source import conversation_document
+
+        session_dir = run_root / "session"
+        meta: dict = {
+            "stop_reason": "error",
+            "steps": 0,
+            "provider_calls": 0,
+            "fell_back": False,
+            "reason": None,
+        }
+        reason = None
+        try:
+            ran = compose_deck_agent(
+                request,
+                answers=answer_pairs(clarify_data or {}),
+                index=planning.index,
+                claims=planning.claims,
+                documents=list(store.documents()),
+                context=planning.assembled,
+                store=store,
+                tokens=design_tokens,
+                model=model,
+                advisor=advisor,
+                run_id=run_id,
+                client=client,
+                project=project,
+                theme_ref=str(tokens),
+                component_lib_version=COMPONENT_LIB_VERSION,
+                chat_brief=chat_brief,
+                provenance=mode,
+                named_terms=named_terms,
+                design_mode=run_design_mode,
+                conversation=(
+                    conversation_document(run_root, run_id) if mode == "normal" else None
+                ),
+                session_dir=session_dir,
+                memory=_memory_store(knowledge_root, client, project, run_id),
+                limits=SessionLimits(max_steps=agent_steps),
+                on_step=_print_agent_step,
+            )
+        except ComposeError as exc:
+            reason = str(exc)
+        else:
+            meta.update(
+                stop_reason=ran.state.stop_reason,
+                steps=ran.state.steps,
+                provider_calls=ran.state.provider_calls,
+            )
+            wanted = -(-ran.result.draft_brief.length_target // 2)
+            if len(ran.result.deck.slides) >= wanted:
+                return ran.result, meta
+            reason = (
+                f"the agent wrote {len(ran.result.deck.slides)} slide(s) for a "
+                f"{ran.result.draft_brief.length_target}-slide brief"
+            )
+        typer.secho(f"agent fell back to one-shot compose: {reason}", fg=typer.colors.YELLOW)
+        result = one_shot()
+        result.corrections.append(f"agent fell back to one-shot compose: {reason}")
+        meta.update(fell_back=True, reason=reason)
+        return result, meta
+
+    def do_compose() -> str:
+        if use_agent:
+            result, meta = with_agent()
+            _write_json(run_root / "session" / "meta.json", meta)
+        else:
+            result = one_shot()
         deck = result.deck.model_copy(update={"version": orchestrator.ir.next_version()})
         result.deck = deck
         save_draft_brief(orchestrator, result.draft_brief)
@@ -2245,20 +2680,38 @@ def draft(
     typer.echo(f"\nNext: autodeck validate {run_id}, then autodeck preview {run_id}")
 
 
+def _print_agent_step(step: dict) -> None:
+    """One line per transcript message, the stream the UI job log shows (B71)."""
+    line = f"  · step {step['step']} {step['tool'] or step['role']}: {step['summary']}"
+    if step.get("error"):
+        typer.secho(line, fg=typer.colors.RED)
+    else:
+        typer.echo(line)
+
+
 @app.command()
 def revise(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     instruction: Annotated[str, typer.Option("--instruction", help="What to change.")],
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     client: Annotated[str | None, typer.Option("--client")] = None,
     project: Annotated[str | None, typer.Option("--project")] = None,
+    agent: Annotated[
+        bool | None,
+        typer.Option(
+            "--agent/--no-agent",
+            help="Continue the run's agent session (the default when it has one) or make "
+            "the change in one call.",
+        ),
+    ] = None,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
 ) -> None:
     """Change the draft the way an instruction says, touching only what it names (3c.9).
 
-    One call. Slides the model does not return are kept exactly — same wording, citations
+    One call, or, when the run has an agent session (`draft --agent`), a continuation of
+    that session. Slides the model does not return are kept exactly — same wording, citations
     and verdicts — so `validate` re-judges only what changed and approvals that covered the
     untouched parts stay current. Saved as a new `compose` version, with a line appended to
     `revisions.jsonl`. Approves nothing.
@@ -2272,6 +2725,10 @@ def revise(
         _echo_error("--instruction is empty: say what to change.")
         raise typer.Exit(code=1)
     orchestrator = _open_run(run_id, runs_root, env)
+    has_session = (orchestrator.paths.root / "session" / "transcript.jsonl").is_file()
+    if agent and not has_session:
+        _echo_error("no agent session for this run; draft with --agent first")
+        raise typer.Exit(code=1)
     if not orchestrator.is_draft_first:
         _echo_error(f"run {run_id!r} has no draft yet. Run `autodeck draft {run_id}` first.")
         raise typer.Exit(code=EXIT_NEEDS_INPUT)
@@ -2297,8 +2754,31 @@ def revise(
         clarify_data=clarify_data,
     )
     guard = planning.guard
+    is_redesign = isinstance(planning, RedesignPlanning)
+    if agent and is_redesign:
+        _echo_error("the agent does not do redesigns yet; use --no-agent")
+        raise typer.Exit(code=1)
+    use_agent = has_session and not is_redesign if agent is None else bool(agent)
     base = (clarify_data or {}).get("prompt") or brief.objective
-    pack = _pack_for(planning, f"{base} {instruction}")
+    run_root = orchestrator.paths.root
+    mode = _run_mode(run_root)
+    revisions_file = run_root / "revisions.jsonl"
+    # In `normal` mode the instruction is part of what the person said, so it is on the log
+    # before the conversation is ingested (it is dropped again if the revision fails).
+    pending = mode == "normal" and not isinstance(planning, RedesignPlanning)
+    if pending:
+        _append_revision(
+            revisions_file, {"instruction": instruction, "reply": "", "at": _iso_now()}
+        )
+    pack, store = _with_conversation_source(
+        planning,
+        _pack_for(planning, f"{base} {instruction}"),
+        run_id=run_id,
+        runs_root=runs_root,
+        corpus_root=corpus_root,
+        project=project,
+        mode=mode,
+    )
     design_tokens = DesignTokens.load(Path(deck.theme_ref))
     origins = _read_coverage_file(orchestrator).get("origins") or {}
     command = f"revise {run_id} --instruction ..."
@@ -2307,40 +2787,114 @@ def revise(
     def revise_saved() -> str:
         return f"the draft is unchanged (still v{deck.version}). " + _cache_note(orchestrator)
 
-    with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
-        model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+    advisor = None
+    try:
+        with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
+            model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+            if use_agent:
+                advisor = guard.provider("advisor")
+    except BaseException:
+        if pending:
+            _drop_last_revision(revisions_file)
+        raise
+
+    def agent_revise():  # type: ignore[no-untyped-def]
+        """The same session, one more instruction; shaped like a `ReviseResult`."""
+        from autodeck.agents.compose import ReviseResult
+        from autodeck.agents.deck_agent import build_settings, resume_deck_agent
+        from autodeck.agents.session import SessionLimits
+        from autodeck.pipeline.clarify_state import answer_pairs
+
+        settings = build_settings(
+            prompt=base,
+            answers=answer_pairs(clarify_data or {}),
+            chat_brief=None,
+            store=store,
+            tokens=design_tokens,
+            provenance=deck.provenance,
+            deck_fields={
+                "run_id": deck.run_id,
+                "project": deck.project,
+                "client": deck.client,
+                "theme_ref": deck.theme_ref,
+                "component_lib_version": deck.component_lib_version,
+                "provenance": deck.provenance,
+                "named_terms": list(deck.named_terms),
+                "design_mode": deck.design_mode,
+            },
+        )
+        ran = resume_deck_agent(
+            instruction,
+            session_dir=run_root / "session",
+            settings=settings,
+            index=planning.index,
+            claims=planning.claims,
+            model=model,
+            advisor=advisor,
+            project=project,
+            memory=_memory_store(knowledge_root, client, project, run_id),
+            limits=SessionLimits(),
+            on_step=_print_agent_step,
+        )
+        result = ran.result
+        new_deck = result.deck.model_copy(update={"version": orchestrator.ir.next_version()})
+        before = {s.id: s.model_dump() for s in deck.slides}
+        changed = [s.id for s in new_deck.slides if before.get(s.id) != s.model_dump()]
+        removed = [sid for sid in before if sid not in {s.id for s in new_deck.slides}]
+        notes = [f"removed slide {sid}" for sid in removed]
+        return ReviseResult(
+            deck=new_deck,
+            draft_brief=result.draft_brief,
+            coverage=result.coverage,
+            rejections=result.rejections,
+            reply=result.notes or "Revised.",
+            notes=notes,
+            provider_calls=result.provider_calls,
+            corrections=result.corrections,
+            incomplete_slots=result.incomplete_slots,
+            changed_slide_ids=changed,
+            failures=result.failures,
+            origins=result.origins,
+        )
 
     def do_revise() -> str:
-        result = revise_deck(
-            instruction,
-            deck=deck,
-            draft_brief=brief,
-            pack=pack,
-            context=planning.assembled,
-            store=planning.store,
-            tokens=design_tokens,
-            model=model,
-            origins=origins,
-        )
+        if use_agent:
+            result = agent_revise()
+        else:
+            result = revise_deck(
+                instruction,
+                deck=deck,
+                draft_brief=brief,
+                pack=pack,
+                context=planning.assembled,
+                store=store,
+                tokens=design_tokens,
+                model=model,
+                origins=origins,
+            )
         save_draft_brief(orchestrator, result.draft_brief)
         path = orchestrator.save_ir(result.deck)
         _write_coverage_file(orchestrator, result, ir_version=result.deck.version)
-        with (orchestrator.paths.root / "revisions.jsonl").open("a", encoding="utf-8") as log:
-            log.write(
-                json.dumps(
-                    {"instruction": instruction, "reply": result.reply, "at": _iso_now()}
-                )
-                + "\n"
-            )
+        record = {"instruction": instruction, "reply": result.reply, "at": _iso_now()}
+        if use_agent:
+            record["agent"] = True
+        if pending:
+            _replace_last_revision(revisions_file, record)
+        else:
+            _append_revision(revisions_file, record)
         built.append(result)
         return f"wrote {path} · {result.provider_calls} provider call(s)"
 
     try:
         with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
             orchestrator.run_stage("compose", do_revise, force=True)
-    except ComposeError as exc:
-        _echo_error(str(exc))
-        raise typer.Exit(code=1) from None
+    except BaseException as exc:
+        if pending and not built:
+            _drop_last_revision(revisions_file)
+        if isinstance(exc, ComposeError):
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from None
+        raise
 
     [result] = built
     typer.secho(f"wrote IR v{result.deck.version}", fg=typer.colors.GREEN)
@@ -2351,6 +2905,30 @@ def revise(
         typer.secho(f"note: {note}", fg=typer.colors.YELLOW)
     _print_draft_summary(result, result.deck)
     typer.echo(f"\nNext: autodeck validate {run_id}, then autodeck preview {run_id}")
+
+
+def _append_revision(path: Path, record: dict) -> None:
+    with path.open("a", encoding="utf-8") as log:
+        log.write(json.dumps(record) + "\n")
+
+
+def _revision_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+
+def _replace_last_revision(path: Path, record: dict) -> None:
+    lines = _revision_lines(path)
+    lines = [*lines[:-1], json.dumps(record)] if lines else [json.dumps(record)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _drop_last_revision(path: Path) -> None:
+    lines = _revision_lines(path)
+    if lines:
+        path.write_text("".join(f"{line}\n" for line in lines[:-1]), encoding="utf-8")
 
 
 def _describe_action(action: BaseModel) -> str:
@@ -2364,7 +2942,7 @@ def _describe_action(action: BaseModel) -> str:
 def preview(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
 ) -> None:
     """Render a DRAFT preview of the latest IR into `runs/<run>/previews/draft` (3c.8, B43).
 
@@ -2418,7 +2996,7 @@ def preview(
 def render(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
 ) -> None:
     """Art-direct, render and critique the approved deck into `runs/<run>/deck.pptx` (3b.10).
 
@@ -2685,7 +3263,7 @@ def render(
 def gate3(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
-    env: EnvOption = "dev",
+    env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
 ) -> None:
     """The GATE 3 review surface: deck, final audit and manifest, together (3b.10, A7).
@@ -2783,6 +3361,9 @@ def gate3(
             prompts_dir=Path("prompts"),
             knowledge_dir=knowledge_root,
             ir_path=orchestrator.ir.version_path(latest),
+            provenance_mode=deck.provenance,
+            run_sources=run_source_hashes(paths.root),
+            session=session_record(paths.root / "session"),
         )
         manifest.save(paths.manifest_file)
         return f"wrote {paths.manifest_file}"
@@ -2994,6 +3575,142 @@ def ui(
     else:
         restore_env(roots)
     serve(roots, port=port, window=not browser, say=typer.echo)
+
+
+# ---------------------------------------------------------------------------
+# meeting — local speech-to-text (Stage A)
+# ---------------------------------------------------------------------------
+
+
+@meeting_app.command("models")
+def meeting_models(
+    download: Annotated[
+        bool, typer.Option("--download", help="Fetch the models that are missing.")
+    ] = False,
+    speakers: Annotated[
+        bool, typer.Option("--speakers", help="Include the speaker-labelling models.")
+    ] = False,
+) -> None:
+    """List the speech models and whether they are installed; `--download` fetches them."""
+    from autodeck.meeting import model_files
+    from autodeck.meeting.errors import MeetingDepsError, MeetingError
+
+    wanted = ["asr", "vad", *(["diar_seg", "diar_emb"] if speakers else [])]
+    if download:
+        try:
+            model_files.ensure(wanted, progress=typer.echo)
+        except MeetingDepsError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=2) from None
+        except MeetingError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from None
+    typer.echo(f"Models folder: {model_files.models_dir()}")
+    for key, present, path in model_files.status():
+        size = model_files.MODELS[key].approx_mb
+        typer.echo(f"  {key:<9} {'present' if present else 'missing':<8} ~{size} MB  {path}")
+
+
+@meeting_app.command("transcribe")
+def meeting_transcribe(
+    run_id: Annotated[str, typer.Argument(help="Run identifier (created if new).")],
+    audio: Annotated[Path, typer.Option("--audio", help="The meeting recording.")],
+    client: Annotated[str, typer.Option("--client", help="Client namespace (A4).")],
+    project: Annotated[str, typer.Option("--project", help="Project the meeting is for.")],
+    speakers: Annotated[
+        bool, typer.Option("--speakers", help="Label who is speaking (S1, S2, ...).")
+    ] = False,
+    num_speakers: Annotated[
+        int | None, typer.Option("--num-speakers", help="Number of speakers, if known.")
+    ] = None,
+    threads: Annotated[int | None, typer.Option("--threads", help="CPU threads.")] = None,
+    env: EnvOption = DEFAULT_ENV,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Transcribe a recording on this machine into `runs/<run>/meeting/`.
+
+    Nothing leaves the computer; the audio is read in place, not copied into the repo, and
+    transcript text is written to files only, never printed.
+    """
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+    from autodeck.meeting.audio import ALLOWED_SUFFIXES, file_sha256
+    from autodeck.meeting.errors import MeetingDepsError, MeetingError
+    from autodeck.meeting.transcribe import transcribe_file
+    from autodeck.ui.api import Roots, write_run_meta
+
+    if audio.suffix.lower() not in ALLOWED_SUFFIXES:
+        _echo_error(
+            f"unsupported audio type {audio.suffix or '(none)'!r}; "
+            f"use one of {', '.join(sorted(ALLOWED_SUFFIXES))}"
+        )
+        raise typer.Exit(code=1)
+    if not audio.is_file():
+        _echo_error(f"audio file not found: {audio.name}")
+        raise typer.Exit(code=1)
+    loader = KnowledgeLoader(knowledge_root)
+    try:
+        known_clients, known_projects = loader.client_names(), loader.project_names()
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if client not in known_clients:
+        _echo_error(f"unknown client {client!r}; known: {', '.join(known_clients) or 'none'}")
+        raise typer.Exit(code=1)
+    if project not in known_projects:
+        _echo_error(
+            f"unknown project {project!r}; known: {', '.join(known_projects) or 'none'}"
+        )
+        raise typer.Exit(code=1)
+    try:
+        orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
+    except UnknownRunError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    write_run_meta(Roots(runs=runs_root, env=env), run_id, client=client, project=project)
+
+    out_dir = orchestrator.paths.root / "meeting"
+    try:
+        sha = file_sha256(audio)
+        result = transcribe_file(
+            audio,
+            out_dir,
+            speakers=speakers,
+            num_speakers=num_speakers,
+            threads=threads,
+            progress=typer.echo,
+        )
+    except MeetingDepsError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=2) from None
+    except MeetingError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    (out_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "audio_name": audio.name,
+                "audio_sha256": sha,
+                "speakers": speakers,
+                "num_speakers": num_speakers,
+                "client": client,
+                "project": project,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    found = sorted({s.speaker for s in result.segments if s.speaker})
+    timings = result.timings
+    typer.echo(f"Duration: {result.audio.duration_s:.1f}s   Segments: {len(result.segments)}")
+    if speakers:
+        typer.echo(f"Speakers: {len(found)}" if found else "Speakers: not labelled")
+    typer.echo(
+        f"Timings: decode {timings['decode']}s, asr {timings['asr']}s, "
+        f"diarize {timings['diarize']}s, total {timings['total']}s"
+    )
+    typer.echo(f"Real-time factor: {timings['rtf']}")
+    typer.echo(f"Wrote {out_dir}")
 
 
 if __name__ == "__main__":  # pragma: no cover

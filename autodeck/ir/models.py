@@ -49,9 +49,31 @@ Verdict = Literal[
     "partially_supported",
     "unsupported",
     "contradicted",
+    "uncorroborated",
 ]
 """A3 verdicts. A deck cannot reach final render with an `unsupported` or `contradicted`
-block; `unverified` means the validator has not run yet."""
+block; `unverified` means the validator has not run yet.
+
+`uncorroborated` (B55) is only for an `unsourced` claim in a `normal` deck: the validator
+found no corpus span supporting it and none contradicting it. It is shown, never hidden, and
+does not block render — an unsourced claim never had a citation to be unsupported by."""
+
+ClaimBasis = Literal["cited", "unsourced"]
+"""B55. `cited`: the claim rests on ≥1 resolved span (A1 as written). `unsourced`: a `normal`
+deck's qualitative general knowledge, with no citations and no derivation, checked by A3."""
+
+ProvenanceMode = Literal["strict", "normal"]
+"""B55. `strict` (MLR): every factual assertion cites a document span. `normal`: the person's
+own words (`conversation--`) and `unsourced` claims are also legitimate, and labelled."""
+
+CONVERSATION_DOC_PREFIX = "conversation--"
+"""Doc-id prefix of the run-local document holding what the person typed (B55)."""
+
+CLIENT_DECK_DOC_PREFIX = "client-deck--"
+"""Doc-id prefix of a client's own deck ingested for a redesign (B41). The definition
+`autodeck.ingest.deck_source.DOC_ID_PREFIX` re-exports."""
+
+SourceClass = Literal["corpus", "client_deck", "conversation"]
 
 RetrievedBy = Literal["writer", "validator"]
 """A3 requires the validator to re-retrieve *independently* rather than trusting the
@@ -194,6 +216,19 @@ class Citation(IRModel):
         """A comparable key for "is this the same span?" — used by derivation checks."""
         return (self.doc_id, self.page, self.quote_sha256)
 
+    @property
+    def source_class(self) -> SourceClass:
+        """Which kind of document this span is in (B55), read off the doc id.
+
+        Derived, not stored, so it can never disagree with `doc_id` and adding it changed no
+        serialised IR.
+        """
+        if self.doc_id.startswith(CONVERSATION_DOC_PREFIX):
+            return "conversation"
+        if self.doc_id.startswith(CLIENT_DECK_DOC_PREFIX):
+            return "client_deck"
+        return "corpus"
+
 
 class DerivationInput(IRModel):
     """One named input to a derivation: the number *and* the span it was copied from.
@@ -236,20 +271,51 @@ class Derivation(IRModel):
 class Claim(IRModel):
     """A factual assertion with its evidence.
 
-    **This is where A1 lives.** `citations` has `min_length=1`, so pydantic rejects a
-    claim with no evidence at construction time. The invariant is therefore a property of
-    the type system rather than of anyone remembering to call a checker.
+    **This is where A1 lives.** A `cited` claim (the default) with no citations fails
+    construction, so the invariant is a property of the type system rather than of anyone
+    remembering to call a checker.
+
+    B55 adds one other basis: `unsourced`, a `normal` deck's qualitative general knowledge.
+    It must say so explicitly — no citations, no derivation — so it can never pass for a
+    cited claim, and `Deck` refuses it outright in a `strict` deck. The default stays
+    `cited`, so `Claim(text=..., citations=[])` still raises exactly as Phase 0's A1 test
+    requires.
     """
 
     text: str = Field(min_length=1)
+    basis: ClaimBasis = "cited"
     citations: list[Citation] = Field(
-        min_length=1,
-        description="A1: at least one resolving source span. Never relax this.",
+        default_factory=list,
+        description=(
+            "A1: at least one resolving source span when `basis` is 'cited' (always, in a "
+            "strict deck). Empty only for an explicitly 'unsourced' claim (B55)."
+        ),
     )
     derivation: Derivation | None = None
     verdict: Verdict = "unverified"
     verdict_notes: str | None = None
     contradicting_spans: list[Citation] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _basis_matches_evidence(self) -> Claim:
+        if self.basis == "cited":
+            if not self.citations:
+                raise ValueError(
+                    "a cited claim needs at least one citation (A1). Only a claim declared "
+                    "basis='unsourced' may have none, and only in a normal deck (B55)."
+                )
+            if self.verdict == "uncorroborated":
+                raise ValueError(
+                    "'uncorroborated' is only for unsourced claims; a cited claim is "
+                    "supported, partially supported, unsupported or contradicted (A3)."
+                )
+            return self
+        if self.citations or self.derivation is not None:
+            raise ValueError(
+                "an unsourced claim carries no citations and no derivation (B55); a claim "
+                "with evidence is basis='cited'."
+            )
+        return self
 
     @model_validator(mode="after")
     def _derivation_inputs_are_cited(self) -> Claim:
@@ -1400,6 +1466,153 @@ ColumnBalance = Literal["even", "lead_left", "lead_right"]
 loop cannot request geometry — only choose among layouts the component was built for."""
 
 
+# ---------------------------------------------------------------------------
+# Creative mode: the writer places the slide itself, inside the master (B69)
+# ---------------------------------------------------------------------------
+#
+# Structured mode fills a catalog component's slots. Creative mode replaces the component
+# with a `FreeLayout`: the writer says where each block goes and adds text-free shapes,
+# inside the client's slide master. Two things make that safe without new invariants:
+#
+# * **No text lives in the layout.** Every word on the face is still a `Block`, so A1,
+#   A2, A3 and A5 see exactly what they saw before. A layout element points at a block
+#   by id; a shape has no text at all. `FreeLayout.rationale` is a design note, written
+#   to no slide and never rendered.
+# * **No literal colour or font.** Colours are theme tokens and type is a role on the
+#   master's scale, exactly as `SlideStyle` already insists (D1). A point size may be set,
+#   because a big-number slide needs one, but the renderer's QA holds it to the master's
+#   minimum and to the box it was given.
+
+DesignMode = Literal["structured", "creative"]
+"""B69. `structured`: catalog components and slot budgets. `creative`: the writer places
+the slide (`Slide.layout`), checked by rendering it rather than by budgets."""
+
+ColorToken = Literal[
+    "dk1", "lt1", "dk2", "lt2",
+    "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+]
+"""A theme colour slot: the master's palette, never a literal colour (D1)."""
+
+TextRole = Literal["display", "title", "heading", "body", "caption", "label"]
+"""A step of the master's type scale. `label` is caption size in capitals, letter-spaced."""
+
+HAlign = Literal["left", "center", "right"]
+VAnchor = Literal["top", "middle", "bottom"]
+ShapeKind = Literal["rect", "rounded_rect", "ellipse", "line"]
+
+_TEXT_PLACEABLE: frozenset[str] = frozenset({"claim", "framing", "section_header"})
+_VISUAL_PLACEABLE: dict[str, str] = {
+    "chart": "chart",
+    "diagram": "diagram",
+    "figure": "figure",
+    "icon": "icon",
+}
+
+
+class Placement(IRModel):
+    """A box on the slide, in percent of the slide's width (`x`, `w`) and height (`y`, `h`).
+
+    Percent, not points, so a layout survives a master of another size. The renderer
+    snaps it to the EMU grid; QA checks that text stays inside the master's safe area.
+    A shape may run to the slide edge (full bleed); text may not.
+    """
+
+    x: float = Field(ge=0.0, le=100.0)
+    y: float = Field(ge=0.0, le=100.0)
+    w: float = Field(gt=0.0, le=100.0)
+    h: float = Field(gt=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def _inside_slide(self) -> Placement:
+        if self.x + self.w > 100.0 + 1e-6 or self.y + self.h > 100.0 + 1e-6:
+            raise ValueError(
+                f"placement ({self.x}, {self.y}, {self.w}, {self.h}) runs off the slide"
+            )
+        return self
+
+
+class TextElement(IRModel):
+    """One text block, placed and styled. The words are the block's, never this element's."""
+
+    type: Literal["text"] = "text"
+    block_id: str = Field(min_length=1)
+    frame: Placement
+    role: TextRole = "body"
+    size_pt: float | None = Field(
+        default=None,
+        ge=6.0,
+        le=240.0,
+        description="Overrides the role's size; QA holds it to the master's minimum and its box.",
+    )
+    bold: bool | None = Field(default=None, description="None: the role's own weight.")
+    color: ColorToken = "dk1"
+    align: HAlign = "left"
+    anchor: VAnchor = "top"
+
+
+class VisualElement(IRModel):
+    """A chart, diagram, figure or icon block, placed. `emphasis` names chart categories to
+    draw in the accent, with the rest in a neutral: a presentation choice, by name only."""
+
+    type: Literal["chart", "diagram", "figure", "icon"]
+    block_id: str = Field(min_length=1)
+    frame: Placement
+    accent: ColorToken = "accent1"
+    emphasis: list[str] = Field(
+        default_factory=list,
+        description="Chart only: categories to highlight, copied exactly from the chart.",
+    )
+
+
+class ShapeElement(IRModel):
+    """A text-free shape: a panel, a band, a rule, a marker. It can carry no words."""
+
+    type: Literal["shape"] = "shape"
+    shape: ShapeKind
+    frame: Placement
+    fill: ColorToken | None = None
+    line: ColorToken | None = None
+    line_pt: float = Field(default=1.0, ge=0.25, le=12.0)
+    tint: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=0.95,
+        description="Mix the fill toward the background: 0 is the token itself.",
+    )
+
+    @model_validator(mode="after")
+    def _visible(self) -> ShapeElement:
+        if self.fill is None and self.line is None:
+            raise ValueError("a shape needs a fill, a line, or both")
+        return self
+
+
+LayoutElement = Annotated[
+    TextElement | VisualElement | ShapeElement, Field(discriminator="type")
+]
+
+
+class FreeLayout(IRModel):
+    """A creative-mode slide's layout (B69): its elements, drawn back to front."""
+
+    background: ColorToken = "lt1"
+    elements: list[LayoutElement] = Field(min_length=1)
+    rationale: str = Field(
+        default="",
+        description=(
+            "Why the slide is designed this way, in a sentence. A note for the person and "
+            "for gold exemplars; never rendered."
+        ),
+    )
+
+    def placed_block_ids(self) -> list[str]:
+        return [e.block_id for e in self.elements if not isinstance(e, ShapeElement)]
+
+
+FREE_LAYOUT_COMPONENT = "free_layout"
+"""The `Slide.component` of a creative-mode slide: no catalog entry, its `layout` instead."""
+
+
 class SlideStyle(IRModel):
     """Presentation decisions for one slide, and the ONLY thing presentation may change.
 
@@ -1418,6 +1631,82 @@ class SlideStyle(IRModel):
     emphasis_block_id: str | None = Field(
         default=None,
         description="The one block given visual emphasis, by id. An address, not content.",
+    )
+
+
+HeadlineVerdict = Literal["carried", "overstates"]
+"""Whether a talking header says no more than its slide's claims (`carried`) or something
+stronger, wider or different (`overstates`). B62."""
+
+
+class HeadlineCheck(IRModel):
+    """The validator's judgement of a slide's talking header against that slide's claims (B62).
+
+    A header carries no citation (B54), so no claim verdict ever covered it: run XLP's
+    "reductions in HbA1c and body weight compared to empagliflozin and sitagliptin" sat over
+    a body that said weight only *matched* empagliflozin, and nothing flagged it. This is the
+    verdict that was missing. `overstates` blocks the final render exactly as an unsupported
+    claim does (A3): the headline is the sentence a reader is most likely to repeat.
+    """
+
+    verdict: HeadlineVerdict
+    notes: str = Field(
+        default="",
+        description="What the header says that the slide does not, or '' when carried.",
+    )
+    headline: str = Field(
+        default="",
+        description="The header text that was judged; a changed header is judged again.",
+    )
+
+
+StorylineIssue = Literal["unspeakable", "breaks_chain", "repeats"]
+"""What is wrong with one header *as part of the deck* (B70):
+
+* `unspeakable`: a presenter could not say it aloud as written, such as a label, a
+  stacked noun phrase, or a sentence with a written-register tail ("…, ensembles
+  included");
+* `breaks_chain`: it does not follow from the header before it, by consequence or by
+  contrast, so the argument jumps;
+* `repeats`: it makes a point an earlier header already made.
+"""
+
+
+class StorylineFinding(IRModel):
+    """One header's problem in the deck's storyline, with what a fix would say (B70)."""
+
+    slide_id: str = Field(min_length=1)
+    issue: StorylineIssue
+    notes: str = Field(
+        min_length=1,
+        description=(
+            "What is wrong, specifically enough to fix in one edit: the fragment, the "
+            "missing step, or the earlier slide this one repeats."
+        ),
+    )
+
+
+class StorylineCheck(IRModel):
+    """The validator's reading of the deck's headers in order, as one argument (B70).
+
+    B62 judges each header against its own slide. Nothing judged the headers *together*,
+    and two hand-built decks on the design canvas (2026-10-14) were lists of true,
+    carried headers that told no story. This is advisory: it never blocks a render,
+    because a weak storyline is a craft failure, not a false statement. It is shown to
+    the person and fed back to the writer.
+    """
+
+    tells_story: bool = Field(
+        description="True when the headers, read aloud in order, make one connected argument."
+    )
+    summary: str = Field(
+        default="",
+        description="One or two sentences on the storyline as a whole: what it argues, or where it falls apart.",
+    )
+    findings: list[StorylineFinding] = Field(default_factory=list)
+    headlines: list[str] = Field(
+        default_factory=list,
+        description="The headers judged, in deck order; any change is judged again.",
     )
 
 
@@ -1467,6 +1756,21 @@ class Slide(IRModel):
             "does nothing — so deviation is recorded, never merely allowed."
         ),
     )
+    headline_check: HeadlineCheck | None = Field(
+        default=None,
+        description=(
+            "B62: the validator's judgement of the talking header against this slide's "
+            "claims. None until validation has judged it (no headline, no face claims, or "
+            "not yet validated)."
+        ),
+    )
+    layout: FreeLayout | None = Field(
+        default=None,
+        description=(
+            "B69 creative mode: where each face block goes. When set, it replaces the "
+            "component's layout; `component` is then `FREE_LAYOUT_COMPONENT`."
+        ),
+    )
 
     @model_validator(mode="after")
     def _block_ids_unique_within_slide(self) -> Slide:
@@ -1478,9 +1782,75 @@ class Slide(IRModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _layout_places_every_face_block_once(self) -> Slide:
+        """No fact dropped, none drawn twice, and each block drawn as what it is (B69).
+
+        The renderer's own rule for components (`UnplacedBlockError`) restated for a free
+        layout, at the type, so an IR with an unplaced block cannot exist at all.
+        """
+        if self.layout is None:
+            if self.component == FREE_LAYOUT_COMPONENT:
+                raise ValueError(f"slide {self.id!r} is {FREE_LAYOUT_COMPONENT!r} with no layout")
+            return self
+        if self.component != FREE_LAYOUT_COMPONENT:
+            raise ValueError(
+                f"slide {self.id!r} has a layout, so its component must be "
+                f"{FREE_LAYOUT_COMPONENT!r}, not {self.component!r}"
+            )
+        faces = {b.id: b for b in self.blocks}
+        notes = {b.id for b in self.speaker_notes}
+        placed = self.layout.placed_block_ids()
+        problems: list[str] = []
+        for block_id in sorted({i for i in placed if placed.count(i) > 1}):
+            problems.append(f"block {block_id!r} is placed more than once")
+        for element in self.layout.elements:
+            if isinstance(element, ShapeElement):
+                continue
+            block = faces.get(element.block_id)
+            if block is None:
+                where = "speaker notes" if element.block_id in notes else "this slide's face"
+                problems.append(f"element places {element.block_id!r}, not on {where}")
+                continue
+            if isinstance(element, TextElement):
+                if block.kind not in _TEXT_PLACEABLE:
+                    problems.append(f"block {block.id!r} is a {block.kind}, not text")
+            elif _VISUAL_PLACEABLE.get(block.kind) != element.type:
+                problems.append(f"block {block.id!r} is a {block.kind}, placed as {element.type}")
+            elif element.emphasis:
+                categories = set(block.chart.categories) if block.chart is not None else set()
+                unknown = sorted(set(element.emphasis) - categories)
+                if unknown:
+                    problems.append(f"emphasis names categories not in the chart: {unknown}")
+        for block_id in faces:
+            if block_id not in placed:
+                problems.append(f"block {block_id!r} is not placed (a dropped fact)")
+        if problems:
+            raise ValueError(f"slide {self.id!r} layout: " + "; ".join(problems))
+        return self
+
     def all_blocks(self) -> list[Block]:
         """Face blocks and notes together — what A1, A2 and A5 all iterate over."""
         return [*self.blocks, *self.speaker_notes]
+
+    def without_blocks(self, ids: set[str] | frozenset[str]) -> Slide:
+        """This slide minus the given blocks, faces and notes alike (B69).
+
+        A layout loses the elements that placed them, so a creative slide stays valid: a
+        plain `model_copy` would keep an element pointing at a block that is gone.
+        """
+        update: dict[str, Any] = {
+            "blocks": [b for b in self.blocks if b.id not in ids],
+            "speaker_notes": [b for b in self.speaker_notes if b.id not in ids],
+        }
+        if self.layout is not None:
+            elements = [
+                e for e in self.layout.elements
+                if isinstance(e, ShapeElement) or e.block_id not in ids
+            ]
+            if elements:
+                update["layout"] = self.layout.model_copy(update={"elements": elements})
+        return self.model_copy(update=update)
 
     def claim_sites(self, *, path: str = "") -> list[ClaimSite]:
         """Every claim on this slide, faces and speaker notes alike.
@@ -1520,6 +1890,39 @@ class Deck(IRModel):
     slides: list[Slide] = Field(default_factory=list)
     theme_ref: str = Field(min_length=1)
     component_lib_version: str = Field(min_length=1)
+    provenance: ProvenanceMode = Field(
+        default="strict",
+        description=(
+            "B55. The schema default is the fail-safe: an IR that does not say is held to "
+            "strict A1, which every IR written before B55 already satisfies. New decks set "
+            "it from the run's snapshot of the project setting."
+        ),
+    )
+
+    design_mode: DesignMode = Field(
+        default="structured",
+        description=(
+            "B69. How the writer designed this deck. The schema default keeps every IR "
+            "written before B69 meaning what it meant."
+        ),
+    )
+    storyline_check: StorylineCheck | None = Field(
+        default=None,
+        description=(
+            "B70: the validator's reading of the headers in order. None until validation "
+            "has judged it, or when the deck has fewer than two headed slides."
+        ),
+    )
+
+    named_terms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "B58. Names containing digits that are not quantities — 'Type 2 diabetes', "
+            "'PIONEER 7' — from the project's terms.yaml. The A2 and A5 linters read a "
+            "numeral inside one of these as part of the name. Carried on the deck so the "
+            "render gate sees the same list the draft was checked with."
+        ),
+    )
 
     @model_validator(mode="after")
     def _slide_ids_unique(self) -> Deck:
@@ -1527,6 +1930,38 @@ class Deck(IRModel):
         duplicates = sorted({i for i in ids if ids.count(i) > 1})
         if duplicates:
             raise ValueError(f"duplicate slide ids: {', '.join(duplicates)}")
+        return self
+
+    @model_validator(mode="after")
+    def _strict_cites_documents_only(self) -> Deck:
+        """In a strict deck, every claim is cited and no citation is the person's words (B55).
+
+        Checked on construction and therefore on every load, which is what makes strict mode
+        structural rather than a convention: an unsourced claim or a `conversation--` span
+        cannot exist inside a strict `Deck` however it got into the JSON.
+        """
+        if self.provenance != "strict":
+            return self
+        problems: list[str] = []
+        for site in self.claim_sites():
+            claim = site.claim
+            if claim.basis != "cited":
+                problems.append(f"{site.path}: unsourced claim")
+            spans = list(claim.citations)
+            if claim.derivation is not None:
+                spans += [item.citation for item in claim.derivation.inputs.values()]
+            if any(c.source_class == "conversation" for c in spans):
+                problems.append(f"{site.path}: cites the conversation")
+        for slide in self.slides:
+            for block in slide.all_blocks():
+                if block.chart is not None and any(
+                    c.source_class == "conversation" for c in block.chart.source_citations
+                ):
+                    problems.append(
+                        f"slides[{slide.id}].{block.id}: chart cites the conversation"
+                    )
+        if problems:
+            raise ValueError("a strict deck cites documents only (B55): " + "; ".join(problems))
         return self
 
     def all_blocks(self) -> list[Block]:

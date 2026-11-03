@@ -126,7 +126,19 @@ from autodeck.audit.verdicts import (
     assess_claim,
 )
 from autodeck.ingest.document_store import DocumentStore, IngestError
-from autodeck.ir.models import Citation, Claim, ClaimSite, Deck
+from autodeck.ir.models import (
+    CONVERSATION_DOC_PREFIX,
+    Citation,
+    Claim,
+    ClaimSite,
+    Deck,
+    HeadlineCheck,
+    HeadlineVerdict,
+    Slide,
+    StorylineCheck,
+    StorylineFinding,
+    StorylineIssue,
+)
 from autodeck.retrieval.hybrid import HybridIndex, RetrievedSpan, search
 
 logger = logging.getLogger(__name__)
@@ -197,6 +209,45 @@ class ValidationDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     judgements: list[ClaimJudgement] = Field(min_length=1)
+
+
+class HeadlineJudgement(BaseModel):
+    """One talking header's judgement against its own slide's claims (B62)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slide_id: str = Field(min_length=1, description="Copied from the slide as it was shown.")
+    verdict: HeadlineVerdict
+    notes: str = Field(
+        description=(
+            "For 'overstates': exactly what the header says that the claims do not — the "
+            "stronger word, the wider population, the comparator that tied. '' if carried."
+        )
+    )
+
+
+class HeadlineDraft(BaseModel):
+    """Every judged header in one response. Required and non-nullable (B26)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    judgements: list[HeadlineJudgement] = Field(min_length=1)
+
+
+class StorylineFindingDraft(BaseModel):
+    """One header's problem in the storyline, as the validator returns it (B70)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slide_id: str = Field(min_length=1, description="Copied from the header as it was shown.")
+    issue: StorylineIssue
+    notes: str = Field(
+        description=(
+            "What is wrong, fixable in one edit: for 'unspeakable', the fragment and how a "
+            "presenter would say it; for 'breaks_chain', the missing step; for 'repeats', "
+            "which earlier slide already made the point."
+        )
+    )
 
 
 class ValidationModel(Protocol):
@@ -292,6 +343,7 @@ def gather_validator_evidence(
     store: DocumentStore,
     support_limit: int = SUPPORT_LIMIT,
     contradiction_limit: int = CONTRADICTION_LIMIT,
+    extra_spans: Sequence[RetrievedSpan] = (),
 ) -> ValidatorEvidence:
     """Independently retrieve support and contradiction evidence for one claim.
 
@@ -300,6 +352,10 @@ def gather_validator_evidence(
     handed. `ValidatorEvidence`'s constructor is the structural half of A3's independence
     requirement; this function is what keeps every span offered to it genuinely
     `retrieved_by="validator"`.
+
+    `extra_spans` are spans the index does not hold but the validator must be able to see —
+    in `normal` mode, the person's own conversation (B55), offered whole. They are resolved
+    through the same `_resolve_spans`, so they too arrive as `retrieved_by="validator"`.
     """
     support_hits = search(index, claim.text, limit=support_limit, citable_only=True)
     contradiction_hits = search(
@@ -308,7 +364,7 @@ def gather_validator_evidence(
         limit=contradiction_limit,
         citable_only=True,
     )
-    spans = _resolve_spans((*support_hits, *contradiction_hits), store=store)
+    spans = _resolve_spans((*support_hits, *contradiction_hits, *extra_spans), store=store)
     return ValidatorEvidence(spans=tuple(spans))
 
 
@@ -393,6 +449,227 @@ def _judge_batch(
 
 
 # ---------------------------------------------------------------------------
+# Talking headers (B62)
+# ---------------------------------------------------------------------------
+#
+# A header has no citation of its own (B54), so the claim pass above never judged one. Code
+# already checks that its numbers and names appear on the slide (draft checks); only a model
+# can tell that "beat empagliflozin" is stronger than "similar to empagliflozin". The header
+# is judged against the slide's own claims and their verdicts — not re-retrieved: whether a
+# claim is true is the claim pass's question, whether the header says more than the claims
+# is this one's.
+
+
+def _headline_of(slide: Slide) -> str | None:
+    for block in slide.blocks:
+        if block.slot == "headline" and block.kind == "section_header" and block.text:
+            return block.text
+    return None
+
+
+def _face_claims(deck: Deck, slide_id: str) -> list[Claim]:
+    return [
+        site.claim
+        for site in deck.claim_sites()
+        if site.slide_id == slide_id and not site.in_speaker_notes
+    ]
+
+
+def _headline_key(headline: str, claims: Sequence[Claim]) -> tuple[str, tuple[str, ...]]:
+    return headline, tuple(c.text for c in claims)
+
+
+def _render_headline_prompt(items: Sequence[tuple[Slide, str, list[Claim]]]) -> str:
+    parts = []
+    for slide, headline, claims in items:
+        lines = [f"## slide_id: {slide.id}", "", f"headline: {headline}", "", "claims on this slide:"]
+        lines.extend(f"  - [{c.verdict}] {c.text}" for c in claims)
+        if not claims:
+            lines.append("  (none — this slide carries no cited claim)")
+        parts.append("\n".join(lines))
+    return (
+        f"Judge each of the following {len(items)} slide headline(s) against the claims on "
+        "the same slide, as the **Talking headers** section of your instructions describes. "
+        "A headline is `carried` when every part of it is stated or directly summarised by "
+        "the claims shown, at no greater strength. It `overstates` when it says anything "
+        "stronger, wider or different: a comparator that tied described as beaten, a group "
+        "of comparators where the claims cover only some, a population the claims do not "
+        "name, a causal or general statement from a measured result, or a fact no claim "
+        "states. A claim marked unsupported or contradicted cannot carry the headline. A slide "
+        "with no claims carries a headline only if it asserts nothing about the world: an "
+        "ask, a decision, a question or the route through the deck is carried; a statement "
+        "of benefit, effect or comparison overstates. "
+        "Return one judgement per slide_id, copied exactly as shown.\n\n"
+        + "\n\n---\n\n".join(parts)
+    )
+
+
+def check_headlines(
+    deck: Deck,
+    *,
+    model: ValidationModel,
+    system: str,
+    previous: Deck | None = None,
+) -> int:
+    """Judge every content slide's talking header against its own claims. Mutates `deck`.
+
+    Slides with no headline are skipped (`headline_check` stays None). A slide with no
+    face claims is still judged: its header may ask or decide, but not assert (a closing
+    slide's "significant benefits" sat over no claim at all in run XLP). A
+    header whose text and claims match the `previous` deck's same slide keeps that verdict.
+    One call for all the rest. A failed call leaves them unjudged, never `carried`.
+
+    Returns:
+        The number of provider calls made (0 or 1).
+    """
+    earlier: dict[str, tuple[tuple[str, tuple[str, ...]], HeadlineCheck]] = {}
+    if previous is not None:
+        for slide in previous.slides:
+            headline = _headline_of(slide)
+            if headline is not None and slide.headline_check is not None:
+                key = _headline_key(headline, _face_claims(previous, slide.id))
+                earlier[slide.id] = (key, slide.headline_check)
+
+    pending: list[tuple[Slide, str, list[Claim]]] = []
+    for slide in deck.slides:
+        headline = _headline_of(slide)
+        claims = _face_claims(deck, slide.id)
+        if headline is None:
+            continue
+        reuse = earlier.get(slide.id)
+        if reuse is not None and reuse[0] == _headline_key(headline, claims):
+            slide.headline_check = reuse[1]
+            continue
+        pending.append((slide, headline, claims))
+    if not pending:
+        return 0
+
+    try:
+        draft = model.complete_structured(
+            _render_headline_prompt(pending), HeadlineDraft, system=system  # type: ignore[arg-type]
+        )
+    except Exception as exc:  # any provider failure, deliberately broad
+        logger.warning(
+            "headline check of %d slide(s) failed (%s): %s — left unjudged",
+            len(pending),
+            type(exc).__name__,
+            exc,
+        )
+        return 1
+    by_id = {item.slide_id: item for item in draft.judgements}
+    for slide, headline, _claims in pending:
+        item = by_id.get(slide.id)
+        if item is None:
+            continue
+        slide.headline_check = HeadlineCheck(
+            verdict=item.verdict,
+            notes=item.notes.strip() if item.verdict == "overstates" else "",
+            headline=headline,
+        )
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# The storyline: the headers read in order (B70)
+# ---------------------------------------------------------------------------
+#
+# `check_headlines` asks whether each header is true of its own slide. This asks whether
+# the headers, read aloud in order, are one argument a presenter could actually say. A
+# deck can pass the first and fail the second completely: every header carried, and the
+# whole a list of facts.
+
+STORY_SLOTS = ("headline", "title", "takeaway")
+"""The slot that carries a slide's line in the storyline, in order of preference: a
+content slide's talking header, the title slide's title, a callout's takeaway."""
+
+
+def story_line_of(slide: Slide) -> str | None:
+    """The sentence this slide contributes to the storyline, or None."""
+    by_slot = {b.slot: b.text for b in slide.blocks if b.text}
+    for slot in STORY_SLOTS:
+        if by_slot.get(slot):
+            return by_slot[slot]
+    return None
+
+
+class StorylineDraft(BaseModel):
+    """The validator's reading of the whole storyline. Required fields (B26)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tells_story: bool
+    summary: str = Field(description="One or two sentences on the storyline as a whole.")
+    findings: list[StorylineFindingDraft] = Field(
+        description="One entry per header with a problem; [] when there is none."
+    )
+
+
+def _render_storyline_prompt(deck: Deck, lines: Sequence[tuple[Slide, str]]) -> str:
+    rows = "\n".join(
+        f"{n}. [slide_id: {slide.id} · role: {slide.narrative_role}] {line}"
+        for n, (slide, line) in enumerate(lines, start=1)
+    )
+    return (
+        "Read these headers aloud, in order, as the **Storyline** section of your "
+        "instructions describes. They are the only words most of the audience will "
+        f"remember.\n\nAudience: {deck.audience}\n\n{rows}\n\n"
+        "Say whether they tell one connected story, and list every header that is "
+        "`unspeakable`, `breaks_chain` or `repeats`, with slide_id copied exactly."
+    )
+
+
+def check_storyline(
+    deck: Deck,
+    *,
+    model: ValidationModel,
+    system: str,
+    previous: Deck | None = None,
+) -> int:
+    """Judge the deck's headers in order as one argument. Mutates `deck`. Advisory.
+
+    Skipped (and left None) for a deck with fewer than two lines. If the lines are
+    exactly those `previous` judged, its check is reused. A failed call leaves the
+    check None, never a pass.
+
+    Returns:
+        The number of provider calls made (0 or 1).
+    """
+    lines = [(s, line) for s in deck.slides if (line := story_line_of(s)) is not None]
+    if len(lines) < 2:
+        deck.storyline_check = None
+        return 0
+    texts = [line for _s, line in lines]
+    if (
+        previous is not None
+        and previous.storyline_check is not None
+        and previous.storyline_check.headlines == texts
+    ):
+        deck.storyline_check = previous.storyline_check
+        return 0
+    try:
+        draft = model.complete_structured(
+            _render_storyline_prompt(deck, lines), StorylineDraft, system=system  # type: ignore[arg-type]
+        )
+    except Exception as exc:  # any provider failure, deliberately broad
+        logger.warning(
+            "storyline check failed (%s): %s — left unjudged", type(exc).__name__, exc
+        )
+        return 1
+    known = {s.id for s, _line in lines}
+    deck.storyline_check = StorylineCheck(
+        tells_story=draft.tells_story,
+        summary=draft.summary.strip(),
+        findings=[
+            StorylineFinding(slide_id=f.slide_id, issue=f.issue, notes=f.notes.strip())
+            for f in draft.findings
+            if f.slide_id in known and f.notes.strip()
+        ],
+        headlines=texts,
+    )
+    return 1
+
+
+# ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
 
@@ -453,6 +730,33 @@ def _assessment_from_claim(claim: Claim) -> VerdictAssessment:
     )
 
 
+def conversation_spans_for(deck: Deck, *, store: DocumentStore) -> tuple[RetrievedSpan, ...]:
+    """Every span of the conversation document(s) the deck cites, in `normal` mode (B55).
+
+    Empty for a `strict` deck, or one with no `conversation--` citation, or when the store
+    cannot supply the document (the claim then simply gets no conversation evidence).
+    """
+    if deck.provenance != "normal":
+        return ()
+    from autodeck.agents.evidence_pack import document_spans
+
+    doc_ids = sorted(
+        {
+            c.doc_id
+            for site in deck.claim_sites()
+            for c in site.claim.citations
+            if c.doc_id.startswith(CONVERSATION_DOC_PREFIX)
+        }
+    )
+    spans: list[RetrievedSpan] = []
+    for doc_id in doc_ids:
+        try:
+            spans.extend(document_spans(store.get(doc_id)))
+        except IngestError:
+            continue
+    return tuple(spans)
+
+
 def validate_deck(
     deck: Deck,
     *,
@@ -491,8 +795,11 @@ def validate_deck(
         else:
             reused_claims[site.claim_id] = earlier
 
+    conversation = conversation_spans_for(deck, store=store)
     evidence = {
-        site.claim_id: gather_validator_evidence(site.claim, index=index, store=store)
+        site.claim_id: gather_validator_evidence(
+            site.claim, index=index, store=store, extra_spans=conversation
+        )
         for site in to_judge
     }
     assessments: dict[str, VerdictAssessment] = {}
@@ -539,6 +846,9 @@ def validate_deck(
                 node_id=site.node_id,
             )
         )
+
+    provider_calls += check_headlines(deck, model=model, system=system, previous=previous)
+    provider_calls += check_storyline(deck, model=model, system=system, previous=previous)
 
     return ValidationResult(
         deck=deck,

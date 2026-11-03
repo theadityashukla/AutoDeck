@@ -24,6 +24,7 @@
           "text": null,
           "claim": {
             "text": "Throughput improved 62.9% after the kernel rewrite.",
+            "basis": "cited",
             "citations": [
               {
                 "doc_id": "kaplan2024-attention",
@@ -107,6 +108,7 @@
           "text": null,
           "claim": {
             "text": "Throughput figures are measured on a single A100-80GB node.",
+            "basis": "cited",
             "citations": [
               {
                 "doc_id": "kaplan2024-attention",
@@ -137,7 +139,9 @@
       "message_ids": [
         "km1"
       ],
-      "pin_deviation": null
+      "pin_deviation": null,
+      "headline_check": null,
+      "layout": null
     },
     {
       "id": "s2",
@@ -169,6 +173,7 @@
           "text": null,
           "claim": {
             "text": "Median inference cost fell to $0.42 per million tokens.",
+            "basis": "cited",
             "citations": [
               {
                 "doc_id": "internal-benchmark-2025",
@@ -259,9 +264,15 @@
       "message_ids": [
         "km2"
       ],
-      "pin_deviation": null
+      "pin_deviation": null,
+      "headline_check": null,
+      "layout": null
     }
   ],
   "theme_ref": "themes/acme-health@1",
-  "component_lib_version": "0.1.0"
+  "component_lib_version": "0.1.0",
+  "provenance": "strict",
+  "design_mode": "structured",
+  "storyline_check": null,
+  "named_terms": []
 }

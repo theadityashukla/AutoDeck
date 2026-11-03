@@ -28,15 +28,26 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from autodeck.agents.content import _gather_claims, render_evidence
 from autodeck.ingest.deck_source import DOC_ID_PREFIX
 from autodeck.ingest.document_store import Document
+from autodeck.ir.models import ProvenanceMode
 from autodeck.knowledge.loader import CachedClaim
 from autodeck.retrieval.hybrid import HybridIndex, RetrievedSpan, search
 
 MAX_QUERIES = 12
+
+PER_SECTION = 2
+"""Opening paragraphs taken from each section by `section_lead_spans`."""
+
+_BOILERPLATE_HEADING = re.compile(
+    r"\b(?:references?|bibliography|acknowledge?ments?|declarations?|funding|conflicts? of "
+    r"interest|author contributions?|data availability|supplementary|open access|appendix|"
+    r"proofs?|lemma|theorem|definition|corollary|key points)\b",
+    re.I,
+)
 """Prompt plus at most this many project_md theme lines in total."""
 
 PAPER_QUERIES = 24
@@ -79,6 +90,44 @@ def theme_queries(prompt: str, project_md: str, *, limit: int = MAX_QUERIES) -> 
     return tuple(queries)
 
 
+def section_lead_spans(
+    index: HybridIndex, *, per_section: int = PER_SECTION
+) -> tuple[RetrievedSpan, ...]:
+    """The opening paragraphs of every section of every document, in reading order.
+
+    Run XLP2 (2026-10-13): spans retrieved for the prompt and `project.md` filled 8.5k of a
+    24k-token pack and missed the review's headline HbA1c result, its adverse-event summary
+    and its cardiovascular outcome, so the writer could not cite them. Using the section
+    headings as search queries did not help: BM25 returned the headings themselves. A
+    reader skims a paper by reading the first paragraphs under each heading, and those are
+    where a paper states its results. Boilerplate sections (references, acknowledgements,
+    proofs) are skipped. Deterministic: same corpus, same spans.
+    """
+    out: list[RetrievedSpan] = []
+    elements = sorted(
+        index.elements.values(), key=lambda e: (e.doc_id, e.page, e.reading_order)
+    )
+    taking = 0
+    for element in elements:
+        if element.kind == "section_header":
+            heading = " ".join(element.text.split())
+            taking = 0 if _BOILERPLATE_HEADING.search(heading) else per_section
+            continue
+        if taking and element.kind == "text" and element.is_citable and len(element.text) > 80:
+            out.append(
+                RetrievedSpan(
+                    doc_id=element.doc_id,
+                    element_id=element.element_id,
+                    page=element.page,
+                    text=element.retrieval_text(),
+                    score=0.0,
+                    citable=True,
+                )
+            )
+            taking -= 1
+    return tuple(out)
+
+
 def build_evidence_pack(
     prompt: str,
     *,
@@ -88,15 +137,22 @@ def build_evidence_pack(
     budget_tokens: int = 24_000,
     per_query: int = 8,
     max_queries: int = MAX_QUERIES,
+    extra_queries: Sequence[str] = (),
+    section_leads: bool = True,
 ) -> EvidencePack:
     """Build the evidence for one compose call. Deterministic: same inputs, same pack.
 
-    Curated claims whose vocabulary overlaps any query come first and are never trimmed;
-    spans follow, unioned across queries in first-seen order (deduplicated on
-    `(doc_id, page, text)`), then cut from the end until `approx_tokens <= budget_tokens`.
-    Receives only what the caller gives it; it opens no knowledge folder (see module note).
+    Queries, in priority order: the prompt, then `extra_queries` (what the person answered
+    at clarify), then `project_md`'s theme lines. After the retrieved spans come (with
+    `section_leads`) the opening paragraphs of every section of the corpus. Curated claims whose vocabulary
+    overlaps any query come first and are never trimmed; spans follow, unioned across
+    queries in first-seen order (deduplicated on `(doc_id, page, text)`), then cut from the
+    end until `approx_tokens <= budget_tokens`, so the lowest-priority queries are trimmed
+    first. Receives only what the caller gives it; it opens no knowledge folder.
     """
-    queries = theme_queries(prompt, project_md, limit=max_queries)
+    themed = theme_queries(prompt, project_md, limit=max_queries)
+    extras = tuple(" ".join(q.split()) for q in extra_queries if q.strip())
+    queries = tuple(dict.fromkeys((*themed[:1], *extras, *themed[1:])))
 
     picked: list[CachedClaim] = []
     seen_claims: set[tuple[str, int, str]] = set()
@@ -109,6 +165,12 @@ def build_evidence_pack(
                 seen_claims.add(key)
                 picked.append(claim)
         for span in search(index, query, limit=per_query, citable_only=False):
+            key = (span.doc_id, span.page, span.text)
+            if key not in seen_spans:
+                seen_spans.add(key)
+                spans.append(span)
+    if section_leads:
+        for span in section_lead_spans(index):
             key = (span.doc_id, span.page, span.text)
             if key not in seen_spans:
                 seen_spans.add(key)
@@ -131,8 +193,11 @@ def build_evidence_pack(
     )
 
 
-def deck_spans(deck: Document) -> tuple[RetrievedSpan, ...]:
-    """One span per element of the client's deck, in slide order (reading order within one).
+def document_spans(deck: Document) -> tuple[RetrievedSpan, ...]:
+    """One span per element of a whole document, in page order (reading order within one).
+
+    Used for the client's deck (slide = page) and, in `normal` mode, the person's own
+    conversation (message = page).
 
     Citable elements are citable spans; a picture or chart is kept as a non-citable span so
     the rendering can say "slide 4 has a picture whose content we cannot read" rather than
@@ -155,6 +220,44 @@ def deck_spans(deck: Document) -> tuple[RetrievedSpan, ...]:
             _deck_span(deck, element, row, citable=True) for row in rows if row.strip()
         )
     return tuple(spans)
+
+
+deck_spans = document_spans  # the redesign's name for it, kept for existing callers
+
+
+def conversation_section(spans: Sequence[RetrievedSpan]) -> str:
+    """The never-trimmed "from you" section: a heading, then the spans one per line in the
+    same format `render_evidence` gives every other span (so a quote copied from here is
+    flattened exactly as the resolver's tolerant matcher expects). Empty for no spans."""
+    if not spans:
+        return ""
+    doc_id = spans[0].doc_id
+    return (
+        f'# What you told us (citable as "from you"; doc id {doc_id})\n\n'
+        + render_evidence((), spans)
+    )
+
+
+def with_conversation(
+    pack: EvidencePack, doc: Document | None, mode: ProvenanceMode
+) -> EvidencePack:
+    """Add what the person typed to a pack, in `normal` mode only (B55).
+
+    `strict` returns `pack` unchanged — the conversation is omitted from the evidence here,
+    and a `Deck` validator refuses a `conversation--` citation anyway. In `normal` the
+    section goes *before* the corpus evidence and the conversation's spans lead `spans`; this
+    runs after `build_evidence_pack` has trimmed to its budget, so the conversation is never
+    cut (it is the person's own words, and small).
+    """
+    if mode != "normal" or doc is None:
+        return pack
+    spans = document_spans(doc)
+    if not spans:
+        return pack
+    text = conversation_section(spans) + "\n\n" + pack.text
+    return replace(
+        pack, spans=(*spans, *pack.spans), text=text, approx_tokens=len(text) // 4
+    )
 
 
 def _deck_span(deck: Document, element, text: str, *, citable: bool) -> RetrievedSpan:  # type: ignore[no-untyped-def]

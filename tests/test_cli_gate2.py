@@ -146,7 +146,7 @@ def content_draft(*, block_id: str = "b1", text: str = CLAIM_TEXT):  # type: ign
     block = ProposedBlock(
         id=block_id,
         kind="claim",
-        slot="figure",
+        slot="headline",
         claim=ProposedClaim(
             text=text, citations=[ProposedCitation(doc_id=DOC_ID, quote=QUOTE)]
         ),

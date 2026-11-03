@@ -46,7 +46,7 @@ if ! command -v pdftoppm >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "== 2/3: Inter dev fonts =="
+echo "== 2/3: Inter fonts (optional; the dev tokens use Carlito, bundled with LibreOffice) =="
 "${REPO_ROOT}/scripts/install-dev-fonts.sh"
 
 echo "== 3/3: prove the render path end to end =="
@@ -91,5 +91,5 @@ fi
 echo
 echo "Verified:"
 echo "  - libreoffice-impress (soffice) and poppler-utils (pdftoppm) are on PATH"
-echo "  - the Inter dev font set is installed (fonts/ and ~/.local/share/fonts/)"
+echo "  - the optional Inter font set is installed (fonts/, ~/.local/share/fonts/, and ~/Library/Fonts/ on macOS)"
 echo "  - a one-slide PPTX was built, converted to PDF, and rasterised to PNG end to end"

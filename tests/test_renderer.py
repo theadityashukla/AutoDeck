@@ -54,6 +54,7 @@ from autodeck.render.renderer import (
     placeable_slots,
     render_deck,
     scaled_tokens,
+    section_number_of,
     source_line,
 )
 
@@ -305,7 +306,7 @@ def _check_component_adapts(name: str) -> None:
 
     blocks: list[Block] = []
     for f in dataclasses.fields(content_type):
-        if f.name in ("accent", "source"):
+        if f.name in ("accent", "source", "section_number"):
             continue
         value = getattr(example, f.name)
         hint = hints[f.name]
@@ -325,7 +326,7 @@ def _check_component_adapts(name: str) -> None:
     content = cast(Any, content)
 
     for f in dataclasses.fields(content_type):
-        if f.name in ("accent", "source"):
+        if f.name in ("accent", "source", "section_number"):
             continue
         assert getattr(content, f.name) == getattr(example, f.name), (name, f.name)
     if "accent" in hints:
@@ -925,7 +926,7 @@ def _example_blocks(name: str) -> list[Block]:
     hints = get_type_hints(content_type)
     blocks = []
     for f in dataclasses.fields(content_type):
-        if f.name in ("accent", "source"):
+        if f.name in ("accent", "source", "section_number"):
             continue
         value = getattr(example, f.name)
         hint = hints[f.name]
@@ -990,3 +991,37 @@ def test_placeable_slots_agrees_with_adapt_slide_for_every_component() -> None:
 
     with pytest.raises(UnknownComponentError):
         placeable_slots("no_such_component")
+
+
+# ---------------------------------------------------------------------------
+# section_divider's number is computed from the deck, never authored
+# ---------------------------------------------------------------------------
+
+
+def _divider(slide_id: str) -> Slide:
+    return _slide(slide_id, "section_divider", [_framing_block("section_name", "Name")])
+
+
+def test_section_number_is_the_ordinal_among_section_dividers() -> None:
+    other = _slide("x", "title_slide", [])
+    first, second, third = _divider("d1"), _divider("d2"), _divider("d3")
+    deck = _deck(other, first, other.model_copy(update={"id": "y"}), second, third)
+    assert [section_number_of(deck, s) for s in (first, second, third)] == ["1", "2", "3"]
+
+
+def test_section_number_is_not_a_placeable_slot_and_fills_the_content() -> None:
+    assert "section_number" not in placeable_slots("section_divider")
+    content_type = catalog.registration("section_divider").content_type
+    content, _ = adapt_slide(_divider("d"), content_type, section_number="4")
+    assert content.section_number == "4"  # type: ignore[attr-defined]
+
+
+def test_a_section_number_block_is_unplaced_not_silently_drawn() -> None:
+    content_type = catalog.registration("section_divider").content_type
+    slide = _slide(
+        "d",
+        "section_divider",
+        [_framing_block("section_name", "Name"), _framing_block("section_number", "9")],
+    )
+    with pytest.raises(UnplacedBlockError):
+        adapt_slide(slide, content_type)

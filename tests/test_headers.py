@@ -43,7 +43,7 @@ NORTHWIND_YAML: dict[str, object] = {
 class TestProfileLoading:
     def test_no_profile_is_the_neutral_default(self) -> None:
         profile = HeaderStyleProfile.from_mapping(None)
-        assert profile.style == "topic_led"
+        assert profile.style == "blot"
         assert profile.numbers_in_headers == "allowed"
         assert profile.avoid == []
 
@@ -96,7 +96,7 @@ class TestApplication:
 
     def test_resolve_profile_with_no_client_profile_and_no_override(self) -> None:
         profile = resolve_profile(None, None)
-        assert profile.style == "topic_led"
+        assert profile.style == "blot"
 
     def test_rendered_prompt_never_waives_the_citation_requirement(self) -> None:
         rendered = render_for_prompt(resolve_profile(NORTHWIND_YAML, None))

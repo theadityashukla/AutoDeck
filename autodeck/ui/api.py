@@ -37,11 +37,6 @@ CLIENT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 ENV_LABELS = {
-    "dev": (
-        "Draft models",
-        "Free-tier models. Fine for trying the flow; a dev deck is a draft, never a client "
-        "deliverable, and an accuracy result on dev is a smoke test (B8).",
-    ),
     "dev-mistral": (
         "Draft models (Mistral)",
         "Small paid Mistral models on the included monthly allowance; a few cents a draft. "
@@ -100,7 +95,7 @@ def _default_env() -> str:
     try:
         return ModelRegistry.load().env
     except Exception:
-        return "dev"
+        return "dev-mistral"
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +314,89 @@ def settings(roots: Roots) -> dict[str, Any]:
     }
 
 
+def project_settings_view(roots: Roots, project: str) -> dict[str, Any]:
+    """A project's provenance mode and glossary of numeric names (B55, B58)."""
+    from autodeck.knowledge.loader import KnowledgeError, load_project_settings
+
+    if project not in list_projects(roots):
+        raise UIError(f"Unknown project {project!r}.", status=404)
+    try:
+        loaded = load_project_settings(roots.knowledge, project)
+    except KnowledgeError as exc:
+        raise UIError(str(exc), status=409) from None
+    return {
+        "project": project,
+        "provenance": loaded.provenance,
+        "named_terms": list(loaded.named_terms),
+    }
+
+
+def save_project_settings_view(
+    roots: Roots, project: str, *, provenance: Any, named_terms: Any
+) -> dict[str, Any]:
+    """Write a project's settings. Runs already started keep their own snapshot (B55)."""
+    from autodeck.knowledge.loader import (
+        KnowledgeError,
+        ProjectSettings,
+        load_project_settings,
+        save_project_settings,
+    )
+
+    current = project_settings_view(roots, project)
+    if named_terms is not None and not isinstance(named_terms, list):
+        raise UIError("named_terms must be a list of strings.")
+    try:
+        updated = ProjectSettings.model_validate(
+            {
+                **load_project_settings(roots.knowledge, project).model_dump(),
+                "provenance": provenance if provenance is not None else current["provenance"],
+                **(
+                    {"named_terms": [str(t).strip() for t in named_terms if str(t).strip()]}
+                    if named_terms is not None
+                    else {}
+                ),
+            }
+        )
+        save_project_settings(roots.knowledge, project, updated)
+    except (KnowledgeError, ValueError) as exc:
+        raise UIError(f"Those settings are not valid: {exc}") from None
+    return project_settings_view(roots, project)
+
+
+def run_provenance(roots: Roots, run_id: str) -> str:
+    """The run's fixed provenance mode ("strict" when it has none)."""
+    from autodeck.pipeline.provenance import ProvenanceModeError, load_mode
+
+    try:
+        return load_mode(roots.runs / run_id)
+    except ProvenanceModeError:
+        return "strict"
+
+
+def run_design_mode(roots: Roots, run_id: str) -> str:
+    """The run's fixed design mode ("structured" when it has none)."""
+    from autodeck.pipeline.design_mode import DesignModeError, load_design_mode
+
+    try:
+        return load_design_mode(roots.runs / run_id)
+    except DesignModeError:
+        return "structured"
+
+
+def snapshot_run_design_mode(roots: Roots, run_id: str, override: str | None) -> str:
+    """Fix a new run's design mode: `override`, else the environment's default (B69)."""
+    from autodeck.pipeline.design_mode import DesignModeError, resolve_design_mode
+    from autodeck.providers.registry import ModelRegistry
+
+    try:
+        default = ModelRegistry.load(roots.env).design_mode
+        return resolve_design_mode(roots.runs / run_id, default, override)  # type: ignore[arg-type]
+    except Exception as exc:
+        if isinstance(exc, DesignModeError):
+            raise UIError(str(exc)) from None
+        raise UIError(f"Could not read the model settings: {exc}") from None
+
+
 def env_info(env: str, *, brief: bool = False) -> dict[str, Any]:
     label, note = ENV_LABELS.get(env, (env, ""))
     info: dict[str, Any] = {
@@ -337,9 +415,11 @@ def env_info(env: str, *, brief: bool = False) -> dict[str, Any]:
             for role, b in sorted(registry.bindings().items())
         ]
         info["missing_credentials"] = registry.missing_credentials()
+        info["design_mode"] = registry.design_mode
     except Exception as exc:
         info["roles"] = []
         info["missing_credentials"] = []
+        info["design_mode"] = "structured"
         info["note"] = f"{note} (config error: {exc})"
     return info
 
@@ -383,12 +463,48 @@ def restore_env(roots: Roots) -> None:
 # ---------------------------------------------------------------------------
 
 
-def write_run_meta(roots: Roots, run_id: str, *, client: str, project: str) -> None:
+def write_run_meta(
+    roots: Roots, run_id: str, *, client: str, project: str, agent: bool | None = None
+) -> None:
+    """Remember the run's client and project; `agent` (Phase 4c) is kept only when true.
+
+    `agent=None` leaves an earlier choice alone, so a later write cannot lose it.
+    """
     folder = roots.runs / run_id
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / UI_META).write_text(
-        json.dumps({"client": client, "project": project}, indent=2), encoding="utf-8"
-    )
+    data: dict[str, Any] = {"client": client, "project": project}
+    if agent or (agent is None and run_uses_agent(roots, run_id)):
+        data["agent"] = True
+    (folder / UI_META).write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def run_uses_agent(roots: Roots, run_id: str) -> bool:
+    """Whether the person chose the deck agent when starting this run."""
+    try:
+        data = json.loads((roots.runs / run_id / UI_META).read_text(encoding="utf-8"))
+        return bool(data.get("agent"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def session_view(roots: Roots, run_id: str, *, active: bool) -> dict[str, Any]:
+    """The deck agent's session for a run: the last 200 timeline rows and its meta."""
+    from autodeck.agents.session import timeline
+
+    run_id = check_run_id(run_id)
+    folder = roots.runs / run_id / "session"
+    transcript = folder / "transcript.jsonl"
+    if not transcript.is_file():
+        return {"timeline": [], "meta": None, "active": False}
+    try:
+        rows = timeline(transcript)[-200:]
+    except (OSError, ValueError, KeyError):
+        rows = []
+    try:
+        meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = None
+    return {"timeline": rows, "meta": meta, "active": active}
 
 
 def read_run_meta(roots: Roots, run_id: str) -> dict[str, str]:
@@ -867,8 +983,14 @@ def _block_view(block: Any) -> dict[str, Any]:
         "text": claim.text if claim is not None else (block.text or ""),
         "verdict": claim.verdict if claim is not None else "",
         "verdict_notes": (claim.verdict_notes or "") if claim is not None else "",
+        "basis": claim.basis if claim is not None else "",
         "citations": [
-            {"doc_id": c.doc_id, "page": c.page, "quote": c.quote}
+            {
+                "doc_id": c.doc_id,
+                "page": c.page,
+                "quote": c.quote,
+                "source_class": c.source_class,
+            }
             for c in (claim.citations if claim is not None else [])
         ],
     }
@@ -903,6 +1025,7 @@ def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
     images = _draft_images(orch)
 
     redesign = _redesign_info(roots, orch, run_id, extras, {s.id for s in deck.slides})
+    story = deck.storyline_check
     slides = []
     for number, slide in enumerate(deck.slides, start=1):
         slides.append(
@@ -925,6 +1048,17 @@ def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
                 "intent": slide.intent or "",
                 "message_ids": list(slide.message_ids),
                 "flag": flags.get(slide.id, ""),
+                "headline_check": (
+                    slide.headline_check.model_dump(mode="json")
+                    if slide.headline_check is not None
+                    else None
+                ),
+                # B70: advisory only; never blocks anything.
+                "storyline_findings": [
+                    f.model_dump(mode="json")
+                    for f in (story.findings if story is not None else [])
+                    if f.slide_id == slide.id
+                ],
                 "blocks": [_block_view(b) for b in slide.blocks],
                 "notes": [_block_view(b) for b in slide.speaker_notes],
                 "preview": (
@@ -986,9 +1120,16 @@ def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
         "validated": orch.state.is_complete("validate"),
         "previewed": orch.state.is_complete("preview"),
         "slides": slides,
+        "storyline_check": story.model_dump(mode="json") if story is not None else None,
         "brief": brief,
         "coverage": extras.get("coverage", []),
         "rejections": extras.get("rejections", []),
+        "provenance": run_provenance(roots, run_id),
+        "design_mode": run_design_mode(roots, run_id),
+        "failures": extras.get("failures", []),
+        "advisories": extras.get("advisories", []),
+        "repairs": extras.get("repairs", []),
+        "repair_ran": bool(extras.get("repair_ran", False)),
         "corrections": extras.get("corrections", []),
         "incomplete_slots": extras.get("incomplete_slots", []),
         "notes": extras.get("notes", ""),
@@ -1086,3 +1227,76 @@ def _read_revisions(orch: Orchestrator) -> list[dict[str, str]]:
         if isinstance(item, dict):
             out.append({k: str(item.get(k, "")) for k in ("instruction", "reply", "at")})
     return out
+
+
+# ---------------------------------------------------------------------------
+# Agent memory (B77)
+# ---------------------------------------------------------------------------
+
+MEMORY_AUDIT_LIMIT = 50
+
+
+def _memory_store(roots: Roots, client: str, project: str):  # type: ignore[no-untyped-def]
+    from autodeck.knowledge.loader import KnowledgeError
+    from autodeck.knowledge.memory import MemoryStore
+    from autodeck.ui.profile import owner_memory_path
+
+    if not client or not project:
+        raise UIError("Pick a client and a project.")
+    if client not in list_clients(roots) or project not in list_projects(roots):
+        raise UIError(f"No client {client!r} with project {project!r}.", status=404)
+    try:
+        return MemoryStore(
+            roots.knowledge,
+            client=client,
+            project=project,
+            run_id="ui",
+            owner_path=owner_memory_path(),
+        )
+    except KnowledgeError as exc:
+        raise UIError(str(exc)) from None
+
+
+def memory_view(roots: Roots, client: str, project: str) -> dict[str, Any]:
+    """Both memory files and the last changes to either, newest first."""
+    from autodeck.knowledge.loader import KnowledgeError
+
+    store = _memory_store(roots, client, project)
+    try:
+        engagement = store.read("engagement")
+    except KnowledgeError as exc:
+        raise UIError(str(exc)) from None
+    records: list[dict[str, Any]] = []
+    for scope in ("engagement", "owner"):
+        log = store.path(scope).parent / "audit.jsonl"  # type: ignore[arg-type]
+        if not log.is_file():
+            continue
+        for line in log.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(record, dict):
+                records.append({**record, "scope": scope})
+    records.sort(key=lambda r: str(r.get("at", "")), reverse=True)
+    return {
+        "engagement": engagement,
+        "owner": store.read("owner"),
+        "audit": records[:MEMORY_AUDIT_LIMIT],
+    }
+
+
+def save_memory(
+    roots: Roots, client: str, project: str, scope: str, content: str
+) -> dict[str, Any]:
+    """Replace one memory file with the person's edit; the store's checks still apply."""
+    from autodeck.knowledge.loader import KnowledgeError
+
+    if scope not in ("engagement", "owner"):
+        raise UIError("scope is engagement or owner.")
+    store = _memory_store(roots, client, project)
+    try:
+        message = store.rewrite(scope, content)  # type: ignore[arg-type]
+    except KnowledgeError as exc:  # MemoryWriteError and ClientIsolationError
+        raise UIError(str(exc)) from None
+    return {"scope": scope, "text": store.read(scope), "message": message}  # type: ignore[arg-type]

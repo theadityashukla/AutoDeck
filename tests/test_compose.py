@@ -63,11 +63,11 @@ def cite(quote: str) -> ProposedCitation:
     return ProposedCitation(doc_id="paper-1", quote=quote)
 
 
-def claim_block(block_id: str, text: str, quote: str) -> ProposedBlock:
+def claim_block(block_id: str, text: str, quote: str, slot: str = "headline") -> ProposedBlock:
     return ProposedBlock(
         id=block_id,
         kind="claim",
-        slot="figure",
+        slot=slot,
         claim=ProposedClaim(text=text, citations=[cite(quote)]),
     )
 
@@ -109,7 +109,10 @@ def compose_draft(**overrides: Any) -> ComposeDraft:
                 ["km1"],
                 claim_block("b1", "Quantisation halves memory.", QUOTE),
                 claim_block(
-                    "b2", "Invented sentence.", "This quote is not in any paper at all."
+                    "b2",
+                    "Invented sentence.",
+                    "This quote is not in any paper at all.",
+                    slot="quote",
                 ),
             ),
             slide("s2", ["km2"], claim_block("b1", "Batching raises throughput.", OTHER)),
@@ -123,7 +126,10 @@ def compose_draft(**overrides: Any) -> ComposeDraft:
 
 def run_compose(tmp_path: Path, draft: ComposeDraft, **kwargs: Any):  # type: ignore[no-untyped-def]
     store, pack = env(tmp_path)
-    model = Scripted(draft)
+    model = Scripted(draft, *kwargs.pop("then", ()))
+    # These tests pin what one compose call resolves; the B53 repair call has its own tests,
+    # which pass `repair=True` and script the repair answer with `then=`.
+    kwargs.setdefault("repair", False)
     result = compose_deck(
         "Make a deck.",
         answers=kwargs.pop("answers", [("Audience?", "CTO")]),
@@ -158,7 +164,8 @@ def test_compose_is_one_call_with_the_composer_prompt_and_catalog(tmp_path: Path
     assert result.provider_calls == 1 and len(model.calls) == 1
     prompt, schema, system = model.calls[0]
     assert schema is ComposeDraft
-    assert system.startswith("# Compose") and "\n\n---\n\n" in system and "# Content" in system
+    assert system.startswith("# Compose") and "\n\n---\n\n" in system and "# Skills" in system
+    assert "# Content" not in system
     assert pack.text in prompt
     assert "Audience?" in prompt and "bullets_supporting" in prompt
 
@@ -437,3 +444,77 @@ def test_revise_recomputes_coverage(tmp_path: Path) -> None:
     assert any(c["status"] == "covered" for c in result.coverage)
     # km1 (agreed) is served by s1, supported -> covered by code.
     assert coverage_of(result, "Quantisation")["status"] == "covered"
+
+
+# -- structured failures, id clashes, unbuildable slides ----------------------------------
+
+
+def test_failures_carry_the_structured_rejection_for_each_drop(tmp_path: Path) -> None:
+    result, *_ = run_compose(tmp_path, compose_draft())
+    [failure] = [f for f in result.failures if f.slide_id == "s1" and f.block_id == "b2"]
+    assert failure.kind == "quote_not_found" and failure.where == "face"
+    assert failure.block_id == "b2" and failure.slot == "quote"
+    assert failure.proposed is not None and failure.proposed.id == "b2"
+    assert failure.message in result.rejections
+    # JSON-safe, including the model's own block.
+    import json
+
+    assert json.loads(json.dumps(failure.to_dict()))["proposed"]["id"] == "b2"
+
+
+def test_a_speaker_note_id_clashing_with_a_face_block_is_renamed(tmp_path: Path) -> None:
+    clash = ComposedSlide(
+        id="s1",
+        narrative_role="evidence",
+        component="quote",
+        intent="Make the point.",
+        message_ids=["km1"],
+        blocks=[claim_block("b1", "Quantisation halves memory.", QUOTE)],
+        speaker_notes=[claim_block("b1", "Say it slowly.", QUOTE)],
+    )
+    result, *_ = run_compose(tmp_path, compose_draft(slides=[clash]))
+    [built] = result.deck.slides
+    assert [b.id for b in built.blocks] == ["b1"]
+    assert [b.id for b in built.speaker_notes] == ["b1-n"]
+    assert any("'b1-n'" in c for c in result.corrections)
+
+
+def test_an_unbuildable_slide_is_dropped_with_ir_invalid_not_a_failed_stage(
+    tmp_path: Path,
+) -> None:
+    # Two face blocks with one id: the IR refuses the slide, the stage must not.
+    twin = slide(
+        "s2",
+        ["km2"],
+        claim_block("b1", "Batching raises throughput.", OTHER),
+        ProposedBlock(
+            id="b1",
+            kind="framing",
+            slot="attribution",
+            text="Twin id.",
+        ),
+    )
+    good = slide("s1", ["km1"], claim_block("b1", "Quantisation halves memory.", QUOTE))
+    result, *_ = run_compose(tmp_path, compose_draft(slides=[good, twin]))
+    assert [s.id for s in result.deck.slides] == ["s1"]
+    [failure] = [f for f in result.failures if f.kind == "ir_invalid"]
+    assert failure.slide_id == "s2" and "could not be built" in failure.message
+    assert any("could not be built" in r for r in result.rejections)
+
+
+def test_revise_runs_the_draft_checks_on_rewritten_slides_and_drops_failures(
+    tmp_path: Path,
+) -> None:
+    """A revision used to skip the B56 checks entirely: an uncited number in a rewritten slide
+    reached the IR. Only rewritten slides are checked; untouched ones keep their verdicts."""
+    first, *_ = run_compose(tmp_path, compose_draft())
+    bad = claim_block("b9", "Batching raises throughput by 0.8%.", OTHER, slot="points")
+    good = claim_block("b8", "Batching raises throughput.", OTHER, slot="points")
+    draft = revise_draft(
+        changed_slides=[slide("s2", ["km2"], good, bad, component="bullets_supporting")]
+    )
+    result = revise(tmp_path, first, draft)
+    s2 = next(s for s in result.deck.slides if s.id == "s2")
+    assert [b.id for b in s2.blocks] == ["b8"]
+    assert any(f.block_id == "b9" and f.kind == "numeral_unmatched" for f in result.failures)
+    assert result.deck.slides[0] is first.deck.slides[0]

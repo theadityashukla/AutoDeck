@@ -28,8 +28,9 @@ import random
 import re
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -123,6 +124,47 @@ class ImageInput:
     media_type: str = "image/png"
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool invocation requested by the model."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+    """Parsed arguments. If the model sent invalid JSON this is `{"__invalid__": raw}`; the
+    caller feeds an error back to the model rather than the adapter raising."""
+
+
+@dataclass(frozen=True)
+class Message:
+    """One turn of a tool-calling conversation."""
+
+    role: Literal["user", "assistant", "tool"]
+    content: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    """Set on assistant messages that requested tools."""
+    tool_call_id: str | None = None
+    """Set on `tool` messages: which call this result answers."""
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """A tool the model may call. `args_model` is the pydantic model of its arguments."""
+
+    name: str
+    description: str
+    args_model: type[BaseModel]
+
+
+@dataclass(frozen=True)
+class AssistantTurn:
+    """The model's reply in a conversation: text, tool calls, or both."""
+
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: Usage = field(default_factory=Usage)
+
+
 @dataclass
 class ProviderConfig:
     """Everything a provider instance needs that is not per-call.
@@ -198,7 +240,50 @@ class BaseProvider(ABC):
     def parse_response(self, payload: dict[str, Any]) -> RawResponse:
         """Pull the completion text (and usage, if reported) out of a response body."""
 
+    @abstractmethod
+    def build_converse_request(
+        self,
+        *,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        system: str | None,
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        """Return `(url, headers, json_body)` for one tool-calling turn."""
+
+    @abstractmethod
+    def parse_converse_response(self, payload: dict[str, Any]) -> AssistantTurn:
+        """Pull text and tool calls (and usage) out of a tool-calling response body."""
+
     # -- public API --------------------------------------------------------
+
+    def converse(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        *,
+        system: str | None = None,
+    ) -> AssistantTurn:
+        """One turn of a multi-turn, tool-calling conversation.
+
+        The caller owns the loop: it appends the assistant turn and the tool results to
+        `messages` and calls again. Identical (system, messages, tools) replies are cached.
+        """
+        if not messages:
+            raise ValueError("converse() needs at least one message")
+        cache_key = self._converse_cache_key(messages, tools, system)
+        cache = self.config.cache
+        if cache is not None:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return _turn_from_json(cached)
+
+        url, headers, body = self.build_converse_request(
+            messages=messages, tools=tools, system=system
+        )
+        turn = self._send_with_backoff(url, headers, body, parse=self.parse_converse_response)
+        if cache is not None:
+            cache.put(cache_key, _turn_to_json(turn))
+        return turn
 
     def complete(
         self,
@@ -300,14 +385,18 @@ class BaseProvider(ABC):
         return response
 
     def _send_with_backoff(
-        self, url: str, headers: dict[str, str], body: dict[str, Any]
-    ) -> RawResponse:
+        self,
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        parse: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> Any:
         """POST with exponential backoff on 429 and on transient 5xx."""
         last_error: ProviderError | None = None
 
         for attempt in range(self.config.max_rate_limit_retries + 1):
             try:
-                return self._send_once(url, headers, body)
+                return self._send_once(url, headers, body, parse)
             except RateLimitError as exc:
                 last_error = exc
                 delay = exc.retry_after if exc.retry_after is not None else _backoff(attempt)
@@ -326,8 +415,12 @@ class BaseProvider(ABC):
         raise last_error
 
     def _send_once(
-        self, url: str, headers: dict[str, str], body: dict[str, Any]
-    ) -> RawResponse:
+        self,
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        parse: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> Any:
         with httpx.Client(
             timeout=self.config.timeout, transport=self.config.transport
         ) as client:
@@ -357,7 +450,7 @@ class BaseProvider(ABC):
             raise ProviderResponseError(f"{self.name}: response was not JSON: {exc}") from exc
 
         try:
-            return self.parse_response(payload)
+            return (parse or self.parse_response)(payload)
         except ProviderError:
             raise
         except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
@@ -402,6 +495,48 @@ class BaseProvider(ABC):
         ]
         return ResponseCache.make_key("\n".join(parts))
 
+    def _converse_cache_key(
+        self, messages: list[Message], tools: list[ToolSpec], system: str | None
+    ) -> str:
+        # Everything sent: the whole canonical message list (including prior tool calls and
+        # results) and a digest of every tool's name, description and argument schema.
+        canonical = json_dumps(
+            [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "tool_calls": [
+                        {"id": c.id, "name": c.name, "arguments": c.arguments}
+                        for c in m.tool_calls
+                    ],
+                    "tool_call_id": m.tool_call_id,
+                }
+                for m in messages
+            ]
+        )
+        tools_digest = hashlib.sha256(
+            json_dumps(
+                [
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "schema": export_schema(t.args_model, self.schema_flavor),
+                    }
+                    for t in tools
+                ]
+            ).encode("utf-8")
+        ).hexdigest()
+        parts = [
+            "converse",
+            self.name,
+            self.config.model,
+            f"temp={self.config.temperature}",
+            f"system={system or ''}",
+            f"messages={canonical}",
+            f"tools={tools_digest}",
+        ]
+        return ResponseCache.make_key("\n".join(parts))
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -436,6 +571,30 @@ def _repair_prompt(original: str, bad_output: str, error: str) -> str:
         f"Validation error:\n{error[:2000]}\n\n"
         "Return the corrected JSON only. Include every required field — omitting a field "
         "is not an acceptable way to resolve the error."
+    )
+
+
+def _turn_to_json(turn: AssistantTurn) -> str:
+    return json_dumps(
+        {
+            "text": turn.text,
+            "tool_calls": [
+                {"id": c.id, "name": c.name, "arguments": c.arguments} for c in turn.tool_calls
+            ],
+            "usage": [turn.usage.input_tokens, turn.usage.output_tokens],
+        }
+    )
+
+
+def _turn_from_json(raw: str) -> AssistantTurn:
+    data = json.loads(raw)
+    return AssistantTurn(
+        text=data["text"],
+        tool_calls=[
+            ToolCall(id=c["id"], name=c["name"], arguments=c["arguments"])
+            for c in data["tool_calls"]
+        ],
+        usage=Usage(*data["usage"]),
     )
 
 

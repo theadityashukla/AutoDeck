@@ -430,7 +430,7 @@ class TestRenderedByLibreOffice:
     def test_libreoffice_rasterises_each_geometry_without_error(
         self, build, tmp_path: Path
     ) -> None:
-        tokens = tokens_for(family="Inter") if is_available("Inter") else tokens_for()
+        tokens = tokens_for(family="Carlito")
         presentation, _slide, frame = _frame(tokens)
         place_diagram(frame, frame.canvas.content, build())
 

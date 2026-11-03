@@ -72,6 +72,7 @@ from autodeck.design.components.renderers.two_column_compare import (
     ComparisonColumn,
     TwoColumnCompareContent,
 )
+from autodeck.design.free_layout import render_free_layout
 from autodeck.design.layout_kit import Canvas
 from autodeck.design.theme.master_builder import new_presentation, save_themed
 from autodeck.design.theme.tokens import DesignTokens
@@ -148,12 +149,24 @@ def render_deck(deck: Deck, *, tokens: DesignTokens, out_path: Path) -> Rendered
     slide_ids: list[str] = []
 
     for ir_slide in deck.slides:
+        if ir_slide.layout is not None:
+            # B69 creative mode: the writer placed the slide; no catalog entry, no adapter.
+            canvas = Canvas(scaled_tokens(tokens, ir_slide.style.type_scale))
+            pptx_slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+            render_free_layout(pptx_slide, canvas, ir_slide)
+            pptx_slide.name = f"{SLIDE_TAG_PREFIX}{ir_slide.id}"
+            _write_notes(pptx_slide, ir_slide)
+            slide_ids.append(ir_slide.id)
+            continue
+
         try:
             entry = catalog.registration(ir_slide.component)
         except catalog.UnknownComponentError as exc:
             raise UnknownComponentError(str(exc)) from exc
 
-        content, slide_warnings = adapt_slide(ir_slide, entry.content_type)
+        content, slide_warnings = adapt_slide(
+            ir_slide, entry.content_type, section_number=section_number_of(deck, ir_slide)
+        )
         warnings.extend(slide_warnings)
 
         scaled = scaled_tokens(tokens, ir_slide.style.type_scale)
@@ -212,7 +225,24 @@ def _write_notes(pptx_slide: Any, ir_slide: Slide) -> None:
 Adapter = Callable[[Slide], tuple[object, list[StyleNotHonoured]]]
 
 
-def adapt_slide(slide: Slide, content_type: type) -> tuple[object, list[StyleNotHonoured]]:
+def section_number_of(deck: Deck, slide: Slide) -> str:
+    """The ordinal ("1", "2", ...) of `slide` among the deck's `section_divider` slides.
+
+    Computed, never authored: a divider's number is a fact about the deck's structure, and a
+    model-written one could disagree with the dividers actually drawn.
+    """
+    ordinal = 0
+    for candidate in deck.slides:
+        if candidate.component == "section_divider":
+            ordinal += 1
+        if candidate is slide or candidate.id == slide.id:
+            break
+    return str(max(ordinal, 1))
+
+
+def adapt_slide(
+    slide: Slide, content_type: type, *, section_number: str = "1"
+) -> tuple[object, list[StyleNotHonoured]]:
     """Build `content_type` (a component's content dataclass) from `slide`'s face blocks.
 
     Contract, per dataclass field, by name:
@@ -228,6 +258,8 @@ def adapt_slide(slide: Slide, content_type: type) -> tuple[object, list[StyleNot
         claim is pooled in too), first-appearance order, de-duplicated. Empty when the face
         has no claim: `source_line` returns `""` rather than a bare `"Source: "`, and no
         block ever fills a `source` slot directly — it is always computed, never authored.
+      - `section_number`: the `section_number` argument (the divider's ordinal in the deck,
+        from `section_number_of`), never a block.
       - `accent`: `slide.style.accent`. `column_balance` / `emphasis` fields, where a
         component has them, from `slide.style`; where it does not and the style field is
         not its default, return a `StyleNotHonoured`.
@@ -240,7 +272,7 @@ def adapt_slide(slide: Slide, content_type: type) -> tuple[object, list[StyleNot
     adapter = ADAPTERS.get(content_type)
     if adapter is not None:
         return adapter(slide)
-    return _adapt_generic(slide, content_type)
+    return _adapt_generic(slide, content_type, section_number=section_number)
 
 
 def placeable_slots(component: str) -> frozenset[str]:
@@ -414,9 +446,10 @@ def _style_field_warnings(slide: Slide, content_type: type) -> list[StyleNotHono
 # ---------------------------------------------------------------------------
 
 
-_COMPUTED_FIELDS: Final = frozenset({"source", "accent"})
+_COMPUTED_FIELDS: Final = frozenset({"source", "accent", "section_number"})
 """Content fields `_adapt_generic` fills from the deck itself (`source` from the face claims'
-citations, `accent` from `SlideStyle`), never from a block."""
+citations, `accent` from `SlideStyle`, `section_number` from the divider's ordinal), never
+from a block."""
 
 FieldKind = Literal["computed", "payload", "list", "text"]
 
@@ -451,7 +484,9 @@ def _generic_rules(content_type: type) -> list[_FieldRule]:
     return rules
 
 
-def _adapt_generic(slide: Slide, content_type: type) -> tuple[object, list[StyleNotHonoured]]:
+def _adapt_generic(
+    slide: Slide, content_type: type, *, section_number: str = "1"
+) -> tuple[object, list[StyleNotHonoured]]:
     hints = get_type_hints(content_type)
     by_slot = _group_by_slot(slide.blocks)
     consumed: set[str] = set()
@@ -462,6 +497,9 @@ def _adapt_generic(slide: Slide, content_type: type) -> tuple[object, list[Style
         name = f.name
         if name == "accent":
             kwargs[name] = slide.style.accent
+            continue
+        if name == "section_number":
+            kwargs[name] = section_number
             continue
         if rule.kind == "computed":
             continue

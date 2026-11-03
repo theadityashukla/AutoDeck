@@ -15,7 +15,7 @@ Nothing here approves anything; recording an answer is input to the draft, not a
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -93,8 +93,17 @@ def record_answers(
     answers: Mapping[str, str] | None = None,
     corrections: Sequence[str] = (),
     accept_all: bool = False,
+    accepted: Collection[str] = frozenset(),
 ) -> dict[str, Any]:
     """Merge answers and corrections into `data` (in place) and return it.
+
+    Records `answer_sources` (`{qid: "typed" | "accepted"}`) and `typed_order` (the question
+    ids in the order the person typed them, append-only). B55: only what the person typed is
+    citable as "from you"; an accepted suggestion is the model's wording. An answer is
+    `accepted` when its id is in `accepted` (callers that show a pre-filled suggestion must
+    pass the ids the person left untouched — the UI posts every value, so it cannot be told
+    from typing here), when it was filled by `accept_all`, or when it equals the question's
+    suggested answer verbatim (conservative: that text is the model's either way).
 
     Raises:
         ClarifyStateError: an answer for a question that does not exist, or questions left
@@ -108,20 +117,55 @@ def record_answers(
             f"no such question: {', '.join(unknown)}. Questions: {', '.join(known) or 'none'}."
         )
     merged = {**(data.get("answers") or {}), **{k: v for k, v in given.items() if v}}
+    sources: dict[str, str] = dict(data.get("answer_sources") or {})
+    typed_order: list[str] = list(data.get("typed_order") or [])
+    for qid, text in given.items():
+        if not text:
+            continue
+        suggested = str(known[qid].get("suggested_answer", "")).strip()
+        if qid in accepted or text == suggested:
+            sources[qid] = "accepted"
+            if qid in typed_order:
+                typed_order.remove(qid)
+        else:
+            sources[qid] = "typed"
+            if qid not in typed_order:
+                typed_order.append(qid)
     if accept_all:
         for qid, question in known.items():
-            merged.setdefault(qid, str(question.get("suggested_answer", "")))
+            if qid not in merged:
+                merged[qid] = str(question.get("suggested_answer", ""))
+                sources[qid] = "accepted"
     left = [qid for qid in known if not str(merged.get(qid, "")).strip()]
     if left:
         raise ClarifyStateError(
             f"unanswered: {', '.join(left)}. Answer each, or accept the suggested answers."
         )
     data["answers"] = merged
+    data["answer_sources"] = {qid: sources[qid] for qid in merged if qid in sources}
+    data["typed_order"] = typed_order
     data["corrections"] = [
         *data.get("corrections", []),
         *(c.strip() for c in corrections if c.strip()),
     ]
     return data
+
+
+def typed_answers(data: Mapping[str, Any]) -> list[str]:
+    """Answers the person typed, in the order they were typed (accepted suggestions excluded).
+
+    A file written before B55 has no `answer_sources`; its answers are treated as accepted,
+    because their origin is unknown and an unknown origin must not become citable.
+    """
+    answers = data.get("answers") or {}
+    sources = data.get("answer_sources") or {}
+    order = list(data.get("typed_order") or [])
+    order += [q for q in answers if sources.get(q) == "typed" and q not in order]
+    return [
+        str(answers[q]).strip()
+        for q in order
+        if sources.get(q) == "typed" and str(answers.get(q, "")).strip()
+    ]
 
 
 def answer_pairs(data: Mapping[str, Any]) -> list[tuple[str, str] | str]:

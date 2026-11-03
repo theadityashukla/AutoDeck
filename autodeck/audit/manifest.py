@@ -63,7 +63,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
+"""2 (B74): adds `session`, the deck agent session that wrote the draft, when one did."""
 
 
 class Manifest(BaseModel):
@@ -121,6 +122,29 @@ class Manifest(BaseModel):
     """The ids of the rules `render_normalisation` applied — what the digest does not see."""
 
     ir_sha256: str | None = None
+    provenance_mode: str | None = None
+    """`strict` or `normal` (B55): which sources the deck's claims were allowed to rest on.
+
+    Read off `Deck.provenance`. None for a build that recorded no IR.
+    """
+
+    run_sources: dict[str, str] = Field(default_factory=dict)
+    """sha256 of each run-local source document, by doc id (B55, B41).
+
+    The person's own words (`conversation--`) and a redesign's client deck live in the run,
+    not in the knowledge repo, so `knowledge_commit` cannot name them. Without their hashes a
+    deck citing them could not be shown to cite the text it was built from.
+    """
+
+    session: dict[str, Any] | None = None
+    """The deck agent session behind the draft (B71, B74), from `session_record`, or None
+    for a one-shot draft.
+
+    The transcript is the record of what the writer was shown and did; its hash, with the
+    system prompt it ran under and the corpus map it started from, is what lets a replay
+    against the response cache be shown to be the same session.
+    """
+
     autodeck_version: str = "2.0.0.dev0"
 
     def save(self, path: Path) -> Path:
@@ -207,6 +231,9 @@ class GitState:
         return self.commit is not None and self.dirty is False
 
 
+MEMORY_PATHSPEC = ":(exclude,glob)clients/*/memory/**"
+
+
 def git_state(repo_dir: Path) -> GitState:
     """Resolve HEAD for the tree containing `repo_dir`, and whether `repo_dir` is dirty.
 
@@ -225,7 +252,10 @@ def git_state(repo_dir: Path) -> GitState:
     commit = _git(repo_dir, "rev-parse", "HEAD")
     if commit is None:
         return GitState(commit=None, dirty=None)
-    status = _git(repo_dir, "status", "--porcelain", "--", ".")
+    # Agent memory (B77) is written by builds, not curated, and each session snapshots and
+    # hashes the memory it read (`session_record`), so its edits do not make the knowledge
+    # inputs "dirty": the snapshot, not HEAD, is the record of what a build remembered.
+    status = _git(repo_dir, "status", "--porcelain", "--", ".", MEMORY_PATHSPEC)
     return GitState(commit=commit, dirty=None if status is None else bool(status))
 
 
@@ -430,6 +460,9 @@ def build_manifest(
     component_lib_version: str = COMPONENT_LIB_VERSION,
     ir_path: Path | None = None,
     render_normalisation: str | None = PPTX_NORMALISATION,
+    provenance_mode: str | None = None,
+    run_sources: dict[str, str] | None = None,
+    session: dict[str, Any] | None = None,
 ) -> Manifest:
     """Assemble a manifest from the current build's inputs.
 
@@ -448,6 +481,9 @@ def build_manifest(
         knowledge_dirty=knowledge.dirty,
         component_lib_version=component_lib_version,
         ir_sha256=file_sha256(ir_path) if ir_path else None,
+        provenance_mode=provenance_mode,
+        run_sources=dict(run_sources or {}),
+        session=session,
         render_normalisation=render_normalisation,
         render_normalisation_excludes=(
             [rule.id for rule in PPTX_NORMALISATION_RULES]
@@ -455,3 +491,44 @@ def build_manifest(
             else []
         ),
     )
+
+
+SESSION_FILES = ("transcript.jsonl", "system.md", "corpus_map.md", "workspace.json")
+
+
+def session_record(session_dir: Path) -> dict[str, Any] | None:
+    """Hashes and counts for a run's agent session (B74), or None when there is none.
+
+    Read from the files rather than from the session code, so the audit layer depends on
+    nothing in `agents/`. `memory` hashes the engagement and owner memory the session started
+    from (`session/memory/*.md`, B77). `steps` is the highest model turn in the transcript and
+    `provider_calls` its number of assistant messages.
+    """
+    session_dir = Path(session_dir)
+    transcript = session_dir / "transcript.jsonl"
+    if not transcript.is_file():
+        return None
+    steps = calls = 0
+    for line in transcript.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        steps = max(steps, int(record.get("step", 0)))
+        if record.get("message", {}).get("role") == "assistant":
+            calls += 1
+    hashes = {
+        name: file_sha256(session_dir / name)
+        for name in SESSION_FILES
+        if (session_dir / name).is_file()
+    }
+    archived = sorted(p.name for p in session_dir.glob("transcript.*.jsonl"))
+    memory = {
+        p.name: file_sha256(p) for p in sorted((session_dir / "memory").glob("*.md"))
+    }
+    return {
+        "sha256": hashes,
+        "memory": memory,
+        "archived_transcripts": {name: file_sha256(session_dir / name) for name in archived},
+        "steps": steps,
+        "provider_calls": calls,
+    }

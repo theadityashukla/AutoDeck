@@ -1,0 +1,19 @@
+{
+  "name": "bauhaus",
+  "description": "Paper ground, black, primary red with blue and yellow support.",
+  "dark": false,
+  "palette": {
+    "dk1": "141414",
+    "lt1": "F4EFE6",
+    "dk2": "555555",
+    "lt2": "EAE3D6",
+    "accent1": "D7263D",
+    "accent2": "1B4DB1",
+    "accent3": "F2B705",
+    "accent4": "555555",
+    "accent5": "9A6A00",
+    "accent6": "BDB5A8",
+    "hyperlink": "D7263D",
+    "followed_hyperlink": "1B4DB1"
+  }
+}

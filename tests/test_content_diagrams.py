@@ -138,7 +138,9 @@ def test_a_proposed_flow_with_cited_and_framed_steps_resolves_to_a_diagram_block
     """Steps: one `claim` (quote resolves), two `framing` (stage_name) → a `Block(kind=
     "diagram")` whose ProcessFlowSpec has the three steps in order, the claim's citation
     resolved to the real span, `transition` '' → None."""
-    result, _ = run(tmp_path, draft_with(diagram_block(*three_steps())))
+    # `timeline` is a component with a diagram slot; a diagram in a slot the layout lacks is
+    # now rejected as `unknown_slot`.
+    result, _ = run(tmp_path, draft_with(diagram_block(*three_steps())), component="timeline")
 
     assert not result.rejections
     [block] = result.blocks
@@ -397,11 +399,16 @@ def test_clean_framed_labels_pass_a5() -> None:
 
 
 def test_the_prompt_file_documents_the_diagram_schema() -> None:
-    """`prompts/content.md` mentions `kind: "diagram"`, `status`, `framing_reason` and the
-    five LabelReason values — so the prompt and the schema cannot silently drift."""
-    prompt = PROMPT.read_text(encoding="utf-8")
+    """The assembled `content` system prompt (role file plus skills) mentions `kind:
+    "diagram"`, `status`, `framing_reason` and the five LabelReason values — so the prompt
+    and the schema cannot silently drift."""
+    from autodeck.agents.content import PROMPT_PATH
+    from autodeck.agents.skills import skills_text
 
-    assert 'kind: "diagram"' in prompt
+    prompt = PROMPT_PATH.read_text(encoding="utf-8") + skills_text("content")
+
+    # The skill shows the block as JSON, so the key is quoted: `"kind": "diagram"`.
+    assert '"kind": "diagram"' in prompt
     assert "`status`" in prompt
     assert "framing_reason" in prompt
     for reason in get_args(LabelReason):

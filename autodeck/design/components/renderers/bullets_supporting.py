@@ -21,10 +21,24 @@ from dataclasses import dataclass, field
 
 from pptx.slide import Slide
 
-from autodeck.design.layout_kit import Canvas
+from autodeck.design.layout_kit import Box, Canvas
 
 _RULE_WIDTH = 64.0
 _RULE_THICKNESS = 3.0
+
+_MARKER = "•"
+"""A bullet, not the em dash every list used to carry; set bold in the accent colour."""
+
+_MIN_GAP = 3
+_MAX_GAP = 7
+"""Row gap bounds, in baselines (18pt and 42pt on the dev theme)."""
+
+_TAIL_SHARE = 1.0
+"""How much of one gap's worth of free space stays below the last row."""
+
+_DIVIDER_COLOR = "accent6"
+_DIVIDER_TINT = 0.55
+"""The hairline between rows: the palette's neutral, decoration only (it carries no text)."""
 
 
 @dataclass
@@ -56,10 +70,33 @@ def render(slide: Slide, canvas: Canvas, content: BulletsSupportingContent) -> N
     )
     region = headline.place(body, gutter=canvas.baseline * 4)
 
+    # Rows open up with the free space (design review, 2026-10-13): a fixed 18pt gap left
+    # four points huddled under the headline and the lower half of the slide empty. The gap
+    # grows from `MIN_GAP` to `MAX_GAP` baselines; past that, extra space stays below.
+    texts = [p for p in content.points if p]
+    body_style = canvas.style("body", color="dk1")
+    one_line = canvas.measure("Hg", region.width, body_style)
+    free = region.height - one_line * max(len(texts), 1)
+    gap = canvas.baseline * _MIN_GAP
+    if len(texts) > 1:
+        gap = min(
+            max(free / (len(texts) - 1 + _TAIL_SHARE), canvas.baseline * _MIN_GAP),
+            canvas.baseline * _MAX_GAP,
+        )
     points = frame.stack("bullets_supporting points", region.width).items(
-        content.points,
-        canvas.style("body", color="dk2"),
-        row_gap=canvas.baseline * 3,
+        texts,
+        body_style,
+        row_gap=gap,
+        marker=_MARKER,
         marker_style=canvas.style("body", color=content.accent, bold=True),
     )
     points.place(region, valign="top")
+
+    # A hairline between rows gives the list its structure without a box around it.
+    for upper, lower in zip(points.placed_boxes, points.placed_boxes[1:], strict=False):
+        middle = (upper.bottom + lower.y) / 2
+        frame.rect(
+            Box(upper.x, middle, upper.width, 0.75),
+            fill=_DIVIDER_COLOR,
+            fill_brightness=_DIVIDER_TINT,
+        )

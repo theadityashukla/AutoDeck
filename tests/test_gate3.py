@@ -630,7 +630,7 @@ def test_a_critique_that_changes_the_deck_is_saved_as_its_own_ir_version(
 def test_a_spent_critique_quota_ends_render_with_exit_5_but_leaves_a_reviewable_deck(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    critic = FakeCritic(RateLimitError("gemini: rate limited (429)"))
+    critic = FakeCritic(RateLimitError("mistral: rate limited (429)"))
     runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch, critic=critic)
 
     result = _invoke(runs_root, "render", "r1")
@@ -650,7 +650,7 @@ def test_a_spent_critique_quota_ends_render_with_exit_5_but_leaves_a_reviewable_
 def test_a_spent_art_direction_quota_ends_render_with_exit_5_and_says_what_is_saved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    art = FakeArtModel(RateLimitError("gemini: rate limited (429)"))
+    art = FakeArtModel(RateLimitError("mistral: rate limited (429)"))
     runs_root, _knowledge = _approved_run_with_models(tmp_path, monkeypatch, art=art)
 
     result = _invoke(runs_root, "render", "r1")

@@ -413,7 +413,10 @@ a.btn-pill:hover, a.btn-quiet:hover, a.btn-outline:hover { color: inherit; }
 .badge.v-warn { color: var(--warn); background: var(--warn-tint); }
 .badge.v-bad { color: var(--danger); background: var(--bad-tint); }
 .badge.v-neutral { color: var(--text-2); background: var(--fill-strong); }
-.badge.env-dev { color: var(--warn); background: var(--warn-tint); }
+/* uncorroborated / unsourced (B55): amber and dashed, so it is not mistaken for partial or for a failure */
+.badge.v-amber { color: var(--warn); background: transparent; border: 1px dashed var(--warn-dot); }
+.badge.v-amber .dot { background: var(--warn-dot); }
+.badge.env-dev, .badge.env-dev-mistral { color: var(--warn); background: var(--warn-tint); }
 .badge.env-sit { color: var(--accent); background: var(--accent-tint); }
 .badge.env-prod { color: var(--ok); background: var(--ok-tint); }
 
@@ -702,6 +705,7 @@ details.panel > summary { cursor: pointer; min-height: 24px; }
 .blk.v-ok { border-bottom-color: var(--ok-dot); }
 .blk.v-warn { border-bottom-color: var(--warn-dot); }
 .blk.v-bad { border-bottom-color: var(--bad-dot); }
+.blk.v-amber { border-bottom: 1px dashed var(--warn-dot); }
 .blk.v-neutral { border-bottom: 2px dashed var(--neutral-dot); }
 .legend { display: flex; flex-wrap: wrap; gap: 14px; }
 .legend > span { display: inline-flex; align-items: center; gap: 6px; }
@@ -785,3 +789,7 @@ details.panel > summary { cursor: pointer; min-height: 24px; }
 
 /* The model picker beside "Try again" on a failed draft. */
 .action-right .select { width: auto; min-height: 40px; }
+
+.agent-tl { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; font-size: 12px; line-height: 1.45; }
+.agent-row { overflow-wrap: anywhere; }
+.agent-row.err { color: var(--bad); }

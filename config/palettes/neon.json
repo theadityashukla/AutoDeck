@@ -1,0 +1,19 @@
+{
+  "name": "neon",
+  "description": "Black ground, acid-lime accent; high-energy dark.",
+  "dark": true,
+  "palette": {
+    "dk1": "FAFAFA",
+    "lt1": "0A0A0A",
+    "dk2": "A1A1A1",
+    "lt2": "171717",
+    "accent1": "D4FF3A",
+    "accent2": "FF4D8D",
+    "accent3": "38BDF8",
+    "accent4": "A1A1A1",
+    "accent5": "FF4D8D",
+    "accent6": "3A3A3A",
+    "hyperlink": "D4FF3A",
+    "followed_hyperlink": "FF4D8D"
+  }
+}

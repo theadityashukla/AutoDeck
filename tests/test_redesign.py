@@ -98,7 +98,7 @@ def claim_slide(sid: str, text: str, quote: str, *, doc_id: str = DECK_ID) -> Co
             ProposedBlock(
                 id="b1",
                 kind="claim",
-                slot="figure",
+                slot="headline",
                 claim=ProposedClaim(
                     text=text, citations=[ProposedCitation(doc_id=doc_id, quote=quote)]
                 ),
@@ -137,8 +137,8 @@ def redesigned(
 
 
 GOOD = redesigned(
-    claim_slide("s1", "Revenue grew in 2024, per the deck.", BULLET),
-    claim_slide("s2", "EMEA sold 412 units.", TABLE_QUOTE),
+    claim_slide("s1", "Revenue grew in 2024", BULLET),
+    claim_slide("s2", "412 units", TABLE_QUOTE),
 )
 
 
@@ -341,7 +341,7 @@ def test_check_papers_adds_the_paper_pack_and_a_paper_quote_resolves(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     both = redesigned(
-        claim_slide("s1", "Revenue grew in 2024, per the deck.", BULLET),
+        claim_slide("s1", "Revenue grew in 2024", BULLET),
         ComposedSlide(
             id="s2",
             narrative_role="evidence",
@@ -352,7 +352,7 @@ def test_check_papers_adds_the_paper_pack_and_a_paper_quote_resolves(
                 ProposedBlock(
                     id="b1",
                     kind="claim",
-                    slot="figure",
+                    slot="headline",
                     claim=ProposedClaim(
                         text="The kernel rewrite raised throughput.",
                         citations=[ProposedCitation(doc_id=DOC_ID, quote=QUOTE)],
@@ -416,13 +416,14 @@ def _compose(tmp_path: Path, draft: RedesignDraft, *, check_papers: bool = False
         component_lib_version="0",
         mode="redesign",
         settings={"wording": "keep", "layouts": True, "check_papers": check_papers},
+        repair=False,  # pins the single compose call; repair is tested in test_repair.py
     )
     return result, model, pack
 
 
 def test_a_quote_not_in_the_deck_is_dropped_with_a_rejection(tmp_path: Path) -> None:
     draft = redesigned(
-        claim_slide("s1", "Revenue grew in 2024, per the deck.", BULLET),
+        claim_slide("s1", "Revenue grew in 2024", BULLET),
         claim_slide(
             "s2", "Margins reached forty percent.", "Margins improved to forty percent"
         ),
@@ -438,8 +439,16 @@ def test_a_number_the_deck_does_not_state_fails_the_numeric_linter(tmp_path: Pat
     # The quote is real (so it resolves), but the claim states a figure the slide does not.
     draft = redesigned(claim_slide("s1", "Revenue grew 15% in 2024.", BULLET))
     result, _model, _pack = _compose(tmp_path, draft)
-    assert result.deck.slides[0].blocks  # A1 is satisfied ...
-    assert not lint_deck(result.deck).passes  # ... A2 is not: 15 is not in the cited text
+    # A1 is satisfied but A2 is not (15 is not in the cited text): the draft check reports
+    # it and, with no repair to fix it, the block is dropped rather than left for the render
+    # gate to find (run XLP).
+    # One failure per block is recorded; "keep my words" reaches the added "15" first.
+    assert any(
+        f.kind in {"numeral_unmatched", "reworded_keep_words"} and f.block_id == "b1"
+        for f in result.failures
+    )
+    assert result.deck.slides[0].blocks == []
+    assert lint_deck(result.deck).passes
     ok = redesigned(claim_slide("s1", "Revenue grew 12% in 2024.", BULLET))
     result, _model, _pack = _compose(tmp_path, ok)
     assert lint_deck(result.deck).passes

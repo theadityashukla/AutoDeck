@@ -1,0 +1,19 @@
+{
+  "name": "keynote",
+  "description": "Charcoal ground, white type, mint accent; presented keynote.",
+  "dark": true,
+  "palette": {
+    "dk1": "F5F6F7",
+    "lt1": "121417",
+    "dk2": "A3AAB4",
+    "lt2": "1C2026",
+    "accent1": "3DDC97",
+    "accent2": "FFB547",
+    "accent3": "7AA7FF",
+    "accent4": "FF6F91",
+    "accent5": "FFB547",
+    "accent6": "3A414B",
+    "hyperlink": "3DDC97",
+    "followed_hyperlink": "FFB547"
+  }
+}

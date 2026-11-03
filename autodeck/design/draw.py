@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.oxml import parse_xml
 from pptx.shapes.autoshape import Shape
 from pptx.shapes.connector import Connector
@@ -110,6 +110,9 @@ def add_text(slide: Slide, box: Box, text: str, style: TextStyle) -> Shape:
 
     frame = shape.text_frame
     frame.word_wrap = True
+    # python-pptx's textbox template writes <a:spAutoFit/>, which PowerPoint applies by
+    # resizing the shape on edit; an explicit <a:noAutofit/> is what "autofit off" means.
+    frame.auto_size = MSO_AUTO_SIZE.NONE
     frame.margin_left = Emu(0)
     frame.margin_right = Emu(0)
     frame.margin_top = Emu(0)

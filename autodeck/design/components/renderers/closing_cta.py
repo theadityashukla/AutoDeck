@@ -52,22 +52,22 @@ def render(slide: Slide, canvas: Canvas, content: ClosingCtaContent) -> None:
     region = headline.place(body, gutter=canvas.baseline * 4)
 
     # CTA block with tinted background
-    frame.rect(
-        region.resize(
-            height=canvas.measure(
-                content.cta,
-                region.width - _PANEL_PADDING * 2,
-                canvas.style("heading", face="major", bold=True),
-            )
-            + _PANEL_PADDING * 2
-        ),
-        fill=content.accent,
-        fill_brightness=0.9,
+    panel = region.resize(
+        height=canvas.measure(
+            content.cta,
+            region.width - _PANEL_PADDING * 2,
+            canvas.style("heading", face="major", bold=True),
+        )
+        + _PANEL_PADDING * 2
     )
+    frame.rect(panel, fill=content.accent, fill_brightness=0.9)
 
+    # The text sits inside the panel it was measured for. It used to be centred in the whole
+    # remaining region, which left the panel empty above the text and let a long CTA run
+    # past the panel's bottom edge (design gallery, 2026-10-13).
     cta_stack = frame.stack("closing_cta cta", region.width - _PANEL_PADDING * 2)
     cta_stack.text(
         content.cta,
         canvas.style("heading", face="major", bold=True),
     )
-    cta_stack.place(region.pad(_PANEL_PADDING), valign="middle")
+    cta_stack.place(panel.pad(_PANEL_PADDING), valign="middle")

@@ -31,13 +31,16 @@ def gate2_checks(
     checks: list[tuple[str, bool, str]] = []
 
     blocking, unverified = safety.blocking, safety.unverified
+    overstated = safety.overstated_headlines
     checks.append(
         (
-            "zero blocks verdict unsupported/contradicted (and none left unverified)",
-            not blocking and not unverified,
+            "zero blocks verdict unsupported/contradicted, no overstated headline (and none "
+            "left unverified)",
+            not blocking and not unverified and not overstated,
             (
-                f"{len(blocking)} blocking block(s), {len(unverified)} unverified claim(s)"
-                if blocking or unverified
+                f"{len(blocking)} blocking block(s), {len(unverified)} unverified claim(s), "
+                f"{len(overstated)} overstated headline(s)"
+                if blocking or unverified or overstated
                 else ""
             ),
         )

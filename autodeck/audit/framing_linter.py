@@ -74,13 +74,22 @@ Owning phase: 2b (task 2b.6). Opus tier — `autodeck/audit/` is a path guardrai
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import ValidationError
 
-from autodeck.audit.numeric_linter import Numeral, extract_numerals
-from autodeck.ir.models import Block, BlockKind, Claim, Deck, Verdict
+from autodeck.audit.numeric_linter import (
+    HEADER_SLOTS,
+    Numeral,
+    extract_numerals,
+    is_name_numeral,
+    mask_terms,
+    match_numerals,
+    slide_face_evidence,
+)
+from autodeck.ir.models import Block, BlockKind, Claim, Deck, Slide, Verdict
 
 Severity = Literal["blocking", "advisory"]
 
@@ -259,6 +268,46 @@ COMPARATIVE_PATTERNS: tuple[FramingPattern, ...] = (
         re.compile(r"\b(?:outperforms?|outperformed|superior to|beats|surpasses)\b", re.I),
         "Same shape as a measured comparison with the comparison folded into the verb.",
     ),
+    FramingPattern(
+        "comparison against a named alternative",
+        re.compile(
+            r"\b(?:superior|inferior|non-?inferior)\b[^.;]{0,80}?\b(?:compared|relative|"
+            r"versus|vs\.?)\b|\bcompared (?:with|to)\b|\brelative to\b|"
+            r"\bmore (?:effective|efficacious|potent|durable)\b",
+            re.I,
+        ),
+        "Live run Xls (B56): the takeaway 'demonstrates superior glycemic control and weight "
+        "reduction compared to active comparators and placebo' passed as framing because "
+        "only the exact phrase 'superior to' was listed — and the validator later found it "
+        "contradicted against one comparator. Naming what something is set against is what "
+        "makes it measurable, however the sentence is built.",
+    ),
+    FramingPattern(
+        "evidence verb",
+        re.compile(r"\b(?:demonstrates?|demonstrated|establish(?:es|ed)?|proves?)\b", re.I),
+        "'demonstrates', 'establishes' and 'proves' assert that evidence exists and says "
+        "something — a claim about the literature, which framing has none of. "
+        "`prompts/content.md` already forbids them even on a cited single-source result.",
+    ),
+)
+
+#: What an `unsourced` claim (B55) may not do beyond A2's no-numerals rule: point at evidence
+#: it does not carry. Named studies, authors and venues come from `NAMED_SOURCE_PATTERNS`;
+#: these are the anonymous appeals to authority that would let general knowledge pass for
+#: a finding.
+UNSOURCED_APPEAL_PATTERNS: tuple[FramingPattern, ...] = (
+    FramingPattern(
+        "appeal to unnamed evidence",
+        re.compile(
+            r"\b(?:research|studies|trials|data|evidence|experts?|guidelines?|literature)\s+"
+            r"(?:shows?|showed|suggests?|indicates?|confirms?|finds?|found|demonstrates?|"
+            r"recommends?)\b|\b(?:clinically|scientifically)\s+(?:proven|shown)\b",
+            re.I,
+        ),
+        "An unsourced claim is the model's general knowledge, labelled as such. 'Studies show' "
+        "dresses it as a finding with a source nobody can check — if the study exists, cite "
+        "it; if not, the sentence is not general knowledge.",
+    ),
 )
 
 #: All three tables, in the order findings are reported. Numerals come first because a
@@ -276,7 +325,9 @@ PATTERN_TABLES: tuple[tuple[str, tuple[FramingPattern, ...]], ...] = (
 # ---------------------------------------------------------------------------
 
 
-def lint_framing_text(text: str, *, location: str = "") -> list[FramingFinding]:
+def lint_framing_text(
+    text: str, *, location: str = "", terms: Sequence[str] = ()
+) -> list[FramingFinding]:
     """Every way `text` fails the A5 fence. Deterministic; no model, no retrieval.
 
     Numerals are found with the numeric linter's own extractor rather than a second one.
@@ -296,7 +347,7 @@ def lint_framing_text(text: str, *, location: str = "") -> list[FramingFinding]:
             fragment=numeral.text,
             location=location,
         )
-        for numeral in _numerals_in(text)
+        for numeral in _numerals_in(mask_terms(text, terms))
     ]
 
     for check, table in PATTERN_TABLES:
@@ -325,8 +376,13 @@ def _numerals_in(text: str) -> list[Numeral]:
     year, not a model number, not a count. A framing block has no citations at all, so every
     numeral in one is unsourced by construction; there is no case where a numeral in framing
     is fine and an exception would only be a way in.
+
+    B58 is the one carve-out, and it is not about numbers: digits inside a word that begins
+    with a letter (`HbA1c`, `GLP-1`) are part of a name, and a glossary term's digits are
+    masked before this runs (`mask_terms`). A quantity written in a name's clothing is still
+    caught — `3x`, `13B` and `40%` are digit-first.
     """
-    return extract_numerals(text)
+    return [n for n in extract_numerals(text) if not is_name_numeral(n)]
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +483,10 @@ class Demotion:
                 "diagram text declared as framing is an uncited claim "
                 f"({', '.join(self.sites)})"
             )
+        elif self.from_kind == "claim" and any(
+            r.check == "unsourced claim names a source" for r in self.reasons
+        ):
+            what = "unsourced claim points at evidence it does not cite"
         else:
             what = f"free text on a {self.from_kind} block is an uncited claim"
         return (
@@ -505,7 +565,9 @@ class FramingReport:
 # ---------------------------------------------------------------------------
 
 
-def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
+def lint_block(
+    block: Block, *, slide_id: str = "", terms: Sequence[str] = ()
+) -> Demotion | None:
     """Check one block's free text. Returns the demotion it earned, or None.
 
     **`block.text`, on a block of any kind — and never `claim.text`.** That distinction is
@@ -523,7 +585,7 @@ def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
     if not block.text or not block.text.strip():
         return None
     location = f"slide {slide_id} block {block.id}" if slide_id else f"block {block.id}"
-    reasons = lint_framing_text(block.text, location=location)
+    reasons = lint_framing_text(block.text, location=location, terms=terms)
     if not reasons:
         return None
     return Demotion(
@@ -536,7 +598,9 @@ def lint_block(block: Block, *, slide_id: str = "") -> Demotion | None:
     )
 
 
-def lint_diagram(block: Block, *, slide_id: str = "") -> Demotion | None:
+def lint_diagram(
+    block: Block, *, slide_id: str = "", terms: Sequence[str] = ()
+) -> Demotion | None:
     """Check one diagram block's uncited text (B37). Returns the demotion it earned, or None.
 
     A diagram's framed labels, title and transition labels reach the slide with no citation
@@ -555,7 +619,7 @@ def lint_diagram(block: Block, *, slide_id: str = "") -> Demotion | None:
     reasons: list[FramingFinding] = []
     failed: list[tuple[str, str]] = []
     for site in block.diagram.framing_texts():
-        found = lint_framing_text(site.text, location=f"{where} {site.location}")
+        found = lint_framing_text(site.text, location=f"{where} {site.location}", terms=terms)
         if found:
             reasons.extend(found)
             failed.append((site.location, site.text))
@@ -569,6 +633,118 @@ def lint_diagram(block: Block, *, slide_id: str = "") -> Demotion | None:
         reasons=tuple(reasons),
         sites=tuple(location for location, _ in failed),
         from_kind="diagram",
+    )
+
+
+def lint_header(block: Block, slide: Slide, *, terms: Sequence[str] = ()) -> Demotion | None:
+    """Check a talking header (B54). Returns the demotion it earned, or None.
+
+    On a slide with no cited content (title, divider, agenda) a header is held to the full
+    A5 fence — there is nothing on the slide for it to summarise. On a slide that carries
+    cited content, the header states the slide's bottom line and has no citation of its own,
+    so the fence is replaced by one question per kind of fact:
+
+    - every numeral in it must match a citation or derivation on that slide's face — the
+      numeric linter's own matcher, against `slide_face_evidence`;
+    - every named study, author or venue in it must appear in a claim or quote on the slide.
+
+    Comparatives and superlatives are not pattern-matched here: "faster than the baseline"
+    can be exactly what the slide's cited claim says. Whether the header is *no stronger
+    than* its slide is a judgement of meaning, and that is the validator's (A3).
+    """
+    if block.slot not in HEADER_SLOTS or not (block.text and block.text.strip()):
+        return None
+    citations, derivations = slide_face_evidence(slide)
+    if not citations and not derivations:
+        return lint_block(block, slide_id=slide.id, terms=terms)
+
+    location = f"slide {slide.id} block {block.id}"
+    findings: list[FramingFinding] = []
+    _, unmatched = match_numerals(
+        extract_numerals(mask_terms(block.text, terms)),
+        citations=citations,
+        derivations=derivations,
+    )
+    for numeral in unmatched:
+        findings.append(
+            FramingFinding(
+                check="header fact not on the slide",
+                severity="blocking",
+                detail=(
+                    f"{numeral.describe()} is in the headline but in none of the slide's "
+                    "citations or derivations. A talking header states the slide's bottom "
+                    "line; its numbers must be the ones the slide cites (B54)."
+                ),
+                fragment=numeral.text,
+                location=location,
+            )
+        )
+    backing = " ".join(
+        [c.quote for c in citations] + [site.claim.text for site in slide.claim_sites()]
+    ).casefold()
+    for entry in NAMED_SOURCE_PATTERNS:
+        for match in entry.pattern.finditer(block.text):
+            fragment = match.group(0).strip()
+            if fragment.casefold() not in backing:
+                findings.append(
+                    FramingFinding(
+                        check="header fact not on the slide",
+                        severity="blocking",
+                        detail=(
+                            f"{fragment!r} ({entry.name}) is named in the headline but in "
+                            "no claim or quote on the slide (B54)."
+                        ),
+                        fragment=fragment,
+                        location=location,
+                    )
+                )
+    if not findings:
+        return None
+    return Demotion(
+        slide_id=slide.id,
+        block_id=block.id,
+        slot=block.slot,
+        text=block.text,
+        reasons=tuple(findings),
+        from_kind=block.kind,
+    )
+
+
+def lint_unsourced(block: Block, *, slide_id: str = "") -> Demotion | None:
+    """Fence an `unsourced` claim (B55): no named sources, no appeal to unnamed evidence.
+
+    Numerals are A2's: an unsourced claim has no span, so the numeric linter already finds
+    every numeral in one unmatched. What A2 cannot see is a source named in words, which is
+    what this adds. A demotion here makes it a cited claim with no citation — A1 refusing it,
+    as for any other demotion.
+    """
+    claim = block.claim
+    if claim is None or claim.basis != "unsourced":
+        return None
+    location = f"slide {slide_id} block {block.id}" if slide_id else f"block {block.id}"
+    findings = [
+        FramingFinding(
+            check="unsourced claim names a source",
+            severity="blocking",
+            detail=(
+                f"{match.group(0).strip()!r} ({entry.name}). {entry.why} An unsourced claim "
+                "is general knowledge; a sentence that points at evidence needs to cite it."
+            ),
+            fragment=match.group(0).strip(),
+            location=location,
+        )
+        for entry in (*NAMED_SOURCE_PATTERNS, *UNSOURCED_APPEAL_PATTERNS)
+        for match in entry.pattern.finditer(claim.text)
+    ]
+    if not findings:
+        return None
+    return Demotion(
+        slide_id=slide_id,
+        block_id=block.id,
+        slot=block.slot,
+        text=claim.text,
+        reasons=tuple(findings),
+        from_kind="claim",
     )
 
 
@@ -588,19 +764,26 @@ def lint_framing(deck: Deck) -> FramingReport:
     diagram once.
     """
     report = FramingReport()
+    terms = deck.named_terms
     for slide in deck.slides:
         for block in slide.all_blocks():
             if block.diagram is not None:
                 report.text_blocks_checked += 1
-                diagram_demotion = lint_diagram(block, slide_id=slide.id)
+                diagram_demotion = lint_diagram(block, slide_id=slide.id, terms=terms)
                 if diagram_demotion is not None:
                     report.demotions.append(diagram_demotion)
+            unsourced = lint_unsourced(block, slide_id=slide.id)
+            if unsourced is not None:
+                report.demotions.append(unsourced)
             if block.kind == "framing":
                 report.framing_blocks_checked += 1
             if not (block.text and block.text.strip()):
                 continue
             report.text_blocks_checked += 1
-            demotion = lint_block(block, slide_id=slide.id)
+            if block.slot in HEADER_SLOTS and any(b.id == block.id for b in slide.blocks):
+                demotion = lint_header(block, slide, terms=terms)
+            else:
+                demotion = lint_block(block, slide_id=slide.id, terms=terms)
             if demotion is not None:
                 report.demotions.append(demotion)
     return report

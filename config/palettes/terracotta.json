@@ -1,0 +1,19 @@
+{
+  "name": "terracotta",
+  "description": "Warm sand ground, terracotta and sage.",
+  "dark": false,
+  "palette": {
+    "dk1": "2A1D17",
+    "lt1": "F7F1EA",
+    "dk2": "6E5D52",
+    "lt2": "EFE5D9",
+    "accent1": "C2522B",
+    "accent2": "9C3D1E",
+    "accent3": "3F6B5C",
+    "accent4": "D9A441",
+    "accent5": "8C5A00",
+    "accent6": "CDBFB2",
+    "hyperlink": "C2522B",
+    "followed_hyperlink": "9C3D1E"
+  }
+}

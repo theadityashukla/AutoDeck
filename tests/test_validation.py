@@ -406,3 +406,122 @@ def test_missing_prompt_file_raises(tmp_path: Path) -> None:
             model=Scripted({}),
             prompt_path=tmp_path / "no-such-prompt.md",
         )
+
+
+# ---------------------------------------------------------------------------
+# Talking headers (B62)
+# ---------------------------------------------------------------------------
+
+
+class HeadlineScripted(Scripted):
+    """Claims get the scripted verdicts; every headline gets `headline_verdict`."""
+
+    def __init__(self, by_claim_id, headline_verdict: str, notes: str = "") -> None:  # type: ignore[no-untyped-def]
+        super().__init__(by_claim_id)
+        self.headline_verdict = headline_verdict
+        self.notes = notes
+        self.headline_prompts: list[str] = []
+
+    def complete_structured(self, prompt, response_model, *, system=None):  # type: ignore[no-untyped-def]
+        from autodeck.agents.validation import HeadlineDraft, HeadlineJudgement
+
+        if response_model is HeadlineDraft:
+            self.calls += 1
+            self.headline_prompts.append(prompt)
+            ids = [line.split(": ", 1)[1] for line in prompt.splitlines() if line.startswith("## slide_id: ")]
+            return HeadlineDraft(
+                judgements=[
+                    HeadlineJudgement(slide_id=i, verdict=self.headline_verdict, notes=self.notes)  # type: ignore[arg-type]
+                    for i in ids
+                ]
+            )
+        return super().complete_structured(prompt, response_model, system=system)
+
+
+_SUPPORTED = VerdictJudgement(
+    verdict="supported", verdict_notes="ok", supporting_quote=SUPPORT_QUOTE, contradicting_quotes=[]
+)
+
+
+def _headline_deck(store: DocumentStore, headline: str) -> Deck:
+    claim = Claim(
+        text="Quantisation cut inference memory by half.",
+        citations=[writer_citation(store, SUPPORT_QUOTE)],
+    )
+    header = Block(id="h1", kind="section_header", slot="headline", text=headline)
+    return deck_with(Slide(id="s1", narrative_role="evidence", component="big_number",
+                           blocks=[header, claim_block("b1", claim)]))
+
+
+def test_an_overstated_headline_is_judged_and_blocks_the_render(tmp_path: Path) -> None:
+    """Run XLP: a header claimed a win the slide's own claim called a tie, and no verdict
+    covered it. The header is now judged against its slide's claims, and `overstates`
+    bars the final render like an unsupported claim."""
+    from autodeck.pipeline.orchestrator import assess_render_safety
+
+    store, index = store_and_index(tmp_path, element("e1", SUPPORT_QUOTE))
+    deck = _headline_deck(store, "Quantisation makes inference twice as fast")
+    model = HeadlineScripted(
+        {"s1:b1": _SUPPORTED},
+        "overstates",
+        "says faster; the claim is about memory",
+    )
+    result = validate_deck(deck, index=index, store=store, model=model)
+    check = result.deck.slides[0].headline_check
+    assert check is not None and check.verdict == "overstates"
+    assert check.headline == "Quantisation makes inference twice as fast"
+    assert "headline: Quantisation makes inference twice as fast" in model.headline_prompts[0]
+    assert "Quantisation cut inference memory by half." in model.headline_prompts[0]
+    reasons = assess_render_safety(result.deck).reasons
+    assert any("slide s1 headline: overstates" in r for r in reasons)
+
+
+def test_a_carried_headline_does_not_block_and_is_reused_when_unchanged(tmp_path: Path) -> None:
+    from autodeck.pipeline.orchestrator import assess_render_safety
+
+    store, index = store_and_index(tmp_path, element("e1", SUPPORT_QUOTE))
+    judged = {"s1:b1": _SUPPORTED}
+    first = validate_deck(
+        _headline_deck(store, "Quantisation halves inference memory"),
+        index=index, store=store, model=HeadlineScripted(judged, "carried"),
+    )
+    assert first.deck.slides[0].headline_check is not None
+    assert first.deck.slides[0].headline_check.verdict == "carried"
+    assert not any("headline" in r for r in assess_render_safety(first.deck).reasons)
+
+    again = HeadlineScripted(judged, "overstates", "should not be asked")
+    second = validate_deck(
+        _headline_deck(store, "Quantisation halves inference memory"),
+        index=index, store=store, model=again, previous=first.deck,
+    )
+    assert again.headline_prompts == []
+    assert second.deck.slides[0].headline_check.verdict == "carried"  # type: ignore[union-attr]
+
+
+def test_a_failed_headline_call_leaves_it_unjudged_not_carried(tmp_path: Path) -> None:
+    store, index = store_and_index(tmp_path, element("e1", SUPPORT_QUOTE))
+
+    class ClaimsOnly(Scripted):
+        def complete_structured(self, prompt, response_model, *, system=None):  # type: ignore[no-untyped-def]
+            if response_model is not ValidationDraft:
+                raise RuntimeError("provider down")
+            return super().complete_structured(prompt, response_model, system=system)
+
+    result = validate_deck(
+        _headline_deck(store, "Quantisation halves inference memory"),
+        index=index, store=store,
+        model=ClaimsOnly({"s1:b1": _SUPPORTED}),
+    )
+    assert result.deck.slides[0].headline_check is None
+
+
+def test_a_headline_over_no_claims_is_still_judged(tmp_path: Path) -> None:
+    """Run XLP's closing slide: "significant benefits" over a slide with no cited claim."""
+    store, index = store_and_index(tmp_path, element("e1", SUPPORT_QUOTE))
+    header = Block(id="h1", kind="section_header", slot="headline", text="The drug offers significant benefits")
+    cta = Block(id="c1", kind="framing", slot="cta", text="Decide on the formulary listing")
+    deck = deck_with(Slide(id="s9", narrative_role="next_steps", component="closing_cta", blocks=[header, cta]))
+    model = HeadlineScripted({}, "overstates", "asserts a benefit no claim states")
+    result = validate_deck(deck, index=index, store=store, model=model)
+    assert "(none — this slide carries no cited claim)" in model.headline_prompts[0]
+    assert result.deck.slides[0].headline_check.verdict == "overstates"  # type: ignore[union-attr]

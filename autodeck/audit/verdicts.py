@@ -53,7 +53,7 @@ Owning phase: 2b (task 2b.8a). Opus tier — `autodeck/audit/` is a path guardra
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -336,9 +336,71 @@ def assess_claim(
        nothing at all because the model left the field empty while arguing its case in
        prose.
 
+    **Source classes (B55)** decide which spans may count, before any bound fires:
+
+    - a **corpus** (or client-deck) claim is never supported by the person's own words;
+    - a **from-you** claim (it cites `conversation--`) is supported only by a conversation
+      span — faithfulness to what the person said — while the corpus can still contradict it;
+    - an **unsourced** claim is supported only by a corpus span, contradicted by one, and
+      otherwise `uncorroborated` rather than `unsupported`: it never had a citation to be
+      unsupported by, and a reviewer needs "nobody could check this" said in those words.
+
     Nothing here rewrites the claim, softens a verdict, or decides whether the build
     proceeds.
     """
+    claim_class = _claim_class(claim)
+    support_pool, contra_pool = _pools(claim_class, evidence)
+    assessment = _assess(claim, support=support_pool, contra=contra_pool, judgement=judgement)
+    if claim_class == "unsourced" and assessment.verdict == "unsupported":
+        return replace(
+            assessment,
+            verdict="uncorroborated",
+            notes=(
+                f"{assessment.notes} [B55: an unsourced claim the corpus neither supports "
+                "nor contradicts is uncorroborated — general knowledge nobody here could "
+                "check, shown as such.]"
+            ),
+        )
+    return assessment
+
+
+ClaimClass = Literal["corpus", "conversation", "unsourced"]
+
+
+def _claim_class(claim: Claim) -> ClaimClass:
+    if claim.basis == "unsourced":
+        return "unsourced"
+    if any(c.source_class == "conversation" for c in claim.citations):
+        return "conversation"
+    return "corpus"
+
+
+def _pools(
+    claim_class: ClaimClass, evidence: ValidatorEvidence
+) -> tuple[ValidatorEvidence, ValidatorEvidence]:
+    """(spans that may support, spans that may contradict) for a claim of this class."""
+    documents = ValidatorEvidence(
+        [c for c in evidence.spans if c.source_class != "conversation"]
+    )
+    if claim_class == "conversation":
+        said = ValidatorEvidence(
+            [c for c in evidence.spans if c.source_class == "conversation"]
+        )
+        return said, documents
+    return documents, documents
+
+
+def _assess(
+    claim: Claim,
+    *,
+    support: ValidatorEvidence,
+    contra: ValidatorEvidence,
+    judgement: VerdictJudgement | None,
+) -> VerdictAssessment:
+    """The four bounds, with support and contradiction drawn from their own pools."""
+    evidence = ValidatorEvidence(
+        [*support.spans, *(c for c in contra.spans if c not in support.spans)]
+    )
     if not evidence:
         capped = judgement is not None and judgement.verdict != "unsupported"
         return VerdictAssessment(
@@ -371,10 +433,8 @@ def assess_claim(
             ),
         )
 
-    contradicting, dropped_contradictions = _real_spans(
-        judgement.contradicting_quotes, evidence
-    )
-    supporting = evidence.find(judgement.supporting_quote)
+    contradicting, dropped_contradictions = _real_spans(judgement.contradicting_quotes, contra)
+    supporting = support.find(judgement.supporting_quote)
     dropped = tuple(dropped_contradictions)
     if judgement.supporting_quote.strip() and supporting is None:
         dropped = (*dropped, judgement.supporting_quote)
@@ -469,15 +529,20 @@ _PROBE_CITATION = Citation.for_quote(
     retrieved_by="validator",
 )
 
+
 #: Answered once, at import, by `Claim.blocks_render` — the IR's rule, not a copy of it.
 #: A restatement here would be one `or` away from disagreeing with the model that the
 #: renderer, the audit report and this guard all read, and the disagreement would look
 #: exactly like a passing build.
+def _probe(verdict: str) -> Claim:
+    # `uncorroborated` exists only on an unsourced claim (B55), so that is what asks for it.
+    if verdict == "uncorroborated":
+        return Claim(text="verdict probe", basis="unsourced", verdict=verdict)
+    return Claim(text="verdict probe", citations=[_PROBE_CITATION], verdict=verdict)
+
+
 _BLOCKS_RENDER: dict[str, bool] = {
-    verdict: Claim(
-        text="verdict probe", citations=[_PROBE_CITATION], verdict=verdict
-    ).blocks_render()
-    for verdict in get_args(Verdict)
+    verdict: _probe(verdict).blocks_render() for verdict in get_args(Verdict)
 }
 
 

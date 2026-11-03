@@ -1,74 +1,46 @@
 # Runtime provider bindings — plan §6.2, decision B8, docs/MODEL_ROUTING.md Part 2.
 #
-# Three environments, because the cost profile of development and the accuracy requirement
-# of production pull in opposite directions:
+# Three kinds of environment, because the cost profile of development and the accuracy
+# requirement of production pull in opposite directions:
 #
-#   dev  — Gemini + Groq free tiers. Day-to-day iteration: high call volume, low cost.
-#   sit  — Claude. Pre-production verification on the bindings production actually uses.
-#   prod — Claude. Real client deliverables.
+#   dev-mistral — small paid Mistral models on the included monthly allowance (B51).
+#                 Day-to-day iteration: high call volume, a few cents a draft.
+#   sit         — Claude. Pre-production verification on the bindings production uses.
+#   prod        — Claude. Real client deliverables.
 #
-# Selected with `--env`, defaulting to `dev`. The build manifest records the environment
-# and every resolved model ID (A6), so a dev-built deck is never mistaken for a production
-# one.
+# Nebius and OpenAI adapters exist (autodeck/providers/) but no environment binds them yet.
+#
+# Selected with `--env`, defaulting to `default_env` below. The build manifest records the
+# environment and every resolved model ID (A6), so a dev-built deck is never mistaken for a
+# production one.
 #
 # READ THIS BEFORE TRUSTING A DEV RESULT: A3 (independent re-retrieval) and A8 (honest
 # uncertainty) are *model-sensitive*. A weaker model fails them plausibly rather than
-# loudly, so an accuracy result measured on `dev` is evidence about `dev` only. The
-# deterministic invariants — A1, A2, A4, A5, A6 — are code and transfer unchanged.
+# loudly, so an accuracy result measured on `dev-mistral` is evidence about it only. The
+# deterministic invariants — A1, A2, A4, A5, A6 — are code and transfer unchanged. Measure
+# headline accuracy on `sit`.
 #
 # Model IDs are resolved by querying each provider at implementation time, never recalled
-# from memory (plan §6.2, §9). See DECISIONS.md B15, and B23 for what re-resolving them on
-# 2026-08-02 found.
+# from memory (plan §6.2, §9). See DECISIONS.md B15, B23.
 #
-# THE DEV TIER HAS NO PRO MODEL (checked 2026-08-02, decision B23). `gemini-2.5-pro` was
-# retired for new users mid-flight — it still appears in the models listing and returns 404
-# on every call — and `gemini-3.1-pro-preview` / `gemini-pro-latest` return 429 with no
-# free-tier quota. Only flash models actually respond. So the four reasoning roles below
-# run on flash in dev, which is *weaker* than this file originally assumed.
-#
-# That makes the warning above stronger, not weaker: a dev pass on A3 or A8 is now a smoke
-# test on a flash model. Measure headline accuracy on `sit`.
-#
-# Aliases (`gemini-flash-latest`) are deliberately NOT used. An alias moves under you, so
-# the same build manifest could resolve to a different model on a re-run — which would make
-# A6's "same manifest re-renders comparable output" untrue in a way nothing would detect.
+# Aliases (`-latest`) are deliberately NOT used. An alias moves under you, so the same
+# build manifest could resolve to a different model on a re-run — which would make A6's
+# "same manifest re-renders comparable output" untrue in a way nothing would detect.
 
-default_env: dev
+default_env: dev-mistral
 
 environments:
-  # Each dev role gets a DIFFERENT Gemini model on purpose (B25). The free tier allows
-  # 20 requests per day *per model*, and a single planning session — two turns, four
-  # messages probed each time — exhausted one model's whole day on the first run. Separate
-  # models mean separate daily buckets.
-  #
-  # It also happens to be better for A3: `validation` re-retrieves independently and looks
-  # for contradicting spans, and a validator running on the same model as the writer is
-  # likelier to share its blind spots. Splitting them is the cheap version of that
-  # independence, and it costs nothing here.
-  dev:
-    planner:    {provider: gemini, model: gemini-3.7-flash}
-    outline:    {provider: gemini, model: gemini-3.6-flash}
-    # Groq's free tier caps at 8000 tokens per minute, which a six-span evidence payload
-    # exceeded before SPAN_CHARS truncation. Keep prompts on this binding compact.
-    content:    {provider: groq,   model: openai/gpt-oss-120b}
-    # B45: the draft-first compose call (brief + outline + slides in one long-context call;
-    # also the clarifying questions and scoped revisions). It takes `outline`'s model and
-    # daily bucket: a draft-first run never calls the outline role. Groq's free tier
-    # (8,000 tokens/minute) cannot take a compose call with its evidence pack.
-    composer:   {provider: gemini, model: gemini-3.6-flash}
-    validation: {provider: gemini, model: gemini-3.5-flash}
-    aesthetic:  {provider: gemini, model: gemini-3.1-flash-lite}
-    ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
-
   # Mistral, paid, on small models: the owner's $10/month included API allowance (B51).
-  # The Gemini free tier stopped being usable for a full run on 2026-10-03 (20 requests
-  # per day per model, plus 503s). Ministral is ~$0.20/M tokens, so a draft run costs a few
+  # Ministral is ~$0.20/M tokens, so a draft run costs a few
   # cents. Validation is on a different model from the composer (B44). Both models take
   # images and 256k context. On this account mistral-small/medium have a 0 req/min limit;
   # ministral-14b allows 30/min, ministral-8b 188/min (response headers, 2026-10-03).
-  # Pinned IDs, not `-latest` (see the alias note above). ingest_vlm moves off Gemini here
-  # too, since Gemini is the provider that stopped working.
+  # Pinned IDs, not `-latest` (see the alias note above).
+  # design_mode (B69) is the environment's default for how slides are designed:
+  # `structured` (catalog layouts, safe for small models) or `creative` (the writer places
+  # every slide). A run can override it either way; this is only the preselected choice.
   dev-mistral:
+    design_mode: structured
     planner:    {provider: mistral, model: ministral-14b-2512}
     outline:    {provider: mistral, model: ministral-14b-2512}
     content:    {provider: mistral, model: ministral-14b-2512}
@@ -76,25 +48,33 @@ environments:
     validation: {provider: mistral, model: ministral-8b-2512}
     aesthetic:  {provider: mistral, model: ministral-14b-2512}
     ingest_vlm: {provider: mistral, model: ministral-8b-2512}
+    # B73: the deck agent's second reader. Never validation's model (8b here).
+    advisor:    {provider: mistral, model: ministral-14b-2512}
 
   # Claude bindings are unverified against a live API — this environment has no
   # ANTHROPIC_API_KEY. Confirm the IDs against the models endpoint before first use.
   sit:
+    design_mode: creative
     planner:    {provider: claude, model: claude-opus-5}
     outline:    {provider: claude, model: claude-opus-5}
     content:    {provider: claude, model: claude-sonnet-5}
     composer:   {provider: claude, model: claude-sonnet-5}  # not validation's model (B44)
     validation: {provider: claude, model: claude-opus-5}
     aesthetic:  {provider: claude, model: claude-opus-5}
-    # ingest_vlm stays on Gemini in every environment: its output is metadata that can
-    # never back a claim, so there is no accuracy reason to pay for it.
-    ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
+    # INTERIM: ingest_vlm's output is metadata that can never back a claim, so there is no
+    # accuracy reason to pay for it. Mistral (vision-capable) stands in until Nebius/OpenAI
+    # keys and verified model ids exist.
+    ingest_vlm: {provider: mistral, model: ministral-14b-2512}
+    advisor:    {provider: claude, model: claude-sonnet-5}  # not validation's model (B73)
 
   prod:
+    design_mode: creative
     planner:    {provider: claude, model: claude-opus-5}
     outline:    {provider: claude, model: claude-opus-5}
     content:    {provider: claude, model: claude-sonnet-5}
     composer:   {provider: claude, model: claude-sonnet-5}  # not validation's model (B44)
     validation: {provider: claude, model: claude-opus-5}
     aesthetic:  {provider: claude, model: claude-opus-5}
-    ingest_vlm: {provider: gemini, model: gemini-2.5-flash}
+    # INTERIM, as in sit: until Nebius/OpenAI keys and verified model ids exist.
+    ingest_vlm: {provider: mistral, model: ministral-14b-2512}
+    advisor:    {provider: claude, model: claude-sonnet-5}  # not validation's model (B73)

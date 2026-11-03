@@ -1,0 +1,19 @@
+{
+  "name": "graphite",
+  "description": "Stone ground, graphite, safety-orange accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "18181B",
+    "lt1": "F5F5F4",
+    "dk2": "57575E",
+    "lt2": "EBEBE8",
+    "accent1": "EF541D",
+    "accent2": "27272A",
+    "accent3": "8A8A8F",
+    "accent4": "3B82F6",
+    "accent5": "B42318",
+    "accent6": "C4C4C0",
+    "hyperlink": "EF541D",
+    "followed_hyperlink": "27272A"
+  }
+}

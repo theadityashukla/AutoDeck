@@ -1,0 +1,19 @@
+{
+  "name": "mint",
+  "description": "Pale mint ground, deep teal, bright green accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "0F2A23",
+    "lt1": "F3FAF7",
+    "dk2": "4E6B62",
+    "lt2": "E3F2EC",
+    "accent1": "009C75",
+    "accent2": "0F5C4A",
+    "accent3": "F79009",
+    "accent4": "7A5AF8",
+    "accent5": "B54708",
+    "accent6": "BFD4CC",
+    "hyperlink": "009C75",
+    "followed_hyperlink": "0F5C4A"
+  }
+}

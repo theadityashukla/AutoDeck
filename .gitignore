@@ -3,6 +3,14 @@
 # also swallow knowledge/projects/*/papers/*.pdf — the seed corpus Phase 1 commits on
 # purpose (task 1.9) — since a gitignore pattern with no leading slash matches at any depth.
 /*.pdf
+# Meeting recordings and their transcripts are client-confidential: anchored to the repo
+# root (where a dropped-in file would land) so tests/fixtures/ stays trackable.
+/*.m4a
+/*.mp3
+/*.wav
+/*.mp4
+/*.aiff
+/transcript.*
 extracted_images/
 chroma_db/
 

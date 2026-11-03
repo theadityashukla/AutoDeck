@@ -79,7 +79,16 @@ from autodeck.audit.numeric_linter import (
 )
 from autodeck.audit.verdicts import VerdictReport
 from autodeck.ingest.deck_source import DOC_ID_PREFIX
-from autodeck.ir.models import Citation, Claim, Deck, DeckBrief, OpenRisk, Slide, Verdict
+from autodeck.ir.models import (
+    Citation,
+    Claim,
+    Deck,
+    DeckBrief,
+    OpenRisk,
+    Slide,
+    StorylineCheck,
+    Verdict,
+)
 
 #: Worst first. A reader skimming one summary line should meet what stops the build before
 #: what does not, and every verdict is printed even at zero — "contradicted 0" is a result,
@@ -88,6 +97,7 @@ VERDICT_ORDER: tuple[Verdict, ...] = (
     "contradicted",
     "unsupported",
     "unverified",
+    "uncorroborated",
     "partially_supported",
     "supported",
 )
@@ -186,6 +196,8 @@ class ClaimRow:
     contradicting_spans: tuple[Citation, ...] = ()
     working: Working | None = None
     in_speaker_notes: bool = False
+    unsourced: bool = False
+    """B55: the claim is general knowledge with no citation, checked against the corpus."""
 
     @property
     def blocks_render(self) -> bool:
@@ -298,6 +310,10 @@ class AuditReport:
     numeric: NumericReport | None = None
     framing: FramingReport | None = None
     verdicts: VerdictReport | None = None
+    provenance: str = "strict"
+    """B55: `strict` (documents only) or `normal` (also "from you" and unsourced claims)."""
+    storyline: StorylineCheck | None = None
+    """B70: the validator's reading of the headers in order. Advisory; never fails GATE 2."""
 
     def claim_rows(self) -> list[ClaimRow]:
         return [row for section in self.slides for row in section.claims]
@@ -375,6 +391,8 @@ def build_audit_report(
         numeric=numeric,
         framing=framing,
         verdicts=verdicts,
+        provenance=deck.provenance,
+        storyline=deck.storyline_check,
     )
 
 
@@ -419,6 +437,7 @@ def _claim_row(slide_id: str, block_id: str, claim: Claim, *, in_notes: bool) ->
         contradicting_spans=tuple(claim.contradicting_spans),
         working=_working(claim) if claim.derivation is not None else None,
         in_speaker_notes=in_notes,
+        unsourced=claim.basis == "unsourced",
     )
 
 
@@ -546,10 +565,11 @@ def render(report: AuditReport) -> str:
         f"# Audit report — {report.project}",
         "",
         f"Run `{report.run_id}` · deck v{report.deck_version} · client "
-        f"{report.client} · audience {report.audience}",
+        f"{report.client} · audience {report.audience} · provenance **{report.provenance}**",
         "",
     ]
     lines.extend(_summary_lines(report))
+    lines.extend(_storyline_lines(report))
     lines.extend(["", "---", ""])
     for paragraph in DOES_NOT_ESTABLISH:
         lines.extend([paragraph, ""])
@@ -647,6 +667,23 @@ def _summary_lines(report: AuditReport) -> list[str]:
 # -- slides -----------------------------------------------------------------
 
 
+def _storyline_lines(report: AuditReport) -> list[str]:
+    """B70: the headers read in order. Advisory, so it sits beside the summary, not in it."""
+    check = report.storyline
+    if check is None:
+        return []
+    verdict = "tells one story" if check.tells_story else "does not yet tell one story"
+    lines = ["", "## Storyline (advisory)", "", f"Read in order, the headers **{verdict}**."]
+    if check.summary:
+        lines.extend(["", check.summary])
+    if check.findings:
+        lines.append("")
+        lines.extend(
+            f"- `{f.slide_id}` · {f.issue.replace('_', ' ')}: {f.notes}" for f in check.findings
+        )
+    return lines
+
+
 def _slides_lines(report: AuditReport) -> list[str]:
     lines = ["## Claims, slide by slide", ""]
     if not report.slides:
@@ -690,7 +727,9 @@ def _claims_table(section: SlideSection) -> list[str]:
     ]
     for row in section.claims:
         where = f"`{row.block_id}`" + (" *(notes)*" if row.in_speaker_notes else "")
-        evidence = " · ".join(_ref(c) for c in row.citations) or "—"
+        evidence = " · ".join(_ref(c) for c in row.citations) or (
+            "unsourced (general knowledge)" if row.unsourced else "—"
+        )
         if row.contradicting_spans:
             evidence += " · **contradicted by** " + " · ".join(
                 _ref(c) for c in row.contradicting_spans
@@ -706,6 +745,15 @@ def _claim_detail(row: ClaimRow) -> list[str]:
     if row.in_speaker_notes:
         heading += " · speaker notes"
     lines = [heading, "", row.claim_text, ""]
+    if row.unsourced:
+        lines.extend(
+            [
+                "*Unsourced (B55):* general knowledge with no citation. The validator checked "
+                "it against the corpus; `uncorroborated` means nothing there supports or "
+                "contradicts it.",
+                "",
+            ]
+        )
 
     for citation in row.citations:
         lines.extend(_citation_lines(citation))
@@ -1045,6 +1093,10 @@ def _source_label(citation: Citation) -> str:
     """
     if citation.doc_id.startswith(DOC_ID_PREFIX):
         return f"client-supplied deck, slide {citation.page} (`{citation.doc_id}`)"
+    if citation.source_class == "conversation":
+        # B55: the person's own words. Proves the slide says what they said, not that it is
+        # true — the validator's corpus search is what speaks to that.
+        return f"from you, message {citation.page} (`{citation.doc_id}`)"
     return f"`{citation.doc_id}` p.{citation.page}"
 
 

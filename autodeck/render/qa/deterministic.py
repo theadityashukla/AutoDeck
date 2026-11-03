@@ -80,6 +80,10 @@ LARGE_TEXT_PT: Final = 18.0
 LARGE_BOLD_TEXT_PT: Final = 14.0
 """WCAG 2.x AA thresholds and its definition of large text. Named, sourced, not tuned."""
 
+#: B69: the names `design/free_layout.py` gives a layout's text-free shapes. A full-bleed
+#: band or panel is a design choice; text and visuals are still held to the safe area.
+FREE_BLEED_SHAPES = frozenset({"free:rect", "free:rounded_rect", "free:ellipse", "free:line"})
+
 QACheck = Literal["overlap", "outside safe area", "below minimum size", "insufficient contrast"]
 RemedyKind = Literal["token", "slot", "catalog_gap"]
 
@@ -242,8 +246,11 @@ def run_deterministic_qa(
                         )
                     )
 
-        # 2. Safe area — every shape, text-bearing or not.
+        # 2. Safe area — every shape, text-bearing or not, except a creative layout's
+        #    text-free shapes, which may run to the slide edge by design (B69).
         for shape, box in zip(shapes, boxes, strict=True):
+            if shape.name in FREE_BLEED_SHAPES:
+                continue
             overshoot = _safe_area_overshoot(box, canvas.safe)
             if overshoot is not None:
                 remedy, detail = _slot_remedy(

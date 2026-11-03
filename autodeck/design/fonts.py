@@ -57,7 +57,9 @@ the overflow direction.
 
 from __future__ import annotations
 
+import glob
 import os
+import shutil
 import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
@@ -65,7 +67,8 @@ from functools import lru_cache
 from pathlib import Path
 
 #: Searched in order. `AUTODECK_FONT_DIRS` (os.pathsep-separated) wins, then the repo's own
-#: `fonts/`, then the platform locations Office and fontconfig use.
+#: `fonts/`, then the platform locations Office and fontconfig use, then LibreOffice's
+#: bundled fonts (appended in `search_dirs`).
 _DEFAULT_DIRS: tuple[str, ...] = (
     "fonts",
     "~/.local/share/fonts",
@@ -141,11 +144,47 @@ def _face_name(bold: bool, italic: bool) -> str:
     return "regular"
 
 
+#: Where LibreOffice ships its own fonts (Carlito, Caladea, Liberation, ...), so a token
+#: set that names one of them renders headlessly with nothing installed. Resolved lazily;
+#: this module must not import `autodeck.render` (that package imports this one).
+_LIBREOFFICE_FONT_GLOBS: tuple[str, ...] = (
+    "/Applications/LibreOffice.app/Contents/Resources/fonts/truetype",
+    "/usr/lib/libreoffice/share/fonts/truetype",
+    "/usr/lib64/libreoffice/share/fonts/truetype",
+    "/opt/libreoffice*/share/fonts/truetype",
+)
+
+
+def libreoffice_font_dirs() -> list[Path]:
+    """LibreOffice's bundled font directories that exist on this machine."""
+    found: list[Path] = []
+    binary = shutil.which("soffice") or shutil.which("libreoffice")
+    if binary:
+        resolved = Path(binary).resolve()
+        for parent in resolved.parents:
+            if parent.name == "Contents":  # <App>.app/Contents/MacOS/soffice
+                found.append(parent / "Resources" / "fonts" / "truetype")
+                break
+        else:  # <prefix>/program/soffice
+            found.append(resolved.parent.parent / "share" / "fonts" / "truetype")
+    for pattern in _LIBREOFFICE_FONT_GLOBS:
+        if "*" in pattern:
+            found.extend(sorted(Path(p) for p in glob.glob(pattern)))
+        else:
+            found.append(Path(pattern))
+    unique: list[Path] = []
+    for path in found:
+        if path.is_dir() and path not in unique:
+            unique.append(path)
+    return unique
+
+
 def search_dirs() -> list[Path]:
     """Directories searched for font files, in precedence order."""
     configured = os.environ.get("AUTODECK_FONT_DIRS", "")
     dirs = [Path(p).expanduser() for p in configured.split(os.pathsep) if p]
     dirs.extend(Path(p).expanduser() for p in _DEFAULT_DIRS)
+    dirs.extend(libreoffice_font_dirs())
     return [d for d in dirs if d.is_dir()]
 
 

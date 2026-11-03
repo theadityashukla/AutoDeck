@@ -88,6 +88,7 @@ Owning phase: 2b (task 2b.5). Opus tier — `autodeck/audit/` is a path guardrai
 from __future__ import annotations
 
 import ast
+import dataclasses
 import math
 import operator
 import re
@@ -98,7 +99,14 @@ from functools import lru_cache
 from typing import Literal
 
 from autodeck.ingest.provenance import normalise_text
-from autodeck.ir.models import Citation, Deck, Derivation, DerivationInput, DiagramSpec
+from autodeck.ir.models import (
+    Citation,
+    Deck,
+    Derivation,
+    DerivationInput,
+    DiagramSpec,
+    Slide,
+)
 
 # ---------------------------------------------------------------------------
 # Findings and reports — the gate1.py shape
@@ -879,6 +887,36 @@ def extract_numerals(text: str) -> list[Numeral]:
 
     numerals.sort(key=lambda n: n.start)
     return _apply_range_inheritance(normalised, numerals)
+
+
+#: A word that starts with a letter and has digits after it: `HbA1c`, `GLP-1`, `A100`,
+#: `int8`, `GPT-4`. Digit-first words (`3x`, `13B`, `10ms`) are quantities and do not match.
+_NAME_WORD = re.compile(r"^[^\W\d_][\w-]*\d")
+
+
+def is_name_numeral(numeral: Numeral) -> bool:
+    """Whether `numeral` is part of a name rather than a quantity (B58).
+
+    The digits sit inside a word that begins with a letter — a drug class, a lab measure, a
+    chip or a model version. Such a word names a thing; nobody can be wrong about its number
+    without being wrong about which thing they mean, and that is the validator's question,
+    not A2's. A date or a digit-first word never counts.
+    """
+    return numeral.kind == "number" and bool(_NAME_WORD.match(numeral.context or ""))
+
+
+def mask_terms(text: str, terms: Sequence[str]) -> str:
+    """`text` with every occurrence of a named term's digits blanked (B58).
+
+    Terms come from the project's glossary (`Deck.named_terms`): names whose digits stand
+    apart from the letters, like 'Type 2 diabetes' or 'PIONEER 7', which `is_name_numeral`
+    cannot recognise from the word alone. Matching is case-insensitive on whole words; the
+    digits become `#` so the text keeps its length and no numeral is found there.
+    """
+    for term in sorted({t for t in terms if t.strip()}, key=len, reverse=True):
+        pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.I)
+        text = pattern.sub(lambda m: re.sub(r"\d", "#", m.group(0)), text)
+    return text
 
 
 def _overlaps(start: int, end: int, spans: Sequence[tuple[int, int]]) -> bool:
@@ -1744,7 +1782,7 @@ def match_numerals(
     unmatched: list[Numeral] = []
 
     for numeral in numerals:
-        if numeral.text in allowed:
+        if numeral.text in allowed or is_name_numeral(numeral):
             continue
         match = _match_against_citations(numeral, citation_forms, location)
         if match is None:
@@ -2257,13 +2295,48 @@ def lint_deck(deck: Deck, *, allow: Sequence[AllowedNumeral] = ALLOWLIST) -> Num
     INVARIANTS says notes are the most common place for an uncited number to hide, and a
     linter that iterated `slide.blocks` would be blind to precisely that.
     """
-    return lint_scopes(_deck_scopes(deck), allow=allow)
+    scopes = _deck_scopes(deck)
+    if deck.named_terms:
+        scopes = [
+            dataclasses.replace(scope, text=mask_terms(scope.text, deck.named_terms))
+            for scope in scopes
+        ]
+    return lint_scopes(scopes, allow=allow)
+
+
+#: The slot a content slide's talking header fills (B54); `framing_linter.HEADER_SLOTS`
+#: re-reads this so the two linters cannot disagree about which text is a header.
+HEADER_SLOTS: frozenset[str] = frozenset({"headline"})
+
+
+def slide_face_evidence(slide: Slide) -> tuple[tuple[Citation, ...], tuple[Derivation, ...]]:
+    """Every citation and derivation on `slide`'s face: what a talking header may use (B54).
+
+    The face only: a header summarises what the room sees, and a number backed only by the
+    speaker notes is a number on the slide with its source out of sight.
+    """
+    citations: list[Citation] = []
+    derivations: list[Derivation] = []
+    for block in slide.blocks:
+        claims = [block.claim] if block.claim is not None else []
+        if block.diagram is not None:
+            claims += [node.claim for node in block.diagram.nodes if node.claim is not None]
+        for claim in claims:
+            citations.extend(claim.citations)
+            if claim.derivation is not None:
+                derivations.append(claim.derivation)
+        if block.chart is not None:
+            citations.extend(block.chart.source_citations)
+        if block.figure is not None:
+            citations.append(block.figure.citation)
+    return tuple(citations), tuple(derivations)
 
 
 def _deck_scopes(deck: Deck) -> list[LintScope]:
     scopes: list[LintScope] = []
     for slide in deck.slides:
         face_ids = {block.id for block in slide.blocks}
+        header_evidence = slide_face_evidence(slide)
         for block in slide.all_blocks():
             where = "notes" if block.id not in face_ids else "slide"
             location = f"slide {slide.id} / {where} block {block.id}"
@@ -2278,7 +2351,18 @@ def _deck_scopes(deck: Deck) -> list[LintScope]:
                         ),
                     )
                 )
-            if block.text:
+            if block.text and block.slot in HEADER_SLOTS and block.id in face_ids:
+                # A talking header (B54) carries no citation of its own; its numbers are
+                # traced to what its slide's face cites, and nowhere else.
+                scopes.append(
+                    LintScope(
+                        location=f"{location} / header",
+                        text=block.text,
+                        citations=header_evidence[0],
+                        derivations=header_evidence[1],
+                    )
+                )
+            elif block.text:
                 scopes.append(LintScope(location=location, text=block.text))
             if block.chart is not None:
                 scopes.append(
@@ -2401,6 +2485,7 @@ def lint_rendered_slides(
     scopes: list[LintScope] = []
     for slide_id, text in rendered_text.items():
         slide = by_id[slide_id]
+        text = mask_terms(text, deck.named_terms)
         citations: list[Citation] = []
         derivations: list[Derivation] = []
         for block in slide.all_blocks():

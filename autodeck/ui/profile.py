@@ -13,12 +13,23 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
 DEFAULT_PROFILE = Path.home() / ".autodeck" / "profile.json"
 MAX_NAME = 80
+OWNER_MEMORY_ENV = "AUTODECK_OWNER_MEMORY"
+
+
+def owner_memory_path() -> Path:
+    """Where the owner's agent memory lives (B77): `$AUTODECK_OWNER_MEMORY`, else the file
+    under `~/.autodeck`. Tests point the variable at a temporary folder."""
+    from autodeck.knowledge.memory import DEFAULT_OWNER_PATH
+
+    override = os.environ.get(OWNER_MEMORY_ENV, "").strip()
+    return Path(override) if override else DEFAULT_OWNER_PATH
 
 
 def _git_name() -> str:

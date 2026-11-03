@@ -1,0 +1,9 @@
+A: Good morning everyone, let's start with the status of the data platform migration.
+B: Thanks. The pipelines are now running on data bricks, and the nightly load finishes in under two hours.
+A: That is good news. When can we show the finance team the new dashboards?
+B: The review session is on the sixteenth, and the pilot goes live in the first week of February.
+A: Shikha, can you run the walkthrough next week?
+B: Yes, I will prepare the demo and send the invite today.
+A: One more thing. We decided to keep the old reporting tool until the pilot is signed off.
+B: Agreed. I will note that as the decision, and we revisit the budget after the pilot.
+A: Great, thank you all. Let's close here.

@@ -1,0 +1,24 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "autodeck-ui",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        ".claude/serve_ui.py"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "autodeck-ui-8766",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        ".claude/serve_ui.py"
+      ],
+      "port": 8766,
+      "env": {
+        "PORT": "8766"
+      }
+    }
+  ]
+}

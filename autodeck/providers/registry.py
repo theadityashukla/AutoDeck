@@ -2,9 +2,9 @@
 
 Bindings live in `config/models.yaml`, never in code, so a model swap is a config edit and
 the resolved IDs can be recorded in the build manifest (A6). The registry's other job is to
-make the environment *explicit*: `dev` runs on free-tier Gemini and Groq, `sit` and `prod`
-run on Claude, and because A3 and A8 are model-sensitive an accuracy result from one does
-not transfer to the other. Anything that reports a result records `env` alongside it.
+make the environment *explicit*: `dev-mistral` runs on small paid Mistral models, `sit` and
+`prod` run on Claude, and because A3 and A8 are model-sensitive an accuracy result from one
+does not transfer to the other. Anything that reports a result records `env` alongside it.
 
 Owning phase: 0 (task 0.3).
 """
@@ -21,16 +21,17 @@ import yaml
 from autodeck.providers.base import BaseProvider, ProviderConfig, ProviderError
 from autodeck.providers.cache import ResponseCache
 from autodeck.providers.claude import ClaudeProvider
-from autodeck.providers.gemini import GeminiProvider
-from autodeck.providers.groq import GroqProvider
 from autodeck.providers.mistral import MistralProvider
+from autodeck.providers.nebius import NebiusProvider
+from autodeck.providers.openai import OpenAIProvider
 
 DEFAULT_CONFIG_PATH = Path("config/models.yaml")
 
 #: The six agent roles of plan §6.2, plus `composer` (B45: one call writes brief, outline
 #: and slides on a draft-first run; it also asks the clarifying questions and makes scoped
-#: revisions). A config missing one of these is rejected at load rather than at the moment
-#: that role is first invoked, halfway through a build.
+#: revisions) and `advisor` (B73: the deck agent's fresh-context second reader). A config
+#: missing one of these is rejected at load rather than at the moment that role is first
+#: invoked, halfway through a build.
 ROLES: tuple[str, ...] = (
     "planner",
     "outline",
@@ -39,13 +40,14 @@ ROLES: tuple[str, ...] = (
     "validation",
     "aesthetic",
     "ingest_vlm",
+    "advisor",
 )
 
 PROVIDERS: dict[str, type[BaseProvider]] = {
-    "gemini": GeminiProvider,
-    "groq": GroqProvider,
     "claude": ClaudeProvider,
     "mistral": MistralProvider,
+    "nebius": NebiusProvider,
+    "openai": OpenAIProvider,
 }
 
 #: Roles whose invariants are model-sensitive (B8). A `dev` pass on these is a smoke test.
@@ -72,9 +74,13 @@ class Binding:
 class ModelRegistry:
     """Resolves a role to a configured provider instance for one environment."""
 
-    def __init__(self, bindings: dict[str, Binding], env: str) -> None:
+    def __init__(
+        self, bindings: dict[str, Binding], env: str, design_mode: str = "structured"
+    ) -> None:
         self.env = env
         self._bindings = bindings
+        #: The environment's default design mode (B69): "structured" or "creative".
+        self.design_mode = design_mode
 
     # -- loading -----------------------------------------------------------
 
@@ -104,7 +110,11 @@ class ModelRegistry:
             known = ", ".join(sorted(environments)) or "none"
             raise RegistryError(f"unknown environment {chosen!r}. Known environments: {known}")
 
-        return cls(_parse_bindings(environments[chosen], chosen, path), chosen)
+        return cls(
+            _parse_bindings(environments[chosen], chosen, path),
+            chosen,
+            _parse_design_mode(environments[chosen], chosen, path),
+        )
 
     # -- lookup ------------------------------------------------------------
 
@@ -164,6 +174,15 @@ class ModelRegistry:
         return sorted(name for name in needed if not os.environ.get(name))
 
 
+def default_env_name(path: Path = DEFAULT_CONFIG_PATH) -> str:
+    """The config's `default_env`; "dev-mistral" if the file is unreadable."""
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return str(raw.get("default_env") or "dev-mistral")
+    except Exception:
+        return "dev-mistral"
+
+
 def api_key_env(provider: str) -> str:
     """The environment variable that holds `provider`'s API key."""
     return _api_key_env(provider)
@@ -171,11 +190,25 @@ def api_key_env(provider: str) -> str:
 
 def _api_key_env(provider: str) -> str:
     return {
-        "gemini": "GEMINI_API_KEY",
-        "groq": "GROQ_API_KEY",
         "claude": "ANTHROPIC_API_KEY",
         "mistral": "MISTRAL_API_KEY",
+        "nebius": "NEBIUS_API_KEY",
+        "openai": "OPENAI_API_KEY",
     }[provider]
+
+
+#: Non-role keys an environment may carry beside its role bindings.
+_ENV_SETTINGS: frozenset[str] = frozenset({"design_mode"})
+
+
+def _parse_design_mode(raw: Any, env: str, path: Path) -> str:
+    """The environment's default design mode; a missing key means "structured" (B69)."""
+    value = raw.get("design_mode", "structured") if isinstance(raw, dict) else "structured"
+    if value not in ("structured", "creative"):
+        raise RegistryError(
+            f"{path}: {env}.design_mode must be 'structured' or 'creative', got {value!r}"
+        )
+    return str(value)
 
 
 def _parse_bindings(raw: Any, env: str, path: Path) -> dict[str, Binding]:
@@ -192,6 +225,8 @@ def _parse_bindings(raw: Any, env: str, path: Path) -> dict[str, Binding]:
 
     bindings: dict[str, Binding] = {}
     for role, entry in raw.items():
+        if role in _ENV_SETTINGS:
+            continue
         if not isinstance(entry, dict) or "provider" not in entry or "model" not in entry:
             raise RegistryError(
                 f"{path}: {env}.{role} must specify both `provider` and `model`"
@@ -209,4 +244,24 @@ def _parse_bindings(raw: Any, env: str, path: Path) -> dict[str, Binding]:
                 "at the first call rather than here."
             )
         bindings[role] = Binding(role=role, provider=provider, model=str(entry["model"]))
+    _check_advisor_independent(bindings, env, path)
     return bindings
+
+
+def _check_advisor_independent(bindings: dict[str, Binding], env: str, path: Path) -> None:
+    """The advisor may share the composer's model, never the validator's (B44, B73).
+
+    The validator is the independent check on what the writer produced. An advisor that the
+    writer consults while writing, running on the validator's model, would let the writer
+    tune its slides to that model's judgement before the check that is meant to be blind.
+    """
+    advisor, validation = bindings.get("advisor"), bindings.get("validation")
+    if advisor and validation and (advisor.provider, advisor.model) == (
+        validation.provider,
+        validation.model,
+    ):
+        raise RegistryError(
+            f"{path}: {env}.advisor binds the validation model ({validation.provider}/"
+            f"{validation.model}). The advisor must be a different model from the validator "
+            "(B44, B73); the composer's model is fine."
+        )

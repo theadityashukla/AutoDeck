@@ -72,12 +72,12 @@ from autodeck.ingest.document_store import (
     TableCell,
     TableData,
 )
-from autodeck.ir.models import BBox
+from autodeck.ir.models import CLIENT_DECK_DOC_PREFIX, BBox
 from autodeck.ir.store import run_paths
 
 EMU_PER_POINT = 12700
 
-DOC_ID_PREFIX = "client-deck--"
+DOC_ID_PREFIX = CLIENT_DECK_DOC_PREFIX
 
 _TITLE_PLACEHOLDERS = {PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE}
 

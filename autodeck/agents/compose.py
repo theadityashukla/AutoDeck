@@ -38,13 +38,14 @@ it. Code enforces the first half (an agreed message with no slide is a coverage 
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from autodeck.agents.content import (
     ProposedBlock,
@@ -54,15 +55,36 @@ from autodeck.agents.content import (
     resolve_blocks,
     slide_budgets,
 )
+from autodeck.agents.draft_checks import drop_failed_blocks, run_draft_checks
 from autodeck.agents.evidence_gap import EvidenceSpan, _cap
 from autodeck.agents.evidence_pack import EvidencePack
 from autodeck.agents.outline import CATALOG
 from autodeck.agents.planner import Draft
+from autodeck.agents.rejections import Rejection
+from autodeck.agents.repair import (
+    RepairDraft,
+    apply_repair,
+    build_repair_request,
+    repairable,
+)
+from autodeck.agents.skills import CREATIVE_SUFFIX, SKILL_SETS, skills_text
+from autodeck.design.components.catalog import registration
+from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ingest.deck_source import DOC_ID_PREFIX
 from autodeck.ingest.document_store import DocumentStore
 from autodeck.ingest.redesign_settings import settings_text
-from autodeck.ir.models import Block, Deck, KeyMessage, Slide
+from autodeck.ir.models import (
+    FREE_LAYOUT_COMPONENT,
+    Block,
+    Deck,
+    DesignMode,
+    FreeLayout,
+    KeyMessage,
+    ProvenanceMode,
+    ShapeElement,
+    Slide,
+)
 from autodeck.knowledge.context_assembler import AssembledContext
 
 # ---------------------------------------------------------------------------
@@ -245,6 +267,35 @@ class ReviseDraft(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------
+# Creative mode: the same contracts, with a layout per slide (B69)
+# ---------------------------------------------------------------------------
+
+
+class CreativeComposedSlide(ComposedSlide):
+    """A slide the writer also places. `layout` is required (B26): a creative slide whose
+    layout arrived missing would have nowhere to draw its blocks."""
+
+    component: Literal["free_layout"] = Field(
+        description="Always 'free_layout' in creative mode."
+    )
+    layout: FreeLayout
+
+
+class CreativeComposeDraft(ComposeDraft):
+    slides: list[CreativeComposedSlide] = Field(min_length=1)  # type: ignore[assignment]
+
+
+class CreativeRedesignDraft(RedesignDraft):
+    slides: list[CreativeComposedSlide] = Field(min_length=1)  # type: ignore[assignment]
+
+
+class CreativeReviseDraft(ReviseDraft):
+    changed_slides: list[CreativeComposedSlide] = Field(  # type: ignore[assignment]
+        description="New or rewritten slides only; [] when the change is brief-only."
+    )
+
+
 # ===========================================================================
 # The agent: three structured calls, and everything code decides around them
 # ===========================================================================
@@ -259,9 +310,17 @@ COMPOSE_PROMPT = Path("prompts/compose.md")
 REVISE_PROMPT = Path("prompts/revise.md")
 REDESIGN_PROMPT = Path("prompts/redesign.md")
 CONTENT_PROMPT = Path("prompts/content.md")
+COMPONENTS_PROMPT = Path("prompts/components.md")
+REPAIR_PROMPT = Path("prompts/repair.md")
+CREATIVE_PROMPT = Path("prompts/creative.md")
+"""B69: replaces `prompts/components.md` in a creative-mode writer's system prompt."""
+PROVENANCE_PROMPTS: dict[str, Path] = {
+    "strict": Path("prompts/provenance_strict.md"),
+    "normal": Path("prompts/provenance_normal.md"),
+}
 
 PROMPT_SEPARATOR = "\n\n---\n\n"
-"""Compose and revise are the same writer as `content`: its rules follow their own."""
+"""Compose and revise are the same writer as `content`: the same skills follow their own."""
 
 MAX_OUTPUT_TOKENS = 32768
 """A whole deck is far longer than the provider default (8192) and truncates mid-JSON."""
@@ -292,14 +351,24 @@ class ComposeResult:
     notes: str
     """The composer's own note to the person, or ''."""
     provider_calls: int = 1
+    """1, or 2 when the B53 repair call ran."""
     corrections: list[str] = field(default_factory=list)
-    """Structural repairs: an unknown component, a duplicate id, an invented message id."""
+    """Structural repairs: an unknown component, a duplicate id, an invented message id, a
+    divider removed (B56)."""
     incomplete_slots: list[str] = field(default_factory=list)
     origins: dict[str, str] = field(default_factory=dict)
     """key message id -> origin; revise needs them to keep agreed messages agreed."""
     changes: list[dict[str, Any]] = field(default_factory=list)
     """Redesign only: per new slide, the original slide(s) it came from and why its layout
     changed (`LayoutChange` as dicts). Empty for a first draft from papers."""
+    failures: list[Rejection] = field(default_factory=list)
+    """Every refusal in `rejections`, structured: kind, slide, block, slot, figures, and the
+    model's own proposed block — plus the draft checks' findings that still stand (B56)."""
+    advisories: list[Rejection] = field(default_factory=list)
+    """Quality findings that never block (a topic-label headline)."""
+    repairs: list[str] = field(default_factory=list)
+    """What the B53 repair call replaced or declined, one line each."""
+    repair_ran: bool = False
 
 
 @dataclass
@@ -317,6 +386,7 @@ class ReviseResult:
     corrections: list[str] = field(default_factory=list)
     incomplete_slots: list[str] = field(default_factory=list)
     changed_slide_ids: list[str] = field(default_factory=list)
+    failures: list[Rejection] = field(default_factory=list)
     origins: dict[str, str] = field(default_factory=dict)
 
 
@@ -333,8 +403,36 @@ def _read_prompt(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _writer_system(path: Path, content_path: Path) -> str:
-    return _read_prompt(path) + PROMPT_SEPARATOR + _read_prompt(content_path)
+def _writer_system(
+    path: Path,
+    *,
+    role: str,
+    provenance: ProvenanceMode = "strict",
+    components_path: Path | None = None,
+    project: str | None = None,
+    design_mode: DesignMode = "structured",
+) -> str:
+    """The writer's system prompt: its role, then Components, Skills and Provenance.
+
+    `role` ("compose", "revise", "redesign" or "repair") picks the skill set. `content.md`
+    is no longer part of this prompt: it is the short role file of the per-slide `content`
+    agent, and the craft it used to carry now lives in the skills. Every part is a file, so
+    every part's hash reaches the manifest (A6). `project` withholds that project's own gold
+    exemplar (B65). In creative mode (B69) `prompts/creative.md` takes the place of the
+    components file, and the role's skill set gains `slide-design`.
+    """
+    creative = design_mode == "creative"
+    if components_path is None:
+        components_path = CREATIVE_PROMPT if creative else COMPONENTS_PROMPT
+    skills_role = f"{role}{CREATIVE_SUFFIX}" if creative and f"{role}{CREATIVE_SUFFIX}" in SKILL_SETS else role
+    return PROMPT_SEPARATOR.join(
+        [
+            _read_prompt(path),
+            _read_prompt(components_path),
+            skills_text(skills_role, project=project),
+            _read_prompt(PROVENANCE_PROMPTS[provenance]),
+        ]
+    )
 
 
 def _call(model: ComposeModel, prompt: str, schema: type[Any], system: str, what: str) -> Any:
@@ -385,7 +483,64 @@ def clarify(
 
 
 def _catalog_text(tokens: DesignTokens) -> str:
-    return "\n\n".join(f"## {name}\n{slide_budgets(name, tokens)}" for name in CATALOG)
+    """Every component with what it is for and its slot budgets (targets and ceilings)."""
+    sections = []
+    for name in CATALOG:
+        try:
+            roles = ", ".join(registration(name).narrative_roles)
+        except Exception:  # an outline-only name the catalog has not registered
+            roles = ""
+        purpose = f"for: {roles}\n" if roles else ""
+        sections.append(f"## {name}\n{purpose}{slide_budgets(name, tokens)}")
+    return "\n\n".join(sections)
+
+
+def _master_text(tokens: DesignTokens) -> str:
+    """The slide master a creative-mode writer designs inside (B69): size, safe area, type
+    scale and palette, in the units its layout uses (percent of the slide)."""
+    from autodeck.design.free_layout import SOURCE_BAND_PT  # the renderer owns the band
+    from autodeck.design.theme.tokens import emu_to_points
+
+    width_pt = emu_to_points(tokens.slide_width_emu)
+    height_pt = emu_to_points(tokens.slide_height_emu)
+    sp, ty, pal = tokens.spacing, tokens.typography, tokens.palette
+    mx, my = 100 * sp.margin_x / width_pt, 100 * sp.margin_y / height_pt
+    band = 100 * SOURCE_BAND_PT / height_pt
+    roles = (
+        f"display {ty.display:g}pt · title {ty.title:g}pt · heading {ty.heading:g}pt · "
+        f"body {ty.body:g}pt · caption {ty.caption:g}pt · label {ty.caption:g}pt capitals; "
+        f"minimum {ty.minimum:g}pt"
+    )
+    colours = "\n".join(
+        f"- `{name}`: #{getattr(pal, name)}" for name in (
+            "dk1", "lt1", "dk2", "lt2",
+            "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+        )
+    )
+    return (
+        f"Slide {width_pt:g} x {height_pt:g} pt (16:9). Coordinates are percent of the slide.\n\n"
+        f"- Safe area for text: x {mx:.1f} to {100 - mx:.1f}, y {my:.1f} to {100 - my:.1f}.\n"
+        f"- Reserved source band: y {100 - my - band:.1f} to {100 - my:.1f}, full width. "
+        "Keep it empty; code draws the source line there.\n"
+        f"- Fonts: headings in {ty.major}, body in {ty.minor}.\n"
+        f"- Type roles: {roles}.\n\n"
+        f"Palette tokens:\n{colours}"
+    )
+
+
+def _design_text(tokens: DesignTokens, design_mode: DesignMode) -> str:
+    """The constraints section: the catalog's budgets, or the master to design inside."""
+    if design_mode == "creative":
+        return "# The master you design inside (hard constraints)\n\n" + _master_text(tokens)
+    return "# Components and their slot budgets (hard constraints)\n\n" + _catalog_text(tokens)
+
+
+def _header_text(context: AssembledContext, header_style: str | None) -> str:
+    profile = resolve_profile(context.header_profile, header_style)
+    return (
+        "# Header style for this deck (talking headers — phrasing only, never a citation "
+        "exemption)\n\n" + render_for_prompt(profile)
+    )
 
 
 def _answers_text(answers: Sequence[tuple[str, str] | str]) -> str:
@@ -425,6 +580,7 @@ def _compose_prompt(
     tokens: DesignTokens,
     chat_brief: Draft | None,
     redesign: Mapping[str, Any] | None = None,
+    design_mode: DesignMode = "structured",
 ) -> str:
     parts = [f"# The request\n\n{prompt.strip()}"]
     if redesign is not None:
@@ -442,9 +598,8 @@ def _compose_prompt(
         )
     parts.append("# The person's answers\n\n" + _answers_text(answers))
     parts.append("# Client context\n\n" + context.to_prompt_context())
-    parts.append(
-        "# Components and their slot budgets (hard constraints)\n\n" + _catalog_text(tokens)
-    )
+    parts.append(_header_text(context, chat_brief.header_style if chat_brief else None))
+    parts.append(_design_text(tokens, design_mode))
     heading = "The client's deck" if redesign is not None else "Evidence pack"
     parts.append(f"# {heading} — everything you may cite\n\n" + pack.text)
     return PROMPT_SEPARATOR.join(parts)
@@ -489,6 +644,8 @@ def _draft_text(deck: Deck, brief: Draft, origins: Mapping[str, str]) -> str:
             lines.append("  notes:")
             for block in slide.speaker_notes:
                 lines.extend(_block_lines(block))
+        if slide.layout is not None:
+            lines.append("  layout: " + slide.layout.model_dump_json(exclude_defaults=True))
     return "\n".join(lines)
 
 
@@ -507,8 +664,8 @@ def _revise_prompt(
             f"# The instruction\n\n{instruction.strip()}",
             "# The current draft\n\n" + _draft_text(deck, brief, origins),
             "# Client context\n\n" + context.to_prompt_context(),
-            "# Components and their slot budgets (hard constraints)\n\n"
-            + _catalog_text(tokens),
+            _header_text(context, brief.header_style),
+            _design_text(tokens, deck.design_mode),
             "# Evidence pack — everything you may cite\n\n" + pack.text,
         ]
     )
@@ -532,6 +689,8 @@ def _resolve_slides(
     rejections: list[str],
     corrections: list[str],
     incomplete: list[str],
+    failures: list[Rejection] | None = None,
+    allow_unsourced: bool = False,
 ) -> list[Slide | None]:
     """Resolve each composed slide into an IR `Slide`; `None` where it cannot be built.
 
@@ -541,7 +700,8 @@ def _resolve_slides(
     out: list[Slide | None] = []
     seen: set[str] = set()
     for position, item in enumerate(composed, start=1):
-        if item.component not in CATALOG:
+        proposed_layout: FreeLayout | None = getattr(item, "layout", None)
+        if proposed_layout is None and item.component not in CATALOG:
             corrections.append(
                 f"slide {item.id!r} named component {item.component!r}, which is not in the "
                 "catalog; dropped. A component the renderer lacks fails at render time."
@@ -563,6 +723,7 @@ def _resolve_slides(
             )
 
         local: list[str] = []
+        records: list[Rejection] = []
         face = resolve_blocks(
             item.blocks,
             store=store,
@@ -571,6 +732,10 @@ def _resolve_slides(
             location=f"slide {slide_id} face",
             rejections=local,
             snapped=corrections,
+            records=records,
+            slide_id=slide_id,
+            where="face",
+            allow_unsourced=allow_unsourced,
         )
         notes = resolve_blocks(
             item.speaker_notes,
@@ -580,10 +745,33 @@ def _resolve_slides(
             location=f"slide {slide_id} notes",
             rejections=local,
             snapped=corrections,
+            records=records,
+            slide_id=slide_id,
+            where="notes",
+            allow_unsourced=allow_unsourced,
         )
-        kept, overflow, missing, _checked = check_budgets(
-            face, component=item.component, tokens=tokens
-        )
+        layout: FreeLayout | None = None
+        if proposed_layout is not None:
+            kept, layout = _fit_layout(face, proposed_layout, slide_id, corrections)
+            overflow, missing = [], []
+        else:
+            kept, overflow, missing, _checked = check_budgets(
+                face,
+                component=item.component,
+                tokens=tokens,
+                records=records,
+                slide_id=slide_id,
+                where="face",
+            )
+        notes = _unclash_note_ids(notes, kept, slide_id, corrections)
+        if failures is not None:
+            proposed = {b.id: b for b in (*item.blocks, *item.speaker_notes)}
+            failures.extend(
+                dataclasses.replace(r, proposed=proposed.get(r.block_id))
+                if r.proposed is None
+                else r
+                for r in records
+            )
         rejections.extend(local)
         rejections.extend(f"slide {slide_id}: {reason}" for reason in overflow)
         incomplete.extend(f"slide {slide_id}: {finding}" for finding in missing)
@@ -592,17 +780,149 @@ def _resolve_slides(
                 f"slide {slide_id}: no block survived resolution; the slide is empty"
             )
 
-        out.append(
-            Slide(
+        try:
+            slide = Slide(
                 id=slide_id,
                 narrative_role=item.narrative_role,
-                component=item.component,
+                component=FREE_LAYOUT_COMPONENT if proposed_layout is not None else item.component,
                 intent=item.intent,
                 message_ids=[mid for mid in mapped if mid in known_messages],
                 blocks=kept,
                 speaker_notes=notes,
+                layout=layout,
+            )
+        except (ValidationError, ValueError) as exc:
+            message = f"slide {slide_id}: could not be built, dropped: {exc}"
+            rejections.append(message)
+            if failures is not None:
+                failures.append(
+                    Rejection(
+                        kind="ir_invalid",
+                        where="face",
+                        slide_id=slide_id,
+                        block_id="",
+                        slot="",
+                        message=message,
+                        detail={"error": str(exc)[:500]},
+                    )
+                )
+            out.append(None)
+            continue
+        if slide.layout is not None:
+            _check_layout(slide, tokens, rejections, failures, item)
+        out.append(slide)
+    return out
+
+
+def _check_layout(
+    slide: Slide,
+    tokens: DesignTokens,
+    rejections: list[str],
+    failures: list[Rejection] | None,
+    item: ComposedSlide,
+) -> None:
+    """Measure a creative slide in the real fonts, as its render will (B69).
+
+    Text too long for its frame is `overflow_frame`, which the repair call can fix by
+    shortening it. Everything else (overlap, contrast, safe area, the source band, type
+    below the minimum) is `layout_fit`: in the layout, so reported, not repaired. Unlike a
+    structured overflow, the block is not dropped: it stays on the slide the writer
+    designed, the draft shows the problem, and the final render refuses the slide until a
+    revision fixes it.
+    """
+    from autodeck.design.free_layout_qa import check_free_layout
+    from autodeck.render.renderer import scaled_tokens
+
+    proposed = {b.id: b for b in item.blocks}
+    for finding in check_free_layout(slide, scaled_tokens(tokens, slide.style.type_scale)):
+        message = f"slide {slide.id}: {finding.message}"
+        rejections.append(message)
+        if failures is None:
+            continue
+        block = next((b for b in slide.blocks if b.id == finding.block_id), None)
+        failures.append(
+            Rejection(
+                kind="overflow_frame" if finding.check == "text_fit" else "layout_fit",
+                where="face",
+                slide_id=slide.id,
+                block_id=finding.block_id,
+                slot=block.slot if block is not None else "",
+                message=message,
+                detail={"check": finding.check},
+                proposed=proposed.get(finding.block_id),
             )
         )
+
+
+def _fit_layout(
+    face: list[Block], proposed: FreeLayout, slide_id: str, corrections: list[str]
+) -> tuple[list[Block], FreeLayout | None]:
+    """Reconcile a creative slide's layout with the blocks that survived resolution (B69).
+
+    Resolution may drop a block (an unfound quote, an uncitable span). Its element goes
+    with it. A surviving block the writer never placed is dropped too: it was not on the
+    slide the writer designed, and code will not guess where it goes. Chart emphasis that
+    names a category the chart lacks is cleared. Every change is a correction the person
+    sees. Returns the kept blocks and the layout, or None when nothing is left to place.
+    """
+    by_id = {b.id: b for b in face}
+    elements = []
+    for element in proposed.elements:
+        if isinstance(element, ShapeElement):
+            elements.append(element)
+            continue
+        block = by_id.get(element.block_id)
+        if block is None:
+            corrections.append(
+                f"slide {slide_id}: layout element for {element.block_id!r} removed; "
+                "that block did not survive resolution"
+            )
+            continue
+        emphasis = getattr(element, "emphasis", None)
+        if emphasis and block.chart is not None:
+            known = [c for c in emphasis if c in block.chart.categories]
+            if known != list(emphasis):
+                corrections.append(
+                    f"slide {slide_id}: chart emphasis on {sorted(set(emphasis) - set(known))} "
+                    "cleared; the chart has no such category"
+                )
+                element = element.model_copy(update={"emphasis": known})
+        elements.append(element)
+    placed = {e.block_id for e in elements if not isinstance(e, ShapeElement)}
+    kept = [b for b in face if b.id in placed]
+    for block in face:
+        if block.id not in placed:
+            corrections.append(
+                f"slide {slide_id}: block {block.id!r} ({block.slot}) was not placed in the "
+                "layout, so it is not on the slide"
+            )
+    if not placed:
+        return kept, None
+    return kept, proposed.model_copy(update={"elements": elements})
+
+
+def _unclash_note_ids(
+    notes: list[Block], face: Sequence[Block], slide_id: str, corrections: list[str]
+) -> list[Block]:
+    """Rename a speaker-note block whose id is already taken on the slide to `{id}-n`.
+
+    The IR requires block ids unique across face and notes together; a model that numbers its
+    notes from the same sequence as its face blocks would otherwise fail the whole stage.
+    """
+    taken = {b.id for b in face}
+    out: list[Block] = []
+    for block in notes:
+        if block.id in taken:
+            new_id = f"{block.id}-n"
+            while new_id in taken:
+                new_id += "n"
+            corrections.append(
+                f"slide {slide_id!r}: speaker-note block id {block.id!r} clashed with another "
+                f"block on the slide; renamed to {new_id!r}"
+            )
+            block = block.model_copy(update={"id": new_id})
+        taken.add(block.id)
+        out.append(block)
     return out
 
 
@@ -613,6 +933,7 @@ def _grade(
     store: DocumentStore,
     rejections: list[str],
     snapped: list[str] | None = None,
+    failures: list[Rejection] | None = None,
 ) -> KeyMessage:
     """Evidence status from what the message's own citations resolved to (B45).
 
@@ -631,6 +952,7 @@ def _grade(
             slot="evidence",
             claim=ProposedClaim(text=message.text, citations=[proposed]),
         )
+        message_records: list[Rejection] = []
         resolved = resolve_blocks(
             [probe],
             store=store,
@@ -639,7 +961,14 @@ def _grade(
             location=f"key message {message.id}",
             rejections=rejections,
             snapped=snapped,
+            records=message_records,
+            where="message",
         )
+        if failures is not None:
+            failures.extend(
+                dataclasses.replace(r, block_id=message.id, slot="citations", proposed=proposed)
+                for r in message_records
+            )
         for block in resolved:
             assert block.claim is not None
             citation = block.claim.citations[0]
@@ -915,18 +1244,33 @@ def compose_deck(
     component_lib_version: str,
     chat_brief: Draft | None = None,
     prompt_path: Path | None = None,
-    content_prompt_path: Path = CONTENT_PROMPT,
     mode: Literal["compose", "redesign"] = "compose",
     settings: Mapping[str, Any] | None = None,
+    provenance: ProvenanceMode = "strict",
+    repair: bool = True,
+    named_terms: Sequence[str] = (),
+    design_mode: DesignMode = "structured",
 ) -> ComposeResult:
     """One call writes brief, outline and every slide; code resolves and audits the answer.
 
     `mode="redesign"` (Phase 3d, B41) rebuilds the client's own deck: the system prompt is
-    `prompts/redesign.md` followed by `content.md`, the response model is `RedesignDraft`,
+    `prompts/redesign.md` followed by components, skills and provenance, the response model is `RedesignDraft`,
     and the user message states `settings` and shows the deck. Everything after the call —
     resolution against the pack (A1), budgets, evidence status, coverage — is the same code
     as a first draft; the model's `changes` are kept, minus any naming a slide that did not
     survive, in `ComposeResult.changes`.
+
+    `provenance` (B55) decides which sources a claim may rest on: in `normal` the writer may
+    also write `unsourced` blocks (never in a redesign), and the pack should already carry the
+    person's own words (`evidence_pack.with_conversation`). The deck records the mode.
+
+    When anything was dropped or a draft check failed (B56) and `repair` is true, one more
+    call (B53) asks for replacements; the patched draft is resolved and checked again by the
+    same code, so `provider_calls` is 1 or 2.
+
+    `design_mode="creative"` (B69): the writer also places every slide (`Slide.layout`)
+    inside the master, under `prompts/creative.md` and the `slide-design` skill, instead of
+    choosing catalog components; layouts are reconciled with what resolution kept.
 
     Raises:
         ComposeError: the prompt is missing, the call failed, or no slide could be built.
@@ -934,8 +1278,13 @@ def compose_deck(
     redesign = mode == "redesign"
     if redesign and settings is None:
         raise ComposeError("a redesign needs the run's settings (wording, layouts, papers).")
+    creative = design_mode == "creative"
     system = _writer_system(
-        prompt_path or (REDESIGN_PROMPT if redesign else COMPOSE_PROMPT), content_prompt_path
+        prompt_path or (REDESIGN_PROMPT if redesign else COMPOSE_PROMPT),
+        role="redesign" if redesign else "compose",
+        provenance=provenance,
+        project=project,
+        design_mode=design_mode,
     )
     user = _compose_prompt(
         prompt,
@@ -945,14 +1294,182 @@ def compose_deck(
         tokens=tokens,
         chat_brief=chat_brief,
         redesign=settings if redesign else None,
+        design_mode=design_mode,
     )
-    draft: ComposeDraft = _call(
-        model, user, RedesignDraft if redesign else ComposeDraft, system, "compose"
+    schema: type[ComposeDraft]
+    if creative:
+        schema = CreativeRedesignDraft if redesign else CreativeComposeDraft
+    else:
+        schema = RedesignDraft if redesign else ComposeDraft
+    draft: ComposeDraft = _call(model, user, schema, system, "compose")
+    allow_unsourced = provenance == "normal" and not redesign
+    keep_words = redesign and str((settings or {}).get("wording", "")).startswith("keep")
+    asked_for_sections = _asked_for_sections(prompt, answers, chat_brief)
+
+    def build(current: ComposeDraft) -> _Built:
+        return _build(
+            current,
+            chat_brief=chat_brief,
+            pack=pack,
+            store=store,
+            tokens=tokens,
+            allow_unsourced=allow_unsourced,
+            keep_words=keep_words,
+            dividers_requested=asked_for_sections,
+            deck_fields={
+                "run_id": run_id,
+                "project": project,
+                "client": client,
+                "theme_ref": theme_ref,
+                "component_lib_version": component_lib_version,
+                "provenance": provenance,
+                "named_terms": list(named_terms),
+                "design_mode": design_mode,
+            },
+        )
+
+    built = build(draft)
+    provider_calls = 1
+    repairs: list[str] = []
+    repair_notes: list[str] = []
+    to_fix = repairable(built.failures)
+    if repair and to_fix:
+        request = build_repair_request(
+            draft,
+            failures=to_fix,
+            advisories=built.advisories,
+            kept={s.id: s.blocks for s in built.slides},
+            pack=pack,
+            tokens=tokens,
+        )
+        provider_calls = 2
+        try:
+            answer: RepairDraft = _call(
+                model,
+                request.prompt,
+                RepairDraft,
+                _writer_system(
+                    REPAIR_PROMPT, role="repair", provenance=provenance, project=project
+                ),
+                "repair",
+            )
+        except ComposeError as exc:
+            repair_notes.append(f"repair call failed ({exc}); the first draft's failures stand")
+        else:
+            applied = apply_repair(draft, answer, request.numbered)
+            repairs = [*applied.replaced, *applied.declined]
+            repair_notes.extend(f"repair ignored: {line}" for line in applied.ignored)
+            if answer.notes.strip():
+                repair_notes.append(f"repair: {answer.notes.strip()}")
+            draft = applied.draft
+            built = build(draft)
+
+    built = _drop_still_failing(built)
+    coverage = _coverage(
+        draft.coverage,
+        messages=built.graded,
+        origins=built.origins,
+        slides=built.slides,
+        must_include=built.brief.must_include,
+    )
+    if redesign:
+        coverage.extend(_redesign_left_out(built.slides, pack))
+    corrections = [*built.corrections, *repair_notes]
+    changes: list[dict[str, Any]] = []
+    if isinstance(draft, RedesignDraft):
+        built_ids = {s.id for s in built.slides}
+        for change in draft.changes:
+            if change.slide_id in built_ids:
+                changes.append(change.model_dump(mode="json"))
+            else:
+                corrections.append(
+                    f"layout note for {change.slide_id!r} dropped: no such slide was built"
+                )
+    return ComposeResult(
+        deck=built.deck,
+        draft_brief=built.brief,
+        coverage=coverage,
+        rejections=built.rejections,
+        notes=draft.notes,
+        provider_calls=provider_calls,
+        corrections=corrections,
+        incomplete_slots=built.incomplete,
+        origins=built.origins,
+        changes=changes,
+        failures=built.failures,
+        advisories=built.advisories,
+        repairs=repairs,
+        repair_ran=provider_calls == 2,
     )
 
+
+@dataclass
+class _Built:
+    """One draft, resolved and checked: everything `compose_deck` reports on."""
+
+    deck: Deck
+    brief: Draft
+    graded: list[KeyMessage]
+    origins: dict[str, str]
+    slides: list[Slide]
+    rejections: list[str]
+    corrections: list[str]
+    incomplete: list[str]
+    failures: list[Rejection]
+    advisories: list[Rejection]
+
+
+def _drop_still_failing(built: _Built) -> _Built:
+    """Remove blocks the draft checks still fail, after the repair (or with repair off).
+
+    The checks report and the repair call fixes; whatever still fails must not reach the IR,
+    where only the render gate would catch it (B53, B56).
+    """
+    slides, dropped = drop_failed_blocks(built.slides, built.failures)
+    if not dropped:
+        return built
+    deck = built.deck.model_copy(update={"slides": slides})
+    return dataclasses.replace(
+        built,
+        deck=deck,
+        slides=list(slides),
+        rejections=[*built.rejections, *dropped],
+        incomplete=[*built.incomplete, *dropped],
+    )
+
+
+_SECTION_WORDS = re.compile(r"\b(?:section|divider|chapter)s?\b", re.I)
+
+
+def _asked_for_sections(
+    prompt: str, answers: Sequence[tuple[str, str] | str], chat_brief: Draft | None
+) -> bool:
+    """Whether the person asked for sections, which keeps their dividers (B56)."""
+    # The person's words only: a question we asked about sections is not a request for them.
+    texts = [prompt]
+    texts.extend(entry if isinstance(entry, str) else entry[1] for entry in answers)
+    if chat_brief is not None:
+        texts.extend(chat_brief.must_include)
+    return any(_SECTION_WORDS.search(text) for text in texts)
+
+
+def _build(
+    draft: ComposeDraft,
+    *,
+    chat_brief: Draft | None,
+    pack: EvidencePack,
+    store: DocumentStore,
+    tokens: DesignTokens,
+    allow_unsourced: bool,
+    keep_words: bool,
+    dividers_requested: bool,
+    deck_fields: Mapping[str, Any],
+) -> _Built:
+    """Resolve a draft (A1, budgets), grade its messages, and run the draft checks (B56)."""
     rejections: list[str] = []
     corrections: list[str] = []
     incomplete: list[str] = []
+    failures: list[Rejection] = []
 
     messages = list(draft.key_messages)
     objective, audience, length_target = draft.objective, draft.audience, draft.length_target
@@ -980,7 +1497,14 @@ def compose_deck(
         open_risks = list(chat_brief.open_risks)
 
     graded = [
-        _grade(m, pack=pack, store=store, rejections=rejections, snapped=corrections)
+        _grade(
+            m,
+            pack=pack,
+            store=store,
+            rejections=rejections,
+            snapped=corrections,
+            failures=failures,
+        )
         for m in messages
     ]
     origins = {m.id: m.origin for m in messages}
@@ -999,24 +1523,37 @@ def compose_deck(
         rejections=rejections,
         corrections=corrections,
         incomplete=incomplete,
+        failures=failures,
+        allow_unsourced=allow_unsourced,
     )
     slides = [s for s in resolved if s is not None]
     if not slides:
         raise ComposeError(
             "the draft contained no usable slides after validation: every slide named an "
-            "unknown component."
+            "unknown component or could not be built."
         )
 
-    deck = Deck(
-        run_id=run_id,
-        project=project,
-        client=client,
-        audience=audience,
-        version=1,
-        slides=slides,
-        theme_ref=theme_ref,
-        component_lib_version=component_lib_version,
+    deck = Deck(audience=audience, version=1, slides=slides, **deck_fields)
+    proposed = {
+        (item.id, block.id): block
+        for item in draft.slides
+        for block in [*item.blocks, *item.speaker_notes]
+    }
+    checks = run_draft_checks(
+        deck, proposed=proposed, keep_words=keep_words, dividers_requested=dividers_requested
     )
+    if len(checks.slides) != len(deck.slides):
+        deck = deck.model_copy(update={"slides": checks.slides})
+        # A removed divider's own failures describe nothing the person will see.
+        kept_ids = {sl.id for sl in checks.slides}
+        failures[:] = [f for f in failures if f.where == "message" or f.slide_id in kept_ids]
+        incomplete[:] = [
+            i for i in incomplete if i.split(":", 1)[0].removeprefix("slide ") in kept_ids
+        ]
+    corrections.extend(checks.corrections)
+    failures.extend(checks.failures)
+    rejections.extend(f.message for f in checks.failures)
+
     brief = Draft(
         objective=objective,
         audience=audience,
@@ -1028,37 +1565,35 @@ def compose_deck(
         layout_pins=layout_pins,
         open_risks=open_risks,
     )
-    coverage = _coverage(
-        draft.coverage,
-        messages=graded,
-        origins=origins,
-        slides=slides,
-        must_include=must_include,
-    )
-    if redesign:
-        coverage.extend(_redesign_left_out(slides, pack))
-    changes: list[dict[str, Any]] = []
-    if isinstance(draft, RedesignDraft):
-        built_ids = {s.id for s in slides}
-        for change in draft.changes:
-            if change.slide_id in built_ids:
-                changes.append(change.model_dump(mode="json"))
-            else:
-                corrections.append(
-                    f"layout note for {change.slide_id!r} dropped: no such slide was built"
-                )
-    return ComposeResult(
+    return _Built(
         deck=deck,
-        draft_brief=brief,
-        coverage=coverage,
-        rejections=rejections,
-        notes=draft.notes,
-        provider_calls=1,
-        corrections=corrections,
-        incomplete_slots=incomplete,
+        brief=brief,
+        graded=graded,
         origins=origins,
-        changes=changes,
+        slides=list(deck.slides),
+        rejections=rejections,
+        corrections=corrections,
+        incomplete=incomplete,
+        failures=failures,
+        advisories=checks.advisories,
     )
+
+
+# Public names for the deck agent session (B71): its workspace builds and checks a draft
+# with the very code a one-shot compose uses, so a slide written one tool call at a time is
+# held to exactly the same resolution, budgets and checks as one written in a single reply.
+Built = _Built
+build_draft = _build
+drop_still_failing = _drop_still_failing
+coverage_report = _coverage
+asked_for_sections = _asked_for_sections
+writer_system = _writer_system
+design_text = _design_text
+header_text = _header_text
+answers_text = _answers_text
+brief_text = _brief_text
+draft_text = _draft_text
+read_prompt = _read_prompt
 
 
 # -- revise ---------------------------------------------------------------------
@@ -1076,7 +1611,6 @@ def revise_deck(
     model: ComposeModel,
     origins: Mapping[str, str] | None = None,
     prompt_path: Path = REVISE_PROMPT,
-    content_prompt_path: Path = CONTENT_PROMPT,
 ) -> ReviseResult:
     """One call applies one instruction; slides it does not return are kept exactly.
 
@@ -1089,7 +1623,22 @@ def revise_deck(
     graded again.
     """
     origins = dict(origins or {})
-    system = _writer_system(prompt_path, content_prompt_path)
+    # The deck carries its provenance mode (B55); a revision is held to the same one. A deck
+    # rebuilt from a client's own deck never takes unsourced statements, in any mode (B41).
+    provenance = deck.provenance
+    from_client_deck = any(
+        c.source_class == "client_deck"
+        for site in deck.claim_sites()
+        for c in site.claim.citations
+    )
+    allow_unsourced = provenance == "normal" and not from_client_deck
+    system = _writer_system(
+        prompt_path,
+        role="revise",
+        provenance=provenance,
+        project=deck.project,
+        design_mode=deck.design_mode,
+    )
     user = _revise_prompt(
         instruction,
         deck=deck,
@@ -1099,12 +1648,14 @@ def revise_deck(
         context=context,
         tokens=tokens,
     )
-    draft: ReviseDraft = _call(model, user, ReviseDraft, system, "revise")
+    revise_schema = CreativeReviseDraft if deck.design_mode == "creative" else ReviseDraft
+    draft: ReviseDraft = _call(model, user, revise_schema, system, "revise")
 
     rejections: list[str] = []
     corrections: list[str] = []
     incomplete: list[str] = []
     notes: list[str] = []
+    failures: list[Rejection] = []
 
     # Key messages: keep what did not change, grade what did.
     old = {m.id: m for m in draft_brief.key_messages}
@@ -1118,7 +1669,12 @@ def revise_deck(
         else:
             graded.append(
                 _grade(
-                    message, pack=pack, store=store, rejections=rejections, snapped=corrections
+                    message,
+                    pack=pack,
+                    store=store,
+                    rejections=rejections,
+                    snapped=corrections,
+                    failures=failures,
                 )
             )
     known = {m.id for m in graded}
@@ -1135,6 +1691,8 @@ def revise_deck(
         rejections=rejections,
         corrections=corrections,
         incomplete=incomplete,
+        failures=failures,
+        allow_unsourced=allow_unsourced,
     )
     rebuilt: dict[str, Slide] = {}
     for item, slide in zip(draft.changed_slides, resolved, strict=True):
@@ -1186,6 +1744,19 @@ def revise_deck(
     new_deck = deck.model_copy(
         update={"version": deck.version + 1, "slides": slides, "audience": draft.audience}
     )
+    # The draft checks cover rewritten slides only: untouched slides passed when they were
+    # written, and their verdicts stand. Dividers are the person's to keep in a revision.
+    if rebuilt:
+        checks = run_draft_checks(new_deck, dividers_requested=True)
+        changed = [f for f in checks.failures if f.slide_id in rebuilt]
+        failures.extend(changed)
+        rejections.extend(f.message for f in changed)
+        kept, dropped = drop_failed_blocks(new_deck.slides, changed, only=set(rebuilt))
+        if dropped:
+            new_deck = new_deck.model_copy(update={"slides": kept})
+            slides = kept
+            rejections.extend(dropped)
+            incomplete.extend(dropped)
     surviving = {m.id for m in graded}
     brief = Draft(
         objective=draft.objective,
@@ -1216,5 +1787,6 @@ def revise_deck(
         corrections=corrections,
         incomplete_slots=incomplete,
         changed_slide_ids=list(rebuilt),
+        failures=failures,
         origins=new_origins,
     )

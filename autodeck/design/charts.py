@@ -104,7 +104,8 @@ from typing import cast
 
 from pptx.chart.chart import Chart
 from pptx.chart.data import CategoryChartData, XyChartData
-from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_TICK_LABEL_POSITION
+from pptx.oxml.ns import qn
 from pptx.parts.chart import ChartPart
 from pptx.shapes.graphfrm import GraphicFrame
 from pptx.text.text import Font
@@ -158,6 +159,19 @@ _SERIES_COLORS: tuple[str, ...] = (
 #: risk the way a dropped citation would be.
 _NO_AXES: frozenset[ChartKind] = frozenset({"pie"})
 
+#: Bar kinds drawn as filled rectangles, where `invertIfNegative` decides how a negative
+#: value is painted (see `_color_series`).
+_FILLED_BARS: frozenset[ChartKind] = frozenset({"bar", "column", "stacked_bar"})
+
+#: Horizontal bar kinds: their category labels stack down the left of the plot, one row per
+#: category, instead of running side by side under it.
+_HORIZONTAL: frozenset[ChartKind] = frozenset({"bar", "stacked_bar"})
+
+#: The share of the chart's width a horizontal bar chart's category labels may take. The
+#: rest is the plot. A generous estimate like the other per-item shares in
+#: `_check_labels_fit`: the application drawing the chart decides the real split.
+CATEGORY_LABEL_SHARE = 0.35
+
 
 class ChartConstructionError(ValueError):
     """`spec` cannot be built as a native chart of its declared `chart_type`.
@@ -168,8 +182,22 @@ class ChartConstructionError(ValueError):
     """
 
 
-def place_chart(frame: Frame, box: Box, spec: ChartSpec) -> GraphicFrame:
+def place_chart(
+    frame: Frame,
+    box: Box,
+    spec: ChartSpec,
+    *,
+    emphasis: Sequence[str] = (),
+    accent: str = "accent1",
+    neutral: str = "accent6",
+) -> GraphicFrame:
     """Draw `spec` as a native chart inside `box`, with its citations as the source line.
+
+    `emphasis` (creative mode, B69) names categories to draw in `accent` with every other
+    category in the `neutral` theme colour; empty (the default) leaves the chart exactly as
+    every component draws it. It applies to bar, column, stacked bar, pie and line charts
+    (a line highlights its markers); other kinds ignore it. Colour only: no value, label
+    or category changes.
 
     `box` is split the same way `Canvas.body_and_caption` splits the slide content area —
     chart above, one caption band below — so a chart dropped into a component's own content
@@ -206,6 +234,8 @@ def place_chart(frame: Frame, box: Box, spec: ChartSpec) -> GraphicFrame:
     )
     _pin_workbook_timestamps(graphic_frame.chart)
     _style_chart(graphic_frame.chart, canvas, spec)
+    if emphasis:
+        _emphasise(graphic_frame.chart, spec, emphasis, accent, neutral)
 
     frame.caption(caption_area, source_line(spec.source_citations))
     return graphic_frame
@@ -283,6 +313,24 @@ def _xy_chart_data(spec: ChartSpec) -> XyChartData:
 # ---------------------------------------------------------------------------
 
 
+#: Horizontal bar kinds, whose categories run bottom-up unless reversed.
+_HORIZONTAL = frozenset({"bar", "stacked_bar"})
+
+
+def _tick_format(values: Sequence[float]) -> str:
+    """A number format with as many decimals as the data itself uses (at most three)."""
+    decimals = 0
+    for value in values:
+        text = f"{value:.6f}".rstrip("0").rstrip(".")
+        if "." in text:
+            decimals = max(decimals, min(3, len(text.split(".")[1])))
+    return "0" if decimals == 0 else "0." + "0" * decimals
+
+
+#: Chart kinds whose marks encode a value as a length from the axis, so the axis starts at 0.
+_ZERO_BASED = frozenset({"bar", "column", "stacked_bar", "area"})
+
+
 def _style_chart(chart: Chart, canvas: Canvas, spec: ChartSpec) -> None:
     _apply_font(chart.font, _label_style(canvas))
 
@@ -307,6 +355,36 @@ def _style_chart(chart: Chart, canvas: Canvas, spec: ChartSpec) -> None:
             axis.has_title = True
             axis.axis_title.text_frame.text = spec.y_axis_label
             _apply_font(axis.axis_title.text_frame.paragraphs[0].font, _label_style(canvas))
+
+    if spec.chart_type not in _NO_AXES and spec.chart_type != "scatter" and _has_negative(spec):
+        # The category axis crosses the value axis at zero, so with negative values its
+        # labels would sit at the zero line, inside the plot and on top of the bars (live
+        # run Xls, slide s4). `LOW` keeps them at the low end of the value axis, outside
+        # the plot, whatever the signs.
+        chart.category_axis.tick_label_position = XL_TICK_LABEL_POSITION.LOW
+
+    if spec.chart_type in _ZERO_BASED:
+        # A bar's length is its value, so the axis must include zero. Left to auto-scale,
+        # LibreOffice started a 67-78% accuracy chart at 62 and drew a 7-point gap as a
+        # three-fold difference in bar length (gold deck review, 2026-10-05).
+        values = [v for series in spec.series for v in series.values]
+        if values and min(values) >= 0:
+            chart.value_axis.minimum_scale = 0
+        elif values and max(values) <= 0:
+            chart.value_axis.maximum_scale = 0
+        # Tick labels at the data's own precision. With the axis pinned at zero, LibreOffice
+        # stepped -1.4 by 0.2 and printed the last tick as -5.55111512312578E-17.
+        ticks = chart.value_axis.tick_labels
+        ticks.number_format = _tick_format(values)
+        ticks.number_format_is_linked = False
+
+    if spec.chart_type in _HORIZONTAL:
+        # A horizontal bar chart plots its first category at the BOTTOM. Reversed, the order
+        # reads top to bottom as written; `crosses=max` keeps the value axis at the bottom.
+        chart.category_axis.reverse_order = True
+        crosses = chart.value_axis._element.find(qn("c:crosses"))
+        if crosses is not None:
+            crosses.set("val", "max")
 
     chart.has_legend = len(spec.series) > 1
     legend = chart.legend
@@ -352,6 +430,41 @@ def _color_series(chart: Chart, spec: ChartSpec) -> None:
         else:
             series.format.fill.solid()
             series.format.fill.fore_color.theme_color = accent
+            if spec.chart_type in _FILLED_BARS:
+                # python-pptx 1.0.2 writes no `<c:invertIfNegative>` for bar series, and an
+                # absent element means true: a negative bar with a solid fill is then drawn
+                # inverted, which LibreOffice paints with no fill at all. The live run's
+                # weight-change chart (every value below zero) drew axes, legend and labels
+                # and not one bar.
+                series.invert_if_negative = False
+
+
+_EMPHASIS_KINDS: frozenset[ChartKind] = frozenset(
+    {"bar", "column", "stacked_bar", "pie", "line"}
+)
+
+
+def _emphasise(
+    chart: Chart, spec: ChartSpec, emphasis: Sequence[str], accent: str, neutral: str
+) -> None:
+    """Per-category theme colours: named categories in `accent`, the rest in `neutral`."""
+    if spec.chart_type not in _EMPHASIS_KINDS:
+        return
+    chosen = set(emphasis)
+    for series in chart.series:
+        for index, category in enumerate(spec.categories):
+            colour = theme_color(accent if category in chosen else neutral)
+            point = series.points[index]
+            if spec.chart_type == "line":
+                point.marker.format.fill.solid()
+                point.marker.format.fill.fore_color.theme_color = colour
+            else:
+                point.format.fill.solid()
+                point.format.fill.fore_color.theme_color = colour
+
+
+def _has_negative(spec: ChartSpec) -> bool:
+    return any(value < 0 for series in spec.series for value in series.values)
 
 
 def _accent(index: int) -> str:
@@ -442,7 +555,21 @@ def _check_labels_fit(canvas: Canvas, body: Box, spec: ChartSpec) -> None:
     # tick marks, gridlines and (for the legend) swatches, none of which this module can
     # see in advance, so these estimates are deliberately generous rather than exact — see
     # the module docstring's note on "rare by construction, not impossible by construction".
-    category_width = body.width / max(len(spec.categories), 1)
+    if spec.chart_type in _HORIZONTAL:
+        # Horizontal bars stack their category labels down the left of the plot: each label
+        # has a share of the chart's width, and the rows share its height.
+        category_width = body.width * CATEGORY_LABEL_SHARE
+        row_height = body.height / max(len(spec.categories), 1)
+        line_height = canvas.measure_block("Ag", body.width, label_style).height
+        if line_height > row_height:
+            raise LayoutOverflowError(
+                f"chart has {len(spec.categories)} categories, and one line of "
+                f"{label_style.size:g}pt {label_style.family} needs {line_height:.0f}pt per "
+                f"row but only {row_height:.0f}pt is available — use fewer categories or a "
+                "taller slot (§6.9: nothing shrinks text to fit)."
+            )
+    else:
+        category_width = body.width / max(len(spec.categories), 1)
     for category in spec.categories:
         _require_one_line(canvas, category, category_width, label_style, what="category label")
 

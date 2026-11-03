@@ -87,14 +87,18 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from collections.abc import Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, get_type_hints
+from typing import Any, Literal, Protocol, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from autodeck.agents.rejections import Rejection, RejectionKind
+from autodeck.agents.skills import SEPARATOR as SKILL_SEPARATOR
+from autodeck.agents.skills import skills_text
 from autodeck.design.components.catalog import (
     BlockValue,
     UnknownComponentError,
@@ -106,8 +110,8 @@ from autodeck.design.components.catalog import (
 )
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.ingest.document_store import DocumentStore, IngestError
-from autodeck.ingest.provenance import snap_span
+from autodeck.ingest.document_store import DocumentStore, IngestError, UncitableSourceError
+from autodeck.ingest.provenance import diagnose_quote, snap_span
 from autodeck.ir.models import (
     GEOMETRIES,
     Block,
@@ -163,7 +167,21 @@ class CitationResolutionError(IngestError):
     Raised internally and always caught: it is how `_resolve_citation` reports the specific
     reason (uncitable source, quote not found, doc not among the evidence shown) up to the
     caller that decides to drop a block, never allowed to propagate out of this module.
+
+    `kind` is the structured reason (a `RejectionKind`) and `detail` its figures, so the
+    caller can record a `Rejection` rather than only a sentence.
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: RejectionKind = "quote_not_found",
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind: RejectionKind = kind
+        self.detail: dict[str, Any] = detail or {}
 
 
 # ---------------------------------------------------------------------------
@@ -241,10 +259,12 @@ class ProposedChart(BaseModel):
     source_citations: list[ProposedCitation] = Field(min_length=1)
 
 
-BlockKindDraft = Literal["claim", "framing", "chart", "section_header", "diagram"]
-"""The block kinds the writer authors. `diagram` was added by B37: the outline could
-already assign `framework_diagram` and `timeline`, and nothing could fill them, so no
-pipeline-built deck could carry the native diagram GATE 3 requires. `figure` and `icon`
+BlockKindDraft = Literal["claim", "framing", "chart", "section_header", "diagram", "unsourced"]
+"""The block kinds the writer authors. `unsourced` (B55) is a normal deck's qualitative general
+knowledge: plain `text`, no citation, resolved to a `claim` with `basis="unsourced"` — and
+rejected as `mode_blocked` in a strict deck or a redesign. `diagram` was added by B37: the
+outline could already assign `framework_diagram` and `timeline`, and nothing could fill them,
+so no pipeline-built deck could carry the native diagram GATE 3 requires. `figure` and `icon`
 remain out of scope here — icons are art direction's (`AssignIcons`, B36)."""
 
 
@@ -306,7 +326,8 @@ class ProposedBlock(BaseModel):
     kind: BlockKindDraft
     slot: str = Field(min_length=1)
     text: str = Field(
-        default="", description="For kind='framing' or 'section_header'. '' otherwise."
+        default="",
+        description="For kind='framing', 'section_header' or 'unsourced'. '' otherwise.",
     )
     claim: ProposedClaim | None = Field(default=None, description="For kind='claim'.")
     chart: ProposedChart | None = Field(default=None, description="For kind='chart'.")
@@ -465,7 +486,9 @@ def _resolve_citation(
                 return claim.to_citation(store=store, retrieved_by=retrieved_by)
             except IngestError as exc:
                 raise CitationResolutionError(
-                    f"cached claim for {proposed.doc_id!r} no longer resolves: {exc}"
+                    f"cached claim for {proposed.doc_id!r} no longer resolves: {exc}",
+                    kind="quote_not_found",
+                    detail={"doc_id": proposed.doc_id, "quote": proposed.quote},
                 ) from exc
 
     candidates = [span for span in spans if span.doc_id == proposed.doc_id]
@@ -473,15 +496,19 @@ def _resolve_citation(
         raise CitationResolutionError(
             f"{proposed.doc_id!r} was not among the evidence shown for this slide (neither "
             "a curated claim nor a retrieved span). A citation names evidence actually "
-            "presented, never a document the writer merely recalls."
+            "presented, never a document the writer merely recalls.",
+            kind="doc_not_shown",
+            detail={"doc_id": proposed.doc_id},
         )
 
     last_error: IngestError | None = None
+    errors: list[IngestError] = []
     for span in candidates:
         try:
             return span.to_citation(store, quote=proposed.quote, retrieved_by=retrieved_by)
         except IngestError as exc:
             last_error = exc
+            errors.append(exc)
             continue
 
     snapped = _snap_citation(proposed, store=store, spans=candidates, retrieved_by=retrieved_by)
@@ -489,10 +516,41 @@ def _resolve_citation(
         return snapped
 
     assert last_error is not None
+    detail: dict[str, Any] = {"doc_id": proposed.doc_id, "quote": proposed.quote}
+    if all(isinstance(e, UncitableSourceError) for e in errors):
+        raise CitationResolutionError(
+            f"quote for {proposed.doc_id!r} did not resolve against any evidence span shown "
+            f"for this slide: {last_error}",
+            kind="uncitable",
+            detail=detail,
+        ) from last_error
+
+    passages = _passages(store, candidates)
+    diagnosis = diagnose_quote(proposed.quote, passages)
+    detail["best_coverage"] = round(float(diagnosis["best_coverage"]), 3)
+    kind: RejectionKind = "quote_not_found"
+    if diagnosis["splice"]:
+        kind = "quote_splice"
+        detail["parts"] = diagnosis["parts"]
     raise CitationResolutionError(
         f"quote for {proposed.doc_id!r} did not resolve against any evidence span shown "
         f"for this slide: {last_error}"
+        + (" (it joins two separate passages)" if kind == "quote_splice" else ""),
+        kind=kind,
+        detail=detail,
     ) from last_error
+
+
+def _passages(store: DocumentStore, spans: Sequence[RetrievedSpan]) -> list[str]:
+    """The verbatim text of each citable span's element, for diagnosing a failed quote."""
+    texts: list[str] = []
+    for span in spans:
+        if not span.citable:
+            continue
+        element = store.get(span.doc_id).element(span.element_id)
+        if element is not None:
+            texts.append(element.text)
+    return texts
 
 
 #: Where `_snap_citation` reports, set by `resolve_blocks` for the duration of one call:
@@ -649,7 +707,9 @@ def _resolve_diagram(
         except (CitationResolutionError, IngestError) as exc:
             raise CitationResolutionError(
                 f"diagram step {step.id!r} (order {step.order}) dropped the whole diagram: "
-                f"{exc}"
+                f"{exc}",
+                kind=getattr(exc, "kind", "quote_not_found"),
+                detail=getattr(exc, "detail", None),
             ) from exc
     return DiagramSpec(
         relationship="sequence",
@@ -671,20 +731,26 @@ def _resolve_step(
     framing: LabelFraming | None = None
     if step.status == "claim":
         if step.claim is None:
-            raise CitationResolutionError("status='claim' with no claim payload")
+            raise CitationResolutionError(
+                "status='claim' with no claim payload", kind="no_payload"
+            )
         if step.framing_reason != "":
             raise CitationResolutionError(
                 f"status='claim' but framing_reason={step.framing_reason!r}; a label is a "
-                "claim or framing, never both"
+                "claim or framing, never both",
+                kind="ir_invalid",
             )
         resolved_claim = _resolve_claim(step.claim, store=store, claims=claims, spans=spans)
     else:
         if step.framing_reason == "":
-            raise CitationResolutionError("status='framing' with no framing_reason")
+            raise CitationResolutionError(
+                "status='framing' with no framing_reason", kind="no_payload"
+            )
         if step.claim is not None:
             raise CitationResolutionError(
                 "status='framing' but a claim was supplied; a label is a claim or framing, "
-                "never both"
+                "never both",
+                kind="ir_invalid",
             )
         framing = LabelFraming(reason=step.framing_reason)
     return ProcessStep(
@@ -705,42 +771,100 @@ def _resolve_block(
     spans: Sequence[RetrievedSpan],
     location: str,
     rejections: list[str],
+    records: list[Rejection] | None = None,
+    slide_id: str = "",
+    where: Literal["face", "notes", "message"] = "face",
+    allow_unsourced: bool = False,
 ) -> Block | None:
     """Resolve one proposed block, or record why it was dropped and return None.
 
     A quote that does not resolve is a failure, not a warning (task 2b.4): the whole block
     is dropped rather than falling back to an uncited version of it, and the *reason* is
-    kept rather than the block silently disappearing.
+    kept rather than the block silently disappearing — as a sentence in `rejections` and,
+    when `records` is given, as a structured `Rejection` beside it.
     """
+
+    def record(kind: RejectionKind, message: str, detail: dict[str, Any] | None = None) -> None:
+        rejections.append(message)
+        if records is not None:
+            records.append(
+                Rejection(
+                    kind=kind,
+                    where=where,
+                    slide_id=slide_id,
+                    block_id=proposed.id,
+                    slot=proposed.slot,
+                    message=message,
+                    detail=detail or {},
+                    proposed=proposed,
+                )
+            )
+
     try:
         if proposed.kind == "claim":
             if proposed.claim is None:
-                raise CitationResolutionError("kind='claim' with no claim payload")
+                raise CitationResolutionError(
+                    "kind='claim' with no claim payload", kind="no_payload"
+                )
             claim = _resolve_claim(proposed.claim, store=store, claims=claims, spans=spans)
             return Block(id=proposed.id, kind="claim", slot=proposed.slot, claim=claim)
         if proposed.kind == "chart":
             if proposed.chart is None:
-                raise CitationResolutionError("kind='chart' with no chart payload")
+                raise CitationResolutionError(
+                    "kind='chart' with no chart payload", kind="no_payload"
+                )
             chart = _resolve_chart(proposed.chart, store=store, claims=claims, spans=spans)
             return Block(id=proposed.id, kind="chart", slot=proposed.slot, chart=chart)
         if proposed.kind == "diagram":
             if proposed.diagram is None:
-                raise CitationResolutionError("kind='diagram' with no diagram payload")
+                raise CitationResolutionError(
+                    "kind='diagram' with no diagram payload", kind="no_payload"
+                )
             diagram = _resolve_diagram(
                 proposed.diagram, store=store, claims=claims, spans=spans
             )
             return Block(id=proposed.id, kind="diagram", slot=proposed.slot, diagram=diagram)
+        if proposed.kind == "unsourced":
+            if not allow_unsourced:
+                raise CitationResolutionError(
+                    "an unsourced statement is not allowed in this deck (strict provenance, "
+                    "or a redesign): cite a document or leave it out (B55)",
+                    kind="mode_blocked",
+                )
+            if not proposed.text.strip():
+                raise CitationResolutionError(
+                    "kind='unsourced' with no text", kind="no_payload"
+                )
+            return Block(
+                id=proposed.id,
+                kind="claim",
+                slot=proposed.slot,
+                claim=Claim(text=proposed.text, basis="unsourced"),
+            )
         # framing / section_header: plain text, no citation to resolve (A5's exemption).
         if not proposed.text.strip():
-            raise CitationResolutionError(f"kind={proposed.kind!r} with no text")
+            raise CitationResolutionError(
+                f"kind={proposed.kind!r} with no text", kind="no_payload"
+            )
         return Block(id=proposed.id, kind=proposed.kind, slot=proposed.slot, text=proposed.text)
-    except (CitationResolutionError, IngestError) as exc:
-        rejections.append(f"{location} block {proposed.id!r} ({proposed.slot}): {exc}")
+    except CitationResolutionError as exc:
+        record(
+            exc.kind,
+            f"{location} block {proposed.id!r} ({proposed.slot}): {exc}",
+            exc.detail,
+        )
+        return None
+    except IngestError as exc:
+        kind: RejectionKind = (
+            "uncitable" if isinstance(exc, UncitableSourceError) else "quote_not_found"
+        )
+        record(kind, f"{location} block {proposed.id!r} ({proposed.slot}): {exc}")
         return None
     except Exception as exc:  # pydantic's own validators, as a defensive backstop
-        rejections.append(
+        record(
+            "ir_invalid",
             f"{location} block {proposed.id!r} ({proposed.slot}): "
-            f"failed IR validation after resolution: {exc}"
+            f"failed IR validation after resolution: {exc}",
         )
         return None
 
@@ -790,14 +914,186 @@ def _chart_slots(component: str) -> list[str]:
     return _payload_slots(component, ChartSpec)
 
 
+_ITEM_FINDING = re.compile(r"^[^:]*?\.(?P<slot>[A-Za-z0-9_]+)\[(?P<index>\d+)\]:")
+_STACK_FINDING = re.compile(r"item\(s\) need [\d.]+pt stacked but only [\d.]+pt")
+_CHARS = re.compile(r"(?P<chars>\d+) characters does not fit")
+_BUDGET = re.compile(
+    r"at most (?P<lines>\d+) line\(s\), roughly (?P<max>\d+) characters, "
+    r"at (?P<size>[\d.]+)pt (?P<family>.+?)(?: bold| italic)*\)"
+)
+
+
+def _finding_detail(finding: str) -> dict[str, Any]:
+    """The figures in an overflow finding, for a repair prompt: chars, max_chars, ..."""
+    detail: dict[str, Any] = {}
+    if m := _CHARS.search(finding):
+        detail["chars"] = int(m["chars"])
+    if m := _BUDGET.search(finding):
+        detail.update(
+            max_lines=int(m["lines"]),
+            max_chars=int(m["max"]),
+            size_pt=float(m["size"]),
+            family=m["family"],
+        )
+    return detail
+
+
+def _finding_slot(finding: str) -> str:
+    return finding.split(":", 1)[0].rsplit(".", 1)[-1].split("[")[0]
+
+
+def _slot_content(blocks: Sequence[Block]) -> dict[str, BlockValue]:
+    by_slot: dict[str, list[Block]] = {}
+    for block in blocks:
+        by_slot.setdefault(block.slot, []).append(block)
+    return {
+        slot: [_block_text(b) for b in items] if len(items) > 1 else _block_text(items[0])
+        for slot, items in by_slot.items()
+    }
+
+
+def _computed_slots() -> frozenset[str]:
+    from autodeck.render.renderer import _COMPUTED_FIELDS  # lazy: render imports the pipeline
+
+    return frozenset(_COMPUTED_FIELDS)
+
+
+def _trial_overflow(blocks: Sequence[Block], component: str, tokens: DesignTokens) -> str | None:
+    """Lay `blocks` out with the component's real renderer on a throwaway slide.
+
+    Returns the layout error's message when the slide does not fit as a whole, else None.
+    A slide that cannot be adapted at all (a required slot empty, cards unpaired) returns
+    None: the missing-slot checks report that, and there is nothing to lay out.
+    """
+    from autodeck.design.charts import ChartConstructionError
+    from autodeck.design.layout_kit import Canvas, LayoutOverflowError
+    from autodeck.design.theme.master_builder import new_presentation
+    from autodeck.ir.models import Slide
+    from autodeck.render.renderer import _BLANK_LAYOUT, RenderStageError, adapt_slide
+
+    try:
+        entry = registration(component)
+        trial = Slide(id="trial", narrative_role="trial", component=component, blocks=list(blocks))
+        content, _warnings = adapt_slide(trial, entry.content_type)
+    except (RenderStageError, ValueError, UnknownComponentError):
+        return None
+    presentation = new_presentation(tokens)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+    try:
+        entry.renderer(slide, Canvas(tokens), content)
+    except (LayoutOverflowError, ChartConstructionError) as exc:
+        return str(exc)
+    return None
+
+
+def _fit_victim(blocks: Sequence[Block], component: str, tokens: DesignTokens) -> Block | None:
+    """The block to drop when a slide does not fit as a whole.
+
+    Optional slots go first, then items of list slots, longest first. Required slots and the
+    headline are never dropped (None is returned once only they are left).
+    """
+    from autodeck.design.components.catalog import spec_for
+
+    try:
+        spec = spec_for(component, tokens)
+        required = {s.name for s in spec.slots if s.required and not s.repeatable}
+        repeatable = {s.name for s in spec.slots if s.repeatable}
+    except Exception:
+        required, repeatable = set(), set()
+    texts = [b for b in blocks if b.chart is None and b.diagram is None and _block_text(b)]
+    if not texts:
+        return None
+
+    required_lists = {s.name for s in spec.slots if s.required and s.repeatable} if required else set()
+
+    def droppable(block: Block) -> bool:
+        if block.slot in ("headline", "title") or block.slot in required:
+            return False
+        if block.slot in required_lists:
+            return sum(1 for b in texts if b.slot == block.slot) > 1
+        return True
+
+    def rank(block: Block) -> tuple[int, int]:
+        return (1 if block.slot in repeatable else 0), -len(_block_text(block))
+
+    # Never a headline, a required slot, or a required list's last item: dropping one only
+    # turns "too long" into "missing", and the slide would still be drawn as a placeholder,
+    # with a less accurate reason. Such a slide is left for the repair call to shorten.
+    candidates = [b for b in texts if droppable(b)]
+    return min(candidates, key=rank) if candidates else None
+
+
+def _single_slots(component: str, tokens: DesignTokens) -> frozenset[str]:
+    """The component's slots that take exactly one block (not a LIST), in any variant."""
+    from autodeck.design.components.catalog import spec_for
+
+    names: set[str] = set()
+    repeatable: set[str] = set()
+    try:
+        entry = registration(component)
+        for variant in entry.variants:
+            for slot in spec_for(component, tokens, variant=variant.name).slots:
+                (repeatable if slot.repeatable else names).add(slot.name)
+    except Exception:  # an unknown component or variant: nothing to enforce here
+        return frozenset()
+    return frozenset(names - repeatable)
+
+
+def _slot_rejection(block: Block, component: str) -> tuple[RejectionKind, str] | None:
+    """Why `block`'s slot is not one of `component`'s, or None when it is placeable."""
+    from autodeck.render.renderer import (  # lazy: render imports the pipeline
+        UnknownComponentError as RenderUnknownComponentError,
+    )
+    from autodeck.render.renderer import (
+        placeable_slots,
+    )
+
+    try:
+        allowed = placeable_slots(component)
+    except RenderUnknownComponentError:
+        return None
+    if block.slot in allowed:
+        return None
+    if block.slot in _computed_slots():
+        return (
+            "computed_slot",
+            f"slot {block.slot!r} is filled by the renderer from the deck's own citations "
+            f"and is never written; {component!r} takes: {', '.join(sorted(allowed))}",
+        )
+    return (
+        "unknown_slot",
+        f"{block.slot!r} is not a slot of {component!r}; it takes: "
+        f"{', '.join(sorted(allowed))}",
+    )
+
+
 def check_budgets(
-    blocks: list[Block], *, component: str, tokens: DesignTokens
+    blocks: list[Block],
+    *,
+    component: str,
+    tokens: DesignTokens,
+    records: list[Rejection] | None = None,
+    slide_id: str = "",
+    where: Literal["face", "notes", "message"] = "face",
 ) -> tuple[list[Block], list[str], list[str], bool]:
     """Drop any face block whose slot overflows its budget. Chart and diagram blocks are
-    exempt — the catalog declares text slots, not chart or diagram geometry. A diagram's
-    labels are budgeted by its geometry (`GEOMETRIES[kind].max_label_words`), which
-    `DiagramSpec` enforces when the block is built, so an over-long label has already
-    dropped its block (as an IR-validation rejection) by the time this runs.
+    exempt from the text budgets — the catalog declares text slots, not chart or diagram
+    geometry. A diagram's labels are budgeted by its geometry (`GEOMETRIES[kind].
+    max_label_words`), which `DiagramSpec` enforces when the block is built, so an over-long
+    label has already dropped its block (as an IR-validation rejection) by the time this
+    runs.
+
+    **Only the block that overflows is dropped.** A finding names `slot[index]`; the index is
+    the position in the slot's list as `check_overflow` saw it, which maps back to exactly
+    one block (`overflow_item`). If the slot's stacked height still does not fit once the
+    over-long items are gone, blocks are dropped from the END of the slot until it does
+    (`overflow_stack`). A single-text slot that overflows drops its one block
+    (`overflow_text`). Earlier versions dropped every block in the slot, so one 132-character
+    bullet cost its 92- and 101-character neighbours too.
+
+    A block whose slot is not one the component places is rejected first: `computed_slot`
+    for a field the renderer fills itself (`source`), `unknown_slot` for anything else —
+    either would otherwise survive to render and fail there as an unplaced block.
 
     A component that takes a diagram (`_diagram_slots`) or a chart (`_chart_slots`) but
     received none is reported in `incomplete_slots`, in the catalog's own missing-slot form:
@@ -809,64 +1105,216 @@ def check_budgets(
     caller — see `ContentResult.rejections` and `.incomplete_slots`. Only an overflow finding
     ever drops a block: a missing-slot finding has no block to drop, since none was written.
 
+    `records`, when given, receives a structured `Rejection` for every drop, alongside the
+    returned sentences.
+
     Returns `(kept, rejections, incomplete_slots, budgets_checked)`.
     """
-    by_slot: dict[str, list[Block]] = {}
-    for block in blocks:
-        if block.chart is not None or block.diagram is not None:
-            continue
-        by_slot.setdefault(block.slot, []).append(block)
-
     try:
-        content: dict[str, BlockValue] = {
-            slot: [_block_text(b) for b in items] if len(items) > 1 else _block_text(items[0])
-            for slot, items in by_slot.items()
-        }
-        findings = check_overflow(content, component, tokens)
+        registration(component)
     except UnknownComponentError:
         return blocks, [], [], False
 
-    overflow_findings = [f for f in findings if not is_missing_slot_finding(f)]
-    incomplete_slots = [f for f in findings if is_missing_slot_finding(f)]
-    filled_diagrams = {b.slot for b in blocks if b.diagram is not None}
+    rejections: list[str] = []
+
+    def drop(
+        block: Block,
+        kind: RejectionKind,
+        message: str,
+        *,
+        item_index: int | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        rejections.append(message)
+        if records is not None:
+            records.append(
+                Rejection(
+                    kind=kind,
+                    where=where,
+                    slide_id=slide_id,
+                    block_id=block.id,
+                    slot=block.slot,
+                    message=message,
+                    item_index=item_index,
+                    detail=detail or {},
+                )
+            )
+
+    current: list[Block] = []
+    for block in blocks:
+        bad = _slot_rejection(block, component)
+        if bad is None:
+            current.append(block)
+            continue
+        kind, why = bad
+        drop(
+            block,
+            kind,
+            f"dropped block {block.id!r} (slot {block.slot!r}): {_excerpt(_block_text(block))}"
+            f" — {why}",
+            detail={"slot": block.slot},
+        )
+
+    # A slot that is not a LIST holds exactly one block. A second one used to survive to the
+    # preview, which then drew the whole slide as a placeholder (run XLP3: two `takeaway`
+    # blocks on a callout). The first block written stays; each extra is rejected so the
+    # repair call can merge or move it.
+    single = _single_slots(component, tokens)
+    filled: set[str] = set()
+    for block in list(current):
+        if block.slot not in single:
+            continue
+        if block.slot in filled:
+            current.remove(block)
+            drop(
+                block,
+                "overflow_text",
+                f"dropped block {block.id!r} (slot {block.slot!r}): "
+                f"{_excerpt(_block_text(block))} — {block.slot!r} holds one block and "
+                "already has one; merge the two or move this one to a list slot",
+                detail={"slot": block.slot, "reason": "second_block_in_single_slot"},
+            )
+        else:
+            filled.add(block.slot)
+
+    def text_blocks() -> list[Block]:
+        return [b for b in current if b.chart is None and b.diagram is None]
+
+    findings: list[str] = []
+    try:
+        while True:
+            texts = text_blocks()
+            findings = check_overflow(_slot_content(texts), component, tokens)
+            overflow = [f for f in findings if not is_missing_slot_finding(f)]
+            if not overflow:
+                break
+
+            # Position of each block within its slot's item list, as check_overflow built it
+            # (empty items are skipped there, so they are skipped here).
+            members: dict[str, list[Block]] = {}
+            for block in texts:
+                if _block_text(block):
+                    members.setdefault(block.slot, []).append(block)
+
+            doomed: dict[str, tuple[Block, RejectionKind, str, int | None, dict[str, Any]]] = {}
+            stacked: list[str] = []
+            for finding in overflow:
+                slot = _finding_slot(finding)
+                item = _ITEM_FINDING.match(finding)
+                if item is not None:
+                    index = int(item["index"])
+                    block = members[slot][index]
+                    doomed[block.id] = (
+                        block,
+                        "overflow_item",
+                        f"dropped block {block.id!r} (slot {slot!r}): "
+                        f"{_excerpt(_block_text(block))} — overflow: "
+                        f"{finding}",
+                        index,
+                        _finding_detail(finding),
+                    )
+                elif _STACK_FINDING.search(finding):
+                    stacked.append(slot)
+                else:
+                    block = members[slot][-1]
+                    doomed[block.id] = (
+                        block,
+                        "overflow_text",
+                        f"dropped block {block.id!r} (slot {slot!r}): "
+                        f"{_excerpt(_block_text(block))} — overflow: "
+                        f"{finding}",
+                        None,
+                        _finding_detail(finding),
+                    )
+            if not doomed:
+                # Only stacked-height findings are left: shed from the end of each slot.
+                for slot in dict.fromkeys(stacked):
+                    block = members[slot][-1]
+                    finding = next(
+                        f
+                        for f in overflow
+                        if _finding_slot(f) == slot and _STACK_FINDING.search(f)
+                    )
+                    doomed[block.id] = (
+                        block,
+                        "overflow_stack",
+                        f"dropped block {block.id!r} (slot {slot!r}): "
+                        f"{_excerpt(_block_text(block))} — overflow: "
+                        f"{finding}",
+                        len(members[slot]) - 1,
+                        {"items": len(members[slot])},
+                    )
+            if not doomed:  # pragma: no cover — every overflow finding is one of the three
+                break
+            for block, kind, message, index, detail in doomed.values():
+                drop(block, kind, message, item_index=index, detail=detail)
+            current = [b for b in current if b.id not in doomed]
+    except UnknownComponentError:
+        return blocks, [], [], False
+
+    # Slots that each fit their own budget can still overflow the region they share: a
+    # seven-line headline the headline budget allows leaves no room for the points; a
+    # big_number's label and support each fit, but not together (design gallery,
+    # 2026-10-13). So the slide is laid out for real (python-pptx only, no LibreOffice) and
+    # blocks are dropped until it fits: optional parts first, then the longest item, the
+    # headline last. Each drop is reported so the repair call can shorten instead.
+    if where == "face":
+        for _ in range(12):
+            problem = _trial_overflow(current, component, tokens)
+            if problem is None:
+                break
+            victim = _fit_victim(current, component, tokens)
+            if victim is None:
+                # Only required text is left and it still does not fit: nothing is dropped,
+                # the preview draws a placeholder saying so, and this says why.
+                rejections.append(
+                    f"slide {slide_id or '?'} does not fit as a whole even with its optional "
+                    f"parts removed: {problem.split('. Shorten')[0]}. Its headline or required "
+                    "text must be shorter, or it needs a component with more room"
+                )
+                break
+            current = [b for b in current if b.id != victim.id]
+            drop(
+                victim,
+                "overflow_stack",
+                f"dropped block {victim.id!r} (slot {victim.slot!r}): "
+                f"{_excerpt(_block_text(victim))} — the slide does not fit as a whole: "
+                f"{problem.split('. Shorten')[0]}. Shorten the headline or the body, or drop "
+                "an optional part",
+                detail={"slot": victim.slot, "reason": "slide_does_not_fit_as_a_whole"},
+            )
+
+    # A required slot the renderer fills itself (a divider's number, a source line) is never
+    # "missing": no block could ever fill it.
+    computed = _computed_slots()
+    incomplete_slots = [
+        f for f in findings if is_missing_slot_finding(f) and _finding_slot(f) not in computed
+    ]
+    filled_diagrams = {b.slot for b in current if b.diagram is not None}
     incomplete_slots.extend(
         missing_slot_finding(component, slot)
         for slot in _diagram_slots(component)
         if slot not in filled_diagrams
     )
-    filled_charts = {b.slot for b in blocks if b.chart is not None}
+    filled_charts = {b.slot for b in current if b.chart is not None}
     incomplete_slots.extend(
         missing_slot_finding(component, slot)
         for slot in _chart_slots(component)
         if slot not in filled_charts
     )
-    if not overflow_findings:
-        return blocks, [], incomplete_slots, True
-
-    findings_by_slot: dict[str, list[str]] = {}
-    for finding in overflow_findings:
-        slot = finding.split(":", 1)[0].rsplit(".", 1)[-1].split("[")[0]
-        findings_by_slot.setdefault(slot, []).append(finding)
-
-    # One rejection per block that is actually dropped. A finding is per *slot*, and a slot
-    # can hold several blocks, all of which go — counting findings would report one drop
-    # where two sentences vanished, and the writer would have no way to know which.
-    rejections: list[str] = []
-    kept: list[Block] = []
-    for block in blocks:
-        if (
-            block.chart is not None
-            or block.diagram is not None
-            or block.slot not in findings_by_slot
-        ):
-            kept.append(block)
-            continue
-        rejections.append(
-            f"dropped block {block.id!r} (slot {block.slot!r}): "
-            f"{_excerpt(_block_text(block))} — overflow: "
-            f"{'; '.join(findings_by_slot[block.slot])}"
-        )
-    return kept, rejections, incomplete_slots, True
+    if records is not None:
+        for finding in incomplete_slots:
+            records.append(
+                Rejection(
+                    kind="missing_slot",
+                    where=where,
+                    slide_id=slide_id,
+                    block_id="",
+                    slot=_finding_slot(finding),
+                    message=finding,
+                )
+            )
+    return current, rejections, incomplete_slots, True
 
 
 # ---------------------------------------------------------------------------
@@ -961,7 +1409,10 @@ def write_slide(
             `component` that makes it unbuildable — never for a rejected block, which is
             reported in the result instead of raised.
     """
-    system = _read_prompt(prompt_path)
+    # The index carries the project (A4), so its own gold exemplar is withheld (B65).
+    system = SKILL_SEPARATOR.join(
+        [_read_prompt(prompt_path), skills_text("content", project=index.project)]
+    )
 
     served = [m for m in (brief.message(mid) for mid in slide.message_ids) if m is not None]
     query = _slide_query(slide, served)
@@ -1022,6 +1473,10 @@ def resolve_blocks(
     location: str,
     rejections: list[str],
     snapped: list[str] | None = None,
+    records: list[Rejection] | None = None,
+    slide_id: str = "",
+    where: Literal["face", "notes", "message"] = "face",
+    allow_unsourced: bool = False,
 ) -> list[Block]:
     """Resolve every proposed block's citations through the store; drop what fails.
 
@@ -1029,7 +1484,8 @@ def resolve_blocks(
     a single slide uses — one resolver, no third path. Each refusal is appended to
     `rejections` as a plain sentence naming `location`; a block that resolves to nothing is
     omitted, never half-built. A quote that was not verbatim but clearly points at one
-    passage is cited in the source's own words (B52), and noted in `snapped` if given.
+    passage is cited in the source's own words (B52), and noted in `snapped` if given. When
+    `records` is given each drop is also appended there as a structured `Rejection`.
     """
     resolved: list[Block] = []
     token = _SNAP_NOTES.set((location, snapped) if snapped is not None else None)
@@ -1042,6 +1498,10 @@ def resolve_blocks(
                 spans=spans,
                 location=location,
                 rejections=rejections,
+                records=records,
+                slide_id=slide_id,
+                where=where,
+                allow_unsourced=allow_unsourced,
             )
             if block is not None:
                 resolved.append(block)

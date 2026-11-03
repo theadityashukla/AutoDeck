@@ -33,7 +33,7 @@ hardcoding a slot name like `headline`, is what keeps this module correct as mor
 and the pull-quote text itself) and `callout_takeaway`'s one prominent line is named
 `takeaway`, not `headline` — a name-based lookup would have missed both. The `title`
 component is the exception to "the `title` role": its title is set at the larger `display`
-role and its `title`-role slot is the optional subtitle, so `_header_slot_name` looks for a
+role and its `title`-role slot is the optional subtitle, so `header_slot_name` looks for a
 required `title`-role slot first and falls back to `display`.
 """
 
@@ -130,7 +130,7 @@ class HeaderFlowReport:
         return "\n".join(out)
 
 
-def _header_slot_name(component: str, tokens: DesignTokens) -> str | None:
+def header_slot_name(component: str, tokens: DesignTokens) -> str | None:
     """The name of `component`'s header slot: where a reader finds the slide's main line.
 
     Reads the same `ComponentSpec` the renderer and the budget check build, rather than
@@ -206,7 +206,7 @@ def flow_report(
     seen: dict[str, str] = {}
 
     for slide in deck.slides:
-        slot_name = _header_slot_name(slide.component, tokens)
+        slot_name = header_slot_name(slide.component, tokens)
         block = _header_block(slide, slot_name)
         kind, text = _header_text(block)
         report.lines.append(
@@ -358,3 +358,6 @@ def _storyline_findings(deck: Deck, brief: DeckBrief) -> list[FlowFinding]:
             furthest = rank
 
     return findings
+
+
+_header_slot_name = header_slot_name  # private alias kept for existing callers

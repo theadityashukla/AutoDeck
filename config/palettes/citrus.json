@@ -1,0 +1,19 @@
+{
+  "name": "citrus",
+  "description": "Warm white, black, orange accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "1F1A0E",
+    "lt1": "FFFDF5",
+    "dk2": "615A45",
+    "lt2": "FAF4DD",
+    "accent1": "D67300",
+    "accent2": "2B9348",
+    "accent3": "FFC300",
+    "accent4": "615A45",
+    "accent5": "C0261B",
+    "accent6": "D6CFB6",
+    "hyperlink": "D67300",
+    "followed_hyperlink": "2B9348"
+  }
+}

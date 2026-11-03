@@ -32,7 +32,7 @@ def roots(tmp_path: Path) -> Roots:
         knowledge=tmp_path / "knowledge",
         corpus=tmp_path / "corpus",
         runs=tmp_path / "runs",
-        env="dev",
+        env="dev-mistral",
         profile=tmp_path / "profile.json",
     )
 
@@ -252,7 +252,7 @@ def test_home_has_the_expected_keys(server: Client) -> None:
     assert status == 200
     assert {"env", "checks", "clients", "projects", "runs"} <= set(payload)
     assert payload["projects"] == ["proj"]
-    assert payload["env"]["name"] == "dev"
+    assert payload["env"]["name"] == "dev-mistral"
 
 
 def test_a_foreign_host_header_is_refused(server: Client) -> None:

@@ -652,6 +652,8 @@ class Stack:
         self._name = name
         self._width = width
         self._items: list[_Item] = []
+        self.placed_boxes: list[Box] = []
+        """Each item's box after `place`, in order — for a renderer that draws between rows."""
 
     # -- declaring --------------------------------------------------------
 
@@ -841,9 +843,12 @@ class Stack:
             placed = placed.snap_to_baseline(self._canvas.baseline)
 
         cursor = placed.y
+        self.placed_boxes = []
         for item in self._items:
             cursor += item.gap_before
-            item.paint(Box(placed.x, cursor, self._width, item.height))
+            item_box = Box(placed.x, cursor, self._width, item.height)
+            item.paint(item_box)
+            self.placed_boxes.append(item_box)
             cursor += item.height
 
         below = placed.bottom + gutter

@@ -23,6 +23,17 @@ dependencies = [
 # The review UI's native window (B40): pywebview drives the web view the OS already ships
 # (WebView2 on Windows, WKWebView on macOS). Without it `autodeck ui` opens the browser.
 ui = ["pywebview>=5.0"]
+# Meeting transcription (Stage A): local, offline speech-to-text via sherpa-onnx, so a
+# client recording never leaves the machine. Models are fetched separately with
+# `autodeck meeting models --download`. The -core wheel carries libonnxruntime; the lock
+# resolves sherpa-onnx from its sdist and so misses that dependency unless it is named.
+meeting = [
+    "sherpa-onnx>=1.13,<2",
+    "sherpa-onnx-core>=1.13,<2",
+    "soundfile>=0.12",
+    "numpy>=1.26",
+    "imageio-ffmpeg>=0.5",
+]
 
 [project.scripts]
 autodeck = "autodeck.cli:app"
@@ -99,4 +110,5 @@ addopts = "-m 'not live and not render'"
 markers = [
     "live: hits a real provider API; needs credentials, costs money, skipped in CI",
     "render: needs headless LibreOffice and installed fonts; local-only per B10",
+    "meeting: needs the local speech models (autodeck meeting models --download); skipped when absent",
 ]

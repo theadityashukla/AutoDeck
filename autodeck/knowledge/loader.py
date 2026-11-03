@@ -22,7 +22,9 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from autodeck.ir.models import Citation, RetrievedBy
+from autodeck.ir.models import Citation, ProvenanceMode, RetrievedBy
+
+SETTINGS_FILE = "settings.yaml"
 
 PROJECTS_DIR = "projects"
 CLIENTS_DIR = "clients"
@@ -103,6 +105,70 @@ class CachedClaim(BaseModel):
         )
 
 
+class ProjectSettings(BaseModel):
+    """`knowledge/projects/<project>/settings.yaml` (B55).
+
+    `provenance` is the project's default mode; a run snapshots it when it starts
+    (`autodeck.pipeline.provenance`). A missing file or key means `normal`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provenance: ProvenanceMode = "normal"
+    named_terms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "B58: names whose digits are not quantities and stand apart from the letters "
+            "('Type 2 diabetes', 'PIONEER 7'). Fused names like 'HbA1c' need no entry."
+        ),
+    )
+
+
+def parse_project_settings(text: str, *, source: str = SETTINGS_FILE) -> ProjectSettings:
+    """Parse a `settings.yaml`; empty text is the defaults.
+
+    Raises:
+        KnowledgeError: not valid YAML, not a mapping, or not valid settings.
+    """
+    try:
+        loaded = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise KnowledgeError(f"{source}: not valid YAML: {exc}") from exc
+    if loaded is None:
+        return ProjectSettings()
+    if not isinstance(loaded, dict):
+        raise KnowledgeError(f"{source}: must be a mapping")
+    try:
+        return ProjectSettings.model_validate(loaded)
+    except Exception as exc:
+        raise KnowledgeError(f"{source}: invalid project settings: {exc}") from exc
+
+
+def load_project_settings(knowledge_root: Path, project: str) -> ProjectSettings:
+    """A project's settings; defaults when the file is absent (the folder must exist)."""
+    root = KnowledgeLoader(knowledge_root).project_root(project)
+    _require_directory(root, f"project {project!r}", _subdirectories(root.parent))
+    path = root / SETTINGS_FILE
+    if not path.exists():
+        return ProjectSettings()
+    return parse_project_settings(path.read_text(encoding="utf-8"), source=str(path))
+
+
+def save_project_settings(
+    knowledge_root: Path, project: str, settings: ProjectSettings
+) -> Path:
+    """Write `settings.yaml` for an existing project folder (atomic replace)."""
+    root = KnowledgeLoader(knowledge_root).project_root(project)
+    _require_directory(root, f"project {project!r}", _subdirectories(root.parent))
+    path = root / SETTINGS_FILE
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        yaml.safe_dump(settings.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+    temporary.replace(path)
+    return path
+
+
 _YAML_BLOCK = re.compile(r"```ya?ml\s*\n(.*?)\n```", re.DOTALL)
 
 
@@ -152,6 +218,7 @@ class ProjectKnowledge:
     claims: list[CachedClaim]
     papers: list[Path] = field(default_factory=list)
     assets: list[Path] = field(default_factory=list)
+    settings: ProjectSettings = field(default_factory=ProjectSettings)
 
 
 @dataclass(frozen=True)
@@ -221,6 +288,7 @@ class KnowledgeLoader:
             ),
             papers=_pdfs(root / "papers"),
             assets=_files(root / "assets"),
+            settings=load_project_settings(self.root, name),
         )
 
     def load_client(self, name: str) -> ClientKnowledge:

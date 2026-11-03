@@ -16,8 +16,8 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.slide import Slide
 
-from autodeck.design.draw import add_autoshape, add_connector, add_rect
-from autodeck.design.layout_kit import Box
+from autodeck.design.draw import add_autoshape, add_connector, add_rect, add_text
+from autodeck.design.layout_kit import Box, TextStyle
 
 TOKENS_DIR = Path(__file__).resolve().parents[1] / "config" / "tokens"
 
@@ -141,3 +141,12 @@ def test_connectors_are_individually_selectable_shapes_too() -> None:
     add_connector(slide, (0, 0), (10, 0))
     add_connector(slide, (0, 10), (10, 10))
     assert len(slide.shapes) == 2
+
+
+def test_add_text_leaves_no_autofit_element_to_resize_or_shrink_the_text() -> None:
+    """python-pptx's textbox template writes `<a:spAutoFit/>`; the docstring promises off."""
+    style = TextStyle(family="Arial", size=12.0, color="dk1")
+    shape = add_text(_slide(), Box(0, 0, 200, 50), "Hello", style)
+    xml = shape._element.xml  # type: ignore[attr-defined]
+    assert "spAutoFit" not in xml
+    assert "normAutofit" not in xml

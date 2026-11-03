@@ -367,3 +367,34 @@ def test_the_generic_run_route_does_not_start_draft_chains(roots: Roots) -> None
     app = App(roots, StubJobs())  # type: ignore[arg-type]
     with pytest.raises(UIError):
         app.start_job("r1", "revise")
+
+
+def test_draft_view_carries_storyline_findings_per_slide_and_deck_level(roots: Roots) -> None:
+    from autodeck.ir.models import StorylineCheck, StorylineFinding
+
+    deck = _deck(
+        _slide("s1", "quote", [_claim_block("figure", "A.", verdict="supported")]),  # type: ignore[arg-type]
+        _slide("s2", "quote", [_claim_block("figure", "B.", verdict="supported")]),  # type: ignore[arg-type]
+    ).model_copy(update={"run_id": "r1"})
+    orch = make_run(roots, "r1")
+    orch.run_stage("compose", lambda: f"wrote {orch.save_ir(deck)}")
+    out = api.draft_view(roots, "r1")
+    assert out["storyline_check"] is None
+    assert all(s["storyline_findings"] == [] for s in out["slides"])
+
+    check = StorylineCheck(
+        tells_story=False,
+        summary="Jumps.",
+        findings=[StorylineFinding(slide_id="s2", issue="repeats", notes="Same as s1.")],
+    )
+    orch2 = make_run(roots, "r2")
+    orch2.run_stage(
+        "compose",
+        lambda: f"wrote {orch2.save_ir(deck.model_copy(update={'run_id': 'r2', 'storyline_check': check}))}",
+    )
+    out = api.draft_view(roots, "r2")
+    s1, s2 = out["slides"]
+    assert s1["storyline_findings"] == [] and s1["flag"] == ""
+    assert s2["storyline_findings"] == [{"slide_id": "s2", "issue": "repeats", "notes": "Same as s1."}]
+    assert s2["flag"] == "story"
+    assert out["storyline_check"]["summary"] == "Jumps."

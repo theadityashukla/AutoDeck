@@ -60,7 +60,7 @@ from autodeck.ir.models import Deck
 from autodeck.ir.store import IRStore
 from autodeck.pipeline.orchestrator import ArtifactMissing, Gate, GateBlocked, Orchestrator
 from autodeck.providers.base import ProviderAuthError, ProviderConfig, RateLimitError
-from autodeck.providers.gemini import GeminiProvider
+from autodeck.providers.openai import OpenAIProvider
 from tests.gate_artifacts import seed_artifact
 from tests.test_cli_gate2 import (
     CLIENT,
@@ -263,7 +263,7 @@ def _patch_roles(monkeypatch: pytest.MonkeyPatch, **by_role: object) -> None:
 def _binding(role: str) -> tuple[str, str]:
     from autodeck.providers.registry import ModelRegistry
 
-    binding = ModelRegistry.load("dev").binding(role)
+    binding = ModelRegistry.load("dev-mistral").binding(role)
     return binding.provider, binding.model
 
 
@@ -296,7 +296,7 @@ def test_provider_failures_end_with_a_message_not_a_traceback(
     provider, model = _binding("content")
 
     if failure == "rate limit":
-        _patch_roles(monkeypatch, content=_Failing(RateLimitError("groq: rate limited (429)")))
+        _patch_roles(monkeypatch, content=_Failing(RateLimitError("mistral: rate limited (429)")))
     else:
         import autodeck.providers.registry as registry_module
 
@@ -314,10 +314,9 @@ def test_provider_failures_end_with_a_message_not_a_traceback(
     assert "Saved:" in result.output
     assert "autodeck content r1" in result.output
     if failure == "rate limit":
-        # `content` is bound to Groq in dev, whose free tier is per minute, not per day.
-        assert "limited per minute" in result.output
+        assert "request limit" in result.output
     else:
-        assert "GROQ_API_KEY" in result.output
+        assert "MISTRAL_API_KEY" in result.output
     # Nothing was half-written: the IR is still the approved outline alone.
     assert IRStore(runs_root, "r1").versions() == [1]
     assert not Orchestrator("r1", runs_root=runs_root).state.is_complete("content")
@@ -367,11 +366,11 @@ def test_content_resumes_from_the_cache_after_a_quota_failure(
             if calls[-1] == fail_on[0]:
                 return httpx.Response(429)
             return httpx.Response(
-                200, json={"candidates": [{"content": {"parts": [{"text": reply}]}}]}
+                200, json={"choices": [{"message": {"content": reply}}]}
             )
 
     def real_provider_over_fake_wire(self, role, *, cache=None, **overrides):  # type: ignore[no-untyped-def]
-        return GeminiProvider(
+        return OpenAIProvider(
             ProviderConfig(
                 model="m",
                 api_key="k",
@@ -618,7 +617,7 @@ def test_a_quota_spent_during_validation_fails_the_stage_rather_than_passing_it(
     patch_content_model(monkeypatch, ScriptedContent(content_draft()))
     assert run_content(runs_root, knowledge_root, corpus_root).exit_code == 0
 
-    _patch_roles(monkeypatch, validation=_Failing(RateLimitError("gemini: rate limited (429)")))
+    _patch_roles(monkeypatch, validation=_Failing(RateLimitError("mistral: rate limited (429)")))
     result = runner.invoke(
         app,
         ["validate", "r1", "--corpus-root", str(corpus_root), "--runs-root", str(runs_root)],
@@ -644,7 +643,7 @@ class _PlannerThatRunsOut:
     def complete_structured(self, prompt, response_model, *, system=None):  # type: ignore[no-untyped-def]
         self.turns += 1
         if self.turns > 1:
-            raise RateLimitError("gemini: rate limited (429)")
+            raise RateLimitError("mistral: rate limited (429)")
         return self.inner.complete_structured(prompt, response_model, system=system)
 
 

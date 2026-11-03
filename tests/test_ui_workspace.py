@@ -273,36 +273,36 @@ def test_knowledge_view_no_theme_by_default(roots: Roots) -> None:
 
 def test_keys_view_lists_all_providers(roots: Roots, monkeypatch) -> None:
     # Clear any existing env vars
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     var_names = {k["var"] for k in result["keys"]}
-    assert "GEMINI_API_KEY" in var_names
-    assert "GROQ_API_KEY" in var_names
+    assert "MISTRAL_API_KEY" in var_names
+    assert "OPENAI_API_KEY" in var_names
     assert "ANTHROPIC_API_KEY" in var_names
 
 
 def test_keys_view_shows_set_status(roots: Roots, monkeypatch) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
 
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     by_var = {k["var"]: k for k in result["keys"]}
-    assert by_var["GEMINI_API_KEY"]["set"] is True
-    assert by_var["GROQ_API_KEY"]["set"] is False
+    assert by_var["MISTRAL_API_KEY"]["set"] is True
+    assert by_var["OPENAI_API_KEY"]["set"] is False
     assert by_var["ANTHROPIC_API_KEY"]["set"] is False
 
 
 def test_keys_view_never_returns_key_value(roots: Roots, monkeypatch) -> None:
     """Critical: ensure no part of the key value appears in the response."""
     secret_key = "very-secret-api-key-12345"
-    monkeypatch.setenv("GEMINI_API_KEY", secret_key)
+    monkeypatch.setenv("MISTRAL_API_KEY", secret_key)
 
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     result_str = str(result)
 
     # Verify the secret is not in the response at all
@@ -312,22 +312,22 @@ def test_keys_view_never_returns_key_value(roots: Roots, monkeypatch) -> None:
 
 
 def test_keys_view_shows_provider_names(roots: Roots) -> None:
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     providers = {k["provider"] for k in result["keys"]}
-    assert "gemini" in providers
-    assert "groq" in providers
+    assert "mistral" in providers
+    assert "openai" in providers
     assert "claude" in providers
 
 
 def test_keys_view_shows_needed_by(roots: Roots) -> None:
     # The dev environment should need at least one provider
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     # This depends on the config, so we just check structure
     assert all("needed_by" in k and isinstance(k["needed_by"], list) for k in result["keys"])
 
 
 def test_keys_view_needed_by_is_sorted(roots: Roots) -> None:
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     for key_info in result["keys"]:
         assert key_info["needed_by"] == sorted(key_info["needed_by"])
 
@@ -341,7 +341,7 @@ def test_keys_view_gracefully_handles_missing_config(
     monkeypatch.setattr(registry, "DEFAULT_CONFIG_PATH", tmp_path / "nonexistent.yaml")
 
     # Should not crash, just return what it can
-    result = keys_view("dev")
+    result = keys_view("dev-mistral")
     assert "keys" in result
     assert len(result["keys"]) > 0  # Should still know about the providers
 
@@ -352,7 +352,7 @@ def test_keys_view_gracefully_handles_missing_config(
 
 
 def test_knowledge_view_and_keys_view_work_together(roots: Roots, monkeypatch) -> None:
-    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    monkeypatch.setenv("MISTRAL_API_KEY", "test")
 
     # Set up some knowledge
     proj_dir = roots.knowledge / "projects" / "test-proj"
@@ -367,7 +367,7 @@ def test_knowledge_view_and_keys_view_work_together(roots: Roots, monkeypatch) -
 
     # Both should work
     knowledge = knowledge_view(roots)
-    keys = keys_view("dev")
+    keys = keys_view("dev-mistral")
 
     assert knowledge["projects"][0]["name"] == "test-proj"
     assert knowledge["clients"][0]["name"] == "test-client"

@@ -1,6 +1,6 @@
 """Say which role and model a provider failure belongs to.
 
-A `RateLimitError` says "gemini: rate limited (429)". It does not say *which of five roles
+A `RateLimitError` says "mistral: rate limited (429)". It does not say *which of five roles
 on which of five models* ran out, and in the dev tier that is the whole question: each role
 has its own daily bucket (B25). The agents are no help — `content`, `outline` and the
 others wrap every provider exception in their own error type, and the evidence and
@@ -61,6 +61,13 @@ class _RoleBound:
     def complete(self, *args: Any, **kwargs: Any) -> Any:
         try:
             return self._inner.complete(*args, **kwargs)
+        except (RateLimitError, ProviderAuthError) as exc:
+            self._guard.record(self._role, exc, constructing=False)
+            raise
+
+    def converse(self, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return self._inner.converse(*args, **kwargs)
         except (RateLimitError, ProviderAuthError) as exc:
             self._guard.record(self._role, exc, constructing=False)
             raise

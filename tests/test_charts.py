@@ -166,6 +166,32 @@ class TestStyling:
         assert place_chart(frame2, frame2.canvas.content, two_series).chart.has_legend is True
 
     @requires_test_font
+    @pytest.mark.parametrize("kind", ["bar", "column", "stacked_bar", "area"])
+    def test_length_encoded_charts_start_their_value_axis_at_zero(self, kind: ChartKind) -> None:
+        """Gold deck review: auto-scaling started a 67-78 accuracy chart at 62, drawing a
+        7-point gap as a three-fold difference in bar length (lie factor)."""
+        spec = _spec(
+            chart_type=kind,
+            series=[ChartSeries(name="Accuracy", values=[67.62, 71.38, 76.52, 78.17])],
+        )
+        frame = _frame(tokens_for())
+        axis = place_chart(frame, frame.canvas.content, spec).chart.value_axis
+        assert axis.minimum_scale == 0
+
+    @requires_test_font
+    def test_all_negative_bars_end_their_value_axis_at_zero(self) -> None:
+        spec = _spec(series=[ChartSeries(name="Change", values=[-1.3, -0.9, -0.4, -0.2])])
+        frame = _frame(tokens_for())
+        axis = place_chart(frame, frame.canvas.content, spec).chart.value_axis
+        assert axis.maximum_scale == 0
+
+    @requires_test_font
+    def test_line_charts_keep_their_auto_scale(self) -> None:
+        spec = _spec(chart_type="line", series=[ChartSeries(name="Trend", values=[67.0, 70.0, 72.0, 75.0])])
+        frame = _frame(tokens_for())
+        assert place_chart(frame, frame.canvas.content, spec).chart.value_axis.minimum_scale is None
+
+    @requires_test_font
     def test_pie_colours_each_point_distinctly_rather_than_the_one_series(self) -> None:
         spec = _spec(
             chart_type="pie",
@@ -191,6 +217,75 @@ class TestStyling:
 # ---------------------------------------------------------------------------
 # Citations -> the caption band
 # ---------------------------------------------------------------------------
+
+
+class TestBarRenderingFixes:
+    """Negative-value and horizontal-bar fixes from live run Xls."""
+
+    @staticmethod
+    def _xml(spec: ChartSpec) -> str:
+        frame = _frame(tokens_for())
+        graphic_frame = place_chart(frame, frame.canvas.content, spec)
+        return graphic_frame.chart._chartSpace.xml  # type: ignore[attr-defined]
+
+    @requires_test_font
+    @pytest.mark.parametrize("kind", ["bar", "column", "stacked_bar"])
+    def test_every_bar_series_writes_invert_if_negative_false(self, kind: str) -> None:
+        spec = _spec(
+            chart_type=kind,
+            categories=["Alpha", "Beta", "Gamma"],
+            series=[
+                ChartSeries(name="One", values=[-3.0, -5.0, -4.0]),
+                ChartSeries(name="Two", values=[1.0, 2.0, 3.0]),
+            ],
+        )
+        xml = self._xml(spec)
+        assert xml.count('<c:invertIfNegative val="0"/>') == 2
+
+    @requires_test_font
+    def test_non_bar_charts_do_not_get_invert_if_negative(self) -> None:
+        spec = _spec(chart_type="line")
+        assert "invertIfNegative" not in self._xml(spec)
+
+    @requires_test_font
+    def test_negative_values_put_category_labels_low(self) -> None:
+        spec = _spec(
+            chart_type="column",
+            series=[ChartSeries(name="Change", values=[-1.0, -2.0, 0.5, -3.0])],
+        )
+        assert '<c:tickLblPos val="low"/>' in self._xml(spec)
+
+    @requires_test_font
+    def test_all_positive_values_leave_tick_labels_alone(self) -> None:
+        assert '<c:tickLblPos val="low"/>' not in self._xml(_spec())
+
+    @requires_test_font
+    def test_horizontal_bar_with_long_but_reasonable_labels_passes(self) -> None:
+        categories = [
+            "Customer satisfaction score",
+            "Net revenue retention",
+            "Time to first value",
+            "Support ticket backlog",
+        ]
+        spec = _spec(
+            chart_type="bar",
+            categories=categories,
+            series=[ChartSeries(name="Score", values=[4.0, 3.0, 2.0, 1.0])],
+        )
+        frame = _frame(tokens_for())
+        place_chart(frame, frame.canvas.content, spec)
+
+    @requires_test_font
+    def test_too_many_horizontal_categories_for_the_height_raises(self) -> None:
+        count = 80
+        spec = _spec(
+            chart_type="bar",
+            categories=[f"C{i}" for i in range(count)],
+            series=[ChartSeries(name="Score", values=[float(i) for i in range(count)])],
+        )
+        frame = _frame(tokens_for())
+        with pytest.raises(LayoutOverflowError, match="categories"):
+            place_chart(frame, frame.canvas.content, spec)
 
 
 class TestCitationCaption:
@@ -387,7 +482,7 @@ class TestEditableData:
 class TestRenderedByLibreOffice:
     @pytest.mark.render
     def test_libreoffice_rasterises_the_chart_without_error(self, tmp_path: Path) -> None:
-        tokens = tokens_for(family="Inter") if is_available("Inter") else tokens_for()
+        tokens = tokens_for(family="Carlito")
         presentation = new_presentation(tokens)
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
         frame = Canvas(tokens).on(slide)
@@ -470,3 +565,23 @@ class TestRenderedByLibreOffice:
             assert f"<c:v>{category}</c:v>" in chart_xml
         for value in ("10", "11.5", "12", "14"):
             assert f"<c:v>{value}</c:v>" in chart_xml
+
+
+@requires_test_font
+def test_horizontal_bars_read_top_to_bottom_with_the_axis_at_the_bottom() -> None:
+    from pptx.oxml.ns import qn
+
+    spec = _spec(chart_type="bar")
+    frame = _frame(tokens_for())
+    chart = place_chart(frame, frame.canvas.content, spec).chart
+    assert chart.category_axis.reverse_order is True
+    assert chart.value_axis._element.find(qn("c:crosses")).get("val") == "max"
+
+
+@requires_test_font
+def test_tick_labels_use_the_datas_own_precision() -> None:
+    """All-negative bars pinned at zero printed their last tick as -5.55111512312578E-17."""
+    spec = _spec(series=[ChartSeries(name="Change", values=[-1.3, -0.9, -0.6, -0.2])])
+    frame = _frame(tokens_for())
+    ticks = place_chart(frame, frame.canvas.content, spec).chart.value_axis.tick_labels
+    assert ticks.number_format == "0.0" and ticks.number_format_is_linked is False

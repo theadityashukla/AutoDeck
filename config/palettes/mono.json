@@ -1,0 +1,19 @@
+{
+  "name": "mono",
+  "description": "Black and white with greys; no hue.",
+  "dark": false,
+  "palette": {
+    "dk1": "000000",
+    "lt1": "FFFFFF",
+    "dk2": "595959",
+    "lt2": "F2F2F2",
+    "accent1": "000000",
+    "accent2": "595959",
+    "accent3": "9E9E9E",
+    "accent4": "D0D0D0",
+    "accent5": "000000",
+    "accent6": "BFBFBF",
+    "hyperlink": "000000",
+    "followed_hyperlink": "595959"
+  }
+}
