@@ -148,12 +148,11 @@ of production pull in opposite directions:
 
 | Env | Providers | Purpose |
 |---|---|---|
-| **dev** | Gemini + Groq (free tiers) | Day-to-day build and iteration. Low cost, low risk, high call volume |
+| **dev-mistral** | Mistral (small paid models) | Day-to-day build and iteration. Low cost, low risk, high call volume |
 | **sit / uat** | Claude | Pre-production verification on the bindings production actually uses |
 | **prod** | Claude | Real client deliverables |
 
-Gemini and Claude do not overlap — they occupy disjoint stages rather than competing for
-the same role.
+Nebius and OpenAI adapters exist but no environment binds them yet.
 
 ### The accuracy consequence — read this before relying on a dev-environment result
 
@@ -162,7 +161,7 @@ search) and A8 (honest uncertainty). Both are judgment, not arithmetic, so a wea
 fails them *plausibly* rather than loudly.
 
 That means **an accuracy result obtained on the dev binding does not transfer to prod.**
-A validator that catches every planted contradiction on Gemini tells you nothing certain
+A validator that catches every planted contradiction on a Mistral dev model tells you nothing certain
 about Claude, and vice versa. The deterministic invariants — A1 citation structure, A2
 numeric linting and derivation re-execution, A4 isolation, A5 framing lints, A6 manifest
 reproducibility — are model-independent and *do* transfer; they are code, not judgment.
@@ -184,36 +183,38 @@ This is what the SIT/UAT stage buys, and it is why the instinct to add one is ri
 Tier is the *capability class* the role needs; the concrete model per environment is
 resolved in config.
 
-| Role | Capability needed | dev | sit / prod |
+| Role | Capability needed | dev-mistral | sit / prod |
 |---|---|---|---|
-| `planner` | Strong interactive judgment; evidence-gap probe (§6.13) | Gemini pro-tier | Claude strong-tier |
-| `outline` | Structural reasoning; runs once per deck | Gemini pro-tier | Claude strong-tier |
-| `composer` | Draft-first (B45): one long-context call writes brief, outline and slides with citations; also the clarifying questions (B47/B48) and scoped revisions. Long context budget. dev: gemini-3.6-flash (the outline role's model and daily bucket — a draft-first run never calls `outline`); sit/prod: claude-sonnet-5, deliberately not the validation model (B44). | Gemini flash-tier | Claude mid-tier |
-| `content` | High volume, tightly constrained by budgets and citations | Groq fast-tier | Claude mid-tier |
-| `validation` | **Judgment-critical** (A3) | Gemini pro-tier | Claude strong-tier |
-| `aesthetic` | Vision over true renders (§6.9) | Gemini vision-tier | Claude vision-tier |
-| `ingest_vlm` | High-volume figure description; **metadata only, never citable** | Gemini flash-tier | Gemini flash-tier |
+| `planner` | Strong interactive judgment; evidence-gap probe (§6.13) | Mistral (ministral-14b) | Claude strong-tier |
+| `outline` | Structural reasoning; runs once per deck | Mistral (ministral-14b) | Claude strong-tier |
+| `composer` | Draft-first (B45): one long-context call writes brief, outline and slides with citations; also the clarifying questions (B47/B48) and scoped revisions. Long context budget. dev-mistral: ministral-14b-2512; sit/prod: claude-sonnet-5, deliberately not the validation model (B44). | Mistral (ministral-14b) | Claude mid-tier |
+| `content` | High volume, tightly constrained by budgets and citations | Mistral (ministral-14b) | Claude mid-tier |
+| `validation` | **Judgment-critical** (A3) | Mistral (ministral-14b) | Claude strong-tier |
+| `aesthetic` | Vision over true renders (§6.9) | Mistral (ministral-14b) | Claude vision-tier |
+| `ingest_vlm` | High-volume figure description; **metadata only, never citable** | Mistral (ministral-14b) | Mistral (ministral-14b), interim |
+| `advisor` | The deck agent's fresh-context second reader (B73): reads attached slides cold and answers one question in text. **Never the validation model**; the registry refuses that binding. | Mistral (ministral-14b) | Claude mid-tier (claude-sonnet-5) |
 
-`composer` binds to the same model as `outline` in dev (they share a daily quota, since a draft-first
-run never calls `outline`), but is deliberately bound to a different tier in sit/prod (B44).
-`ingest_vlm` stays on Gemini in all environments — its output is metadata that can never
+`composer` is deliberately not the validation model in sit/prod (B44).
+`ingest_vlm` is on Mistral (`ministral-14b-2512`, vision-capable) in every environment as an
+interim choice until Nebius/OpenAI keys and verified model ids exist — its output is metadata that can never
 back a claim (enforced structurally in the document store), so there is no accuracy reason
 to pay for it.
 
 Shape of `config/models.yaml`:
 
 ```yaml
-default_env: dev
+default_env: dev-mistral
 
 environments:
-  dev:
-    planner:    {provider: gemini, model: <resolved-at-P0>}
-    outline:    {provider: gemini, model: <resolved-at-P0>}
-    composer:   {provider: gemini, model: <resolved-at-P0>}
-    content:    {provider: groq,   model: <resolved-at-P0>}
-    validation: {provider: gemini, model: <resolved-at-P0>}
-    aesthetic:  {provider: gemini, model: <resolved-at-P0>}
-    ingest_vlm: {provider: gemini, model: <resolved-at-P0>}
+  dev-mistral:
+    planner:    {provider: mistral, model: <resolved-at-P0>}
+    outline:    {provider: mistral, model: <resolved-at-P0>}
+    composer:   {provider: mistral, model: <resolved-at-P0>}
+    content:    {provider: mistral, model: <resolved-at-P0>}
+    validation: {provider: mistral, model: <resolved-at-P0>}
+    aesthetic:  {provider: mistral, model: <resolved-at-P0>}
+    ingest_vlm: {provider: mistral, model: <resolved-at-P0>}
+    advisor:    {provider: mistral, model: <not validation's model, B73>}
   sit:
     # same role keys, Claude bindings (composer on claude-sonnet-5, validation on claude-opus-5)
   prod:
@@ -228,15 +229,41 @@ it, and a dev-built deck is never mistaken for a production one.
 is explicit about this and §9 lists model API change as a live risk. Phase 0 resolves the
 actual IDs and records them in `DECISIONS.md`.
 
+## Provider layer, Phase 4b
+
+Adapters live in `autodeck/providers/`, all on the one shared httpx transport (B14, no
+vendor SDKs):
+
+| Provider | Adapter | Key | Status |
+|---|---|---|---|
+| Mistral | `mistral.py` (on `openai_compat.py`) | `MISTRAL_API_KEY` | Dev (`dev-mistral`), small paid models |
+| Nebius | `nebius.py` (on `openai_compat.py`) | `NEBIUS_API_KEY` | Available; schema is also given in the system prompt |
+| OpenAI | `openai.py` (on `openai_compat.py`) | `OPENAI_API_KEY` | Available; output cap is `max_completion_tokens` |
+| Claude | `claude.py` | `ANTHROPIC_API_KEY` | `sit` and `prod` |
+
+`OpenAICompatProvider` implements Chat Completions once; a new compatible vendor is a
+subclass with `base_url`, key variable and the few differing knobs.
+
+**Tool calling.** `BaseProvider.converse(messages, tools, system=...)` runs one turn of a
+tool-calling conversation and returns an `AssistantTurn` (text and `ToolCall`s). The caller
+owns the loop: append the assistant turn and `tool` messages, call again. Invalid JSON in a
+tool call's arguments comes back as `{"__invalid__": raw}` so the caller can feed an error
+back. Converse replies are cached on (provider, model, temperature, system, the full message
+list, and a digest of every tool's name, description and schema).
+
+**Interim `ingest_vlm` note.** `ingest_vlm` in every environment is
+`mistral/ministral-14b-2512` (vision-capable) until Nebius or OpenAI keys and verified model
+ids exist.
+
 ## What this adds to Phase 0
 
-Task 0.3 now builds **three** provider adapters (Gemini, Groq, Claude), not two, and the
+Task 0.3 built the provider adapters (originally Gemini, Groq and Claude; Gemini and Groq were
+replaced by Mistral, OpenAI and Nebius in Phase 4b) and the
 environment-tier config above. Two things to verify in that task, because they are the
 likely friction:
 
 - **Structured output parity.** `complete_structured` must work on all three. JSON-mode
-  and tool-use support varies by provider and by model within a provider; Groq's varies by
-  the open model being served. Where a provider is weaker, the repair-retry path carries
+  and tool-use support varies by provider and by model within a provider. Where a provider is weaker, the repair-retry path carries
   more load — test it deliberately rather than discovering it in Phase 2b.
 - **Free-tier rate limits.** They will bite first at Phase 1 ingestion (`ingest_vlm` over a
   full corpus) and Phase 5 eval batches. Build backoff and resumability into the provider

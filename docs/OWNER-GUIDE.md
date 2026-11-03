@@ -27,7 +27,7 @@ never approve its own work.
 **This guide covers all four approvals.** Approvals 1, 2 and 3 are one sitting: budget about
 an hour (an estimate, not a measurement). Approval 4 comes after, and needs PowerPoint on
 your computer and, as a rough estimate, another half hour for the hands-on checks. You need
-this repository on your computer and two API keys, `GEMINI_API_KEY` and `GROQ_API_KEY` (see
+this repository on your computer and an API key, `MISTRAL_API_KEY` (see
 section 2). If GATE 2 is already approved, go straight to section 6b.
 
 The short version of the whole session:
@@ -80,27 +80,26 @@ Every line should start with `OK`. (Without `--tokens` it checks Aptos instead, 
 the eventual deliverable font and is not installable here — `MISSING Aptos` lines from
 that form are expected and are not a problem for this session.)
 
-**Set your keys.** In the dev environment, the planner, outline and validation steps use
-Gemini and the content step uses Groq, so you need both:
+**Set your keys.** In the default `dev-mistral` environment every step uses Mistral, so you need one key:
 
 ```bash
-export GEMINI_API_KEY=...
-export GROQ_API_KEY=...
+export MISTRAL_API_KEY=...
 uv run autodeck models
 ```
 
 `autodeck models` lists which model each step uses. If a key is missing it says so:
 
 ```
-environment: dev
-  aesthetic    gemini   gemini-3.1-flash-lite
-  content      groq     openai/gpt-oss-120b
-  ingest_vlm   gemini   gemini-2.5-flash
-  outline      gemini   gemini-3.6-flash
-  planner      gemini   gemini-3.7-flash
-  validation   gemini   gemini-3.5-flash
+environment: dev-mistral
+  aesthetic    mistral  ministral-14b-2512
+  composer     mistral  ministral-14b-2512
+  content      mistral  ministral-14b-2512
+  ingest_vlm   mistral  ministral-8b-2512
+  outline      mistral  ministral-14b-2512
+  planner      mistral  ministral-14b-2512
+  validation   mistral  ministral-8b-2512
 
-missing credentials: GEMINI_API_KEY, GROQ_API_KEY
+missing credentials: MISTRAL_API_KEY
 
 Note: A3 and A8 are model-sensitive (B8). A dev-environment accuracy result is a smoke test, not a verification — measure headline metrics on sit.
 ```
@@ -145,12 +144,11 @@ no such run 'northwind-mielstone' under runs. Runs are created by `autodeck plan
 (The `runs` in that message is the folder it looked in, relative to where you are standing —
 if the id is right and you still get this, you are in the wrong folder.)
 
-**The free-tier quota.** `STATUS.md` records that the free Gemini tier allows roughly 20
-requests per model per day. The steps are spread over different models so they mostly do not
-share one allowance (`autodeck models` shows which), with one exception that matters: the
-evidence check in `plan` and the `validate` step both use the `validation` model, so they draw
-on the same 20 (and `render`'s art direction draws on the `outline` model's 20). The content step uses Groq, whose free tier is limited per minute instead
-(the comment in `config/models.yaml` says 8000 tokens a minute). What costs a request:
+**The request limit.** The draft models run on Mistral's included monthly allowance, which
+also limits requests per minute (about 30 a minute on `ministral-14b-2512` and 188 on
+`ministral-8b-2512` on this account; see `config/models.yaml`). The evidence check in `plan`
+and the `validate` step both use the `validation` model, so they draw on the same allowance.
+What costs a request:
 
 - each planner turn (one request), plus one request per key message every time the planner
   re-checks the evidence;
@@ -165,25 +163,24 @@ A reply the program cannot parse is retried, and each retry is also a request.
 When the quota is spent, the program waits and retries a few times on its own (up to about a
 minute per wait), then gives up. `plan`, `outline`, `content`, `validate` and `render` then stop with a
 short message and **exit code 5** — not a Python error. This is what `plan` printed when the
-real Gemini client was pointed at a stand-in server that always answers 429:
+real provider client was pointed at a stand-in server that always answers 429:
 
 ```
-Planning q429 for northwind-retail / llm-inference-efficiency (env=dev)
+Planning q429 for northwind-retail / llm-inference-efficiency (env=dev-mistral)
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
 you > hello there
-STOPPED: role 'planner' (gemini, model gemini-3.7-flash) was rate limited.
+STOPPED: role 'planner' (mistral, model ministral-14b-2512) was rate limited.
   The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
-  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  This is a request limit. A per-minute limit clears in a minute or two; a daily quota resets daily, so running the command again sooner will not help.
   Saved: no draft had been started. Nothing is approved.
   Then run `autodeck plan q429 --client northwind-retail --project llm-inference-efficiency` again.
 ```
 
 It tells you which role and model ran out, what that means, and what was saved. **The fix is
 to wait for the quota to reset, then run the same command again** — not to run it again
-straight away. How long that is depends on the provider: Gemini's free tier is a daily
-allowance per model (wait until tomorrow), Groq's is per minute (the `content` example below
-says so).
+straight away. How long that is depends on the limit: a per-minute limit clears in a minute or two, a daily
+quota only resets the next day.
 
 **Nothing that finished is lost.** Every reply from the model is saved to
 `runs/<run>/llm_cache/` the moment it arrives, and a command that is run again replays those
@@ -194,9 +191,9 @@ out on the third request (stand-in server again):
 ```
   s1       1 block(s), 0 note(s)
   s2       2 block(s), 0 note(s)
-STOPPED: role 'content' (groq, model openai/gpt-oss-120b) was rate limited.
+STOPPED: role 'content' (mistral, model ministral-14b-2512) was rate limited.
   The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
-  Groq's free tier is limited per minute (tokens), so waiting a minute or two is usually enough.
+  This is a request limit. A per-minute limit clears in a minute or two; a daily quota resets daily, so running the command again sooner will not help.
   Saved: no IR version was written (the latest is still v1). 2 completed provider call(s) are saved under runs/northwind-quota/llm_cache; a re-run replays them at no cost and only pays for what did not finish.
   Then run `autodeck content northwind-quota` again.
 ```
@@ -223,10 +220,10 @@ claims` stay closed until it has really finished (a validator that ran out of qu
 nothing, and a table of unjudged claims must not be approvable):
 
 ```
-validation batch of 4 claim(s) failed (RateLimitError): gemini: rate limited (429) — treated as unjudged
-STOPPED: role 'validation' (gemini, model gemini-3.5-flash) was rate limited.
+validation batch of 4 claim(s) failed (RateLimitError): mistral: rate limited (429) — treated as unjudged
+STOPPED: role 'validation' (mistral, model ministral-14b-2512) was rate limited.
   The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
-  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  This is a request limit. A per-minute limit clears in a minute or two; a daily quota resets daily, so running the command again sooner will not help.
   Saved: the validate stage is marked failed, so `gate2` and `approve ... claims` stay closed until it completes. 5 completed provider call(s) are saved under runs/northwind-quota/llm_cache; a re-run replays them at no cost and only pays for what did not finish.
   Then run `autodeck validate northwind-quota` again.
 ```
@@ -253,8 +250,8 @@ approval and nothing in it is trusted — every step still checks its own result
 A missing key stops the command the same way, before any request is made:
 
 ```
-STOPPED: role 'planner' (gemini, model gemini-3.7-flash) has no API key.
-  The environment variable GEMINI_API_KEY is not set. Set it in this shell, then run the command again.
+STOPPED: role 'planner' (mistral, model ministral-14b-2512) has no API key.
+  The environment variable MISTRAL_API_KEY is not set. Set it in this shell, then run the command again.
   Saved: no draft had been started. Nothing is approved.
   Then run `autodeck plan nokey --client northwind-retail --project llm-inference-efficiency` again.
 ```
@@ -262,12 +259,12 @@ STOPPED: role 'planner' (gemini, model gemini-3.7-flash) has no API key.
 A key the provider turns down (a `401`/`403` answer) reads like this:
 
 ```
-Planning badkey for northwind-retail / llm-inference-efficiency (env=dev)
+Planning badkey for northwind-retail / llm-inference-efficiency (env=dev-mistral)
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
 you > hello
-STOPPED: role 'planner' (gemini, model gemini-3.7-flash) was refused: the provider rejected the credentials.
-  Check that GEMINI_API_KEY holds a valid key for gemini, then run the command again.
+STOPPED: role 'planner' (mistral, model ministral-14b-2512) was refused: the provider rejected the credentials.
+  Check that MISTRAL_API_KEY holds a valid key for mistral, then run the command again.
   Saved: no draft had been started. Nothing is approved.
   Then run `autodeck plan badkey --client northwind-retail --project llm-inference-efficiency` again.
 ```
@@ -470,7 +467,7 @@ finished, but that suggestion is ignored by the code; it cannot sign for you. Si
 name is refused:
 
 ```
-Planning signname for northwind-retail / llm-inference-efficiency (env=dev)
+Planning signname for northwind-retail / llm-inference-efficiency (env=dev-mistral)
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
 you > hi
@@ -492,7 +489,7 @@ Example output (from a test fixture with scripted stand-in models — your conte
 differ). The planner's first reply, with the evidence check it triggered:
 
 ```
-Planning northwind-milestone for northwind-retail / llm-inference-efficiency (env=dev)
+Planning northwind-milestone for northwind-retail / llm-inference-efficiency (env=dev-mistral)
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
 you > We need to decide whether to serve the model better or buy more GPUs. Audience is the CTO and two engineering leads. Five slides.
@@ -632,7 +629,7 @@ individually.
 approved, and **the draft is kept**. Example output:
 
 ```
-Planning quit-demo for northwind-retail / llm-inference-efficiency (env=dev)
+Planning quit-demo for northwind-retail / llm-inference-efficiency (env=dev-mistral)
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
 you > Audience is the CTO.
@@ -647,7 +644,7 @@ left without signing; transcript kept, draft kept at runs/quit-demo/draft_brief.
 `status` mentions the saved draft:
 
 ```
-run quit-demo (env=dev)
+run quit-demo (env=dev-mistral)
 stages:
   ingest         not-started
   plan           not-started
@@ -669,7 +666,7 @@ Run the same `plan` command again, with the same run id, and it picks the draft 
 so. `/brief` shows the draft exactly as you left it:
 
 ```
-Planning quit-demo for northwind-retail / llm-inference-efficiency (env=dev)
+Planning quit-demo for northwind-retail / llm-inference-efficiency (env=dev-mistral)
 Resumed the unsigned draft from an earlier session (1 key message(s)); /brief shows it. Nothing is approved until you /sign.
 Type to talk. /brief to see the draft, /sign <name> to approve, /quit to leave.
 
@@ -836,7 +833,7 @@ you approved; a different file no longer matches. In the test run, an outline re
 after approval gave this, and `content` refused to continue:
 
 ```
-run northwind-reoutline (env=dev)
+run northwind-reoutline (env=dev-mistral)
 stages:
   ingest         not-started
   plan           completed
@@ -1179,7 +1176,7 @@ uv run autodeck status northwind-milestone
 ```
 
 ```
-run northwind-milestone (env=dev)
+run northwind-milestone (env=dev-mistral)
 stages:
   ingest         not-started
   plan           completed
@@ -1208,7 +1205,7 @@ every verdict is wiped (section 5), so the facts no longer match what you review
 `status` says so:
 
 ```
-run northwind-milestone (env=dev)
+run northwind-milestone (env=dev-mistral)
 stages:
   ingest         not-started
   plan           completed
@@ -1327,7 +1324,7 @@ uv run autodeck render northwind-milestone
 ```
 
 Takes a run id and nothing else (it also has `--runs-root` and `--env`, which you leave
-alone). It needs `GEMINI_API_KEY` (set in section 2) and no other key; it refuses to start
+alone). It needs `MISTRAL_API_KEY` (set in section 2) and no other key; it refuses to start
 unless the claims approval is current. It costs about 1 request for art direction (on the
 same model as `outline`, so it shares that model's daily 20) plus 1 to 3 for the critique (on
 the `aesthetic` model, one per look at the deck), and takes a minute or two because it draws the deck
@@ -1407,7 +1404,7 @@ How to read it, top to bottom:
 The state afterwards. Note that the claims line did not change:
 
 ```
-run northwind-milestone (env=dev)
+run northwind-milestone (env=dev-mistral)
 stages:
   ingest         not-started
   plan           completed
@@ -1451,7 +1448,7 @@ gates:
 ```
 
 With the real models the same holds, as far as I can tell from how the cache works but not
-from running it against Gemini: the first run's answers are saved in
+from running it against Mistral: the first run's answers are saved in
 `runs/<run>/llm_cache` (section 2), and a second `render` asks the same questions, so it is
 given the saved answers back, at no cost. If you delete that folder, or the models answer
 differently (a critic that moves an accent colour on slide 1, say), the new file is a different
@@ -1471,8 +1468,8 @@ and you approve again: run `gate3` on the new deck first (`approve` refuses a de
 then approve. If `status` says `NOT CURRENT`, you must read what is there now, redo the
 PowerPoint checks on it, and approve again.
 
-**If the critique did not happen.** Two ways this shows. If the critic's free-tier quota is
-spent (Gemini, per day), `render` still finishes the deck, then stops with exit code 5:
+**If the critique did not happen.** Two ways this shows. If the critic's request limit is
+spent, `render` still finishes the deck, then stops with exit code 5:
 
 ```
 Art direction
@@ -1486,15 +1483,15 @@ Art direction
 wrote IR v2
 
 Aesthetic loop
-  Stopped: model_error (iteration 0: RateLimitError: gemini: rate limited (429)). Best score: none.
+  Stopped: model_error (iteration 0: RateLimitError: mistral: rate limited (429)). Best score: none.
 
 Wrote runs/r1/deck.pptx
 Rendered 4 slide(s) to PNG in runs/r1/previews/final
 What the critic saw, per iteration: runs/r1/previews/aesthetic
 
-STOPPED: role 'aesthetic' (gemini, model gemini-3.1-flash-lite) was rate limited.
+STOPPED: role 'aesthetic' (mistral, model ministral-14b-2512) was rate limited.
   The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
-  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  This is a request limit. A per-minute limit clears in a minute or two; a daily quota resets daily, so running the command again sooner will not help.
   Saved: IR versions up to v2 were written; runs/r1/deck.pptx exists but was not (fully) critiqued. The run's response cache is empty, so a re-run repeats every model call.
   Then run `autodeck render r1` again.
 ```
@@ -1526,9 +1523,9 @@ slide gets its icons from the art director, so no deck can be drawn yet, and the
 ends with a line saying so (exit 5, no `deck.pptx`):
 
 ```
-STOPPED: role 'outline' (gemini, model gemini-3.6-flash) was rate limited.
+STOPPED: role 'outline' (mistral, model ministral-14b-2512) was rate limited.
   The provider refused the call (HTTP 429) and waiting inside the command did not clear it.
-  On a free tier this is almost always that model's daily quota: it resets daily, so running the command again sooner will not help.
+  This is a request limit. A per-minute limit clears in a minute or two; a daily quota resets daily, so running the command again sooner will not help.
   Saved: IR versions up to v2 were written. The run's response cache is empty, so a re-run repeats every model call.
   Then run `autodeck render r1` again.
   No deck was drawn: the icon slide (s3) could not get its icons because the art-direction call above failed. Re-run `autodeck render r1` later.
@@ -1939,7 +1936,7 @@ yours, and the only part of GATE 3 no program can see.
 When all four gates show a name and a date, you are done:
 
 ```
-run r1 (env=dev)
+run r1 (env=dev-mistral)
 stages:
   ingest         not-started
   plan           not-started
@@ -1973,7 +1970,7 @@ this state: its `gate3` has two `FAIL` lines, so `approve` refuses it.)
 | `cannot approve GATE 'final_render' … the claims approval does not count` | 1 | The claims table changed or was never approved. Nothing was recorded. | Approve the claims again (section 6), then `render` and `gate3`. |
 | `[FAIL]` lines, exit 4 (from `gate3`) | 4 | A criterion failed. The report and files are still written, and `approve … final_render` will refuse this deck. | Read the failing line: slide, shape, measurement. Run `render` again once. If it fails the same way, send the report back. Do not approve. |
 | `Final render is blocked … by N finding(s)` (from `render`) | 4 | A claim is `unsupported`, `contradicted` or `unverified`, or a lint fails, even though the claims were approved (`approve` does not stop you approving them). Nothing is rendered. | Go back to section 6: send back, `content`, `validate`, `gate2`, approve; then `render`. |
-| `STOPPED: role 'aesthetic' …` / `role 'outline' …` (from `render`) | 5 | A model's free-tier quota is spent, or a key is missing. A deck may already exist; `Saved:` says. | Wait, then run `render` again (it replays what finished). Or carry on to `gate3` with the deck you have. |
+| `STOPPED: role 'aesthetic' …` / `role 'outline' …` (from `render`) | 5 | A model's request limit is hit, or a key is missing. A deck may already exist; `Saved:` says. | Wait, then run `render` again (it replays what finished). Or carry on to `gate3` with the deck you have. |
 | `The deck was not (fully) critiqued` | 0 | A model reply was unusable. The deck is fine to review. | `render` again, or go on to `gate3`. |
 | `The deck could not be rendered: LibreOffice not found` (or a missing font) | 1 | The drawing tool is not installed. | `./scripts/setup-dev-env.sh` (section 2), then `render` again. |
 | `final_render` shows `NOT CURRENT` in `status` | 0 | The deck file changed after you approved. | Read what is there now, redo the checks if it was re-rendered, and approve again. |
@@ -2109,8 +2106,8 @@ on record; or approve with check 1 untried and the risk accepted. Reply: *"diagr
 | You see | It means | Do this |
 |---|---|---|
 | `FontNotFoundError`, or `MISSING …` in `fonts check` | A font the layout is measured against is not installed. The program refuses to substitute one, on purpose. | Run `./scripts/setup-dev-env.sh`, then `uv run autodeck fonts check --tokens config/tokens/dev.json`. |
-| `STOPPED: role '…' (…) was rate limited` (exit 5; `render` too) | Daily free-tier quota for that model is spent. Finished work is saved. | Wait for the quota to reset, then run the same command again; it resumes. Do not keep re-running. |
-| `STOPPED: role '…' (…) has no API key` / `…the provider rejected the credentials` (exit 5) | The key is not set in this terminal, or is not valid. | `export GEMINI_API_KEY=…` / `export GROQ_API_KEY=…` (the message names which), then `uv run autodeck models`. |
+| `STOPPED: role '…' (…) was rate limited` (exit 5; `render` too) | The request limit for that model is hit. Finished work is saved. | Wait for the quota to reset, then run the same command again; it resumes. Do not keep re-running. |
+| `STOPPED: role '…' (…) has no API key` / `…the provider rejected the credentials` (exit 5) | The key is not set in this terminal, or is not valid. | `export MISTRAL_API_KEY=…` (the message names which variable), then `uv run autodeck models`. |
 | `no ingested documents under …` (exit 2) | The document store is empty. | `uv run autodeck knowledge ingest llm-inference-efficiency` |
 | `GATE '…' requires human approval before run '…' continues` (exit 3) | A previous approval is missing. **This is the system working.** | Approve the gate it names, once you have judged it. |
 | `Final render is blocked … by N finding(s)` (exit 4, from `render`) | A claim is `unsupported`/`contradicted`/`unverified` or a lint is failing, though the claims were approved (`approve` does not stop you approving them). Also the system working; `gate2`'s six checks show the same conditions earlier. | Fix the content (send back, re-run `content` and `validate`, approve the new table). No flag skips it. |

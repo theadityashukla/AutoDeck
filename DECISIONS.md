@@ -1343,3 +1343,863 @@ the owner with options.
   pass.
 - **Consequences:** re-running the `Xls` quotes: 5 of the 7 failures snap; the 2 splices are
   still dropped. Thresholds are constants in `autodeck/ingest/provenance.py`.
+
+### B53 — One bounded repair call after a draft loses content
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c follow-up (LIVE-RUN-1)
+- **Status:** active — owner's decision ("One bounded repair")
+- **Context:** in run `Xls` a block that failed its budget or whose quote did not resolve was
+  removed and nothing told the writer why (LIVE-RUN-1 §4c). Two slides were left with a
+  headline only. `prompts/content.md` already promised "a rejected block and a rewrite"; no
+  rewrite existed.
+- **Decision:**
+  - After `compose_deck` resolves the draft and runs the draft-time checks (B56), and only
+    when something was dropped or an invariant check failed, the composer makes **one**
+    repair call (`prompts/repair.md`, schema `RepairDraft`). It lists each failure with its
+    kind, concrete numbers and the original block, and asks for replacement blocks for
+    those failures only, or a declined reason.
+  - The repair runs **before** the IR is saved, so it creates no IR version and touches no
+    approval (A7, B43).
+  - A1 is unchanged: replacements go through the same `resolve_blocks` path. Each failure's
+    candidate passages are drawn only from the evidence that slide was shown, and a
+    replacement may cite nothing else. Whatever still fails is dropped as before.
+  - B48 holds (agreed messages are never dropped to escape a failure). B49 holds (with
+    "keep my words" a repair may only cut).
+  - If the repair call itself fails, the first draft stands and a note says so.
+- **Rationale:** the owner's position (LIVE-RUN-1 §5) is that basic quality must not depend
+  on model class. A small model that overshoots a budget by 40 characters can fix it when
+  told the number. Dropping the block cannot.
+- **Consequences:** PHASE-3C's exit criterion "first draft in ≤ 3 model calls" becomes "≤ 3,
+  or 4 when the repair call runs". `ComposeResult.provider_calls` counts it truthfully.
+  Schema-repair retries inside a provider remain uncounted (existing gap). The repair is
+  written so `revise_deck` can use it later.
+
+### B54 — Talking headers: the headline states the slide's bottom line (BLOT)
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c follow-up (LIVE-RUN-1)
+- **Status:** active — owner's decision ("We typically write talking headers with BLOT. BLOT
+  may have an assertion or may paint an overall picture. So, citation may not make sense in
+  most cases")
+- **Context:** the live draft's headlines were topic labels ("Safety and Tolerability of
+  Oral Semaglutide"). The draft-first prompts gave no headline rule, and the default header
+  profile was `topic_led`. The A5 framing fence forbade numerals in a header, so a header
+  could not carry the slide's number even when the slide cited it.
+- **Decision:**
+  - A content slide's headline is a full sentence that puts the slide's bottom line first.
+    It may assert or synthesise, and it carries no citation of its own.
+  - Any specific fact in it (a number, a named trial or study, a comparison) must be stated
+    by a cited block on the **same slide**. Code checks numbers (A2, scoped to that slide's
+    citations and derivations) and named sources (`audit/header_linter.py`). The validator
+    judges meaning: a header is no stronger than the claims it summarises.
+  - On a slide with cited content, that rule replaces the A5 numeral and comparative fence
+    for the header. On a slide without cited content (title, divider, agenda), the full A5
+    fence still applies.
+  - The default header style becomes `blot`.
+- **Rationale:** headers are the most-read text in a deck (plan §6.11.1). A per-headline
+  citation does not fit a synthesis, but an unbacked figure in the largest type on the page
+  is the worst place for one.
+- **Consequences:** the header verdict is capped at the worst verdict among the slide's face
+  claims. Meaning checks are model-sensitive (B8).
+
+### B55 — Two provenance modes: `strict` (MLR) and `normal` (default)
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c follow-up (LIVE-RUN-1)
+- **Status:** active — owner's decision ("There should be two versions … full citation only
+  and the normal, where we still fact check but it could also have new information")
+- **Context:** A1 required every factual assertion to trace to a corpus span. That is right
+  for a rep's deck for an HCP, which goes through MLR review. It blocks an ordinary working
+  deck. For example, the owner proposes an architecture slide whose content exists only in
+  their conversation with Claude.
+- **Decision:**
+  - Mode is a **project** setting (`knowledge/projects/<p>/settings.yaml`,
+    `provenance: strict|normal`, missing = `normal`). It is snapshotted into the run when the
+    run starts, recorded on the Deck (`Deck.provenance`) and in the build manifest, and
+    shown in the UI. A run's mode does not change once a draft exists.
+  - **strict:** today's A1. Only document spans (corpus, or the client's own deck in a
+    redesign) may be cited.
+  - **normal:** adds two source classes.
+    1. **From you:** what the person typed in this run (request, typed answers,
+       corrections, chat turns, revise instructions) becomes a run-local source document
+       `conversation--<run>`, cited verbatim like any other span. Accepted model-suggested
+       answers are not citable. A key message backed only by it is `supported` and labelled
+       "from you", as B50 does for a redesign's own deck.
+    2. **Unsourced:** the model's general knowledge, as a `claim` with
+       `basis: "unsourced"` and no citations. **Qualitative only:** no numerals, dates or
+       named studies (A2 blocks numerals already; a named-source fence blocks the rest). The
+       validator checks it against the corpus. Corpus support gives `supported` (with a
+       suggestion to cite), a contradicting span gives `contradicted`, and otherwise code
+       assigns the new verdict `uncorroborated`, which does not block render.
+  - Strict mode is enforced twice: the evidence pack omits the conversation, and a `Deck`
+    validator refuses any unsourced claim or `conversation--` citation.
+  - The final deck looks the same in both modes. Source classes appear in the audit report
+    and as badges in the review UI.
+- **Rationale:** fact-checking stays universal and provenance stays recorded. What changes
+  in normal mode is that "the person said so" and "general knowledge, checked" are legitimate,
+  visibly labelled sources.
+- **Consequences:** A1, A2 and A3 wording amended in `docs/INVARIANTS.md`. A redesign never
+  allows unsourced claims (B41). Every consumer of `Verdict` learns `uncorroborated`. Set
+  `strict` explicitly on HCP-facing projects.
+
+### B56 — Deterministic checks run on the draft, before the person sees it
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c follow-up (LIVE-RUN-1)
+- **Status:** active — recommended set accepted with the plan
+- **Context:** the A2 and A5 linters ran only on the gate-first path and at render. The live
+  draft showed a framing block claiming "superior glycemic control … compared to active
+  comparators", which validation later found contradicted.
+- **Decision:** `agents/draft_checks.py` runs on every draft.
+  - **Checks that trigger the B53 repair:**
+    - the A5 fence, with B54's header rule;
+    - A2 per slide;
+    - header facts not backed on the slide;
+    - the provenance mode;
+    - redesign "keep my words" rewording;
+    - a required slot emptied by a drop.
+  - **Advisories,** shown in the UI and passed to a repair only if one is already running:
+    - topic-label headers;
+    - `headers/flow.py` storyline findings.
+  - **Dividers:** code removes and reports a `section_divider` in a deck under 8 slides, two
+    in a row, or one with fewer than 2 slides after it, unless the person asked for
+    sections. A divider carries no fact, so removing one is safe (cf. B36).
+  - **Framing linter:** extended to "superior … compared/relative/versus", "compared
+    with/to", "relative to", "more effective" and evidence verbs ("demonstrates",
+    "establishes").
+- **Rationale:** every check is free and deterministic, and each one guards an invariant or
+  content that was lost. Quality-only findings do not spend a model call.
+
+### B57 — Preview fonts: what the renderer can see, verified after render
+- **Date:** 2026-10-03
+- **Phase / branch:** Phase 3c follow-up (LIVE-RUN-1)
+- **Status:** active
+- **Context:** on macOS, headless LibreOffice uses CoreText and does not read
+  `~/.local/share/fonts`. It drew "Inter Display" bold as Arial Black, about 18% wider than
+  the Inter metrics the layout was measured with. The title and takeaway then wrapped one
+  line more than measured and overprinted the line below. The font gate asked Python's font
+  lookup, not the renderer, so it passed (a B11 breach).
+- **Decision:** the dev token set uses **Carlito** (owner: "switch to a compatible font"). It
+  ships with LibreOffice on every platform, has all four faces, is SIL OFL, and is
+  metric-compatible with Calibri. Previews therefore render in exactly the font they were
+  measured with, with nothing to install. Deliverables still use `aptos.json`.
+  `install-dev-fonts.sh` (Inter) is optional; it also installs to `~/Library/Fonts` on macOS.
+  The pre-render gate checks the folders the renderer reads, for every face drawn. After
+  conversion, `pdffonts` must list only the declared families (plus LibreOffice's own symbol
+  font), or the preview fails with `FontSubstitutionRisk`. Text boxes no longer carry
+  `spAutoFit`. Bar charts set `invertIfNegative=0`, because python-pptx's default made
+  negative bars invisible.
+- **Consequences:** golden previews and digests change once; the owner re-reviews them.
+
+### B58 — Digits inside names are not quantities
+- **Date:** 2026-10-04
+- **Phase / branch:** Phase 3c follow-up (LIVE-RUN-1)
+- **Status:** active — owner's decision ("Glued digits + glossary")
+- **Context:** the A2 extractor took every digit run as a numeral. "Type 2 diabetes",
+  "HbA1c", "GLP-1" and "PIONEER 7" all needed a cited span containing the digit. On a framing
+  line, a title or a speaker note they were demoted outright (A5: no numerals). Replaying the
+  live run's draft flagged the title slide, a note and a headline for this reason alone.
+- **Decision:**
+  - Digits inside a word that **begins with a letter** are part of a name and are skipped by
+    A2 matching and the A5 numeral rule (`numeric_linter.is_name_numeral`). Examples:
+    `HbA1c`, `GLP-1`, `A100`, `int8`, `GPT-4`. Digit-first words (`3x`, `13B`, `10ms`) and
+    dates are quantities, as before.
+  - Names whose digits stand apart ("Type 2 diabetes", "PIONEER 7") are listed per project
+    in `knowledge/projects/<p>/settings.yaml` under `named_terms`. They are carried on the
+    deck (`Deck.named_terms`), so the draft checks and the render gate read the same list.
+    Their digits are masked before extraction (`numeric_linter.mask_terms`).
+- **Rationale:** a name's digits are not a measurement anyone can misstate without naming a
+  different thing. Whether the right trial is named is the validator's question (A3), not
+  A2's. The glossary is explicit and reviewable, and the knowledge commit records it (A6).
+- **Consequences:** this reverses the extractor docstring's position that a model name must
+  trace to a span like any number. A quantity written in a name's clothing (a version
+  number used as a figure) is no longer caught by A2. The glossary is owner-maintained.
+
+### B59 — Deck craft lives in skill files, shared by every writer role
+- **Date:** 2026-10-05
+- **Phase / branch:** Phase 4a (`v2/integration`)
+- **Status:** active. The owner's decision ("the deck guidance can be loaded as skill files. We
+  should keep it modular"). The research basis is `docs/research reports/Report 1.md` and
+  `Report 2.md`.
+- **Context:** live run 1 produced topic-label headlines and slides with no body. The model
+  wrote bullets as near-copies of source sentences (92–132 characters against an
+  88-character ceiling), so all of them were dropped. The prompts taught citation mechanics
+  (`content.md` was about 80% quote rules) and almost nothing about what a deck is: an
+  argument for a decision, whose facts are grounded but re-expressed for the audience.
+- **Decision:**
+  - The craft goes into `prompts/skills/`: 12 files, each with front matter (`name`,
+    `summary`, `use_when`) and a body:
+    - `deck-thinking` (core);
+    - `storyline`, `headlines`, `from-source-to-slide`, `slide-bodies`, `fidelity`;
+    - `writing-style`, `charts-and-diagrams`, `citations`;
+    - `reworking-decks`, `self-review`, `visual-review`.
+  - `autodeck/agents/skills.py` loads them. `SKILL_SETS` fixes the static set and order for
+    each writer role.
+  - The draft-first writer's system prompt becomes role + `components.md` + skills +
+    provenance. The gate-first per-slide writer's becomes `content.md` (now a short role
+    file) + skills.
+  - Role files (`compose`, `revise`, `redesign`, `repair`, `content`) keep only what is
+    specific to their call.
+  - Central rule: the slide sentence (`claim.text`) is the writer's, written for the audience.
+    The quote is the source's, verbatim, and is the shortest run that proves the sentence.
+    Paraphrase is expected; a change of meaning is not.
+- **Rationale:**
+  - One craft is taught to every role instead of being re-stated per prompt.
+  - Skills can be loaded on demand once the deck agent exists (Phase 4c, a later decision).
+  - Every skill is under `prompts/`, so the manifest already hashes it (A6).
+- **Consequences:**
+  - Each writer call's system prompt grows by about 20k tokens (85 KB of skills; about 26k tokens total once B63 added the exemplars), which is acceptable at the
+    composer's context sizes.
+  - `visual-review` is not loaded statically. It is for the preview tool and art direction.
+  - The gate-first pipeline's planner, outline and art-direction prompts are not yet aligned
+    (Phase 4d).
+
+### B60 — Labelled implications on body slides
+- **Date:** 2026-10-05
+- **Phase / branch:** Phase 4a
+- **Status:** active (owner chose "Yes, labelled")
+- **Context:** the audience needs the "so what", but the source often does not state it.
+  Report 2 recommends separating the consultant's inference from the source's finding with an
+  explicit label.
+- **Decision:** a writer's own inference may appear on any slide as a `framing` block whose
+  text begins "Implication:". It carries no number, named study or factual comparison: the A5
+  fence applies unchanged. It is never the factual basis of a headline. Taught in `fidelity`.
+- **Rationale:** the label makes the inference visible and reviewable, and the A5 fence stops
+  it from smuggling in facts.
+- **Consequences:** prompt-only. No schema or linter change. A future check may verify the
+  prefix.
+
+### B61 — The writer chooses answer-first or question-led
+- **Date:** 2026-10-05
+- **Phase / branch:** Phase 4a
+- **Status:** active (owner chose "Writer decides")
+- **Context:** a pyramid deck leads with the answer. When the evidence does not support a
+  single governing thought, a forced answer overgeneralises at the scale of the whole deck.
+- **Decision:** the deck leads with the answer when the evidence supports one governing
+  thought. Otherwise it is question-led: the question, what the evidence shows and does not
+  show, and what can be decided now. The writer records which it chose, and why, in the
+  draft's `notes`. Taught in `storyline`.
+- **Rationale:** a question-led deck is the more faithful form when the evidence is split.
+- **Consequences:** prompt-only. Nothing yet surfaces the choice in the UI beyond `notes`.
+
+### B62 — Talking headers get a verdict, and failing draft blocks are dropped
+- **Date:** 2026-10-05
+- **Phase / branch:** Phase 4a follow-up (run XLP, `v2/integration`)
+- **Status:** active. The owner asked: "fix the dropped-block bug and the headline gap too".
+- **Context:** run XLP, the first run on the B59 skills, had two problems.
+  - **Blocks that failed a draft check stayed in the IR.** An uncited `0.8%` and a speaker
+    note with uncited numbers both failed the draft checks and survived the repair call.
+    They reached the IR and surfaced only at the final render gate. `run_draft_checks`
+    reported failures and nothing removed them. `revise_deck` did not run the checks at
+    all.
+  - **No check covered the headline's meaning.** The s3 header said HbA1c *and body
+    weight* fell "compared to empagliflozin and sitagliptin" over a claim saying weight loss
+    was *similar* to empagliflozin. The closing header asserted "significant benefits" over
+    no claim at all. Headers carry no citation (B54), so no claim verdict covered them, and
+    the draft checks look only at their numbers and names.
+- **Decision:**
+  - **Dropping failed blocks.** `draft_checks.drop_failed_blocks` removes every block that
+    still fails a draft check (`CHECK_KINDS`). `compose_deck` calls it after the final build,
+    whether or not repair ran. `revise_deck` now runs the draft checks on the slides it
+    rewrote and drops their failures. Untouched slides keep their verdicts. A dropped
+    headline leaves its slide headless, and the preview shows the gap.
+  - **Headline verdicts.** A new IR field, `Slide.headline_check`, holds `HeadlineCheck`
+    (`carried` | `overstates`, `notes`, and the `headline` that was judged).
+  - `validation.check_headlines` runs as part of `validate_deck`: one extra call per deck
+    judges every headline against its own slide's claims and their verdicts. Slides with no
+    claims are judged too: an ask or a question is carried, an assertion overstates. An
+    unchanged headline over unchanged claims reuses its verdict. A failed call leaves
+    headlines unjudged (None), never `carried`.
+  - An `overstates` verdict blocks the final render (`RenderSafety.overstated_headlines`)
+    and fails GATE 2 criterion 1. The slide is flagged `blocking` in the draft view, and the
+    UI inspector shows the note with an "Ask AutoDeck to fix" action.
+  - `prompts/validation.md` → "Talking headers" says what overstating is.
+- **Rationale:** the headline is the sentence a reader is most likely to repeat, and A3's
+  purpose covers it as much as any claim. Judging the headline against the slide's own
+  claims, rather than re-retrieving evidence, keeps it one cheap call. Whether a claim is
+  true is already the claim pass's job. A failing block that reaches the IR turns a draft
+  problem into a render-time surprise.
+- **Consequences:**
+  - Validation makes one more provider call per pass (0 when every headline is reused).
+  - A small validator model can wrongly flag a headline. The cost is a revise. A false
+    `carried` would let an overclaim ship, so blocking is the safer default.
+  - Live check on run XLP with `ministral-8b`: s3 and s6 were flagged `overstates` with
+    precise notes, and s2, s4 and s5 came back `carried`.
+
+### B63 — Gold exemplar decks are the quality bar, checked by the same machinery as drafts
+- **Date:** 2026-10-05
+- **Phase / branch:** Phase 4a follow-up (`v2/integration`)
+- **Status:** active. The owner chose the audiences: a P&T committee for oral semaglutide,
+  and a CTO for both Attention Is All You Need and LeJEPA.
+- **Context:** run XLP had sentence headlines but thin bodies, about 100 body words across
+  six slides, with the key HbA1c result missing. The owner proposed hand-drafted decks to
+  tune AutoDeck. We chose exemplars over fine-tuning. Fine-tuning would need hundreds of
+  examples, would tie quality to one provider while the providers are being changed (Phase
+  4b), and would cut against the owner's rule that quality comes from prompts and checks.
+- **Decision:**
+  - **Three gold decks** of 11–12 slides each, written by hand as `ComposeDraft` JSON at
+    `knowledge/projects/<project>/gold/`. Two are answer-first; the LeJEPA deck is
+    question-led (B61). They sit inside the git-excluded project folders, alongside their
+    corpora.
+  - **New projects.** `transformer-attention` and `lejepa-ssl` were ingested
+    (`vaswani-2017-attention-is-all-you-need`, `balestriero-2025-lejepa`).
+  - **`scripts/check_gold.py`** runs a gold deck through `compose._build` against the whole
+    corpus. That covers verbatim resolution (any snap counts as a failure), slot budgets in
+    the real font, the A2, A5 and header draft checks, and key-message grading. All three
+    decks are clean.
+  - **`prompts/skills/exemplars.md`** (in every writer skill set) shows each deck's brief,
+    headline outline and worked slides, and what to copy.
+  - **Density guidance in `slide-bodies`:** a content slide carries 35–70 body words,
+    usually 3 to 5 points. Two points is the floor. `two_column_compare` is only for points
+    that fit in about 37 characters.
+  - **Number traps added to `citations`:** every number in a sentence must appear in that
+    block's own quotes; keep the source's unit; write a derivation's unit word for word; do
+    not hyphenate a number onto a word. Writing the gold decks hit every one of them.
+  - **Charts start at zero.** Bar, column, stacked-bar and area charts now pin the value axis
+    to zero (`design/charts._ZERO_BASED`). Auto-scaling had started a 67–78 accuracy chart at
+    62.
+- **Rationale:** an exemplar that passes the same checks as a draft shows a model what "good"
+  looks like inside this system's constraints. Its density, its sentence-versus-quote
+  contrast and its hedges are all achievable, because they were achieved.
+- **Consequences:**
+  - The gold decks are the reference for the deferred eval suite (memory:
+    deferred-test-layers, layer 7).
+  - The renders showed three layout issues that are not content problems. They are recorded
+    for the owner and not fixed here:
+    - single-line 16-pt bullets fill only the top half of the slide;
+    - `closing_cta` draws an empty band with the CTA below it;
+    - `chart_focus` places its takeaway below the source line.
+
+### B64 — The evidence pack reads each section's opening, uses the person's answers, and examples are fictional
+- **Date:** 2026-10-13
+- **Phase / branch:** Phase 4a follow-up (live runs XLP2 to XLP4, `v2/integration`)
+- **Status:** active
+- **Context:** run XLP2 was still thin, and the cause was upstream of the prompts.
+  - **The pack starved the writer.** Its queries were the request plus `project.md`'s meta
+    lines. It filled 8.5k of 24k tokens and lacked the review's HbA1c-vs-comparator result,
+    its adverse-event summary and its cardiovascular outcome.
+  - **The person's clarify answers never reached retrieval.**
+  - **The model quoted a skill's invented example as evidence.** It used "−1.3% vs −0.9%",
+    from an illustration about the same drug.
+- **Decision:**
+  - **What the pack reads.** `build_evidence_pack` takes `extra_queries` (each answered
+    clarify question with its answer, queried right after the prompt). It also appends
+    `section_lead_spans`: the first two substantive paragraphs under every non-boilerplate
+    section heading of the corpus, in reading order, trimmed last. Using headings as search
+    queries was tried first and did not work: BM25 returned the headings themselves.
+  - **Examples are fictional.** Every skill example and `compose.md`'s worked slide now uses
+    invented subjects (drug A, comparators B and C, the ALPHA trials, model M).
+    `deck-thinking` says examples are never evidence. The exception is `exemplars`, whose
+    decks are real and checked.
+  - **Skill sets are per role.** Redesign alone gets `reworking-decks`; compose and content
+    get `exemplars`. Repair gets only `deck-thinking`, `from-source-to-slide`, `slide-bodies`,
+    `fidelity` and `citations` (about 12k tokens instead of 26k).
+  - **A single slot holds one block.** `content.check_budgets` rejects a second block in a
+    slot that is not a list (`overflow_text`, reason `second_block_in_single_slot`). Before
+    this, XLP3's preview drew the slide as a placeholder. `repair.md` now says how to merge
+    such blocks, and that a split must give two complete statements, never two halves of one
+    sentence.
+  - **Same-strength synonyms are carried.** `validation.md` says a headline using a word of
+    equal strength ("matched" for "similar") is carried.
+- **Rationale:** the writer can only be as good as what it is shown. A section's opening
+  paragraphs are where a paper states its results. A skill example about a real subject is
+  indistinguishable from evidence to a small model.
+- **Consequences:**
+  - The pack for the semaglutide request grows from 39 spans and about 8.5k tokens to about
+    80 spans and 18k tokens, within budget.
+  - XLP4 stated the PIONEER 2 HbA1c result correctly, and its CV slide carried the
+    noninferior-not-superior distinction.
+  - Open issues:
+    - the `ministral-8b` validator marked that correct claim unsupported and raised headline
+      false positives;
+    - the semaglutide gold deck is visible to drafts on the same project, so those runs
+      cannot be scored against it;
+    - body density is still about 140 words over 5 slides.
+
+### B65 — A draft never sees its own project's gold exemplar
+- **Date:** 2026-10-13
+- **Phase / branch:** Phase 4a follow-up
+- **Status:** active (owner: "hide the project's own gold deck")
+- **Context:** run XLP4, a semaglutide draft, copied the semaglutide gold deck's figure label
+  word for word. The facts were right, but a draft scored against a gold deck it was shown
+  measures copying, not writing.
+- **Decision:** each exemplar in `prompts/skills/exemplars.md` is wrapped in
+  `<!-- project: <name> -->` … `<!-- end project -->`. `skills.skills_text(role,
+  project=…)` drops the sections tagged for that project and strips the tags from the rest.
+  Every writer call passes its project:
+  - compose, redesign and repair pass the run's project;
+  - revise passes `deck.project`;
+  - the gate-first content agent passes `index.project`.
+- **Consequences:** a project with a gold deck sees only the other exemplars, so its drafts
+  can be fairly compared with its own gold deck. A new exemplar must carry a project tag.
+
+### B66 — Providers: Gemini and Groq removed; an OpenAI-compatible base with Nebius and OpenAI; tool calling
+- **Date:** 2026-10-13
+- **Phase / branch:** Phase 4b (`v2/integration`)
+- **Status:** active. Supersedes B16 and B25 (Gemini and Groq as dev providers). Amends B8
+  (the dev strategy is now `dev-mistral`) and B26 (the `gemini` schema dialect is removed).
+- **Context:** the owner decided to drop Gemini and Groq and to add Nebius Token Factory and
+  OpenAI. They asked for one last Gemini run first, and to keep or remove it on the result
+  without waiting. On 2026-10-13, clarify succeeded on `dev-gemini`, but compose
+  (`gemini-3.6-flash`) failed with HTTP 503 twice, after the provider's own backoff. That
+  is the same failure as on 2026-10-03. Gemini removed.
+- **Decision:**
+  - **One shared base.** `providers/openai_compat.py` implements the Chat Completions format
+    for structured output, images and tools. Three adapters sit on it:
+    - `mistral.py`, rebased onto it, with image URLs as bare strings;
+    - `openai.py`, using `max_completion_tokens`;
+    - `nebius.py`, which also puts the schema in the system prompt, as Nebius advises.
+    Claude keeps its own adapter. All of them go through the one httpx transport (B14).
+  - **Tool calling.** `BaseProvider.converse(messages, tools)` returns an `AssistantTurn`.
+    Its cache key covers the full message list and a digest of the tool specs, so a session
+    replays exactly (A6). Invalid tool arguments come back as `{"__invalid__": raw}`; they
+    never raise. `_RoleBound` forwards `converse`.
+  - **Defaults.** `default_env` is `dev-mistral`, and the CLI reads it from the registry. In
+    sit and prod, `ingest_vlm` is interim on `ministral-14b-2512`. Model ids for Nebius and
+    OpenAI are chosen once their keys exist, from each provider's live model list, never
+    guessed.
+- **Consequences:**
+  - There is no free dev provider. Development runs on the owner's Mistral allowance (B51).
+  - Mistral, OpenAI, Nebius and Claude are all ready for the Phase 4c agent.
+  - A stronger validator than `ministral-8b` needs a Nebius or OpenAI key.
+
+### B67 — A slide must fit as a whole before render; design-gallery fixes
+- **Date:** 2026-10-13
+- **Phase / branch:** design test (`v2/integration`)
+- **Status:** active
+- **Context:** a stress gallery rendered every component with minimal content, content at
+  the published targets, content at 60% of each ceiling, and content at the full ceiling,
+  plus edge cases (negative charts, eight long categories with three series, six-step
+  diagrams). Its findings:
+  - **Slots that each fit can overflow together.** The budget engine checks each slot
+    against its own box, as if it had the whole region. At 60% of each ceiling,
+    `big_number`, `quote`, `before_after` and `two_column_compare` crashed the renderer
+    (`LayoutOverflowError`). At the full ceiling, most other components did too. One such
+    slide aborted the whole draft preview. Written to the targets, every component except
+    `big_number` fits; its `support` target, 543 characters, is too generous.
+  - **Chart and layout defects.** Horizontal bars listed categories bottom-up. All-negative
+    bars pinned at zero printed their last tick as "-5.55111512312578E-17", a regression
+    from B63. `closing_cta` centred its text in the whole region instead of its panel, which
+    left the panel empty.
+  - **`icon_pillars` can never render in a draft,** because only gate-first art direction
+    assigns icons.
+  - **Deterministic QA saw almost none of this.** It flagged one 3pt diagram overlap and
+    crashed on placeholder text with no explicit colour. The draft marker's grey failed
+    contrast (3.95:1).
+- **Decision:**
+  - **Trial layout.** `content.check_budgets` ends with a trial layout: the component's real
+    renderer draws onto a throwaway python-pptx slide (`_trial_overflow`, no LibreOffice).
+    While it does not fit, optional slots are dropped first, then list items, longest first
+    (`overflow_stack`, reason `slide_does_not_fit_as_a_whole`). A headline, a required slot
+    or a required list's last item is never dropped. If only those are left, the slide is
+    reported as not fitting and the preview draws a placeholder that says why.
+  - **Preview resilience.** `render.draft` draws a slide that raises `LayoutOverflowError`
+    or `ChartConstructionError` as a placeholder; the preview no longer aborts. Placeholder
+    text has explicit colours, and the draft marker is #6A6A6A (5.4:1 on white).
+  - **Charts.** Horizontal bars reverse category order with the value axis kept at the
+    bottom, and tick labels use the data's own decimal places.
+  - **`closing_cta`** places its text inside the panel it was measured for.
+- **Consequences:** a writer that overshoots its targets now loses optional text before
+  render instead of crashing it. Not fixed here:
+  - **Joint budgets.** The per-slot ceilings shown to the writer are still each computed as
+    if the slot owned the region. The catalog should publish ceilings that account for the
+    slots sharing a region.
+  - **`big_number`'s support target** is too generous.
+  - **`icon_pillars` in draft-first.**
+  - **`evidence_with_figure`** draws no figure: its "figure" slot is italic text.
+  - **Weak composition at low fill:**
+    - 16-pt grey body text under 32-pt bold headlines, with the lower half of the slide
+      empty;
+    - titles that float when a two-column slide has only titles;
+    - a single data card stretched over the whole body area;
+    - oversized two-step chevrons.
+  - **Within a bar cluster, series still stack bottom-up.**
+  - **Only one theme can be tested on this machine.** The `aptos` and Northwind themes need
+    Aptos Display Bold, which is not installed.
+
+### B68 — A 1.33 type scale, and bullets that fill the slide
+- **Date:** 2026-10-13
+- **Phase / branch:** design (`v2/integration`)
+- **Status:** active. The owner said "fix the type scale and bullet layout first. The slides
+  look really ugly".
+- **Context:** the product themes (`dev`, `aptos`) set 16pt body under 32pt titles, a 2:1
+  jump with nothing between. `bullets_supporting` drew one-line points in the paler text
+  colour (`dk2`) behind em-dash markers, 18pt apart whatever the room, so four points sat
+  under the headline and the lower half of the slide was empty. Even a 60-word slide read
+  as thin.
+- **Decision:**
+  - **Type scale.** In `config/tokens/dev.json` and `aptos.json`, body goes from 16 to 18pt
+    and heading from 22 to 24pt; title stays 32 and display 54. That is a consistent ×1.33
+    step from body to heading to title. The Northwind client theme keeps its own scale.
+  - **Bullets.** Points are set in `dk1` behind a bold accent "•". The row gap grows with
+    the free space, from 3 to 7 baselines (18–42pt). A tinted 0.75pt hairline separates the
+    rows. `Stack.place` now records each item's box (`placed_boxes`), so a renderer can draw
+    between rows.
+  - **Body targets.** `TARGET_LINES` caps body at 4 lines. An uncapped body target was more
+    than its region could hold beside the other slots.
+- **Consequences:**
+  - Every slot's budget shrinks by about 11%: a one-line point holds about 94 characters
+    instead of 106. All three gold decks still pass.
+  - Written to the published targets, every component fits in the stress gallery except
+    `two_column_compare`, which sheds two of its twelve items at target (the trial layout
+    does this, B67). `big_number` overflows only when its figure is written as 26
+    characters of words; real figures are a few characters.
+  - Not changed yet: the composition of `two_column_compare`, `data_card_grid` with one
+    card, and two-step diagrams.
+
+### B69 — The writer designs the slide; the slide master is the only fixed layer
+- **Date:** 2026-10-14
+- **Phase / branch:** design (`v2/integration`)
+- **Status:** accepted as direction; not built. The owner said: "this product is useless if it
+  follows a template. It should be able to leverage and stick to the slide master, sure, but
+  this is way too much. Why can't the LLMs decide whether chrome is required or not?"
+- **Context:** the plan in `CRAFT-4A-4B.md` §9 imposed a fixed visual language: a section
+  tracker, page numbers and stickers on every content slide, and a catalog of components
+  with slot budgets. A design canvas built that way, with six preset themes, looked polished
+  but uniform. The owner rejected fixed themes and mandatory chrome for capable models.
+- **Decision:**
+  - **Fixed layer = the slide master only.** Brand fonts, palette, margins and safe area,
+    logo placement and slide size are fixed. Everything else is the writer's call: layout,
+    whether a slide carries chrome (tracker, stickers, page number) and how it looks,
+    chart form, density, colour emphasis and diagram choice.
+  - **Two design modes.**
+    - **Creative:** a free-layout IR of positioned primitives (text frames, shapes,
+      charts, diagrams, images) inside the master.
+    - **Structured:** today's component catalog and slot budgets, plus a library of preset
+      palettes for decks with no client master.
+  - **Every tier can run creative.** A UI toggle per run picks the mode. The default is
+    creative for Sonnet and above and structured for the smaller models (Luna, Haiku,
+    ministral). The owner wants the small models tried in creative mode too ("it shouldn't
+    be that bad").
+  - **What does not relax:**
+    - every claim-bearing text node keeps its citations and passes A1/A2;
+    - deterministic QA still fails overflow, overlap, contrast below 4.5:1 (3:1 at 24pt
+      and above), type below the master's minimum, and content outside the safe area;
+    - quality comes from a render-and-review loop (the writer sees its rendered slide
+      against `visual-review`), which is Phase 4c.
+  - **Gold decks teach judgement, not a house style.** Each gold deck looks the way its
+    audience and medium call for, with its design reasons noted per slide.
+    `exemplars.md` carries those reasons, not the pixels.
+- **Consequences:**
+  - This needs a new IR payload for free layout, an Opus path, plus a python-pptx renderer
+    for it.
+  - Budgets per slot do not apply in creative mode; fit is checked by rendering.
+  - The §9 component list remains useful as the structured mode's catalog and as
+    vocabulary for the creative writer, not as a requirement.
+  - The small-model creative trial is deferred: "lets take a shot later on". The owner
+    asked for the toggle now, so every tier can be tried.
+- **Built (2026-10-15):**
+  - **IR** (`autodeck/ir/models.py`): `Slide.layout: FreeLayout | None`, with
+    `component = "free_layout"`, and `Deck.design_mode`.
+    - A layout holds `TextElement`, `VisualElement` (chart, diagram, figure or icon) and
+      `ShapeElement`. Frames are in percent of the slide; colours are theme tokens; type is a
+      role on the master's scale, with an optional point size.
+    - **No text lives in a layout**: every word is still a block, so A1, A2, A3 and A5 are
+      unchanged.
+    - The Slide validator requires every face block to be placed exactly once and as what it
+      is. Notes are never placed, and emphasis may name only real chart categories.
+    - `Slide.without_blocks` prunes the layout along with the blocks.
+  - **Renderer** (`autodeck/design/free_layout.py`): draws elements back to front in theme
+    colours. It draws the source line itself, in a reserved band (`SOURCE_BAND_PT`), and
+    highlights the chart categories named in `emphasis`. `render_deck` and the draft render
+    take this path when a slide has a layout.
+  - **QA** (`autodeck/design/free_layout_qa.py`) measures in the real fonts:
+    - text fit;
+    - text inside the safe area;
+    - overlaps;
+    - the source band kept clear;
+    - type at or above the minimum;
+    - contrast: 4.5:1, or 3:1 at 24pt and above.
+
+    In compose:
+    - Text too long for its frame is `overflow_frame`, which the repair call may shorten.
+    - Every other finding is `layout_fit`: reported, never repaired, and the block is kept.
+    - The final render refuses a slide with a finding (`FreeLayoutQAError`); the draft shows
+      a placeholder with the reasons.
+  - **Writer:** `prompts/creative.md` replaces `components.md`, and the `slide-design` skill
+    joins each whole-deck role (`<role>-creative` skill sets).
+    - The request carries the master (size, safe area, source band, type roles and palette
+      hex) instead of the catalog's budgets.
+    - Compose, redesign and revise have creative schemas with a required `layout`.
+    - Resolution removes the elements of dropped blocks, and drops blocks the writer never
+      placed, each as a correction.
+    - A repair that splits a block stacks the parts in its frame.
+  - **Palette presets** (`config/palettes/`, `autodeck/design/theme/palettes.py`): 20
+    schemes for decks without a client master. Each replaces only the palette.
+    - Each keeps body text at 7:1 or better and the focal accent at 3:1 or better as a chart
+      mark.
+    - The non-focal neutral (`accent6`) is deliberately light, about 1.5:1, so values must be
+      labelled and never told apart by colour alone.
+  - The design-mode setting is snapshotted per run (like provenance, B55), with a default
+    per environment, a CLI flag and a UI toggle.
+
+### B70 — The headers are read in order, as one story
+- **Date:** 2026-10-15
+- **Phase / branch:** design (`v2/integration`)
+- **Status:** active. In the owner's words, the hand-built Transformer and LeJEPA canvas
+  decks "don't tell a story", and of one header: "It should always be a talking header.
+  You can't read this aloud, it sounds unnatural."
+- **Context:** B62 judges each header against its own slide. Nothing judged the headers
+  together. Two decks of true, carried headers read as lists of facts, with no stakes and no
+  chain from one slide to the next. One header ("…, ensembles included") was grammatical,
+  but no presenter would say it.
+- **Decision:**
+  - **Validation reads the headers in order** in one more call (`check_storyline`): the
+    title, each talking header and a callout's takeaway. It records
+    `Deck.storyline_check`: `tells_story` plus findings per slide:
+    - `unspeakable`: a label, a noun pile, or a written-register tail;
+    - `breaks_chain`: the line does not follow by consequence, contrast or addition;
+    - `repeats`: it makes a point an earlier header already made.
+
+    Each finding carries a note fixable in one edit. The check is reused when the headers
+    are unchanged.
+  - **Advisory, never blocking.** A weak story is a craft failure, not a false statement,
+    so it does not enter the render guard or GATE 2. It is shown in three places:
+    - the audit report ("Storyline (advisory)");
+    - the UI (a note per slide, and a line in the Coverage tab);
+    - the draft flags (`story`, the lowest priority).
+  - **Writer side:** the `headlines` skill gains rule 7 (spoken, not written) and rule 8
+    (part of a chain), and `prompts/validation.md` gains a Storyline section.
+- **Consequences:**
+  - One more validator call per validated deck, or zero when the headers are unchanged.
+  - Findings are not yet fed to revise automatically; the person sees them and asks.
+
+### B71 — `draft --agent`: one agent session writes the deck through tools
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c (`v2/integration`)
+- **Status:** active, provisional until a live dev-mistral session is compared with a
+  one-shot draft. Supersedes B45's single compose call and B53's repair call **on the agent
+  path only**; one-shot compose stays as the default and the fallback.
+- **Context:** The owner approved one agent session owning the deck end to end (Phase 4
+  plan, 2026-10-05). On 2026-10-23 they rejected a feature design built from fixed LLM
+  stages as "too much harness, very little agent". A one-shot writer sees all the evidence at
+  once, writes every slide blind to the checks, and gets one repair pass.
+- **Decision:**
+  - `autodeck/agents/session.py` runs a step-budgeted `converse` loop: the model calls
+    tools, sees the results, and stops at `finish`, a step cap (40), an input-token cap or a
+    stall (a text-only turn after one nudge).
+  - The draft lives in a workspace (`agents/workspace.py`) that holds a `ComposeDraft`
+    under construction. Every write is checked by `compose.build_draft`, the same function
+    a one-shot draft goes through. The result is an ordinary `ComposeResult`.
+  - The agent starts with the request, the client context, a corpus map and about 4k
+    tokens of section-lead passages. It loads skills, searches and reads for the rest.
+  - B45's "citations are an output contract, resolved in code" is kept unchanged.
+- **Rationale:** The writer sees each slide's failures (unresolved quote, overflow, missing
+  slot, topic headline) the moment it writes the slide and fixes them with its context
+  intact. That replaces a repair call that never saw why it was writing. The cost is about
+  10× per draft (about 30 calls), bounded by the step and token caps.
+- **Consequences:**
+  - Redesign runs stay one-shot for now.
+  - `provider_calls` counts every session turn.
+  - A session that never sets a brief raises `ComposeError`, and the CLI falls back to
+    one-shot.
+
+### B72 — The agent's code execution is a closed tool vocabulary
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c (`v2/integration`)
+- **Status:** active
+- **Context:** The 4c design gave the agent "code execution". Arbitrary Python would let a
+  session compute a number that never passes through A2's re-execution, or read a file
+  outside the client's namespace (A4), and it would make sessions irreproducible (A6).
+- **Decision:** Every tool is named, with a pydantic args model validated per call (the B36
+  pattern):
+  - skills: `load_skill`
+  - corpus: `corpus_map`, `search_corpus`, `read_passage`, `read_claims`
+  - deck: `set_brief`, `write_slide`, `remove_slide`, `reorder`, `set_notes`,
+    `check_slide`, `check_deck`, `component_budgets`, `compute`, `finish`
+  - advisor: `ask_advisor`
+
+  Bad arguments, an unknown tool, or a refusal come back to the model as an error result,
+  never an exception. A third identical call with no workspace change in between is
+  refused. `compute` is only a dry run of `numeric_linter.evaluate_formula`; the derivation
+  itself still travels in the claim.
+- **Rationale:** Every effect a tool can have is one the existing checks already cover.
+- **Consequences:**
+  - New capabilities arrive as new tools, each with its own args model and test.
+  - Every tool schema is tested to export in strict mode under a size ceiling, so the
+    Gemini "too many states" failure is caught before a provider sees it.
+
+### B73 — The advisor role: a fresh-context second reader, never the validator's model
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c (`v2/integration`)
+- **Status:** active
+- **Context:** A writer deep in a session cannot read its own headlines cold. The 4c plan
+  put the advisor on `ministral-8b`, which is dev-mistral's validation model. That breaks
+  B44: the writer would tune slides to the very model that later checks them blind.
+- **Decision:**
+  - A new `advisor` role in `ROLES`, bound in every environment: dev-mistral
+    `ministral-14b-2512`, sit and prod `claude-sonnet-5`.
+  - The registry refuses an environment where the advisor's provider and model equal the
+    validator's.
+  - `ask_advisor` is one cached text completion. It sends `prompts/advisor.md`, the
+    question and only what the agent attaches (slides or headlines only, its notes,
+    skills, up to 4 source pages). The answer is returned as a tool result. The advisor
+    cannot edit, and its words are never evidence.
+- **Consequences:** One more role to bind in any new environment.
+
+### B74 — Session transcript, resume and deterministic compaction
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c (`v2/integration`)
+- **Status:** active
+- **Context:** `revise` and UI chat should continue the session that wrote the deck, not
+  start a stranger. A replayed session must hit the provider cache (A6), and a long session
+  must not grow its context without bound.
+- **Decision:**
+  - `runs/<run>/session/` holds:
+    - `transcript.jsonl`: one record per message, with timestamps only in `meta`, never
+      in message content;
+    - `workspace.json`: draft, notes, citable set;
+    - `system.md`: the exact system prompt the session started under;
+    - `corpus_map.md`.
+  - A resume reloads all four and continues.
+  - Tool results older than the last 8 collapse to their stored one-line summary. The
+    function that does this is pure, so a resumed session rebuilds byte-identical
+    messages.
+- **Consequences:**
+  - A prompt edit does not change a resumed session's instructions: `system.md` is the
+    record. A new draft starts a new session.
+  - The manifest records the transcript and corpus-map hashes (manifest version bump).
+
+### B75 — A1's citable set is every passage the session showed
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c (`v2/integration`)
+- **Status:** active
+- **Context:** In a one-shot draft the citable set is the evidence pack. An agent pulls
+  passages as it goes.
+- **Decision:**
+  - A span becomes citable when a tool put it in front of the agent:
+    - the opening seed;
+    - a `search_corpus` hit;
+    - a `read_passage` page;
+    - a `read_claims` entry (which adds curated claims, so they resolve).
+  - The workspace passes exactly that set to `resolve_blocks`, so a quote from a passage
+    the agent never saw fails with `doc_not_shown`, as it does against a pack.
+  - Snapping (B52) is unchanged.
+- **Consequences:** `docs/INVARIANTS.md` A1 notes the session's citable set.
+  `workspace.json` records it, so a resumed session cites against the same set.
+
+### B76 — The deck is read cold before the agent may finish; comparison points name their side
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c (`v2/integration`)
+- **Status:** active, provisional until the XLP5-agent re-run is compared with XLP4
+- **Context:** In live run XLP5-agent (dev-mistral, first agent draft), validation marked
+  two claims `contradicted`; the one-shot XLP4 draft had none. Both were points in the
+  subcutaneous column of a `two_column_compare`: "No fasting requirement" (citing an
+  unrelated passage) and "HbA1c reductions of 1.9%". Read alone, as A3 and the audit report
+  read every claim, they are statements about the oral drug. The agent loaded `self-review`
+  but never called `ask_advisor`, the one reader that sees the slides without the writer's
+  context.
+- **Decision:**
+  - **Cold read before finish.** When the session has an advisor, `finish` returns "not
+    finished" until an `ask_advisor` call has attached every current slide
+    (`DeckWorkspace.cold_read`, persisted). A slide added after the read needs another
+    read; rewriting an existing slide does not. `prompts/agent.md` gains a step: a
+    headlines-only read of the whole deck, then a read of the riskiest slides with their
+    source pages.
+  - **Every claim stands alone.** `agent.md` and the `two_column_compare` recipe in
+    `slide-bodies` require each claim to name its subject, and a comparison point to name
+    its side (*"s.c.: no fasting rule"*). A point the evidence states for only one side is
+    never written for the other by inference.
+  - **A new advisory draft check, `subjectless_point`.** A comparison claim that uses no
+    word distinctive to its column title and opens with no "label:" is flagged on
+    `write_slide`, on `check_deck` and in a one-shot draft's advisories. It is advisory
+    because the heuristic can miss a synonym.
+- **Rationale:** The gate is the cheapest enforcement that does not depend on a small model
+  remembering an instruction: at most two advisor calls per draft (about 2% of the session's
+  tokens). The claim rule fixes the cause; the check makes the failure visible while the
+  slide is being written, not after validation.
+- **Consequences:**
+  - An agent draft makes at least one advisor call when an advisor is bound.
+  - Memory, planned as B76, becomes B77; the meeting decisions become B78–B80.
+
+### B77 — Agent memory: engagement memory under the client, owner memory in the home folder
+- **Date:** 2026-10-23
+- **Phase / branch:** 4c follow-on (`v2/integration`)
+- **Status:** active
+- **Context:** The owner wants the agent persistent at three levels: the run, the project,
+  and their own preferences. They will not maintain a glossary by hand ("they might tell the
+  agent to correct a few terms but that's it"). The run level is B74. The project level
+  cannot live in `knowledge/projects/`: that tier is shared across clients by design (D8),
+  so people, action items or a client's preferences written there would reach another
+  client's build (A4).
+- **Decision:**
+  - **Engagement memory:** `knowledge/clients/<client>/memory/<project>.md`, read and
+    written only through `ClientNamespace.guard`. Sections: Terms, People, Open actions,
+    Decisions, Deck preferences.
+  - **Owner memory:** `~/.autodeck/memory/owner.md`, with sections Note style and Deck
+    habits. Every write is refused if it:
+    - names any client or project in the knowledge root;
+    - uses a term or person from the current engagement's memory;
+    - copies 8 or more consecutive words of a passage shown in the session;
+    - states a figure other than a small count (at most 12).
+  - **Files:** markdown with fixed `##` sections, one bullet per item, each tagged
+    `(run <id>)`. Caps are 8,000 and 3,000 characters; past the cap a write is refused
+    until the agent consolidates (`revise_memory`). Every write is appended to
+    `audit.jsonl` beside the file. The person can read and edit both files in Settings,
+    and edits go through the same checks.
+  - **Agent tools:** `remember` (add, or correct with `replaces`), `forget`,
+    `read_memory`, `revise_memory`. The opening message carries both files as a section
+    headed "context, not evidence".
+  - **Memory is never a `Document`**, so it cannot become a citation (A1).
+  - **Reproducibility (A6):** each session snapshots both files into `session/memory/`,
+    and `session_record` hashes them. `git_state` ignores `clients/*/memory/**` when
+    judging the knowledge tree dirty: the snapshot, not HEAD, records what a build
+    remembered.
+- **Rationale:**
+  - Isolation reuses the A4 mechanism that already guards client files, rather than a new
+    one.
+  - The owner checks are a backstop under the prompt rule, chosen to fail closed: a
+    refused style note costs one retry; a leaked client fact costs a breach.
+- **Consequences:**
+  - Memory files are working state; whether to commit them is the owner's choice.
+  - A resumed session keeps the memory text in its transcript. A reseeded one reads memory
+    afresh.
+  - The meeting feature's glossary is engagement memory (Terms), with no separate file.
+
+### B78 — Meeting recordings are transcribed locally, with pinned models
+- **Date:** 2026-10-24
+- **Phase / branch:** meeting Stage A (`v2/integration`)
+- **Status:** active
+- **Context:** The owner wants meeting recordings turned into notes and decks. Recordings
+  are client-confidential. A prototype showed that sherpa-onnx with Parakeet TDT 0.6B v2
+  (int8) and Silero VAD transcribes a 20-minute meeting well, offline. The same prototype's
+  speaker separation split 6 people into 60 clusters.
+- **Decision:**
+  - **Speech-to-text is code, not an LLM call, and runs on the owner's machine.** The
+    pipeline is `autodeck/meeting/`: ffmpeg decode to 16 kHz mono, then Silero VAD
+    (min silence 0.4 s, max speech 25 s), then Parakeet per speech segment. Only the
+    LLM step that follows sends text off the machine.
+  - **Optional diarization:** off by default; `--speakers` and `--num-speakers N` turn it
+    on. It uses pyannote segmentation 3.0 with English wespeaker embeddings at threshold
+    0.85. Each segment takes the speaker turn it overlaps most, labelled S1, S2… by first
+    appearance. With more than 12 clusters it falls back to unlabelled segments.
+  - **Models:** downloaded once from the sherpa-onnx GitHub releases into
+    `~/.autodeck/models/`. The folder can be overridden by `models_dir` in
+    `~/.autodeck/settings.json`, or by `AUTODECK_MODELS_DIR`, for networks that block
+    GitHub; the files can be copied in by hand. Each file is verified against a sha256
+    pinned in `model_files.py` and never re-downloaded. `transcribe` never downloads; it
+    says to run `autodeck meeting models --download`.
+  - **Dependencies:** ffmpeg comes from `imageio-ffmpeg` (it is not installed on the
+    owner's Mac). All speech dependencies are in an optional `meeting` extra, imported
+    lazily with an install hint (the B40 pattern). `sherpa-onnx-core` is named explicitly
+    because the lock otherwise drops it.
+  - **Confidentiality:**
+    - `transcript.json` records the audio's file name and sha256, never its path.
+    - Logs and CLI output carry counts, timings and the real-time factor, never text.
+    - The temporary WAV is deleted, and the audio is never copied into the repo.
+    - Root-level audio files are git-ignored.
+- **Rationale:** Measured on the owner's M1 Pro (8 threads) with the 45-second two-voice
+  test clip (`tests/fixtures/meeting_clip.m4a`, made with macOS `say`):
+  - word error rate 1.6%;
+  - ASR at a real-time factor of 0.06;
+  - diarization at 0.13, with exactly 2 speakers found.
+
+  For 20 minutes of audio that projects to about 1.2 minutes of ASR, plus about
+  2.6 minutes if diarization is on. That still has to be measured on the real recording.
+- **Consequences:**
+  - A6 rests on the hashed transcript, not on re-running ASR: a model or sherpa-onnx
+    upgrade can change the words. `transcript.json` records the model names and the
+    sherpa-onnx version.
+  - Parakeet v2 is English-only; Hindi fragments come out as noise. A multilingual backend
+    (Whisper large-v3-turbo) would sit behind the same `Recognizer` protocol if it is
+    needed.
+  - The clip already shows the mishearings the glossary is for ("Shikha" heard as
+    "Shikta", "data bricks"). Correcting them is the notes agent's job, with engagement
+    memory (B77), not ASR's.

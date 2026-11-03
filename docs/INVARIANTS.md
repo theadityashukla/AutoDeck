@@ -14,7 +14,7 @@ is untrustworthy.
 
 ## Which invariants can be verified on the dev binding (decision B8)
 
-Development runs on free-tier Gemini + Groq; SIT and production run on Claude. That split
+Development runs on small paid Mistral models (`dev-mistral`); SIT and production run on Claude. That split
 divides the invariants in two, and the division decides where a verification result is
 worth anything.
 
@@ -30,8 +30,8 @@ produced the text they inspect, so a green result on `dev` is a green result eve
 A3 and A8 are different in kind. "Did the validator find the contradicting span?" and
 "did the writer hedge honestly where sources conflict?" are judgments, and a weaker model
 fails them **plausibly rather than loudly** — you get a clean-looking claims table that
-happens to have missed something. A contradiction-catch rate measured on Gemini is
-evidence about Gemini.
+happens to have missed something. A contradiction-catch rate measured on a Mistral dev model is
+evidence about that model.
 
 **The operational rule:** a dev-environment pass on A3 or A8 is a smoke test, not a
 verification. Phase 5 records the environment on every eval result, and headline metrics
@@ -59,6 +59,18 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
   the model was shown (≥85% of it found in order, within 1.5× its length) is cited as that
   passage's verbatim text and hash, and reported as snapped. A paraphrase still resolves to
   nothing. Whether the passage supports the sentence is A3's question, not A1's.
+- **Provenance modes (B55):** in a `strict` deck (MLR) the span is a document span — the
+  corpus, or the client's own deck in a redesign — and nothing else. In a `normal` deck two
+  more sources are legitimate and labelled: the person's own words in this run
+  (`conversation--<run>`, cited verbatim through the same path), and an explicitly
+  `unsourced` claim (`Claim.basis = "unsourced"`, no citations) for qualitative general
+  knowledge, which A3 still checks. Strict is enforced structurally: the pack omits the
+  conversation, and the `Deck` validator refuses unsourced claims and conversation
+  citations.
+- **The agent's citable set (B75):** in a deck agent session (`draft --agent`, B71) the
+  "pack the model was shown" is every passage a tool showed the agent: the opening seed,
+  search hits, pages it read, curated claims it listed. The workspace hands exactly that set
+  to `resolve_blocks`, and `session/workspace.json` records it.
 
 ## A2 — Numbers are copied or derived, never invented
 
@@ -75,6 +87,13 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
   variant (`3.2M` vs `3,200,000`) that must still match.
 - **Watch for:** the normalisation table is where this invariant leaks — locale decimal
   separators, `%` vs `percent`, scale suffixes. Test it directly, not only end to end.
+- **Names (B58):** digits inside a letter-first word (`HbA1c`, `GLP-1`) and inside a
+  project glossary term (`Deck.named_terms`, e.g. "Type 2 diabetes") are part of a name, not
+  numerals A2 traces.
+- **Unsourced claims (B55)** have no span, so any numeral in one is unmatched and blocks:
+  general knowledge is qualitative only. **Headers (B54)** are scoped to their own slide's
+  citations and derivations — a number in a talking header must be stated by a cited block
+  on that slide.
 
 ## A3 — Blocking validation
 
@@ -95,6 +114,13 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
   A test asserting the orchestrator raises rather than renders.
 - **Watch for:** v1's validator trusted the writer (`legacy/v1/LEGACY.md` records this).
   Independent re-retrieval is the whole point and has **no v1 ancestor** — build it new.
+- **Source classes (B55):** a corpus claim is never supported by the person's words; a
+  "from you" claim is judged for faithfulness to what the person said, plus a corpus
+  contradiction search; an `unsourced` claim is supported only by a corpus span, is
+  `contradicted` by one, and otherwise gets `uncorroborated` — assigned by code, shown, and
+  not render-blocking.
+- **Headers (B54):** judged against the slide's own claims, never better than the worst of
+  them.
 - **Model-sensitive (B8):** a dev-binding pass is a smoke test. Verify on `sit`.
 
 ## A4 — Client isolation
@@ -108,6 +134,11 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
   build must raise. Phase 4 adds a full two-client build regression.
 - **Watch for:** leaks via cached retrieval indices and via reference decks
   (`clients/<c>/decks/`), not just the obvious markdown load path.
+- **Agent memory (B77):** engagement memory lives at `clients/<c>/memory/<project>.md` and is
+  read and written only through the namespace guard. The owner's memory
+  (`~/.autodeck/memory/owner.md`) is read into every client's builds, so every write to it is
+  checked: no client or project name, no engagement term or person, no copied passage, no
+  figure.
 
 ## A5 — Fact/framing separation
 
@@ -121,6 +152,10 @@ verifiable anywhere, but what a human approves at those gates depends on A3's ou
   costs 40%" must be demoted to `claim` and then fail A1 for lack of citation.
 - **Watch for:** demotion must be a real state change that re-triggers A1/A3, not a
   logged warning.
+- **Talking headers (B54):** on a slide with cited content, the header is checked by the
+  header rule (its numbers and named sources must be stated by a cited block on the same
+  slide) instead of the numeral and comparative fence. Title, divider and agenda slides keep
+  the full fence. Since B56 the fence also runs on every draft, not only at render.
 
 ## A6 — Reproducibility and audit
 

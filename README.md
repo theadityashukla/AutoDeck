@@ -246,7 +246,7 @@ AutoDeck's **own** model bindings are environment-tiered (decision B8):
 
 | Env | Providers | Purpose |
 |---|---|---|
-| `dev` | Gemini + Groq (free tiers) | Day-to-day build and iteration |
+| `dev-mistral` | Mistral (small paid models) | Day-to-day build and iteration |
 | `sit` | Claude | Pre-production verification |
 | `prod` | Claude | Real client deliverables |
 

@@ -167,7 +167,8 @@ validate) before the draft is visible.
 through approvals given on the draft.**
 
 Checkable:
-- First draft in ≤ 3 model calls (clarify, compose, validate) (counted by the fake provider in tests and by
+- First draft in ≤ 3 model calls (clarify, compose, validate), or 4 when the B53 repair call
+  runs because the draft lost content (counted by the fake provider in tests and by
   `provider_calls` on a live run); wall-clock time recorded on `dev`.
 - Every claim block resolves (A1); numeric linter clean or every finding shown (A2); framing
   clean (A5); every claim has a verdict from the independent validator (A3).
