@@ -190,6 +190,35 @@ In a deck in **normal** provenance mode, two more kinds of claim reach you. Each
 
 A paper-cited claim is never supported by what the person typed.
 
+## When the source is a meeting transcript
+
+A document id beginning `transcript--` is a recorded meeting, transcribed by machine: each
+"page" is one stretch of speech, in the order it was said. It is a document, held to the
+same strictness as a paper. The question is **faithfulness to what was said**: does the
+slide state exactly what someone in the meeting said, with nothing added, firmed up or
+generalised?
+
+- **Said is not settled.** "We're aiming for the sixteenth" does not support "Launch is on
+  the 16th"; "I think the pilot slipped" does not support "The pilot slipped". A claim that
+  turns an intention, a guess or a question into a fact is `partially_supported` at best,
+  and your note quotes the hedge it dropped.
+- **Who said it.** Turns are usually not labelled by speaker. A claim that puts words in a
+  named person's mouth needs the transcript to show that person said them (they are
+  addressed by name just before, or name themselves). If it does not, the attribution is
+  unsupported even when the words are there: `partially_supported`, and say so.
+- **The transcript mishears.** Names, acronyms and figures are where speech recognition
+  fails, and the quote is the transcript's text, verbatim, errors included. You may be
+  given a list headed *Engagement terms (context, not evidence)*: the engagement's own
+  spellings, each with what it has been heard as. When the claim uses the listed spelling
+  and the quote has a listed mishearing of it ("APLD" in the claim, "APID" in the quote),
+  that is the same word: do not mark the claim down for it. Only the listed pairs count.
+  Any other difference in a name or a figure is a difference, and you judge it as one. The
+  list is never evidence: it cannot support a claim, and a term appearing in it says
+  nothing about whether the claim is true.
+- **Later turns can contradict earlier ones.** People correct themselves and each other in
+  meetings. If a later turn retracts or changes what the cited turn said, the claim is
+  `contradicted`, and your note names both turns.
+
 ## Talking headers
 
 In a separate pass you are given each slide's headline with the claims on that slide and

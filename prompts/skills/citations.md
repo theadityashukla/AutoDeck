@@ -100,6 +100,23 @@ These are the failures from real drafts. Each one cost a slide its evidence.
 The quote must actually **support** the sentence. A passage on the same topic is not
 support. The validator re-retrieves the evidence itself precisely to catch that.
 
+### Quoting a meeting
+
+A document whose id begins `transcript--` is a recorded meeting, transcribed by machine.
+Each page is one stretch of speech; the audit shows it as "from the meeting" with the time
+it was said. It is citable like any other document, and the same rules hold, with three
+things to watch:
+
+- **Copy the transcript's mistakes.** A misheard name ("Shikta"), a split word ("data
+  bricks"), a missing full stop: the quote keeps them, because that is the text. Your
+  `claim.text` may use the right spelling when the engagement's memory gives it (its
+  Terms); the quote may not.
+- **Keep the hedge in the claim.** People in meetings guess, plan and ask. "We're hoping to
+  go live the first week of February" supports a claim about a target, not about a date
+  that is fixed. If the slide states it as settled, the validator will mark it down.
+- **Speech runs on.** A turn can be long and unpunctuated. Quote the shortest run that
+  proves your sentence, and give two citations when the point spans two turns.
+
 ## Numbers are copied or derived, never computed in prose (A2)
 
 Every numeral, percentage, unit and date in your output, in headers, labels, charts and notes
