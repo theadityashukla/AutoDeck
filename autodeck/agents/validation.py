@@ -398,12 +398,27 @@ def _render_claim_section(site: ClaimSite, evidence: ValidatorEvidence) -> str:
     )
 
 
+def _render_terms(terms: Sequence[str]) -> str:
+    """Engagement memory's Terms as context (B79): never evidence, never a citation."""
+    if not terms:
+        return ""
+    lines = "\n".join(f"- {term}" for term in terms)
+    return (
+        "Engagement terms (context, not evidence) — how this engagement spells names and "
+        "acronyms, and what a transcript has misheard them as:\n"
+        f"{lines}\n\n---\n\n"
+    )
+
+
 def _render_batch_prompt(
-    sites: Sequence[ClaimSite], evidence: dict[str, ValidatorEvidence]
+    sites: Sequence[ClaimSite],
+    evidence: dict[str, ValidatorEvidence],
+    terms: Sequence[str] = (),
 ) -> str:
     parts = [_render_claim_section(site, evidence[site.claim_id]) for site in sites]
     return (
-        f"Judge each of the following {len(sites)} claim(s). Return one judgement per "
+        _render_terms(terms)
+        + f"Judge each of the following {len(sites)} claim(s). Return one judgement per "
         "claim_id, copied exactly as shown.\n\n" + "\n\n---\n\n".join(parts)
     )
 
@@ -414,6 +429,7 @@ def _judge_batch(
     *,
     model: ValidationModel,
     system: str,
+    terms: Sequence[str] = (),
 ) -> dict[str, VerdictJudgement]:
     """One structured-output call for a whole batch. Never raises.
 
@@ -424,7 +440,7 @@ def _judge_batch(
     """
     try:
         draft = model.complete_structured(
-            _render_batch_prompt(sites, evidence), ValidationDraft, system=system
+            _render_batch_prompt(sites, evidence, terms), ValidationDraft, system=system
         )
     except Exception as exc:  # any provider failure, deliberately broad
         logger.warning(
@@ -767,6 +783,7 @@ def validate_deck(
     batch_budget_tokens: int = BATCH_BUDGET_TOKENS,
     max_batch_claims: int = MAX_BATCH_CLAIMS,
     previous: Deck | None = None,
+    terms: Sequence[str] = (),
 ) -> ValidationResult:
     """Validate every claim in `deck` — faces, notes, and diagram-node claims alike.
 
@@ -776,7 +793,9 @@ def validate_deck(
     into calls by `batch_budget_tokens` (about `len(text) // 4` tokens of prompt per batch)
     and at most `max_batch_claims` per call. When `previous` is given, claims identical to a
     judged claim there reuse its verdict instead of being judged again (see the module
-    docstring); `ValidationResult.reused` counts them.
+    docstring); `ValidationResult.reused` counts them. `terms` (B79) is engagement memory's
+    Terms section, shown to every claim batch as context so a transcript's "APID" is not
+    read as contradicting the engagement's "APLD"; it is never evidence.
 
     Raises:
         ValidationAgentError: the prompt file named by `prompt_path` is missing. Never
@@ -808,7 +827,7 @@ def validate_deck(
     for batch in _pack_batches(
         to_judge, evidence, budget_tokens=batch_budget_tokens, max_claims=max_batch_claims
     ):
-        judgements = _judge_batch(batch, evidence, model=model, system=system)
+        judgements = _judge_batch(batch, evidence, model=model, system=system, terms=terms)
         provider_calls += 1
         for site in batch:
             assessment = assess_claim(

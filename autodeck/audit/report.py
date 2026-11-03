@@ -65,7 +65,10 @@ docs/MODEL_ROUTING.md.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from autodeck.audit.framing_linter import Demotion, FramingReport
@@ -314,6 +317,9 @@ class AuditReport:
     """B55: `strict` (documents only) or `normal` (also "from you" and unsourced claims)."""
     storyline: StorylineCheck | None = None
     """B70: the validator's reading of the headers in order. Advisory; never fails GATE 2."""
+    meeting_times: Mapping[str, Mapping[int, float]] = field(default_factory=dict)
+    """B79: `{transcript doc id: {page: start seconds}}`, read from the run's
+    `meeting/segments.json`. Only labels use it; a page with no time reads "turn N"."""
 
     def claim_rows(self) -> list[ClaimRow]:
         return [row for section in self.slides for row in section.claims]
@@ -334,6 +340,7 @@ def build_audit_report(
     numeric: NumericReport | None = None,
     framing: FramingReport | None = None,
     verdicts: VerdictReport | None = None,
+    meeting_times: Mapping[str, Mapping[int, float]] | None = None,
 ) -> AuditReport:
     """Assemble the audit report from the deck and whatever checked it.
 
@@ -348,6 +355,9 @@ def build_audit_report(
         framing: `framing_linter.lint_framing`'s report, or None if A5 did not run.
         verdicts: `validate_deck`'s `VerdictReport`, or None. Only needed for the caps A3
             applied to the model's own answers; the verdicts themselves are on the claims.
+        meeting_times: B79, where in the recording each transcript page starts, so a
+            meeting citation reads "from the meeting, mm:ss". None when the run has no
+            meeting.
 
     Raises:
         AuditReportError: the deck and brief belong to different runs. An audit report
@@ -393,6 +403,7 @@ def build_audit_report(
         verdicts=verdicts,
         provenance=deck.provenance,
         storyline=deck.storyline_check,
+        meeting_times=dict(meeting_times or {}),
     )
 
 
@@ -561,6 +572,11 @@ def render(report: AuditReport) -> str:
     Separate from assembly on purpose: Phase 4's PDF and Phase 3b's post-render re-run want
     the `AuditReport`, not this string.
     """
+    with _meeting_times(report.meeting_times):
+        return _render(report)
+
+
+def _render(report: AuditReport) -> str:
     lines: list[str] = [
         f"# Audit report — {report.project}",
         "",
@@ -1082,6 +1098,30 @@ def _capped_lines(verdicts: VerdictReport) -> list[str]:
 
 # -- small helpers ----------------------------------------------------------
 
+_MEETING_TIMES: ContextVar[Mapping[str, Mapping[int, float]]] = ContextVar(
+    "audit_meeting_times", default={}
+)
+"""The report being rendered's `meeting_times`, set for the duration of `render` only. A
+context variable rather than a parameter threaded through every line helper, because only
+the one label below reads it."""
+
+
+@contextmanager
+def _meeting_times(times: Mapping[str, Mapping[int, float]]) -> Iterator[None]:
+    token = _MEETING_TIMES.set(times)
+    try:
+        yield
+    finally:
+        _MEETING_TIMES.reset(token)
+
+
+def meeting_stamp(seconds: float) -> str:
+    """`mm:ss`, or `h:mm:ss` from the first hour on (a 74-minute call reads `1:02:05`)."""
+    total = int(max(seconds, 0.0))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
 
 def _source_label(citation: Citation) -> str:
     """Where a citation points, in words a reader can place (3d.3, B41).
@@ -1097,6 +1137,12 @@ def _source_label(citation: Citation) -> str:
         # B55: the person's own words. Proves the slide says what they said, not that it is
         # true — the validator's corpus search is what speaks to that.
         return f"from you, message {citation.page} (`{citation.doc_id}`)"
+    if citation.source_class == "transcript":
+        # B79: what was said in the meeting. Proves the slide says what was said there, not
+        # that it is true. The time comes from the run's sidecar, never from the Document.
+        start = _MEETING_TIMES.get().get(citation.doc_id, {}).get(citation.page)
+        where = meeting_stamp(start) if start is not None else f"turn {citation.page}"
+        return f"from the meeting, {where} (`{citation.doc_id}` turn {citation.page})"
     return f"`{citation.doc_id}` p.{citation.page}"
 
 
@@ -1135,6 +1181,7 @@ __all__ = [
     "Summary",
     "Working",
     "build_audit_report",
+    "meeting_stamp",
     "render",
     "write_report",
 ]

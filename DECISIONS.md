@@ -2203,3 +2203,65 @@ the owner with options.
   - The clip already shows the mishearings the glossary is for ("Shikha" heard as
     "Shikta", "data bricks"). Correcting them is the notes agent's job, with engagement
     memory (B77), not ASR's.
+
+### B79 — A meeting transcript is a citable document, and a run can be built from it alone
+- **Date:** 2026-11-03
+- **Phase / branch:** meeting step 9 (`v2/integration`)
+- **Status:** active
+- **Context:** B78 turns a recording into `runs/<run>/meeting/transcript.json`. To build
+  notes or a deck from it, what was said has to be evidence that A1 can resolve and A3 can
+  check, and a run has to work when the project has no paper corpus at all: a client meeting
+  is often the only source. Before this, `prepare_planning` and `validate` refused a project
+  without ingested documents (exit 2).
+- **Decision:**
+  - **The transcript is a `Document`.** `autodeck/ingest/transcript_source.py` writes
+    `runs/<run>/source/transcript--<run slug>.json`. Page N is the Nth non-empty segment;
+    each page has exactly one `text` element (`t{N}-e1`) with the whole-page box, as the
+    conversation document does (B55). The A1 resolver, the validator and the audit report
+    need no new path.
+  - **No time, speaker label or audio identity inside the Document (A6).** Times and
+    speakers go to the sidecar `runs/<run>/meeting/segments.json` (page → start, end,
+    speaker). The same words always give a byte-identical Document; a re-timed or
+    re-diarized transcript does not change a single quote hash.
+  - **A new source class, `transcript`** (`TRANSCRIPT_DOC_PREFIX = "transcript--"`), read
+    off the doc id like the others. It is **allowed in strict mode**: a meeting transcript
+    is a record of what was said, held to the same strictness as a paper, not the person's
+    own typing (which strict refuses). In A3 it sits in the document pool: it can support
+    and contradict, like the corpus.
+  - **Labels:** the audit report reads "from the meeting, mm:ss" (h:mm:ss past the hour),
+    with the time taken from the sidecar at render time; slide flags gain the advisory
+    `from_meeting`. Like "from you", it proves the slide says what was said, not that it is
+    true.
+  - **Meeting-only runs.** A run whose folder holds `meeting/settings.json` is a
+    run-source run, like a redesign (B41). `_redesign_planning` is generalised into one
+    run-source branch inside `prepare_planning` (`RunSourcePlanning`, with
+    `RedesignPlanning` and `MeetingPlanning`), and `validate` takes the same branch. The
+    store is the run's `source/` folder plus the project's papers only when the settings'
+    `check_papers` is on; **the default is off**, as for a redesign (B49), so a project
+    with no corpus works and a meeting deck is checked against the meeting unless the
+    person asks for the papers too. The conversation document is never indexed (A3).
+  - **The whole transcript goes in the writer's pack when it is under about 20k tokens**,
+    never trimmed; above that, retrieval alone.
+  - **Engagement memory Terms are shown to the validator as context, never as evidence.**
+    The claim batch opens with a block headed "Engagement terms (context, not evidence)",
+    and `prompts/validation.md` says that only a listed spelling and mishearing pair
+    ("APLD" heard as "APID") counts as the same word. What was passed is snapshotted to
+    `runs/<run>/validation-terms.json` (A6).
+  - **A6 hashes:** `run_source_hashes` also hashes `meeting/*.json` (transcript, settings,
+    segments) and the Terms snapshot.
+- **Rationale:**
+  - Reusing the `Document` model is the whole point: one resolver, one validator, one audit
+    trail. A second "transcript citation" type would be a second A1.
+  - Keeping times out of the Document follows the conversation document (B55): time is
+    presentation, words are evidence.
+  - Strict mode exists to keep unchecked human assertion out of MLR decks. A transcript is
+    not that: it is a verbatim record, and the validator checks claims against it.
+  - Terms as context, not as a rewrite of the transcript: the quote stays what was heard
+    (A1 is verbatim), and the validator is told which differences are mishearings.
+- **Consequences:**
+  - A validate that reuses a verdict (B44) does not re-judge it when only the Terms
+    changed. Re-validating from scratch is the remedy if a new Term should rescue a claim.
+  - The UI shows "from the meeting · turn N" without a time until step 12.
+  - `draft --agent` falls back to one-shot on a meeting run until step 11 joins the deck
+    tools to the notes session.
+  - Next free id: **B80**.

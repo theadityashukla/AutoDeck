@@ -73,7 +73,16 @@ CLIENT_DECK_DOC_PREFIX = "client-deck--"
 """Doc-id prefix of a client's own deck ingested for a redesign (B41). The definition
 `autodeck.ingest.deck_source.DOC_ID_PREFIX` re-exports."""
 
-SourceClass = Literal["corpus", "client_deck", "conversation"]
+TRANSCRIPT_DOC_PREFIX = "transcript--"
+"""Doc-id prefix of a run-local meeting transcript (B79): one page per spoken segment.
+
+A transcript is a document, not the person's typing: what was said in the meeting is evidence
+the same way a page of a paper is, so a strict deck may cite it. Its citations prove the deck
+says what was said in the meeting, not that it is true, and the audit labels them "from the
+meeting". No time sits inside the Document (A6); the page → time map is the run's
+`meeting/segments.json` sidecar."""
+
+SourceClass = Literal["corpus", "client_deck", "conversation", "transcript"]
 
 RetrievedBy = Literal["writer", "validator"]
 """A3 requires the validator to re-retrieve *independently* rather than trusting the
@@ -227,6 +236,8 @@ class Citation(IRModel):
             return "conversation"
         if self.doc_id.startswith(CLIENT_DECK_DOC_PREFIX):
             return "client_deck"
+        if self.doc_id.startswith(TRANSCRIPT_DOC_PREFIX):
+            return "transcript"
         return "corpus"
 
 
@@ -1938,7 +1949,8 @@ class Deck(IRModel):
 
         Checked on construction and therefore on every load, which is what makes strict mode
         structural rather than a convention: an unsourced claim or a `conversation--` span
-        cannot exist inside a strict `Deck` however it got into the JSON.
+        cannot exist inside a strict `Deck` however it got into the JSON. A `transcript--`
+        span is allowed (B79): a meeting transcript is a document, not the person's typing.
         """
         if self.provenance != "strict":
             return self
