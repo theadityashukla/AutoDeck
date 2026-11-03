@@ -129,11 +129,15 @@ class Manifest(BaseModel):
     """
 
     run_sources: dict[str, str] = Field(default_factory=dict)
-    """sha256 of each run-local source document, by doc id (B55, B41).
+    """sha256 of each run-local source document, by doc id (B55, B41, B79).
 
-    The person's own words (`conversation--`) and a redesign's client deck live in the run,
-    not in the knowledge repo, so `knowledge_commit` cannot name them. Without their hashes a
-    deck citing them could not be shown to cite the text it was built from.
+    The person's own words (`conversation--`), a redesign's client deck and a meeting
+    transcript (`transcript--`) live in the run, not in the knowledge repo, so
+    `knowledge_commit` cannot name them. Without their hashes a deck citing them could not be
+    shown to cite the text it was built from. B79 adds two kinds of key beside the doc ids:
+    `meeting/<file>` for each `runs/<run>/meeting/*.json` (the transcript, its settings and
+    the page-to-time sidecar), and `validation-terms` for the engagement Terms the validator
+    was shown.
     """
 
     session: dict[str, Any] | None = None

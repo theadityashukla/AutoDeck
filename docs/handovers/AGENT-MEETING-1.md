@@ -13,7 +13,7 @@
 | **Phase** | 4c (agent session) + memory + meeting Stage A |
 | **Branch** | `v2/integration` (everything since `2ac1bec` was uncommitted until this push, including the earlier 4a/4b/design work in `CRAFT-4A-4B.md`) |
 | **PR** | none yet |
-| **Started / completed** | 2026-10-23 → 2026-11-04 (paused at plan step 9 of 13) |
+| **Started / completed** | 2026-10-23 → 2026-11-04 (paused at plan step 9 of 13); step 9 done 2026-11-03 in the remote session (see §2a) |
 | **Gate** | none; no gate may be altered by this work |
 | **Gate status** | n/a |
 | **Approved by / when** | The plan was approved by the owner on 2026-10-23. Two later owner decisions (2026-10-23): keep one-shot as the dev-mistral default with `--agent` opt-in, and test the agent on Claude later. |
@@ -58,6 +58,42 @@
 
 Full suite on 2026-10-24: **2000 passed, 52 deselected** (`uv run pytest -q -m 'not live and not render'`).
 
+## 2a. Step 9 — the transcript as a citable source, and meeting-only runs (B79)
+
+Done in the remote session, 2026-11-03. Nothing here makes an LLM call of its own, and no
+live run was made (the budget rule).
+
+| Path | What it does | Tests |
+|---|---|---|
+| `autodeck/ir/models.py` | `TRANSCRIPT_DOC_PREFIX = "transcript--"`, `SourceClass` gains `"transcript"`, read off the doc id. A strict deck accepts it (it still refuses only `conversation--`) | `tests/test_transcript_source.py` |
+| `autodeck/ingest/transcript_source.py` | `transcript_document` (page N = Nth non-empty segment, one `text` element `t{N}-e1`, `PAGE_BOX`, **no times, speakers or audio identity**), `segments_sidecar` → `meeting/segments.json`, `ingest_transcript`, `meeting_times`, and the meeting settings (`load/save_meeting_settings`, `doc_id`, `check_papers` default off) | `tests/test_transcript_source.py` |
+| `autodeck/pipeline/planning.py` | `RunSourcePlanning` → `RedesignPlanning` / `MeetingPlanning`; one `_run_source_planning` builder (the old `cli._redesign_planning`, same messages and exit codes); `prepare_planning` routes on `redesign.json`, then `meeting/settings.json`, then the corpus. `run_source_settings`, `run_source_store` (for `validate`). The index never holds a `conversation--` document. A missing transcript Document is re-ingested from `meeting/transcript.json` | `tests/test_meeting_source_wiring.py` |
+| `autodeck/agents/evidence_pack.py` | `with_transcript`: the whole transcript as a never-trimmed pack section when under ~20k tokens; retrieval alone above | `tests/test_meeting_source_wiring.py` |
+| `autodeck/cli.py` | `meeting transcribe --with-papers/--no-papers` now ingests the transcript and prints `Citable turns: N`; new `meeting source RUN` re-ingests an existing transcript (for runs made before step 9, or a hand-corrected transcript); `_draft_setup` and `redesign` go through `prepare_planning`; `validate --knowledge-root` uses `run_source_store` and passes engagement Terms (`_validation_terms`, snapshot `runs/<run>/validation-terms.json`); `run_source_hashes` adds `meeting/<file>` and `validation-terms`; `gate2` and the final report pass `meeting_times`; `draft --agent` on a meeting run falls back to one call (step 11), `revise --agent` refuses | `tests/test_meeting_cli_wiring.py` (offline: `meeting source` → clarify → draft → validate → gate2 on a project with no corpus) |
+| `autodeck/agents/validation.py` | `validate_deck(terms=...)`: an "Engagement terms (context, not evidence)" block heads each claim batch | `tests/test_meeting_source_wiring.py`, `tests/test_meeting_cli_wiring.py` |
+| `autodeck/knowledge/memory.py` | `MemoryStore.terms()`: the Terms items without their `(run …)` tags | as above |
+| `autodeck/audit/report.py` | `build_audit_report(meeting_times=...)`; transcript citations read "from the meeting, mm:ss" (`h:mm:ss` past the hour), "turn N" without a time; `meeting_stamp` | `tests/test_meeting_source_wiring.py` |
+| `autodeck/audit/manifest.py` | `run_sources` docstring covers the new keys | — |
+| `autodeck/render/draft.py`, `autodeck/ui/review.py`, `autodeck/ui/static/app.js` | advisory `from_meeting` slide flag; the review page passes `meeting_times`; the UI labels `transcript--` "from the meeting · turn N" (no time until step 12) | `tests/test_meeting_source_wiring.py` |
+| `prompts/validation.md`, `prompts/skills/citations.md` | How to judge and how to quote a meeting: said is not settled, who said it, listed mishearings only, later turns can contradict; copy the transcript's mistakes into the quote | — (own commit, rationale in the body) |
+| `tests/test_meeting_stage_a.py` | Transcribe now checks the source Document, sidecar and `doc_id`; one more `meeting`-marked test runs the real clip through the CLI | runs when the models are present |
+
+Full suite on 2026-11-03 (remote container, models downloaded, no diarization models):
+**2036 passed, 4 skipped, 52 deselected, 1 failed**. The failure,
+`tests/test_design.py::test_a_missing_face_is_as_loud_as_a_missing_family`, is the
+container's fonts: it fails identically on `d2fcecd`, before any step 9 change.
+The 4 skips: the diarization-model test (`--speakers` models not downloaded here) and the
+three XLS replay tests that need the excluded `oral-semaglutide` corpus and live-run cache.
+
+The real clip, offline: `meeting transcribe CLIP --audio tests/fixtures/meeting_clip.m4a
+--client contoso-health --project llm-inference-efficiency` gave 9 segments, 9 citable turns,
+`source/transcript--clip.json` with no time fields, and `meeting/segments.json`;
+`prepare_planning` then opened a `MeetingPlanning` with no `corpus/` folder at all. No clarify,
+draft or validate was run live on it (each is a paid call).
+
+**Upgrading a meeting run made before step 9:** its `settings.json` has no `doc_id`, so
+`clarify` exits 1 and says to run `autodeck meeting source <run>`, which needs no ASR.
+
 ## 3. What did not ship
 
 The plan is 13 steps; steps 1–8 are done. The plan file lives outside the repo, so its
@@ -65,7 +101,7 @@ remaining design is summarised here.
 
 | Task | Why deferred | Now owned by |
 |---|---|---|
-| **Step 9 — transcript as a citable source, and meeting-only runs** | Started (nothing written) when the work moved | Next session. **Design:**<br>- `autodeck/ingest/transcript_source.py`, modelled on `conversation_source.py`: doc id `transcript--<slug>`, one page per segment, one `text` element per segment, `PAGE_BOX` bbox, **no times inside the Document** (A6).<br>- Sidecar `meeting/segments.json` mapping page → start, end, speaker.<br>- New `SourceClass` `"transcript"` and `TRANSCRIPT_DOC_PREFIX` in `ir/models.py` (~:69–76, ~:220). It is allowed in strict mode because it is a document.<br>- Labels: "from the meeting, mm:ss" in `audit/report.py` (~:1096) and `render/draft.py` (~:110).<br>- `run_source_hashes` (`cli.py`) also hashes `meeting/*.json`.<br>- Generalise `_redesign_planning` into `_run_source_planning`, driven by `runs/<run>/meeting/settings.json`. Wire it into `prepare_planning` (`pipeline/planning.py` ~:96, which refuses projects with no corpus) and into `validate` (`cli.py`, which exits 2 without a corpus).<br>- Pass engagement memory Terms to `validate` as context, so "APLD" in a claim is not flagged against a quote reading "APID".<br>- Decision **B79**. |
+| ~~Step 9 — transcript as a citable source, and meeting-only runs~~ | **Done 2026-11-03, see §2a.** The design below is what shipped, with two additions: `check_papers` (default off, as B49) and the whole transcript in the pack under ~20k tokens | — Original **design:**<br>- `autodeck/ingest/transcript_source.py`, modelled on `conversation_source.py`: doc id `transcript--<slug>`, one page per segment, one `text` element per segment, `PAGE_BOX` bbox, **no times inside the Document** (A6).<br>- Sidecar `meeting/segments.json` mapping page → start, end, speaker.<br>- New `SourceClass` `"transcript"` and `TRANSCRIPT_DOC_PREFIX` in `ir/models.py` (~:69–76, ~:220). It is allowed in strict mode because it is a document.<br>- Labels: "from the meeting, mm:ss" in `audit/report.py` (~:1096) and `render/draft.py` (~:110).<br>- `run_source_hashes` (`cli.py`) also hashes `meeting/*.json`.<br>- Generalise `_redesign_planning` into `_run_source_planning`, driven by `runs/<run>/meeting/settings.json`. Wire it into `prepare_planning` (`pipeline/planning.py` ~:96, which refuses projects with no corpus) and into `validate` (`cli.py`, which exits 2 without a corpus).<br>- Pass engagement memory Terms to `validate` as context, so "APLD" in a claim is not flagged against a quote reading "APID".<br>- Decision **B79**. |
 | **Step 10 — notes written by the agent** | Not started | Next session. **Design:**<br>- `agents/notes_workspace.py` `MeetingNotes`: Summary, Attendees, Themes, Decisions, Key dates (with precision), Action items ("Owner TBD"), Open questions/risks. Each item carries `cites: [{page, quote}]`, resolved through the same `_resolve_citation` path; a citation may span several turns.<br>- `render_notes()` writes `meeting/notes.md` and `notes.json` deterministically.<br>- Tools: `read_transcript`, `search_transcript`, `notes_set_section`, `notes_add_item`, `notes_edit_item`, `notes_remove_item`, `finish_notes`, plus `ask_advisor` (the cold read replaces any fixed verify call), `remember` and `load_skill`.<br>- Preload the whole transcript when it is under about 20k tokens.<br>- Skills `prompts/skills/meeting-notes.md` and `meeting-readout.md` (a storyline suggestion, not a template; a preset only for weak models). Opus writes these.<br>- Review: the person edits `notes.md` and "Apply my edits" sends the diff to the session; or they chat ("APID is APLD"). Chat goes to `revisions.jsonl` and to engagement memory.<br>- A per-environment `confidential_ok` flag in `models.yaml`; meeting commands refuse an unflagged environment.<br>- CLI `autodeck meeting notes RUN [--date] [--attendees]`.<br>- Decisions **B80**, **B81**. |
 | Step 11 — deck from the same session | Not started | The same session continues with the deck tools; transcript pages it read are already citable. |
 | Step 12 — meeting UI | Not started | Audio upload route (the current `_upload` caps at 50 MB and reads the whole body into memory, so it needs a chunked, ~500 MB audio route), `CHAINS["meeting"]`, notes editor plus chat, "Generate deck". |
@@ -83,7 +119,8 @@ remaining design is summarised here.
 - **B76**: the advisor must read the whole deck cold before `finish`; every claim names its subject; the `subjectless_point` advisory.
 - **B77**: agent memory: engagement memory under the client, owner memory in the home folder, checks on owner writes, snapshots.
 - **B78**: local transcription with pinned models; diarization opt-in.
-- **Next free id: B79.**
+- **B79**: the transcript is a citable `Document` (`transcript--`, strict-allowed, no times inside, `meeting/segments.json` sidecar); meeting-only runs through the run-source branch of `prepare_planning` and `validate`; engagement Terms shown to the validator as context.
+- **Next free id: B80.**
 
 ## 5. Invariant coverage delta
 
@@ -148,6 +185,8 @@ file is 74 minutes (4,452 s), not the 20 the spec assumed:
 | Prompts (`agent.md`, `advisor.md`, skills edits), `workspace.py`, `deck_agent.py`, `knowledge/memory.py`, the manifest, DECISIONS, this handover | Opus | Opus | — |
 | Session loop, tools, corpus map, CLI and UI wiring, Stage A package, all tests | Sonnet | Sonnet | — |
 | Fixture regeneration, renames | Haiku | not used | Folded into Sonnet tasks |
+| Step 9: `ir/models.py`, `audit/report.py`, `audit/manifest.py`, the validation Terms block, both prompt edits, B79, this handover | Opus | Opus | — |
+| Step 9: `transcript_source.py`, planning generalisation, CLI/UI wiring, evidence pack, all step 9 tests | Sonnet | Sonnet (one subagent) | — |
 
 The owner's routing rule still applies: Opus only for `prompts/`, `autodeck/ir/`,
 `autodeck/audit/`, `DECISIONS.md` and `docs/handovers/`. Sonnet does implementation
@@ -199,6 +238,10 @@ uv run autodeck meeting transcribe CLIP --audio tests/fixtures/meeting_clip.m4a 
 # expected: Duration: 44.9s  Segments: 9 ; Real-time factor below 0.2 ; no transcript text printed
 uv run autodeck draft --help | grep -- --agent
 # expected: the --agent / --no-agent option is listed
+# step 9: the same transcribe also prints "Citable turns: 9" and writes
+# /tmp/mt/CLIP/source/transcript--clip.json and /tmp/mt/CLIP/meeting/segments.json
+uv run pytest -q tests/test_transcript_source.py tests/test_meeting_source_wiring.py tests/test_meeting_cli_wiring.py
+# expected: 40 passed (the 41st step 9 test is in test_meeting_stage_a.py)
 ```
 
 ## 11. Reading notes for the next implementer
@@ -211,8 +254,10 @@ uv run autodeck draft --help | grep -- --agent
   deliberate (B76), not a bug. Scripted tests must include an `ask_advisor` turn.
 - **Memory is not a Document.** If you are tempted to let the agent cite a memory line,
   stop: A1.
-- **Step 9 begins in `ir/models.py`** with the source-class literal and the doc-id prefix
-  (Opus path). Then `ingest/transcript_source.py`, written next to `conversation_source.py`.
+- **Step 10 begins with `agents/notes_workspace.py`.** Step 9 gives it what it needs: the
+  transcript Document is in `runs/<run>/source/`, `MeetingPlanning` carries it, citations
+  into it resolve through `planning.store`, and `meeting_times(run_root)` turns a page into a
+  time for anything shown to a person. Do not put times into the Document (B79, A6).
 - **Two meeting naming conflicts in the original spec are resolved:** the glossary is
   engagement memory Terms (no `~/.autodeck/glossary.yaml`), and verification is the
   advisor's cold read (no fixed verify call).
