@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from autodeck.ingest.transcript_source import meeting_times
 from autodeck.ir.models import Deck, DeckBrief
 from autodeck.ir.store import IRStoreError
 from autodeck.pipeline.orchestrator import ApprovalState, Gate, Orchestrator
@@ -150,7 +151,11 @@ def claims_view(roots: Roots, run_id: str) -> dict[str, Any]:
 
     safety = assess_render_safety(deck)
     report = build_audit_report(
-        deck, brief=brief, numeric=safety.numeric, framing=safety.framing
+        deck,
+        brief=brief,
+        numeric=safety.numeric,
+        framing=safety.framing,
+        meeting_times=meeting_times(orch.paths.root),
     )
     # A6, as `gate2` does it: the file on disk is the report for the latest IR.
     orch.paths.audit_report.write_text(render(report) + "\n", encoding="utf-8")

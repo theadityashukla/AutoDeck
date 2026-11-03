@@ -220,6 +220,10 @@ class MemoryStore:
     def read(self, scope: MemoryScope) -> str:
         return self.load(scope).render()
 
+    def terms(self) -> list[str]:
+        """The engagement's Terms items without their `(run …)` tags (B79), oldest first."""
+        return [_bare(item) for item in self.load("engagement").sections.get("Terms", [])]
+
     def snapshot(self) -> dict[MemoryScope, str]:
         """Both files as they stand now. A session records this at its start (A6)."""
         return {"engagement": self.read("engagement"), "owner": self.read("owner")}

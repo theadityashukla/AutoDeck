@@ -68,7 +68,8 @@ class DraftPreview:
     images: list[Path]
     """One PNG per slide, in order; empty when `rendered` is False."""
     flags: dict[str, str]
-    """slide_id -> "blocking" | "partial" | "unsourced" | "from_you" | "story" | "" (`slide_flags`)."""
+    """slide_id -> "blocking" | "partial" | "unsourced" | "from_you" | "from_meeting" |
+    "story" | "" (`slide_flags`)."""
     rendered: bool
     """False when no PNGs could be made (LibreOffice or a declared font missing); the pptx
     is still written."""
@@ -87,6 +88,8 @@ def slide_flags(deck: Deck) -> dict[str, str]:
     * "unsourced" (B55): a claim rests on the model's general knowledge (`basis`
       "unsourced"), which the person should know about; it never blocks;
     * "from_you" (B55): a claim cites what the person typed (`source_class` "conversation");
+    * "from_meeting" (B78): a claim cites what was said in a meeting (`source_class`
+      "transcript"); advisory, it never blocks;
     * "story" (B70): the deck-level storyline check has a finding for this slide's header.
       Advisory like "unsourced": it never blocks and is the least serious flag.
 
@@ -109,6 +112,11 @@ def slide_flags(deck: Deck) -> dict[str, str]:
         for s in sites
         if any(c.source_class == "conversation" for c in s.claim.citations)
     }
+    from_meeting = {
+        s.slide_id
+        for s in sites
+        if any(c.source_class == "transcript" for c in s.claim.citations)
+    }
 
     story = {
         f.slide_id
@@ -121,6 +129,7 @@ def slide_flags(deck: Deck) -> dict[str, str]:
             ("partial", partial),
             ("unsourced", unsourced),
             ("from_you", from_you),
+            ("from_meeting", from_meeting),
             ("story", story),
         ):
             if slide_id in members:

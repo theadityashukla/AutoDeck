@@ -1098,8 +1098,8 @@ def _capped_lines(verdicts: VerdictReport) -> list[str]:
 
 # -- small helpers ----------------------------------------------------------
 
-_MEETING_TIMES: ContextVar[Mapping[str, Mapping[int, float]]] = ContextVar(
-    "audit_meeting_times", default={}
+_MEETING_TIMES: ContextVar[Mapping[str, Mapping[int, float]] | None] = ContextVar(
+    "audit_meeting_times", default=None
 )
 """The report being rendered's `meeting_times`, set for the duration of `render` only. A
 context variable rather than a parameter threaded through every line helper, because only
@@ -1140,7 +1140,7 @@ def _source_label(citation: Citation) -> str:
     if citation.source_class == "transcript":
         # B79: what was said in the meeting. Proves the slide says what was said there, not
         # that it is true. The time comes from the run's sidecar, never from the Document.
-        start = _MEETING_TIMES.get().get(citation.doc_id, {}).get(citation.page)
+        start = (_MEETING_TIMES.get() or {}).get(citation.doc_id, {}).get(citation.page)
         where = meeting_stamp(start) if start is not None else f"turn {citation.page}"
         return f"from the meeting, {where} (`{citation.doc_id}` turn {citation.page})"
     return f"`{citation.doc_id}` p.{citation.page}"

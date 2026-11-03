@@ -220,6 +220,14 @@ def test_cli_with_fake_recognizer(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert cfg["audio_sha256"] == hashlib.sha256(audio.read_bytes()).hexdigest()
     assert json.loads((run / "ui.json").read_text())["project"] == "proj"
     assert not (run / "meeting" / "Board call.m4a").exists()
+    # step 9: the transcript is also the run's source, and the output says how many turns
+    assert "Citable turns: 2" in result.output
+    assert cfg["doc_id"] == "transcript--r1" and cfg["check_papers"] is False
+    stored = json.loads((run / "source" / "transcript--r1.json").read_text())
+    assert [e["text"] for e in stored["elements"]] == ["zanzibar quokka"] * 2
+    assert "Board call" not in json.dumps(stored)
+    sidecar = json.loads((meeting / "segments.json").read_text())
+    assert sidecar["pages"]["2"]["start"] == 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +253,21 @@ def _wer(ref: list[str], hyp: list[str]) -> float:
         for j, h in enumerate(hyp, 1):
             prev, d[j] = d[j], min(d[j] + 1, d[j - 1] + 1, prev + (r != h))
     return d[-1] / len(ref)
+
+
+@pytest.mark.meeting
+def test_cli_makes_the_clip_a_citable_source(tmp_path: Path) -> None:
+    _need(["asr", "vad"])
+    result = runner.invoke(app, _args(tmp_path, CLIP))
+    assert result.exit_code == 0, result.output
+    run = tmp_path / "runs" / "r1"
+    cfg = json.loads((run / "meeting" / "settings.json").read_text())
+    assert cfg["doc_id"] == "transcript--r1"
+    assert (run / "meeting" / "segments.json").is_file()
+    from autodeck.ingest.document_store import DocumentStore
+
+    document = DocumentStore(run / "source").get("transcript--r1")
+    assert document.page_count >= 1 and f"Citable turns: {document.page_count}" in result.output
 
 
 @pytest.mark.meeting

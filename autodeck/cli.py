@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -25,7 +24,6 @@ from autodeck.audit.manifest import build_manifest, session_record
 from autodeck.design.components.catalog import COMPONENT_LIB_VERSION
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.dotenv import load_dotenv
-from autodeck.ingest.document_store import Document
 from autodeck.ir.models import Block, Citation, Claim, Deck, DeckBrief, Slide
 from autodeck.ir.store import IRStore, diff_decks
 from autodeck.pipeline.orchestrator import (
@@ -39,7 +37,7 @@ from autodeck.pipeline.orchestrator import (
     Orchestrator,
     UnknownRunError,
 )
-from autodeck.pipeline.planning import PlanningContext
+from autodeck.pipeline.planning import MeetingPlanning, RedesignPlanning
 from autodeck.providers.cache import ResponseCache
 from autodeck.providers.guard import ProviderFailureRecord, ProviderGuard
 from autodeck.providers.registry import ModelRegistry, default_env_name
@@ -1489,18 +1487,44 @@ def content(
     typer.echo(f"\nNext: autodeck validate {run_id}")
 
 
+def _validation_terms(
+    knowledge_root: Path, client: str, project: str, run_id: str, run_root: Path
+) -> list[str]:
+    """The engagement memory's Terms, to show the validator as context (B79).
+
+    Snapshotted to `runs/<run>/validation-terms.json` (A6) when there are any; a stale file
+    is removed when there are none. A project with no memory (or no such client) has none.
+    """
+    from autodeck.knowledge.loader import KnowledgeError
+
+    terms: list[str] = []
+    try:
+        terms = _open_memory(knowledge_root, client, project, run_id).terms()
+    except (KnowledgeError, OSError):
+        typer.secho("no engagement terms for the validator (no memory).", dim=True)
+    path = Path(run_root) / "validation-terms.json"
+    if terms:
+        _write_json(path, {"terms": terms})
+    else:
+        path.unlink(missing_ok=True)
+    return terms
+
+
 @app.command()
 def validate(
     run_id: Annotated[str, typer.Argument(help="Run identifier.")],
     env: EnvOption = DEFAULT_ENV,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
 ) -> None:
     """Validate every claim in the latest IR (A3) and write the verdicts as a new version.
 
     Blocked unless `autodeck content` has run — there is nothing to independently verify
     before it has. Prints the claims table `verdicts.VerdictReport.render()` produces;
-    `autodeck gate2` is the surface that turns this into a reviewable report.
+    `autodeck gate2` is the surface that turns this into a reviewable report. A redesign or
+    meeting run is checked against its own source (plus the papers only if its paper check is
+    on); the engagement's Terms are shown to the validator as context, never as evidence.
     """
     from autodeck.agents.validation import ValidationAgentError, ValidationResult, validate_deck
     from autodeck.ingest.document_store import DocumentStore
@@ -1532,24 +1556,20 @@ def validate(
         except IRStoreError:
             previous = None
 
-    redesign_settings = _redesign_settings(orchestrator.paths.root)
-    if redesign_settings is not None:
-        # A redesign is checked against what it was built from: the run-local deck, plus the
-        # papers only if the person turned that check on (B41, B49). The index is still
-        # built here, independently of the writer's pack (A3).
-        from autodeck.ingest.deck_source import run_source_root
-        from autodeck.ingest.multi_store import MultiStore
+    from autodeck.pipeline.planning import PlanningSetupError, run_source_store
 
-        store = MultiStore(
-            run_source_root(runs_root, run_id),
-            corpus_root / deck.project if redesign_settings["check_papers"] else None,
+    try:
+        run_source = run_source_store(
+            runs_root, run_id, corpus_root=corpus_root, project=deck.project
         )
-        documents = list(store.documents())
-        if not documents:
-            _echo_error(
-                f"the redesign's deck is missing from {run_source_root(runs_root, run_id)}."
-            )
-            raise typer.Exit(code=2)
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
+    if run_source is not None:
+        # A redesign or a meeting is checked against what it was built from: the run-local
+        # source, plus the papers only if the person turned that check on (B41, B49, B78).
+        # The index is still built here, independently of the writer's pack (A3).
+        store, documents = run_source
     else:
         store = DocumentStore(corpus_root / deck.project)
         documents = list(store.documents())
@@ -1566,6 +1586,9 @@ def validate(
             from autodeck.ingest.multi_store import MultiStore
 
             store = MultiStore(run_source_root(runs_root, run_id), corpus_root / deck.project)
+    terms = _validation_terms(
+        knowledge_root, deck.client, deck.project, run_id, orchestrator.paths.root
+    )
     index = build_index(documents, project=deck.project)
     guard = ProviderGuard(
         ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
@@ -1588,7 +1611,12 @@ def validate(
         nonlocal result
         deck_to_validate = deck.model_copy(update={"version": next_version})
         result = validate_deck(
-            deck_to_validate, index=index, store=store, model=model, previous=previous
+            deck_to_validate,
+            index=index,
+            store=store,
+            model=model,
+            previous=previous,
+            terms=terms,
         )
         path = orchestrator.save_ir(result.deck)
         if guard.failures:
@@ -1656,7 +1684,11 @@ def gate2(
     # deck the render stage will refuse — and neither can be handed another deck's reports.
     safety = assess_render_safety(deck)
     report = build_audit_report(
-        deck, brief=brief_doc, numeric=safety.numeric, framing=safety.framing
+        deck,
+        brief=brief_doc,
+        numeric=safety.numeric,
+        framing=safety.framing,
+        meeting_times=_meeting_times(orchestrator.paths.root),
     )
 
     rendered_report = render(report)
@@ -1731,15 +1763,6 @@ EXIT_NEEDS_INPUT = 3
 COMPOSE_MAX_OUTPUT_TOKENS = 32768
 
 
-@dataclass
-class RedesignPlanning(PlanningContext):
-    """`PlanningContext` for a redesign run: the store is a `MultiStore`, and the deck and
-    settings travel with it so every later step builds the same deck-as-evidence pack."""
-
-    settings: dict
-    deck_document: Document
-
-
 def _draft_setup(
     run_id: str,
     *,
@@ -1755,12 +1778,13 @@ def _draft_setup(
 
     Client and project come from the options, else the clarify file, else the UI's run
     meta. Returns the planning context (orchestrator, guard, assembled context, index,
-    store, claims) and the resolved client and project.
+    store, claims) and the resolved client and project. A redesign or meeting run comes back
+    as a `RedesignPlanning` or `MeetingPlanning` (`prepare_planning` looks at the run folder).
     """
     from autodeck.pipeline.planning import PlanningSetupError, prepare_planning
     from autodeck.ui.api import Roots, read_run_meta
 
-    opened = _open_run(run_id, runs_root, env)  # a mistyped id must not create a run
+    _open_run(run_id, runs_root, env)  # a mistyped id must not create a run
     meta = read_run_meta(Roots(runs=runs_root, env=env), run_id)
     data = clarify_data or {}
     client = client or data.get("client") or meta.get("client")
@@ -1771,22 +1795,6 @@ def _draft_setup(
             "--client and --project."
         )
         raise typer.Exit(code=1)
-    settings = _redesign_settings(opened.paths.root)
-    if settings is not None:
-        return (
-            _redesign_planning(
-                run_id,
-                client=client,
-                project=project,
-                env=env,
-                knowledge_root=knowledge_root,
-                corpus_root=corpus_root,
-                runs_root=runs_root,
-                settings=settings,
-            ),
-            client,
-            project,
-        )
     try:
         planning = prepare_planning(
             run_id,
@@ -1801,83 +1809,6 @@ def _draft_setup(
         _echo_error(str(exc))
         raise typer.Exit(code=exc.exit_code) from None
     return planning, client, project
-
-
-def _redesign_settings(run_root: Path) -> dict | None:
-    """The run's redesign settings, or None for an ordinary draft-first run."""
-    from autodeck.ingest.redesign_settings import RedesignSettingsError, load_redesign
-
-    try:
-        return load_redesign(run_root)
-    except RedesignSettingsError as exc:
-        _echo_error(str(exc))
-        raise typer.Exit(code=1) from None
-
-
-def _redesign_planning(  # type: ignore[no-untyped-def]
-    run_id: str,
-    *,
-    client: str,
-    project: str,
-    env: str,
-    knowledge_root: Path,
-    corpus_root: Path,
-    runs_root: Path,
-    settings: dict,
-):
-    """What a compose-family call needs for a redesign run (B41, B49, A4).
-
-    Like `prepare_planning`, but the sources are the run-local deck and — only with the paper
-    check on — the project's papers, read through one `MultiStore`. With the check off the
-    corpus folder is never touched, so a project with no ingested papers still redesigns.
-    """
-    from autodeck.ingest.deck_source import run_source_root
-    from autodeck.ingest.document_store import IngestError
-    from autodeck.ingest.multi_store import MultiStore
-    from autodeck.knowledge.context_assembler import ContextAssembler
-    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
-    from autodeck.retrieval.hybrid import build_index
-
-    try:
-        assembler = ContextAssembler(knowledge_root, client=client, project=project)
-        assembled = assembler.assemble()
-        knowledge = KnowledgeLoader(knowledge_root).load_project(project)
-    except KnowledgeError as exc:
-        _echo_error(str(exc))
-        raise typer.Exit(code=1) from None
-
-    check_papers = bool(settings["check_papers"])
-    store = MultiStore(
-        run_source_root(runs_root, run_id), corpus_root / project if check_papers else None
-    )
-    try:
-        deck_document = store.get(settings["deck_doc_id"])
-    except IngestError as exc:
-        _echo_error(f"the run's deck is missing: {exc}")
-        raise typer.Exit(code=2) from None
-    documents = list(store.documents())
-    if check_papers and len(documents) < 2:
-        _echo_error(
-            f"the paper check is on but there are no ingested documents under "
-            f"{corpus_root / project}. Run `autodeck knowledge ingest {project}` first, or "
-            "turn the check off."
-        )
-        raise typer.Exit(code=2)
-    index = assembler.use_index(build_index(documents, project=project))
-    orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
-    guard = ProviderGuard(
-        ModelRegistry.load(env), cache=ResponseCache(orchestrator.paths.llm_cache)
-    )
-    return RedesignPlanning(
-        orchestrator=orchestrator,
-        guard=guard,
-        assembled=assembled,
-        index=index,
-        store=store,
-        claims=list(knowledge.claims) if check_papers else [],
-        settings=settings,
-        deck_document=deck_document,
-    )
 
 
 ProvenanceOption = Annotated[
@@ -1993,7 +1924,8 @@ def _with_conversation_source(  # type: ignore[no-untyped-def]
 
     `normal`: what the person typed is written to `runs/<run>/source/` and added to the pack,
     and the store reads that folder as well as the project's papers, so a `conversation--`
-    quote resolves. `strict` and any redesign: unchanged.
+    quote resolves. A meeting run reads the papers only if its paper check is on (the corpus
+    folder is not touched otherwise). `strict` and any redesign: unchanged.
     """
     if mode != "normal" or isinstance(planning, RedesignPlanning):
         return pack, planning.store
@@ -2004,22 +1936,55 @@ def _with_conversation_source(  # type: ignore[no-untyped-def]
 
     run_root = planning.orchestrator.paths.root
     ingest_conversation(run_root, run_id)
-    store = MultiStore(run_source_root(runs_root, run_id), corpus_root / project)
+    papers = corpus_root / project
+    if isinstance(planning, MeetingPlanning) and not planning.settings["check_papers"]:
+        papers = None
+    store = MultiStore(run_source_root(runs_root, run_id), papers)
     return with_conversation(pack, conversation_document(run_root, run_id), mode), store
 
 
+def _meeting_times(run_root: Path) -> dict[str, dict[int, float]]:
+    """`{transcript doc id: {page: start seconds}}` for the audit labels; `{}` off a meeting."""
+    from autodeck.ingest.transcript_source import meeting_times
+
+    return meeting_times(run_root)
+
+
 def run_source_hashes(run_root: Path) -> dict[str, str]:
-    """`{doc_id: sha256}` of the run-local documents in `runs/<run>/source/` (A6, B55)."""
+    """`{name: sha256}` of what a run was built from, for the manifest (A6, B55, B78).
+
+    `source/*.json` are keyed by doc id (the run-local documents: the conversation, a client
+    deck, the meeting transcript). A meeting run's `meeting/*.json` (transcript, settings,
+    times) are keyed `meeting/<file>`, and the engagement terms the validator was shown are
+    keyed `validation-terms`.
+    """
     from autodeck.audit.manifest import file_sha256
 
-    folder = Path(run_root) / "source"
-    if not folder.is_dir():
-        return {}
-    return {path.stem: file_sha256(path) for path in sorted(folder.glob("*.json"))}
+    root = Path(run_root)
+    out: dict[str, str] = {}
+    folder = root / "source"
+    if folder.is_dir():
+        out.update({path.stem: file_sha256(path) for path in sorted(folder.glob("*.json"))})
+    meeting = root / "meeting"
+    if meeting.is_dir():
+        out.update(
+            {
+                f"meeting/{path.name}": file_sha256(path)
+                for path in sorted(meeting.glob("*.json"))
+            }
+        )
+    terms = root / "validation-terms.json"
+    if terms.is_file():
+        out["validation-terms"] = file_sha256(terms)
+    return out
 
 
 def _pack_for(planning, text: str, extra_queries: tuple[str, ...] = ()):  # type: ignore[no-untyped-def]
-    from autodeck.agents.evidence_pack import build_evidence_pack, build_redesign_pack
+    from autodeck.agents.evidence_pack import (
+        build_evidence_pack,
+        build_redesign_pack,
+        with_transcript,
+    )
 
     if isinstance(planning, RedesignPlanning):
         return build_redesign_pack(
@@ -2029,13 +1994,17 @@ def _pack_for(planning, text: str, extra_queries: tuple[str, ...] = ()):  # type
             claims=planning.claims,
             index=planning.index,
         )
-    return build_evidence_pack(
+    pack = build_evidence_pack(
         text,
         project_md=planning.assembled.project_md,
         claims=planning.claims,
         index=planning.index,
         extra_queries=extra_queries,
     )
+    if isinstance(planning, MeetingPlanning):
+        # A short meeting is read whole, never trimmed; a long one by retrieval alone (B78).
+        pack = with_transcript(pack, planning.transcript_document)
+    return pack
 
 
 def _answer_queries(clarify_data: dict | None) -> tuple[str, ...]:
@@ -2340,16 +2309,21 @@ def redesign(
         f"{len(document.citable_elements())} citable text element(s)."
     )
 
-    planning = _redesign_planning(
-        run_id,
-        client=client,
-        project=project,
-        env=env,
-        knowledge_root=knowledge_root,
-        corpus_root=corpus_root,
-        runs_root=runs_root,
-        settings=settings,
-    )
+    from autodeck.pipeline.planning import PlanningSetupError, prepare_planning
+
+    try:
+        planning = prepare_planning(
+            run_id,
+            client=client,
+            project=project,
+            env=env,
+            knowledge_root=knowledge_root,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
+        )
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
     _clarify_checkpoint(
         planning,
         run_id=run_id,
@@ -2549,6 +2523,12 @@ def draft(
     if agent and isinstance(planning, RedesignPlanning):
         typer.secho(
             "the agent does not do redesigns yet; drafting in one call", fg=typer.colors.YELLOW
+        )
+        use_agent = False
+    elif agent and isinstance(planning, MeetingPlanning):
+        typer.secho(
+            "the agent does not draft from meetings yet (step 11); drafting in one call",
+            fg=typer.colors.YELLOW,
         )
         use_agent = False
     design_tokens = DesignTokens.load(tokens)
@@ -2758,7 +2738,14 @@ def revise(
     if agent and is_redesign:
         _echo_error("the agent does not do redesigns yet; use --no-agent")
         raise typer.Exit(code=1)
-    use_agent = has_session and not is_redesign if agent is None else bool(agent)
+    if agent and isinstance(planning, MeetingPlanning):
+        _echo_error("the agent does not revise meeting decks yet; use --no-agent")
+        raise typer.Exit(code=1)
+    use_agent = (
+        has_session and not is_redesign and not isinstance(planning, MeetingPlanning)
+        if agent is None
+        else bool(agent)
+    )
     base = (clarify_data or {}).get("prompt") or brief.objective
     run_root = orchestrator.paths.root
     mode = _run_mode(run_root)
@@ -3332,7 +3319,11 @@ def gate3(
     )
     safety = assess_render_safety(deck)
     audit_report = build_audit_report(
-        deck, brief=brief_doc, numeric=safety.numeric, framing=safety.framing
+        deck,
+        brief=brief_doc,
+        numeric=safety.numeric,
+        framing=safety.framing,
+        meeting_times=_meeting_times(paths.root),
     )
     report_text = render_final_report(assessment, audit_report=render_audit(audit_report))
     paths.final_audit_report.write_text(report_text, encoding="utf-8")
@@ -3624,6 +3615,14 @@ def meeting_transcribe(
         int | None, typer.Option("--num-speakers", help="Number of speakers, if known.")
     ] = None,
     threads: Annotated[int | None, typer.Option("--threads", help="CPU threads.")] = None,
+    with_papers: Annotated[
+        bool,
+        typer.Option(
+            "--with-papers/--no-papers",
+            help="Also check the deck against the project's papers (off by default: a "
+            "meeting deck is checked against the meeting only).",
+        ),
+    ] = False,
     env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
@@ -3631,8 +3630,16 @@ def meeting_transcribe(
     """Transcribe a recording on this machine into `runs/<run>/meeting/`.
 
     Nothing leaves the computer; the audio is read in place, not copied into the repo, and
-    transcript text is written to files only, never printed.
+    transcript text is written to files only, never printed. The transcript also becomes the
+    run's source (`runs/<run>/source/`, citable as "from the meeting"); `clarify` and `draft`
+    follow as for any run.
     """
+    from autodeck.ingest.document_store import DocumentStore, IngestError
+    from autodeck.ingest.transcript_source import (
+        MeetingSettingsError,
+        ingest_transcript,
+        save_meeting_settings,
+    )
     from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
     from autodeck.meeting.audio import ALLOWED_SUFFIXES, file_sha256
     from autodeck.meeting.errors import MeetingDepsError, MeetingError
@@ -3686,8 +3693,13 @@ def meeting_transcribe(
     except MeetingError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
-    (out_dir / "settings.json").write_text(
-        json.dumps(
+    try:
+        doc_id = ingest_transcript(orchestrator.paths.root, run_id)
+        if doc_id is None:
+            _echo_error("no speech was transcribed; nothing to cite.")
+            raise typer.Exit(code=1)
+        save_meeting_settings(
+            orchestrator.paths.root,
             {
                 "audio_name": audio.name,
                 "audio_sha256": sha,
@@ -3695,11 +3707,14 @@ def meeting_transcribe(
                 "num_speakers": num_speakers,
                 "client": client,
                 "project": project,
+                "doc_id": doc_id,
+                "check_papers": with_papers,
             },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+        )
+    except (IngestError, MeetingSettingsError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    citable = len(DocumentStore(orchestrator.paths.root / "source").get(doc_id).elements)
     found = sorted({s.speaker for s in result.segments if s.speaker})
     timings = result.timings
     typer.echo(f"Duration: {result.audio.duration_s:.1f}s   Segments: {len(result.segments)}")
@@ -3710,7 +3725,61 @@ def meeting_transcribe(
         f"diarize {timings['diarize']}s, total {timings['total']}s"
     )
     typer.echo(f"Real-time factor: {timings['rtf']}")
+    typer.echo(f"Citable turns: {citable}")
     typer.echo(f"Wrote {out_dir}")
+    typer.echo(
+        f"Next: autodeck clarify {run_id} --client {client} --project {project} --prompt ..."
+    )
+
+
+@meeting_app.command("source")
+def meeting_source(
+    run_id: Annotated[str, typer.Argument(help="Run identifier (must have a transcript).")],
+    with_papers: Annotated[
+        bool,
+        typer.Option(
+            "--with-papers/--no-papers",
+            help="Also check the deck against the project's papers (off by default).",
+        ),
+    ] = False,
+    env: EnvOption = DEFAULT_ENV,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Make an existing `meeting/transcript.json` the run's source, without transcribing again.
+
+    For a transcript made before it became a source, or one corrected by hand. Rewrites
+    `source/transcript--<run>.json`, `meeting/segments.json` and `meeting/settings.json`
+    (the audio details already there are kept). Transcript text is never printed.
+    """
+    from autodeck.ingest.document_store import DocumentStore, IngestError
+    from autodeck.ingest.transcript_source import (
+        MeetingSettingsError,
+        ingest_transcript,
+        save_meeting_settings,
+        settings_path,
+    )
+
+    orchestrator = _open_run(run_id, runs_root, env)
+    root = orchestrator.paths.root
+    try:
+        previous = json.loads(settings_path(root).read_text(encoding="utf-8"))
+        if not isinstance(previous, dict):
+            previous = {}
+    except (OSError, ValueError):
+        previous = {}
+    try:
+        doc_id = ingest_transcript(root, run_id)
+        if doc_id is None:
+            _echo_error("the transcript has no speech; nothing to cite.")
+            raise typer.Exit(code=1)
+        save_meeting_settings(root, {**previous, "doc_id": doc_id, "check_papers": with_papers})
+    except (IngestError, MeetingSettingsError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    citable = len(DocumentStore(root / "source").get(doc_id).elements)
+    typer.echo(f"Citable turns: {citable}")
+    typer.echo(f"Paper check: {'on' if with_papers else 'off'}")
+    typer.echo(f"Source: {doc_id}")
 
 
 if __name__ == "__main__":  # pragma: no cover

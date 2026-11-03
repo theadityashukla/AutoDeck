@@ -260,6 +260,47 @@ def with_conversation(
     )
 
 
+TRANSCRIPT_WHOLE_TOKENS = 20_000
+"""A transcript at or under this size (about `len(text) // 4` tokens) is shown whole."""
+
+
+def transcript_section(spans: Sequence[RetrievedSpan]) -> str:
+    """The never-trimmed "from the meeting" section: a heading, then the spans one per line
+    in `render_evidence`'s format, so a quote copied from here is flattened exactly as the
+    resolver's tolerant matcher expects. Empty for no spans."""
+    if not spans:
+        return ""
+    doc_id = spans[0].doc_id
+    return (
+        f"# What was said in the meeting (doc id {doc_id}; each page is one turn)\n\n"
+        + render_evidence((), spans)
+    )
+
+
+def with_transcript(
+    pack: EvidencePack, doc: Document | None, *, max_tokens: int = TRANSCRIPT_WHOLE_TOKENS
+) -> EvidencePack:
+    """Add the whole meeting transcript to a pack when it is small enough (B78).
+
+    A short transcript is read in full, never trimmed: the writer should not miss a turn the
+    retrieval happened to rank low. Its spans lead `spans` and any span the pack already
+    holds (same doc and element) is not repeated. Above `max_tokens` the pack is returned
+    unchanged — retrieval alone, which already indexes the transcript.
+    """
+    if doc is None:
+        return pack
+    spans = document_spans(doc)
+    if not spans:
+        return pack
+    section = transcript_section(spans)
+    if len(section) // 4 > max_tokens:
+        return pack
+    seen = {(s.doc_id, s.element_id) for s in spans}
+    rest = tuple(s for s in pack.spans if (s.doc_id, s.element_id) not in seen)
+    text = section + "\n\n" + pack.text
+    return replace(pack, spans=(*spans, *rest), text=text, approx_tokens=len(text) // 4)
+
+
 def _deck_span(deck: Document, element, text: str, *, citable: bool) -> RetrievedSpan:  # type: ignore[no-untyped-def]
     return RetrievedSpan(
         doc_id=deck.doc_id,

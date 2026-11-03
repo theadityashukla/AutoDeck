@@ -1704,6 +1704,7 @@ const draftPill = (text = "Draft — not approved") => `<span class="draft-pill"
 const docLabel = (id, page) => {
   const s = String(id ?? "");
   if (s.startsWith("conversation--")) return page != null && page !== "" ? `from you · message ${page}` : "from you";
+  if (s.startsWith("transcript--")) return page != null && page !== "" ? `from the meeting · turn ${page}` : "from the meeting";
   return s.startsWith("client-deck--") ? `client-supplied deck · ${s.slice("client-deck--".length)}` : s;
 };
 // A block that makes a claim: judged, cited, or the model's own general knowledge (unsourced).
