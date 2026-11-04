@@ -195,6 +195,25 @@ their own commit, with the rationale in the body.
 
 ## 9. Preconditions for the next phase
 
+**Order of work, set by the owner on 2026-11-04:**
+1. **Live check of step 9** (approved by the owner; a few cents on dev-mistral). It was not
+   run in the session that built step 9 because `MISTRAL_API_KEY` was not set there. On the
+   clip, as a meeting-only run:
+   ```bash
+   uv run autodeck meeting transcribe CLIP --audio tests/fixtures/meeting_clip.m4a --client contoso-health --project llm-inference-efficiency
+   uv run autodeck clarify CLIP --client contoso-health --project llm-inference-efficiency --prompt "A three-slide readout of this meeting's decisions and dates"
+   uv run autodeck answer CLIP --accept-all
+   uv run autodeck draft CLIP --no-agent
+   uv run autodeck validate CLIP
+   ```
+   Report quote resolution, verdict counts, how the "from the meeting, mm:ss" labels read,
+   and how the validator treats "Shikta" / "data bricks" and the hedged "first week of
+   February". Never print transcript text.
+2. **Meeting steps 10, 11, 12, 13**, one at a time (§3). Step 13 needs the owner's Mac or
+   the owner uploading the recording.
+3. **Then roadmap Phase 4** (consulting workflow, `docs/phases/PHASE-4.md`). Not before the
+   meeting plan is complete.
+
 - **Environment:**
   - `uv sync --extra meeting --extra ui`. Syncing one extra alone removes the other's
     packages.
