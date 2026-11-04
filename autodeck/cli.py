@@ -1560,7 +1560,7 @@ def validate(
 
     try:
         run_source = run_source_store(
-            runs_root, run_id, corpus_root=corpus_root, project=deck.project
+            runs_root, run_id, corpus_root=corpus_root, project=deck.project, env=env
         )
     except PlanningSetupError as exc:
         _echo_error(str(exc))
@@ -3780,6 +3780,302 @@ def meeting_source(
     typer.echo(f"Citable turns: {citable}")
     typer.echo(f"Paper check: {'on' if with_papers else 'off'}")
     typer.echo(f"Source: {doc_id}")
+
+
+# ---------------------------------------------------------------------------
+# meeting notes — an agent writes the notes (plan step 10, B80)
+# ---------------------------------------------------------------------------
+
+
+def _notes_setup(  # type: ignore[no-untyped-def]
+    run_id: str,
+    *,
+    env: str,
+    knowledge_root: Path,
+    corpus_root: Path,
+    runs_root: Path,
+):
+    """Open a meeting run for a notes command: the run's meeting settings, the confidential
+    check (B81) and the planning context. Returns `(orchestrator, planning, client, project,
+    times)`; exits 1 with a message when the run has no meeting or the environment is not
+    `confidential_ok`."""
+    from autodeck.ingest.transcript_source import (
+        MeetingSettingsError,
+        load_meeting_settings,
+        meeting_times,
+    )
+    from autodeck.pipeline.planning import PlanningSetupError, require_confidential
+
+    orchestrator = _open_run(run_id, runs_root, env)
+    root = orchestrator.paths.root
+    try:
+        settings = load_meeting_settings(root)
+    except MeetingSettingsError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if settings is None:
+        _echo_error(
+            f"run {run_id} has no meeting; run `autodeck meeting transcribe {run_id}` first."
+        )
+        raise typer.Exit(code=1)
+    try:
+        require_confidential(env)
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
+    planning, client, project = _draft_setup(
+        run_id,
+        client=settings["client"] or None,
+        project=settings["project"] or None,
+        env=env,
+        knowledge_root=knowledge_root,
+        corpus_root=corpus_root,
+        runs_root=runs_root,
+        clarify_data=None,
+    )
+    assert isinstance(planning, MeetingPlanning)
+    times = meeting_times(root).get(settings["doc_id"], {})
+    return orchestrator, planning, client, project, times
+
+
+def _finish_notes_command(orchestrator: Orchestrator, ran, times: dict) -> None:  # type: ignore[no-untyped-def]
+    """Write the notes files and the session meta, and say what happened. Never prints a
+    note or a transcript word: a meeting is client-confidential (B78)."""
+    from autodeck.agents.notes_workspace import NOTES_SECTIONS, write_notes
+
+    ws, state = ran.workspace, ran.state
+    run_root = orchestrator.paths.root
+    meeting_dir = run_root / "meeting"
+    write_notes(ws, meeting_dir, times)
+    note_path = meeting_dir / "agent-note.md"
+    if ws.note_to_person.strip():
+        note_path.write_text(ws.note_to_person.strip() + "\n", encoding="utf-8")
+    elif note_path.exists():
+        note_path.unlink()
+    _write_json(
+        run_root / "session" / "meta.json",
+        {
+            "kind": "notes",
+            "stop_reason": state.stop_reason,
+            "steps": state.steps,
+            "provider_calls": state.provider_calls,
+            "input_tokens": state.input_tokens,
+            "output_tokens": state.output_tokens,
+        },
+    )
+    typer.echo(f"Stop reason: {state.stop_reason}")
+    typer.echo(
+        f"Steps: {state.steps}   Provider calls: {state.provider_calls}   "
+        f"Tokens: {state.input_tokens} in, {state.output_tokens} out"
+    )
+    for name in NOTES_SECTIONS:
+        typer.echo(f"  {name}: {len(ws.sections[name])}")
+    typer.secho("Wrote meeting/notes.md", fg=typer.colors.GREEN)
+    if ws.note_to_person.strip():
+        typer.echo("The agent left you a note: meeting/agent-note.md")
+    if state.stop_reason != "finished":
+        typer.secho(
+            f"The agent stopped ({state.stop_reason}) before finishing: the notes are what it "
+            "had written by then.",
+            fg=typer.colors.YELLOW,
+        )
+
+
+@meeting_app.command("notes")
+def meeting_notes(
+    run_id: Annotated[str, typer.Argument(help="Run identifier (must have a meeting).")],
+    date: Annotated[
+        str | None, typer.Option("--date", help="When the meeting was, as you would say it.")
+    ] = None,
+    attendees: Annotated[
+        str | None,
+        typer.Option(
+            "--attendees", help='Who was there, e.g. "Shikha, Dev" (spellings, not evidence).'
+        ),
+    ] = None,
+    steps: Annotated[
+        int, typer.Option("--steps", min=1, help="Model turns the agent may take.")
+    ] = 40,
+    env: EnvOption = DEFAULT_ENV,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Write the meeting's notes in an agent session: `meeting/notes.md` and `notes.json`.
+
+    Every note cites verbatim words from the transcript. The notes are sent to the
+    environment's model providers, so the environment must be `confidential_ok`. Transcript
+    and note text are never printed here. Edit `notes.md` by hand if you like, then
+    `autodeck meeting revise-notes RUN --apply-edits`.
+    """
+    from autodeck.agents.compose import ComposeError
+    from autodeck.agents.notes_agent import compose_notes_agent
+    from autodeck.agents.session import SessionLimits
+
+    orchestrator, planning, client, project, times = _notes_setup(
+        run_id,
+        env=env,
+        knowledge_root=knowledge_root,
+        corpus_root=corpus_root,
+        runs_root=runs_root,
+    )
+    guard = planning.guard
+    command = f"meeting notes {run_id}"
+
+    def notes_saved() -> str:
+        return "no notes were written. " + _cache_note(orchestrator)
+
+    with _ends_on_provider_failure(guard, command=command, saved=notes_saved):
+        model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+        advisor = guard.provider("advisor")
+    names = [a.strip() for a in (attendees or "").split(",") if a.strip()]
+    built: list = []
+
+    def do_notes() -> str:
+        ran = compose_notes_agent(
+            transcript=planning.transcript_document,
+            store=planning.store,
+            times=times,
+            context=planning.assembled,
+            model=model,
+            advisor=advisor,
+            project=project,
+            meeting_date=(date or "").strip() or None,
+            attendees=names,
+            session_dir=orchestrator.paths.root / "session",
+            limits=SessionLimits(max_steps=steps),
+            on_step=_print_agent_step,
+            memory=_memory_store(knowledge_root, client, project, run_id),
+        )
+        built.append(ran)
+        return f"{ran.state.stop_reason} · {ran.state.provider_calls} provider call(s)"
+
+    try:
+        with _ends_on_provider_failure(guard, command=command, saved=notes_saved):
+            orchestrator.run_stage("notes", do_notes, force=True)
+    except ComposeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    _finish_notes_command(orchestrator, built[0], times)
+
+
+def _notes_edit_diff(meeting_dir: Path) -> str:
+    """The person's edits to `notes.md` as a unified diff against `notes.rendered.md`."""
+    import difflib
+
+    rendered, edited = meeting_dir / "notes.rendered.md", meeting_dir / "notes.md"
+    try:
+        before = rendered.read_text(encoding="utf-8").splitlines()
+        after = edited.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        _echo_error("there are no notes to compare; run `autodeck meeting notes` first.")
+        raise typer.Exit(code=1) from None
+    return "\n".join(
+        difflib.unified_diff(before, after, "notes.rendered.md", "notes.md", n=1, lineterm="")
+    )
+
+
+@meeting_app.command("revise-notes")
+def meeting_revise_notes(
+    run_id: Annotated[str, typer.Argument(help="Run identifier (must have notes).")],
+    say: Annotated[
+        str | None, typer.Option("--say", help="What to change, in your own words.")
+    ] = None,
+    apply_edits: Annotated[
+        bool,
+        typer.Option("--apply-edits", help="Make the notes match your edits to notes.md."),
+    ] = False,
+    steps: Annotated[
+        int, typer.Option("--steps", min=1, help="Model turns the agent may take.")
+    ] = 40,
+    env: EnvOption = DEFAULT_ENV,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Change the meeting's notes: with `--say` in words, or `--apply-edits` from your edits.
+
+    Continues the run's notes session. Give exactly one of the two. `--apply-edits` compares
+    `meeting/notes.md` with the copy as the agent wrote it (`notes.rendered.md`) and, when
+    they differ, asks the agent to make the notes match, keeping every item cited.
+    """
+    from autodeck.agents.compose import ComposeError
+    from autodeck.agents.notes_agent import resume_notes_agent
+    from autodeck.agents.session import SessionLimits
+
+    if (say is None) == (not apply_edits) or (say is not None and not say.strip()):
+        _echo_error("give exactly one of --say TEXT or --apply-edits.")
+        raise typer.Exit(code=1)
+    orchestrator = _open_run(run_id, runs_root, env)
+    run_root = orchestrator.paths.root
+    meeting_dir = run_root / "meeting"
+    if not (run_root / "session" / "notes_workspace.json").is_file():
+        _echo_error(
+            f"run {run_id} has no notes session; write the notes with "
+            f"`autodeck meeting notes {run_id}` first."
+        )
+        raise typer.Exit(code=1)
+    record: dict = {"target": "notes", "at": _iso_now()}
+    if apply_edits:
+        diff = _notes_edit_diff(meeting_dir)
+        if not diff.strip():
+            typer.echo("No edits to apply.")
+            return
+        instruction = (
+            "The person edited the notes file. Lines starting '-' were removed and '+' added; "
+            "the `<!-- nX -->` tag on a bullet names the item. Make the notes match their "
+            "edits, keeping every item cited:\n\n" + diff
+        )
+        record["edits"] = diff
+    else:
+        instruction = (say or "").strip()
+        record["instruction"] = instruction
+
+    orchestrator, planning, client, project, times = _notes_setup(
+        run_id,
+        env=env,
+        knowledge_root=knowledge_root,
+        corpus_root=corpus_root,
+        runs_root=runs_root,
+    )
+    guard = planning.guard
+    command = f"meeting revise-notes {run_id}"
+
+    def revise_saved() -> str:
+        return "the notes are unchanged. " + _cache_note(orchestrator)
+
+    with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
+        model = guard.provider("composer", max_output_tokens=COMPOSE_MAX_OUTPUT_TOKENS)
+        advisor = guard.provider("advisor")
+    built: list = []
+
+    def do_revise() -> str:
+        ran = resume_notes_agent(
+            instruction,
+            session_dir=run_root / "session",
+            transcript=planning.transcript_document,
+            store=planning.store,
+            times=times,
+            model=model,
+            advisor=advisor,
+            project=project,
+            limits=SessionLimits(max_steps=steps),
+            on_step=_print_agent_step,
+            memory=_memory_store(knowledge_root, client, project, run_id),
+        )
+        built.append(ran)
+        return f"{ran.state.stop_reason} · {ran.state.provider_calls} provider call(s)"
+
+    try:
+        with _ends_on_provider_failure(guard, command=command, saved=revise_saved):
+            orchestrator.run_stage("notes", do_revise, force=True)
+    except ComposeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    ran = built[0]
+    record["reply"] = ran.workspace.note_to_person.strip()
+    _append_revision(run_root / "revisions.jsonl", record)
+    _finish_notes_command(orchestrator, ran, times)
 
 
 if __name__ == "__main__":  # pragma: no cover

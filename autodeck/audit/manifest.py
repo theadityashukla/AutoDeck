@@ -497,7 +497,13 @@ def build_manifest(
     )
 
 
-SESSION_FILES = ("transcript.jsonl", "system.md", "corpus_map.md", "workspace.json")
+SESSION_FILES = (
+    "transcript.jsonl",
+    "system.md",
+    "corpus_map.md",
+    "workspace.json",
+    "notes_workspace.json",  # the meeting notes session (B80)
+)
 
 
 def session_record(session_dir: Path) -> dict[str, Any] | None:
@@ -526,9 +532,7 @@ def session_record(session_dir: Path) -> dict[str, Any] | None:
         if (session_dir / name).is_file()
     }
     archived = sorted(p.name for p in session_dir.glob("transcript.*.jsonl"))
-    memory = {
-        p.name: file_sha256(p) for p in sorted((session_dir / "memory").glob("*.md"))
-    }
+    memory = {p.name: file_sha256(p) for p in sorted((session_dir / "memory").glob("*.md"))}
     return {
         "sha256": hashes,
         "memory": memory,

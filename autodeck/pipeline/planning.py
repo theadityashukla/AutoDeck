@@ -38,7 +38,7 @@ from autodeck.knowledge.loader import CachedClaim, KnowledgeError, KnowledgeLoad
 from autodeck.pipeline.orchestrator import Orchestrator
 from autodeck.providers.cache import ResponseCache
 from autodeck.providers.guard import ProviderGuard
-from autodeck.providers.registry import ModelRegistry
+from autodeck.providers.registry import ModelRegistry, default_env_name
 from autodeck.retrieval.hybrid import build_index
 
 
@@ -48,6 +48,25 @@ class PlanningSetupError(RuntimeError):
     def __init__(self, message: str, *, exit_code: int) -> None:
         super().__init__(message)
         self.exit_code = exit_code
+
+
+def require_confidential(env: str, path: Path | None = None) -> None:
+    """Refuse an environment that is not marked `confidential_ok` (B81).
+
+    A meeting transcript is client-confidential and every model call on a meeting run sends
+    its text to the environment's providers, so the environment must say that is acceptable.
+
+    Raises:
+        PlanningSetupError: the environment is not flagged (exit 1).
+    """
+    from autodeck.providers import registry
+
+    if not ModelRegistry.load(env, path or registry.DEFAULT_CONFIG_PATH).confidential_ok:
+        raise PlanningSetupError(
+            f"environment {env!r} is not marked confidential_ok in config/models.yaml; a "
+            "meeting transcript is client-confidential and would be sent to its providers.",
+            exit_code=1,
+        )
 
 
 @dataclass
@@ -211,15 +230,17 @@ def _ensure_transcript_document(runs_root: Path, run_id: str, doc_id: str) -> No
 
 
 def run_source_store(
-    runs_root: Path, run_id: str, *, corpus_root: Path, project: str
+    runs_root: Path, run_id: str, *, corpus_root: Path, project: str, env: str | None = None
 ) -> tuple[DocumentStore, list[Document]] | None:
     """`(store, documents to index)` for a redesign or meeting run; None for an ordinary
-    corpus run. The validator's counterpart of `prepare_planning` (it opens no planner)."""
+    corpus run. The validator's counterpart of `prepare_planning` (it opens no planner). A
+    meeting run needs `env` to be `confidential_ok` (B81); `env` defaults to the config's."""
     found = run_source_settings(runs_root, run_id)
     if found is None:
         return None
     kind, settings = found
     if kind == "meeting":
+        require_confidential(env or default_env_name())
         _ensure_transcript_document(runs_root, run_id, settings["doc_id"])
     source = run_source_root(runs_root, run_id)
     store = MultiStore(source, corpus_root / project if settings["check_papers"] else None)
@@ -277,6 +298,7 @@ def prepare_planning(
             return RedesignPlanning(
                 **vars(context), settings=settings, deck_document=found[settings["deck_doc_id"]]
             )
+        require_confidential(env)
         _ensure_transcript_document(runs_root, run_id, settings["doc_id"])
         context, found = _run_source_planning(
             run_id, kind="meeting", doc_ids=[settings["doc_id"]], **common

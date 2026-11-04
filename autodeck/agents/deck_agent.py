@@ -79,8 +79,9 @@ SEED_BUDGET_TOKENS = 4_000
 for what its argument needs rather than wading through a preloaded pack (plan §4c)."""
 
 ALWAYS_LOADED = "deck-thinking"
-NEVER_INDEXED = frozenset({ALWAYS_LOADED, "visual-review"})
-"""`visual-review` is for looking at rendered slides, which this session does not do yet."""
+NEVER_INDEXED = frozenset({ALWAYS_LOADED, "visual-review", "meeting-notes"})
+"""`visual-review` is for looking at rendered slides, which this session does not do yet;
+`meeting-notes` is the notes agent's (B80), not a deck-writing skill."""
 
 
 @dataclass

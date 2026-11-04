@@ -75,10 +75,16 @@ class ModelRegistry:
     """Resolves a role to a configured provider instance for one environment."""
 
     def __init__(
-        self, bindings: dict[str, Binding], env: str, design_mode: str = "structured"
+        self,
+        bindings: dict[str, Binding],
+        env: str,
+        design_mode: str = "structured",
+        confidential_ok: bool = False,
     ) -> None:
         self.env = env
         self._bindings = bindings
+        #: Whether this environment may be sent a meeting transcript (B81). Absent means no.
+        self.confidential_ok = confidential_ok
         #: The environment's default design mode (B69): "structured" or "creative".
         self.design_mode = design_mode
 
@@ -114,6 +120,7 @@ class ModelRegistry:
             _parse_bindings(environments[chosen], chosen, path),
             chosen,
             _parse_design_mode(environments[chosen], chosen, path),
+            _parse_confidential_ok(environments[chosen], chosen, path),
         )
 
     # -- lookup ------------------------------------------------------------
@@ -198,7 +205,7 @@ def _api_key_env(provider: str) -> str:
 
 
 #: Non-role keys an environment may carry beside its role bindings.
-_ENV_SETTINGS: frozenset[str] = frozenset({"design_mode"})
+_ENV_SETTINGS: frozenset[str] = frozenset({"design_mode", "confidential_ok"})
 
 
 def _parse_design_mode(raw: Any, env: str, path: Path) -> str:
@@ -209,6 +216,16 @@ def _parse_design_mode(raw: Any, env: str, path: Path) -> str:
             f"{path}: {env}.design_mode must be 'structured' or 'creative', got {value!r}"
         )
     return str(value)
+
+
+def _parse_confidential_ok(raw: Any, env: str, path: Path) -> bool:
+    """Whether the environment may be sent client-confidential text (B81); absent is False."""
+    value = raw.get("confidential_ok", False) if isinstance(raw, dict) else False
+    if not isinstance(value, bool):
+        raise RegistryError(
+            f"{path}: {env}.confidential_ok must be true or false, got {value!r}"
+        )
+    return value
 
 
 def _parse_bindings(raw: Any, env: str, path: Path) -> dict[str, Binding]:
