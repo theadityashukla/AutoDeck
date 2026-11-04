@@ -13,7 +13,7 @@
 | **Phase** | 4c (agent session) + memory + meeting Stage A |
 | **Branch** | `v2/integration` (everything since `2ac1bec` was uncommitted until this push, including the earlier 4a/4b/design work in `CRAFT-4A-4B.md`) |
 | **PR** | none yet |
-| **Started / completed** | 2026-10-23 → 2026-11-04 (paused at plan step 9 of 13); step 9 done 2026-11-03 in the remote session (see §2a) |
+| **Started / completed** | 2026-10-23 → 2026-11-04 (paused at plan step 9 of 13); step 9 done 2026-11-03 and step 10 done 2026-11-04 in the remote session (see §2a, §2b) |
 | **Gate** | none; no gate may be altered by this work |
 | **Gate status** | n/a |
 | **Approved by / when** | The plan was approved by the owner on 2026-10-23. Two later owner decisions (2026-10-23): keep one-shot as the dev-mistral default with `--agent` opt-in, and test the agent on Claude later. |
@@ -94,6 +94,24 @@ draft or validate was run live on it (each is a paid call).
 **Upgrading a meeting run made before step 9:** its `settings.json` has no `doc_id`, so
 `clarify` exits 1 and says to run `autodeck meeting source <run>`, which needs no ASR.
 
+## 2b. Step 10 — notes written by the agent (B80, B81)
+
+Done in the remote session, 2026-11-04. No live run (it waits for `MISTRAL_API_KEY`, §9).
+
+| Path | What it does | Tests |
+|---|---|---|
+| `autodeck/agents/notes_workspace.py` | `NotesWorkspace`: seven fixed sections; every item cites transcript turns through `content._resolve_citation` (one verbatim quote per turn, shown turns only, the page a hint); action owner defaults to "Owner TBD"; key dates carry date-as-said and precision; save/load re-resolves every citation; `render_notes` / `write_notes` → `meeting/notes.md` (times, `<!-- nX -->` tags), `notes.json` (no times), `notes.rendered.md` | `tests/test_notes_workspace.py` |
+| `autodeck/agents/tools/notes.py` | `read_transcript` (≤40 turns, with times), `search_transcript` (transcript-only index), `notes_set_section` / `add` / `edit` / `remove`, `show_notes`, `finish_notes` (refused until a whole-notes cold read), `ask_advisor` (notes + quotes + the transcript, whole under ~20k tokens, else the cited turns). Summaries carry no transcript text | `tests/test_notes_agent.py` |
+| `autodeck/agents/notes_agent.py` | `compose_notes_agent` / `resume_notes_agent` (reseed past `RESEED_TOKENS` from `notes_text`); system = `prompts/notes_agent.md` + `meeting-notes` skill + an index (`writing-style`, `fidelity`, `meeting-readout`); the whole transcript preloaded under 20k tokens; session files in `runs/<run>/session/` (`notes_workspace.json`) | `tests/test_notes_agent.py` |
+| `autodeck/cli.py` | `meeting notes RUN [--date] [--attendees] [--steps]` and `meeting revise-notes RUN (--say TEXT \| --apply-edits)`, both as stage `notes`; writes `agent-note.md` and `session/meta.json`; prints counts only; `--apply-edits` with no diff makes no call; `revisions.jsonl` gets `instruction` for `--say`, `edits` (never `instruction`) for a diff | `tests/test_meeting_notes_cli.py` |
+| `config/models.yaml`, `autodeck/providers/registry.py`, `autodeck/pipeline/planning.py` | `confidential_ok` (default false; the owner flagged dev-mistral, sit and prod); `require_confidential` in the meeting branches of `prepare_planning` and `run_source_store`, and in both notes commands | `tests/test_meeting_notes_cli.py` |
+| `autodeck/audit/manifest.py` | `SESSION_FILES` includes `notes_workspace.json` (A6) | `tests/test_notes_workspace.py` |
+| `autodeck/agents/deck_agent.py` | `meeting-notes` is not offered to the deck agent | `tests/test_notes_agent.py` |
+| `prompts/notes_agent.md`, `prompts/skills/meeting-notes.md`, `prompts/skills/meeting-readout.md`, `prompts/advisor.md` | The judgement: citing speech, owners only when shown, keep the degree (decided/planned/hoped/guessed), dates at the precision said, the cold read; the readout skill is for step 11 | — (own commit) |
+
+Full suite on 2026-11-04: **2088 passed, 4 skipped, 52 deselected, 1 failed** (the same
+container-font failure as in §2a; 50 new tests).
+
 ## 3. What did not ship
 
 The plan is 13 steps; steps 1–8 are done. The plan file lives outside the repo, so its
@@ -102,7 +120,7 @@ remaining design is summarised here.
 | Task | Why deferred | Now owned by |
 |---|---|---|
 | ~~Step 9 — transcript as a citable source, and meeting-only runs~~ | **Done 2026-11-03, see §2a.** The design below is what shipped, with two additions: `check_papers` (default off, as B49) and the whole transcript in the pack under ~20k tokens | — Original **design:**<br>- `autodeck/ingest/transcript_source.py`, modelled on `conversation_source.py`: doc id `transcript--<slug>`, one page per segment, one `text` element per segment, `PAGE_BOX` bbox, **no times inside the Document** (A6).<br>- Sidecar `meeting/segments.json` mapping page → start, end, speaker.<br>- New `SourceClass` `"transcript"` and `TRANSCRIPT_DOC_PREFIX` in `ir/models.py` (~:69–76, ~:220). It is allowed in strict mode because it is a document.<br>- Labels: "from the meeting, mm:ss" in `audit/report.py` (~:1096) and `render/draft.py` (~:110).<br>- `run_source_hashes` (`cli.py`) also hashes `meeting/*.json`.<br>- Generalise `_redesign_planning` into `_run_source_planning`, driven by `runs/<run>/meeting/settings.json`. Wire it into `prepare_planning` (`pipeline/planning.py` ~:96, which refuses projects with no corpus) and into `validate` (`cli.py`, which exits 2 without a corpus).<br>- Pass engagement memory Terms to `validate` as context, so "APLD" in a claim is not flagged against a quote reading "APID".<br>- Decision **B79**. |
-| **Step 10 — notes written by the agent** | Not started | Next session. **Design:**<br>- `agents/notes_workspace.py` `MeetingNotes`: Summary, Attendees, Themes, Decisions, Key dates (with precision), Action items ("Owner TBD"), Open questions/risks. Each item carries `cites: [{page, quote}]`, resolved through the same `_resolve_citation` path; a citation may span several turns.<br>- `render_notes()` writes `meeting/notes.md` and `notes.json` deterministically.<br>- Tools: `read_transcript`, `search_transcript`, `notes_set_section`, `notes_add_item`, `notes_edit_item`, `notes_remove_item`, `finish_notes`, plus `ask_advisor` (the cold read replaces any fixed verify call), `remember` and `load_skill`.<br>- Preload the whole transcript when it is under about 20k tokens.<br>- Skills `prompts/skills/meeting-notes.md` and `meeting-readout.md` (a storyline suggestion, not a template; a preset only for weak models). Opus writes these.<br>- Review: the person edits `notes.md` and "Apply my edits" sends the diff to the session; or they chat ("APID is APLD"). Chat goes to `revisions.jsonl` and to engagement memory.<br>- A per-environment `confidential_ok` flag in `models.yaml`; meeting commands refuse an unflagged environment.<br>- CLI `autodeck meeting notes RUN [--date] [--attendees]`.<br>- Decisions **B80**, **B81**. |
+| ~~Step 10 — notes written by the agent~~ | **Done 2026-11-04, see §2b.** Shipped as designed; review is CLI-only (`revise-notes --say` / `--apply-edits`) until the step 12 UI | — Original **design:**<br>- `agents/notes_workspace.py` `MeetingNotes`: Summary, Attendees, Themes, Decisions, Key dates (with precision), Action items ("Owner TBD"), Open questions/risks. Each item carries `cites: [{page, quote}]`, resolved through the same `_resolve_citation` path; a citation may span several turns.<br>- `render_notes()` writes `meeting/notes.md` and `notes.json` deterministically.<br>- Tools: `read_transcript`, `search_transcript`, `notes_set_section`, `notes_add_item`, `notes_edit_item`, `notes_remove_item`, `finish_notes`, plus `ask_advisor` (the cold read replaces any fixed verify call), `remember` and `load_skill`.<br>- Preload the whole transcript when it is under about 20k tokens.<br>- Skills `prompts/skills/meeting-notes.md` and `meeting-readout.md` (a storyline suggestion, not a template; a preset only for weak models). Opus writes these.<br>- Review: the person edits `notes.md` and "Apply my edits" sends the diff to the session; or they chat ("APID is APLD"). Chat goes to `revisions.jsonl` and to engagement memory.<br>- A per-environment `confidential_ok` flag in `models.yaml`; meeting commands refuse an unflagged environment.<br>- CLI `autodeck meeting notes RUN [--date] [--attendees]`.<br>- Decisions **B80**, **B81**. |
 | Step 11 — deck from the same session | Not started | The same session continues with the deck tools; transcript pages it read are already citable. |
 | Step 12 — meeting UI | Not started | Audio upload route (the current `_upload` caps at 50 MB and reads the whole body into memory, so it needs a chunked, ~500 MB audio route), `CHAINS["meeting"]`, notes editor plus chat, "Generate deck". |
 | Step 13 — live check on the real recording | Needs steps 9–12, plus the recording, which exists only on the owner's Mac | Owner-supplied; see §9. |
@@ -120,7 +138,9 @@ remaining design is summarised here.
 - **B77**: agent memory: engagement memory under the client, owner memory in the home folder, checks on owner writes, snapshots.
 - **B78**: local transcription with pinned models; diarization opt-in.
 - **B79**: the transcript is a citable `Document` (`transcript--`, strict-allowed, no times inside, `meeting/segments.json` sidecar); meeting-only runs through the run-source branch of `prepare_planning` and `validate`; engagement Terms shown to the validator as context.
-- **Next free id: B80.**
+- **B80**: meeting notes by an agent session; seven fixed sections, every item cited per turn through the deck's resolver, "Owner TBD", the advisor's whole-notes cold read before finishing.
+- **B81**: `confidential_ok` per environment (all three flagged by the owner); correcting notes by `--say` or by editing `notes.md` (`--apply-edits`).
+- **Next free id: B82.**
 
 ## 5. Invariant coverage delta
 
@@ -176,6 +196,8 @@ file is 74 minutes (4,452 s), not the 20 the spec assumed:
 | Owner-memory checks are heuristics: a client fact phrased without names or figures can pass | A4 leak through owner memory | Accepted as a backstop (B77); the prompt rule is primary |
 | `subjectless_point` misses synonyms ("injection" under "Subcutaneous") | A false advisory, never a block | Accepted (advisory only) |
 | The meeting UI upload must not reuse the 50 MB `_upload` | Large audio files fail | Step 12 |
+| The notes session and the deck agent share `runs/<run>/session/` (`transcript.jsonl`, `system.md`); a fresh `draft --agent` unlinks the transcript | Harmless today (meeting runs never run the deck agent); step 11 must continue the notes transcript rather than start a fresh one | Step 11 |
+| The claim validator (A3) does not judge notes items | Notes rely on A1 and the advisor's read | Step 11 or later (B80) |
 | The deferred test layers (provider schema conformance, live contract, etc.) | See the earlier `CRAFT-4A-4B.md` | Unchanged |
 
 ## 8. Model routing: planned vs actual
@@ -187,6 +209,8 @@ file is 74 minutes (4,452 s), not the 20 the spec assumed:
 | Fixture regeneration, renames | Haiku | not used | Folded into Sonnet tasks |
 | Step 9: `ir/models.py`, `audit/report.py`, `audit/manifest.py`, the validation Terms block, both prompt edits, B79, this handover | Opus | Opus | — |
 | Step 9: `transcript_source.py`, planning generalisation, CLI/UI wiring, evidence pack, all step 9 tests | Sonnet | Sonnet (one subagent) | — |
+| Step 10: `notes_workspace.py` (citation-critical), the four prompt files, the manifest line, B80/B81, this handover | Opus | Opus | — |
+| Step 10: notes tools, notes session, CLI, `confidential_ok`, all step 10 tests | Sonnet | Sonnet (one subagent) | — |
 
 The owner's routing rule still applies: Opus only for `prompts/`, `autodeck/ir/`,
 `autodeck/audit/`, `DECISIONS.md` and `docs/handovers/`. Sonnet does implementation
@@ -209,7 +233,10 @@ their own commit, with the rationale in the body.
    Report quote resolution, verdict counts, how the "from the meeting, mm:ss" labels read,
    and how the validator treats "Shikta" / "data bricks" and the hedged "first week of
    February". Never print transcript text.
-2. **Meeting steps 10, 11, 12, 13**, one at a time (§3). Step 13 needs the owner's Mac or
+   Then, on the same run: `uv run autodeck meeting notes CLIP --date "test clip"`; report
+   the stop reason, steps, item counts, whether "Shikta" became Shikha only where memory
+   says so, and whether the date "first week of February" kept week precision.
+2. **Meeting steps 11, 12, 13** (10 is done), one at a time (§3). Step 13 needs the owner's Mac or
    the owner uploading the recording.
 3. **Then roadmap Phase 4** (consulting workflow, `docs/phases/PHASE-4.md`). Not before the
    meeting plan is complete.
@@ -273,7 +300,11 @@ uv run pytest -q tests/test_transcript_source.py tests/test_meeting_source_wirin
   deliberate (B76), not a bug. Scripted tests must include an `ask_advisor` turn.
 - **Memory is not a Document.** If you are tempted to let the agent cite a memory line,
   stop: A1.
-- **Step 10 begins with `agents/notes_workspace.py`.** Step 9 gives it what it needs: the
+- **Step 11 begins in `cli.py` `draft` on a `MeetingPlanning` run** (today it falls back to
+  one call): continue the notes session (`runs/<run>/session/transcript.jsonl`) with the deck
+  tools added, rather than starting a fresh deck session. The turns the notes session read
+  are its citable set; `meeting-readout` is the skill to point it at.
+- **Step 10 began with `agents/notes_workspace.py`.** Step 9 gives it what it needs: the
   transcript Document is in `runs/<run>/source/`, `MeetingPlanning` carries it, citations
   into it resolve through `planning.store`, and `meeting_times(run_root)` turns a page into a
   time for anything shown to a person. Do not put times into the Document (B79, A6).

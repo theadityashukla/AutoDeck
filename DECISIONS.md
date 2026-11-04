@@ -2264,4 +2264,85 @@ the owner with options.
   - The UI shows "from the meeting · turn N" without a time until step 12.
   - `draft --agent` falls back to one-shot on a meeting run until step 11 joins the deck
     tools to the notes session.
-  - Next free id: **B80**.
+
+### B80 — Meeting notes are written by an agent through tools, every item cited, read cold before finishing
+- **Date:** 2026-11-04
+- **Phase / branch:** meeting step 10 (`v2/integration`)
+- **Status:** active
+- **Context:** Step 9 (B79) made the transcript a citable document. The owner wants notes
+  that people act on, with judgement in the agent and its skills, not in a fixed pipeline of
+  LLM stages ("too much harness, very little agent"). The original spec had a fixed
+  "verify" call and a separate glossary file; both are replaced here.
+- **Decision:**
+  - **A notes session, like the deck session (B71).** `agents/notes_agent.py` runs
+    `session.run_session` with a closed tool vocabulary (B72): `read_transcript`,
+    `search_transcript` (the transcript only, never the papers), `notes_set_section`,
+    `notes_add_item`, `notes_edit_item`, `notes_remove_item`, `show_notes`,
+    `finish_notes`, `ask_advisor`, the memory tools (B77) and `load_skill`. It runs on the
+    `composer` role; the advisor on `advisor`.
+  - **The workspace decides nothing about content.** `agents/notes_workspace.py` holds seven
+    fixed sections (Summary, Attendees, Themes, Decisions, Key dates, Action items, Open
+    questions and risks). The sections are fixed because readers look for decisions and
+    actions in the same place every time; what goes in them is the agent's judgement,
+    guided by the `meeting-notes` skill. Two sections have structured fields: an action's
+    owner (absent reads "Owner TBD", never a guess) and due date; a key date's date as said
+    and its precision (`day`, `week`, `month`, `quarter`, `year`, `relative`, `unclear`).
+  - **Every item is cited (A1).** An item carries one or more citations into the
+    transcript, one verbatim quote per turn. A point made across several turns cites each
+    turn; a quote never crosses a turn boundary, because that would be a splice. Citations
+    resolve through `content._resolve_citation`, the deck's own resolver, against the turns
+    the session has shown (B75). The page the agent names is a hint that disambiguates a
+    short quote; a quote found on another turn is refused with the right turn named.
+  - **The item's words may be corrected; the quote may not.** Engagement memory's Terms give
+    the right spelling of a misheard name; the item uses it, and the quote keeps what the
+    transcript says. An unsure spelling becomes an open question.
+  - **The whole transcript is preloaded when it is under about 20k tokens**, and every turn
+    is then citable from the start. Above that, the agent reads it in ranges.
+  - **The advisor's cold read replaces a fixed verification call.** `finish_notes` is
+    refused until `ask_advisor` with `whole_notes` has run: the advisor sees the notes,
+    each item's quotes and the transcript, and nothing else (B73, B76).
+  - **Output:** `render_notes` writes `meeting/notes.md` (times from the sidecar, item ids
+    as `<!-- nX -->` tags), `meeting/notes.json` (pages and quotes with hashes, no times)
+    and `meeting/notes.rendered.md`. Both are deterministic in the workspace and the time
+    map. The session lives in `runs/<run>/session/`, hashed by `session_record` (B74).
+- **Rationale:**
+  - One resolver for slides and notes: A1 means the same thing in both.
+  - A wrong owner or a firmed-up decision is the notes' version of an overclaim, and the
+    most expensive error they can make; the prompt, the skill and the advisor all say so,
+    and the workspace makes "Owner TBD" the default rather than a failure.
+  - A cold read by a second model is judgement; a fixed verify stage would be harness.
+- **Consequences:**
+  - The validator (A3) does not yet judge notes items; the advisor's read and A1 are the
+    checks. Running the claim validator over notes is a candidate for step 11 or later.
+  - Step 11 continues the same session with the deck tools; turns it read stay citable.
+
+### B81 — Confidential environments, and how the person corrects notes
+- **Date:** 2026-11-04
+- **Phase / branch:** meeting step 10 (`v2/integration`)
+- **Status:** active
+- **Context:** Recordings are client-confidential (B78). Transcription is local, but every
+  LLM call on a meeting run sends transcript text to a provider. The owner does not
+  maintain a glossary (B77) but will correct the agent.
+- **Decision:**
+  - **`confidential_ok` per environment** in `config/models.yaml`, default false when
+    absent. Every LLM command on a meeting run (`meeting notes`, `meeting revise-notes`,
+    and `clarify`, `draft`, `revise`, `validate` on a run with `meeting/settings.json`)
+    refuses an environment without it. **The owner flagged dev-mistral, sit and prod on
+    2026-11-04.** A new environment must be flagged deliberately.
+  - **Two ways to correct notes**, both resuming the same session (B74):
+    - `meeting revise-notes RUN --say "..."`: the person's words, logged to
+      `revisions.jsonl` as an `instruction` (so in `normal` mode they are citable as
+      "from you", B55).
+    - `meeting revise-notes RUN --apply-edits`: the person edits `notes.md`; the unified diff
+      against `notes.rendered.md` goes to the session, and the item tags tell the agent
+      which items changed. It is logged as `edits`, not as an `instruction`: a diff of
+      generated text is not the person's own typing.
+  - The agent turns a correction of a term into an engagement memory Term (`remember`), so
+    the next meeting, and the validator (B79), spell it right.
+- **Rationale:** the flag fails closed, so a newly added provider cannot receive a
+  transcript by accident. Editing the file is how people actually correct notes; sending
+  the diff keeps the session, not the person, responsible for keeping every item cited.
+- **Consequences:**
+  - The UI for both (an editor with "Apply my edits", a chat box) is step 12.
+  - Next free id: **B82**.
+
