@@ -13,7 +13,7 @@
 | **Phase** | 4c (agent session) + memory + meeting Stage A |
 | **Branch** | `v2/integration` (everything since `2ac1bec` was uncommitted until this push, including the earlier 4a/4b/design work in `CRAFT-4A-4B.md`) |
 | **PR** | none yet |
-| **Started / completed** | 2026-10-23 → 2026-11-04 (paused at plan step 9 of 13); step 9 done 2026-11-03 step 10 done 2026-11-04 and step 11 done 2026-11-05 in the remote session (see §2a, §2b, §2c) |
+| **Started / completed** | 2026-10-23 → 2026-11-04 (paused at plan step 9 of 13); step 9 done 2026-11-03 step 10 done 2026-11-04 step 11 and step 12 done 2026-11-05 in the remote session (see §2a–§2d) |
 | **Gate** | none; no gate may be altered by this work |
 | **Gate status** | n/a |
 | **Approved by / when** | The plan was approved by the owner on 2026-10-23. Two later owner decisions (2026-10-23): keep one-shot as the dev-mistral default with `--agent` opt-in, and test the agent on Claude later. |
@@ -129,6 +129,24 @@ Done in the remote session, 2026-11-05. No live run.
 Full suite on 2026-11-05: **2105 passed, 4 skipped, 52 deselected, 1 failed** (the same
 container-font failure; 18 new tests, one obsolete step-9 fallback test removed).
 
+## 2d. Step 12 — the meeting UI (B83)
+
+Done in the remote session, 2026-11-05. Screens checked in headless Chromium on a seeded run
+(desktop and 390 px wide, no console errors); upload checked with a junk file, which reached
+`meeting transcribe`, failed in ffmpeg as expected, and was deleted. No model was called.
+
+| Path | What it does | Tests |
+|---|---|---|
+| `autodeck/ui/server.py` | `POST /api/meeting/upload` (header, suffix, length and 1 GB cap checked before the body; streamed in 1 MiB chunks; a short read deletes the partial file; run meta and job only after the whole file arrived; an existing run is refused). `GET /api/runs/<id>/meeting`, `GET …/transcript`, `PUT …/notes`, `POST …/notes/apply` ("No edits to apply." without a job), `POST …/notes/say`, `POST …/meeting-deck` (runs `clarify`, then the usual answers → draft chain) | `tests/test_ui_meeting.py` |
+| `autodeck/ui/jobs.py` | `CHAINS["meeting"] = ["transcribe", "notes"]`, `CHAINS["revise-notes"]`; `delete_after` removes the upload when the transcribe step ends (and when the job ends however it ends); `remove_upload` refuses anything not strictly inside the uploads folder; the generic run route refuses chains that have their own route | `tests/test_ui_meeting.py` |
+| `autodeck/ui/profile.py` | `uploads_dir()`: `AUTODECK_UPLOADS_DIR`, else `~/.autodeck/uploads` (outside the repo) | `tests/test_ui_meeting.py` |
+| `autodeck/ui/meeting_view.py` | `meeting_view`, `transcript_view`, `save_notes` (atomic, text only, 200 KB cap; never touches `notes.rendered.md` or `notes.json`) | `tests/test_ui_meeting.py` |
+| `autodeck/ui/api.py` | Meeting runs in summaries and the home list (`meeting`, `meeting_stage`, resume to `#/meeting/<id>`); `session_view` returns `kind` (`deck` / `notes`) and `notes_session`; transcript citations in the draft view carry `time` | `tests/test_ui_meeting.py` |
+| `autodeck/ui/static/app.js`, `app.css` | "From a meeting recording" start mode (picker, date, attendees, papers switch off by default, privacy note, upload progress); `#/meeting/<id>`: job progress, the agent's note, counts, the notes editor with Save and "Apply my edits", "Tell the agent what to fix", the transcript with times, "Make a deck from this meeting", the agent timeline; draft citations read "from the meeting · mm:ss" | — (screenshots) |
+
+Full suite on 2026-11-05: **2134 passed, 4 skipped, 52 deselected, 1 failed** (the same
+container-font failure; 29 new tests).
+
 ## 3. What did not ship
 
 The plan is 13 steps; steps 1–8 are done. The plan file lives outside the repo, so its
@@ -139,7 +157,7 @@ remaining design is summarised here.
 | ~~Step 9 — transcript as a citable source, and meeting-only runs~~ | **Done 2026-11-03, see §2a.** The design below is what shipped, with two additions: `check_papers` (default off, as B49) and the whole transcript in the pack under ~20k tokens | — Original **design:**<br>- `autodeck/ingest/transcript_source.py`, modelled on `conversation_source.py`: doc id `transcript--<slug>`, one page per segment, one `text` element per segment, `PAGE_BOX` bbox, **no times inside the Document** (A6).<br>- Sidecar `meeting/segments.json` mapping page → start, end, speaker.<br>- New `SourceClass` `"transcript"` and `TRANSCRIPT_DOC_PREFIX` in `ir/models.py` (~:69–76, ~:220). It is allowed in strict mode because it is a document.<br>- Labels: "from the meeting, mm:ss" in `audit/report.py` (~:1096) and `render/draft.py` (~:110).<br>- `run_source_hashes` (`cli.py`) also hashes `meeting/*.json`.<br>- Generalise `_redesign_planning` into `_run_source_planning`, driven by `runs/<run>/meeting/settings.json`. Wire it into `prepare_planning` (`pipeline/planning.py` ~:96, which refuses projects with no corpus) and into `validate` (`cli.py`, which exits 2 without a corpus).<br>- Pass engagement memory Terms to `validate` as context, so "APLD" in a claim is not flagged against a quote reading "APID".<br>- Decision **B79**. |
 | ~~Step 10 — notes written by the agent~~ | **Done 2026-11-04, see §2b.** Shipped as designed; review is CLI-only (`revise-notes --say` / `--apply-edits`) until the step 12 UI | — Original **design:**<br>- `agents/notes_workspace.py` `MeetingNotes`: Summary, Attendees, Themes, Decisions, Key dates (with precision), Action items ("Owner TBD"), Open questions/risks. Each item carries `cites: [{page, quote}]`, resolved through the same `_resolve_citation` path; a citation may span several turns.<br>- `render_notes()` writes `meeting/notes.md` and `notes.json` deterministically.<br>- Tools: `read_transcript`, `search_transcript`, `notes_set_section`, `notes_add_item`, `notes_edit_item`, `notes_remove_item`, `finish_notes`, plus `ask_advisor` (the cold read replaces any fixed verify call), `remember` and `load_skill`.<br>- Preload the whole transcript when it is under about 20k tokens.<br>- Skills `prompts/skills/meeting-notes.md` and `meeting-readout.md` (a storyline suggestion, not a template; a preset only for weak models). Opus writes these.<br>- Review: the person edits `notes.md` and "Apply my edits" sends the diff to the session; or they chat ("APID is APLD"). Chat goes to `revisions.jsonl` and to engagement memory.<br>- A per-environment `confidential_ok` flag in `models.yaml`; meeting commands refuse an unflagged environment.<br>- CLI `autodeck meeting notes RUN [--date] [--attendees]`.<br>- Decisions **B80**, **B81**. |
 | ~~Step 11 — deck from the same session~~ | **Done 2026-11-05, see §2c.** Continuation by reseed (B82), not by appending to the notes transcript | — |
-| Step 12 — meeting UI | Not started | Audio upload route (the current `_upload` caps at 50 MB and reads the whole body into memory, so it needs a chunked, ~500 MB audio route), `CHAINS["meeting"]`, notes editor plus chat, "Generate deck". |
+| ~~Step 12 — meeting UI~~ | **Done 2026-11-05, see §2d.** Original note: | Audio upload route (the current `_upload` caps at 50 MB and reads the whole body into memory, so it needs a chunked, ~500 MB audio route), `CHAINS["meeting"]`, notes editor plus chat, "Generate deck". |
 | Step 13 — live check on the real recording | Needs steps 9–12, plus the recording, which exists only on the owner's Mac | Owner-supplied; see §9. |
 | A properly tested agent on Claude | No `ANTHROPIC_API_KEY` | When a key exists: run `draft --agent --env sit` on the XLP request and compare with XLP4. |
 | `revise --agent-steps` | Left out | Small follow-up. |
@@ -158,7 +176,8 @@ remaining design is summarised here.
 - **B80**: meeting notes by an agent session; seven fixed sections, every item cited per turn through the deck's resolver, "Owner TBD", the advisor's whole-notes cold read before finishing.
 - **B81**: `confidential_ok` per environment (all three flagged by the owner); correcting notes by `--say` or by editing `notes.md` (`--apply-edits`).
 - **B82**: the meeting deck continues the notes session by reseeding it; the citable set carries over; notes are context, never evidence; notes and deck sessions keep separate file names.
-- **Next free id: B83.**
+- **B83**: the meeting UI: a streamed audio upload kept outside the repo and deleted when transcription ends; the UI runs the meeting CLI commands.
+- **Next free id: B84.**
 
 ## 5. Invariant coverage delta
 
@@ -215,7 +234,9 @@ file is 74 minutes (4,452 s), not the 20 the spec assumed:
 | `subjectless_point` misses synonyms ("injection" under "Subcutaneous") | A false advisory, never a block | Accepted (advisory only) |
 | The meeting UI upload must not reuse the 50 MB `_upload` | Large audio files fail | Step 12 |
 | ~~The notes session and the deck agent share `session/` file names~~ | Resolved by B82: separate names, migration, archive instead of unlink | — |
-| `ui/api.py` `session_view` reads only `transcript.jsonl` / `meta.json` | A notes-only run shows no agent timeline in the UI | Step 12 |
+| ~~`ui/api.py` `session_view` reads only the deck session~~ | Resolved in step 12 (`kind: notes`) | — |
+| The claims screen (`review.py`) labels transcript citations "turn N", not the time | Cosmetic; the draft view and the audit report show times | Any UI pass |
+| A failed transcription in the UI needs a new run name and a fresh upload (the run exists; the file is deleted) | One more step for the person after a failure | Accepted (B83) |
 | The claim validator (A3) does not judge notes items | Notes rely on A1 and the advisor's read | Step 11 or later (B80) |
 | The deferred test layers (provider schema conformance, live contract, etc.) | See the earlier `CRAFT-4A-4B.md` | Unchanged |
 
@@ -232,6 +253,8 @@ file is 74 minutes (4,452 s), not the 20 the spec assumed:
 | Step 10: notes tools, notes session, CLI, `confidential_ok`, all step 10 tests | Sonnet | Sonnet (one subagent) | — |
 | Step 11: `prompts/agent_meeting.md`, the manifest changes, B82, this handover | Opus | Opus | — |
 | Step 11: `meeting_deck.py`, deck/notes agent refactors, CLI and UI wiring, step 11 tests | Sonnet | Sonnet (one subagent) | — |
+| Step 12: B83, this handover, the screenshot review (and a one-line chip label fix) | Opus | Opus | — |
+| Step 12: routes, jobs, upload streaming and deletion, views, the page, step 12 tests | Sonnet | Sonnet (one subagent) | — |
 
 The owner's routing rule still applies: Opus only for `prompts/`, `autodeck/ir/`,
 `autodeck/audit/`, `DECISIONS.md` and `docs/handovers/`. Sonnet does implementation
@@ -259,7 +282,8 @@ their own commit, with the rationale in the body.
    says so, and whether the date "first week of February" kept week precision.
    Then `uv run autodeck draft CLIP --agent` (the meeting deck from the notes session) and
    `validate CLIP`; report slide count, steps, verdicts.
-2. **Meeting steps 12, 13** (10 and 11 are done), one at a time (§3). Step 13 needs the owner's Mac or
+2. **Meeting step 13** (10–12 are done): the real recording, on the owner's Mac, through
+   the UI ("From a meeting recording"), §3. Step 13 needs the owner's Mac or
    the owner uploading the recording.
 3. **Then roadmap Phase 4** (consulting workflow, `docs/phases/PHASE-4.md`). Not before the
    meeting plan is complete.
@@ -323,7 +347,11 @@ uv run pytest -q tests/test_transcript_source.py tests/test_meeting_source_wirin
   deliberate (B76), not a bug. Scripted tests must include an `ask_advisor` turn.
 - **Memory is not a Document.** If you are tempted to let the agent cite a memory line,
   stop: A1.
-- **Step 12 (meeting UI) begins with the audio upload route** (chunked, ~500 MB; never the
+- **Step 13 is the owner's:** on the Mac, `uv sync --extra meeting --extra ui`,
+  `autodeck meeting models --download`, `autodeck ui`, "From a meeting recording" with the
+  74-minute file. Expect ~3–4 min of transcription; then the notes agent. Report counts,
+  timings and the owner's judgement of the notes, never transcript text.
+- **Step 12 began with the audio upload route** (chunked, ~500 MB; never the
   50 MB `_upload`), then `CHAINS["meeting"]`, a notes editor whose "Apply my edits" calls
   `revise-notes --apply-edits`, a chat box for `--say`, and "Generate deck" (`clarify` →
   `answer` → `draft --agent`). `session_view` must learn the notes file names (§7).

@@ -2383,5 +2383,34 @@ the owner with options.
   - Notes and deck can be revised independently (`meeting revise-notes`, `revise`).
   - A note corrected after the deck was drafted does not change the deck; the person revises
     the deck, which can re-read the turns.
-  - Next free id: **B83**.
+
+### B83 — The meeting UI: streamed upload outside the repo, deleted after transcription
+- **Date:** 2026-11-05
+- **Phase / branch:** meeting step 12 (`v2/integration`)
+- **Status:** active
+- **Context:** Steps 9–11 made meetings work from the terminal. The owner works in the UI.
+  A recording is client-confidential and large: the real one is 74 minutes, and an
+  uncompressed WAV of that length is several hundred megabytes. The existing upload route
+  reads the whole body into memory and caps it at 50 MB.
+- **Decision:**
+  - **A separate audio route**, `POST /api/meeting/upload`, with the same cross-site guard as
+    the deck upload (the `X-AutoDeck-Upload: 1` header). Suffix, length and the 1 GB cap are
+    checked before a byte of the body is read; the body is copied to disk in 1 MiB chunks.
+  - **Outside the repo folder:** `~/.autodeck/uploads/<run>/` (or `AUTODECK_UPLOADS_DIR`),
+    never `runs/`, so no audio can be committed by accident (B78).
+  - **Deleted when transcription ends, whatever the result.** The transcript keeps the file
+    name and sha256 (B78), which is what pins the recording. The deletion is a job feature
+    that refuses any path outside the uploads folder.
+  - **The UI runs the CLI** (B42): `CHAINS["meeting"]` is `meeting transcribe` then `meeting
+    notes`; "Apply my edits" and the chat box are `meeting revise-notes --apply-edits` and
+    `--say`; "Make a deck from this meeting" is the ordinary `clarify` → answers → `draft`
+    path on the same run. Nothing in the UI decides content or approves anything (A7).
+  - Agent or one-shot follows the environment's existing default, as for any draft.
+- **Rationale:** streaming keeps a large upload from exhausting memory; keeping audio out of
+  the repo and deleting it after use limits how long confidential audio exists on disk to
+  the minutes transcription takes.
+- **Consequences:**
+  - A failed transcription needs the file uploaded again.
+  - Step 13 (the real recording) can now run from the UI on the owner's Mac.
+  - Next free id: **B84**.
 
