@@ -42,6 +42,7 @@ from autodeck.agents.compose import (
     design_text,
     drop_still_failing,
     header_text,
+    like_prompt_section,
     read_prompt,
 )
 from autodeck.agents.content import _gather_claims, render_evidence
@@ -207,6 +208,7 @@ def opening_message(
     seed: EvidencePack,
     memory_text: str = "",
     extra_sections: Sequence[str] = (),
+    like: Mapping[str, Any] | None = None,
 ) -> str:
     """The first message. `extra_sections` (a meeting's transcript and notes, B82) go just
     before the seed passages."""
@@ -221,6 +223,8 @@ def opening_message(
     parts.append("# Client context\n\n" + context.to_prompt_context())
     parts.append(header_text(context, chat_brief.header_style if chat_brief else None))
     parts.append(design_text(tokens, design_mode))
+    if like is not None:
+        parts.append(like_prompt_section(like))
     if memory_text:
         parts.append(memory_text)
     parts.append("# The corpus\n\n" + corpus_map)
@@ -344,6 +348,7 @@ def compose_deck_agent(
     limits: SessionLimits | None = None,
     on_step: Callable[[dict[str, Any]], None] | None = None,
     memory: MemoryStore | None = None,
+    like: Mapping[str, Any] | None = None,
 ) -> AgentRun:
     """Run a fresh deck agent session and return its draft (B71).
 
@@ -395,6 +400,7 @@ def compose_deck_agent(
         corpus_map=corpus_map,
         seed=seed,
         memory_text=memory.context_text(snapshot) if memory is not None else "",
+        like=like,
     )
     return _run_fresh_session(
         ws,

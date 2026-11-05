@@ -70,6 +70,7 @@ from autodeck.agents.repair import (
 from autodeck.agents.skills import CREATIVE_SUFFIX, SKILL_SETS, skills_text
 from autodeck.design.components.catalog import registration
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
+from autodeck.design.reference.like import LIKE_PROMPT, like_section, like_summary
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ingest.deck_source import DOC_ID_PREFIX
 from autodeck.ingest.document_store import DocumentStore
@@ -403,6 +404,12 @@ def _read_prompt(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def like_prompt_section(like: Mapping[str, Any]) -> str:
+    """The `--like` section of a writer's message (4.3): the prompt file, then the measured
+    deck. A missing prompt is a `ComposeError` like any other."""
+    return like_section(like, _read_prompt(LIKE_PROMPT))
+
+
 def _writer_system(
     path: Path,
     *,
@@ -453,6 +460,7 @@ def clarify(
     model: ComposeModel,
     prompt_path: Path = CLARIFY_PROMPT,
     redesign: Mapping[str, Any] | None = None,
+    like: Mapping[str, Any] | None = None,
 ) -> ClarifyResult:
     """One short call: what the draft assumes, and the few questions that would change it.
 
@@ -462,6 +470,9 @@ def clarify(
     system = _read_prompt(prompt_path)
     request = f"# The request\n\n{prompt.strip()}"
     evidence = "# Evidence pack\n\n" + pack.text
+    if like is not None:
+        # One line, so the questions do not re-ask the length (4.3). Style, never evidence.
+        request += f"\n\nThe person asked to {like_summary(like)}."
     if redesign is not None:
         request += (
             "\n\nThis is a redesign of a deck the client already has, not a new deck. The "
@@ -581,6 +592,7 @@ def _compose_prompt(
     chat_brief: Draft | None,
     redesign: Mapping[str, Any] | None = None,
     design_mode: DesignMode = "structured",
+    like: Mapping[str, Any] | None = None,
 ) -> str:
     parts = [f"# The request\n\n{prompt.strip()}"]
     if redesign is not None:
@@ -600,6 +612,8 @@ def _compose_prompt(
     parts.append("# Client context\n\n" + context.to_prompt_context())
     parts.append(_header_text(context, chat_brief.header_style if chat_brief else None))
     parts.append(_design_text(tokens, design_mode))
+    if like is not None:
+        parts.append(like_prompt_section(like))
     heading = "The client's deck" if redesign is not None else "Evidence pack"
     parts.append(f"# {heading} — everything you may cite\n\n" + pack.text)
     return PROMPT_SEPARATOR.join(parts)
@@ -658,6 +672,7 @@ def _revise_prompt(
     pack: EvidencePack,
     context: AssembledContext,
     tokens: DesignTokens,
+    like: Mapping[str, Any] | None = None,
 ) -> str:
     return PROMPT_SEPARATOR.join(
         [
@@ -666,6 +681,7 @@ def _revise_prompt(
             "# Client context\n\n" + context.to_prompt_context(),
             _header_text(context, brief.header_style),
             _design_text(tokens, deck.design_mode),
+            *([like_prompt_section(like)] if like is not None else []),
             "# Evidence pack — everything you may cite\n\n" + pack.text,
         ]
     )
@@ -1250,6 +1266,7 @@ def compose_deck(
     repair: bool = True,
     named_terms: Sequence[str] = (),
     design_mode: DesignMode = "structured",
+    like: Mapping[str, Any] | None = None,
 ) -> ComposeResult:
     """One call writes brief, outline and every slide; code resolves and audits the answer.
 
@@ -1295,6 +1312,7 @@ def compose_deck(
         chat_brief=chat_brief,
         redesign=settings if redesign else None,
         design_mode=design_mode,
+        like=like,
     )
     schema: type[ComposeDraft]
     if creative:
@@ -1611,6 +1629,7 @@ def revise_deck(
     model: ComposeModel,
     origins: Mapping[str, str] | None = None,
     prompt_path: Path = REVISE_PROMPT,
+    like: Mapping[str, Any] | None = None,
 ) -> ReviseResult:
     """One call applies one instruction; slides it does not return are kept exactly.
 
@@ -1647,6 +1666,7 @@ def revise_deck(
         pack=pack,
         context=context,
         tokens=tokens,
+        like=like,
     )
     revise_schema = CreativeReviseDraft if deck.design_mode == "creative" else ReviseDraft
     draft: ReviseDraft = _call(model, user, revise_schema, system, "revise")

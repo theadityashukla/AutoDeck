@@ -11,6 +11,7 @@ Owning phase: 0 (task 0.7); the real `plan` and `build` commands land in Phases 
 from __future__ import annotations
 
 import json
+import shlex
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -1836,9 +1837,9 @@ def gate2(
     # A6: every deck ships an audit report. Written every time `gate2` runs, so the file on
     # disk is always the report for the latest IR — not whatever somebody remembered to save.
     orchestrator.paths.audit_report.write_text(rendered_report + "\n", encoding="utf-8")
-    _strict_report_pdf(rendered_report, orchestrator.paths.audit_report, deck.provenance)
 
     typer.echo(rendered_report)
+    _strict_report_pdf(rendered_report, orchestrator.paths.audit_report, deck.provenance)
     typer.echo("=" * 78)
     typer.secho(
         "GATE 2 checkable criteria (docs/phases/PHASE-2B.md)", bold=True, fg=typer.colors.CYAN
@@ -2132,7 +2133,7 @@ def run_source_hashes(run_root: Path) -> dict[str, str]:
     `source/*.json` are keyed by doc id (the run-local documents: the conversation, a client
     deck, the meeting transcript). A meeting run's `meeting/*.json` (transcript, settings,
     times) are keyed `meeting/<file>`, and the engagement terms the validator was shown are
-    keyed `validation-terms`.
+    keyed `validation-terms`; the reference deck a run was built like (4.3) is keyed `like`.
     """
     from autodeck.audit.manifest import file_sha256
 
@@ -2152,7 +2153,55 @@ def run_source_hashes(run_root: Path) -> dict[str, str]:
     terms = root / "validation-terms.json"
     if terms.is_file():
         out["validation-terms"] = file_sha256(terms)
+    like = root / "like.json"
+    if like.is_file():
+        out["like"] = file_sha256(like)
     return out
+
+
+LikeOption = Annotated[
+    str | None,
+    typer.Option(
+        "--like",
+        help=(
+            "Build the deck like one of the client's past decks (a name in "
+            "knowledge/clients/<client>/decks/, ingested with `autodeck reference ingest`). "
+            "Its shape and voice guide the draft; it is never a source (A1). A run keeps the "
+            "deck it started with."
+        ),
+    ),
+]
+
+
+def _start_like(  # type: ignore[no-untyped-def]
+    run_root: Path, *, knowledge_root: Path, client: str, name: str
+) -> dict:
+    """Snapshot the named deck's profile into `runs/<run>/like.json` (4.3, A4, A6).
+
+    The deck is resolved inside `client`'s namespace only. Failures are clean CLI errors.
+    """
+    from autodeck.design.reference.like import LikeError, build_like_snapshot, write_like
+    from autodeck.knowledge.loader import KnowledgeError
+
+    namespace = _reference_namespace(knowledge_root, client)
+    try:
+        snapshot = build_like_snapshot(namespace, name)
+        write_like(run_root, snapshot)
+    except (LikeError, KnowledgeError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    return snapshot
+
+
+def _run_like(run_root: Path) -> dict | None:
+    """The run's `--like` snapshot, or `None`; an unreadable file is a clean error."""
+    from autodeck.design.reference.like import LikeError, load_like
+
+    try:
+        return load_like(run_root)
+    except LikeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
 
 
 def _pack_for(planning, text: str, extra_queries: tuple[str, ...] = ()):  # type: ignore[no-untyped-def]
@@ -2285,6 +2334,7 @@ def clarify(
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     provenance: ProvenanceOption = None,
     design_mode: DesignModeOption = None,
+    like: LikeOption = None,
 ) -> None:
     """Show what the draft will assume and ask what would change it (B47, B48).
 
@@ -2322,6 +2372,20 @@ def clarify(
     typer.echo(
         f"Design mode: {_start_design_mode(planning.orchestrator.paths.root, env=env, override=design_mode)}"
     )
+    snapshot = None
+    if like is not None:
+        if isinstance(planning, (RedesignPlanning, MeetingPlanning)):
+            _echo_error("--like is for a new deck from the project's documents, not this run.")
+            raise typer.Exit(code=1)
+        snapshot = _start_like(
+            planning.orchestrator.paths.root,
+            knowledge_root=knowledge_root,
+            client=client,
+            name=like,
+        )
+        typer.echo(f"Building like: {snapshot['deck']}")
+    else:
+        snapshot = _run_like(planning.orchestrator.paths.root)
     write_run_meta(Roots(runs=runs_root, env=env), run_id, client=client, project=project)
     _clarify_checkpoint(
         planning,
@@ -2330,6 +2394,7 @@ def clarify(
         project=project,
         prompt=prompt,
         command=f"clarify {run_id} --client {client} --project {project} --prompt ...",
+        like=snapshot,
     )
 
 
@@ -2341,6 +2406,7 @@ def _clarify_checkpoint(  # type: ignore[no-untyped-def]
     project: str,
     prompt: str,
     command: str,
+    like: dict | None = None,
 ) -> None:
     """Run the clarify call, write `clarify.json`, and print the checkpoint.
 
@@ -2364,7 +2430,12 @@ def _clarify_checkpoint(  # type: ignore[no-untyped-def]
         ):
             model = guard.provider("composer")
             result = run_clarify(
-                prompt, pack=pack, context=planning.assembled, model=model, redesign=redesign
+                prompt,
+                pack=pack,
+                context=planning.assembled,
+                model=model,
+                redesign=redesign,
+                like=like,
             )
         payload.update(
             new_clarify(
@@ -2609,6 +2680,7 @@ def draft(
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
     tokens: ClientTokensOption = None,
+    like: LikeOption = None,
 ) -> None:
     """Write the brief, the outline and every slide in one call (B45), or with `--agent`.
 
@@ -2668,6 +2740,20 @@ def draft(
     )
     guard = planning.guard
     run_root = orchestrator.paths.root
+    run_like = _run_like(run_root)
+    if like is not None:
+        if run_like is not None:
+            _echo_error(
+                f"this run was started like {run_like['deck']!r}; a run keeps the deck it "
+                "started with (clarify --like). Start a new run to build like another deck."
+            )
+            raise typer.Exit(code=1)
+        if isinstance(planning, (RedesignPlanning, MeetingPlanning)):
+            _echo_error("--like is for a new deck from the project's documents, not this run.")
+            raise typer.Exit(code=1)
+        run_like = _start_like(
+            run_root, knowledge_root=knowledge_root, client=client, name=like
+        )
     if from_chat:
         # A chat-started run has no snapshot yet (the planner is gate-first): fix it now.
         mode = _start_run_mode(run_root, knowledge_root=knowledge_root, project=project)
@@ -2734,6 +2820,7 @@ def draft(
             provenance=mode,
             named_terms=named_terms,
             design_mode=run_design_mode,
+            like=run_like,
             **redesign_args,
         )
 
@@ -2779,6 +2866,8 @@ def draft(
             "limits": SessionLimits(max_steps=agent_steps),
             "on_step": _print_agent_step,
         }
+        if not isinstance(planning, MeetingPlanning):
+            agent_args["like"] = run_like
         compose_agent = compose_deck_agent
         if isinstance(planning, MeetingPlanning):
             from autodeck.agents.meeting_deck import compose_meeting_deck_agent
@@ -2958,6 +3047,7 @@ def revise(
     use_agent = has_session and not is_redesign if agent is None else bool(agent)
     base = (clarify_data or {}).get("prompt") or brief.objective
     run_root = orchestrator.paths.root
+    run_like = _run_like(run_root)
     mode = _run_mode(run_root)
     revisions_file = run_root / "revisions.jsonl"
     # In `normal` mode the instruction is part of what the person said, so it is on the log
@@ -3068,6 +3158,7 @@ def revise(
                 tokens=design_tokens,
                 model=model,
                 origins=origins,
+                like=run_like,
             )
         save_draft_brief(orchestrator, result.draft_brief)
         path = orchestrator.save_ir(result.deck)
@@ -3603,6 +3694,425 @@ def gate3(
 
     if not assessment.passes:
         raise typer.Exit(code=4)
+
+
+# ---------------------------------------------------------------------------
+# build: the draft-first flow end to end, with the four approvals typed by a person (4.4)
+# ---------------------------------------------------------------------------
+#
+# `build` runs clarify, answer, draft, validate and preview, then asks for each of the four
+# approvals (A7) in order and records it through `autodeck.ui.approvals.approve_gate` — the one
+# approval path the review UI uses, which is `autodeck approve`'s code (the draft's brief
+# finalised, then the orchestrator's approval, with every refusal either gives). There is no
+# option that answers for the person and no environment variable that does: with no terminal
+# on stdin the command stops at the first approval and prints the `autodeck approve` line.
+
+EXIT_BUILD_STOPPED = 3
+"""A pending approval: the person said no, or nobody could be asked. The same code as every
+other "a person has to act" stop (`draft` before the answers, `render` before a gate)."""
+
+
+def _stdin_is_interactive() -> bool:
+    """Whether a person can be asked. A function so a test can stand in for a terminal; the
+    environment is deliberately not consulted."""
+    import sys
+
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _generated_run_id(client: str, project: str) -> str:
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stem = f"{client}-{project}".replace(" ", "-")
+    return f"{stem[: 79 - len(stamp)]}-{stamp}"
+
+
+def _typed_answer(question: str, allowed: tuple[str, ...]) -> str | None:
+    """Ask until the reply is exactly one of `allowed` (case aside); `None` when stdin ends.
+
+    A bare Enter is not an answer: nothing here has a default, so approving takes typing the
+    word.
+    """
+    while True:
+        try:
+            reply = typer.prompt(question, default="", show_default=False)
+        except typer.Abort:
+            typer.echo("")
+            return None
+        reply = reply.strip().lower()
+        if reply in allowed:
+            return reply
+        typer.echo(f"Type {' or '.join(repr(a) for a in allowed)}.")
+
+
+def _headline_of(slide: Slide) -> str:
+    for block in slide.blocks:
+        if block.slot == "headline":
+            return (block.claim.text if block.claim is not None else block.text) or ""
+    return ""
+
+
+def _stop_at(run_id: str, gate: Gate, why: str) -> NoReturn:
+    typer.secho(why, fg=typer.colors.YELLOW)
+    typer.echo(f"Nothing after the {gate.value} approval was run. Continue with:")
+    typer.echo(f"  autodeck build --run {run_id}")
+    raise typer.Exit(code=EXIT_BUILD_STOPPED)
+
+
+def _show_brief(orchestrator: Orchestrator) -> dict[str, str]:
+    """Print the draft brief; return `{message id: ""}` for the weak messages (to be named)."""
+    from autodeck.pipeline.draft import DraftBriefError, load_draft_brief, weak_messages
+
+    try:
+        draft_brief = load_draft_brief(orchestrator)
+    except DraftBriefError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    typer.secho("\nAPPROVAL 1 of 4: the brief", bold=True, fg=typer.colors.CYAN)
+    typer.echo(f"  objective: {draft_brief.objective}")
+    typer.echo(f"  audience:  {draft_brief.audience}")
+    typer.echo(f"  length:    {draft_brief.length_target or 'not set'} slides")
+    for message in draft_brief.key_messages:
+        typer.echo(f"  {message.id} [{message.evidence_status}]: {message.text}")
+    if draft_brief.must_include:
+        typer.echo(f"  must include: {', '.join(draft_brief.must_include)}")
+    if draft_brief.must_avoid:
+        typer.echo(f"  must avoid: {', '.join(draft_brief.must_avoid)}")
+    return {message_id: "" for message_id, _status, _missing in weak_messages(draft_brief)}
+
+
+def _show_outline(orchestrator: Orchestrator) -> None:
+    deck = orchestrator.ir.load()
+    typer.secho("\nAPPROVAL 2 of 4: the outline", bold=True, fg=typer.colors.CYAN)
+    for number, slide in enumerate(deck.slides, start=1):
+        typer.echo(f"  {number}. [{slide.component}] {_headline_of(slide) or '(no headline)'}")
+
+
+def _show_blocking_claims(orchestrator: Orchestrator) -> None:
+    deck = orchestrator.ir.load()
+    typer.secho("\nAPPROVAL 3 of 4: the claims", bold=True, fg=typer.colors.CYAN)
+    rows = [
+        (slide.id, block)
+        for slide in deck.slides
+        for block in [*slide.blocks, *slide.speaker_notes]
+        if block.claim is not None
+    ]
+    blocking = [
+        (sid, block)
+        for sid, block in rows
+        if block.claim is not None and block.claim.verdict in ("unsupported", "contradicted")
+    ]
+    typer.echo(
+        f"  {len(rows)} claim(s); {len(blocking)} with a verdict that bars the final deck."
+    )
+    for slide_id, block in blocking:
+        assert block.claim is not None
+        typer.secho(
+            f"  BLOCKING {slide_id}:{block.id} [{block.claim.verdict}] "
+            f"{_shorten(block.claim.text, 100)}",
+            fg=typer.colors.RED,
+        )
+
+
+@app.command()
+def build(
+    client: Annotated[
+        str | None, typer.Option("--client", help="Client namespace (A4). Required to start.")
+    ] = None,
+    project: Annotated[
+        str | None, typer.Option("--project", help="Project whose corpus to use.")
+    ] = None,
+    audience: Annotated[
+        str | None, typer.Option("--audience", help="Who the deck is for. Required to start.")
+    ] = None,
+    prompt: Annotated[
+        str | None, typer.Option("--prompt", help="What the deck is for. Required to start.")
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        typer.Option(
+            "--run",
+            help="Run identifier. An existing run continues from where it stopped; a new "
+            "one is made when omitted.",
+        ),
+    ] = None,
+    like: LikeOption = None,
+    agent: Annotated[
+        bool,
+        typer.Option(
+            "--agent/--no-agent",
+            help="Write the deck in an agent session (see `draft --agent`).",
+        ),
+    ] = False,
+    by: Annotated[
+        str | None,
+        typer.Option(
+            "--by",
+            help="The name the four approvals are recorded under. Default: your profile "
+            "name (the review UI's Settings > Profile, else git's user.name).",
+        ),
+    ] = None,
+    env: EnvOption = DEFAULT_ENV,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+    tokens: ClientTokensOption = None,
+    provenance: ProvenanceOption = None,
+    design_mode: DesignModeOption = None,
+) -> None:
+    """Build a deck end to end: ask, draft, check, then the four approvals, typed by you.
+
+    Runs `clarify`, asks you each question (Enter takes the suggestion), then `draft`,
+    `validate` and `preview`, and shows you the draft. Then it asks for the four approvals
+    of A7 one at a time, each on what you are looking at: the brief, the outline, the claims
+    and, after `render` and `gate3`, the final deck. Each needs you to type `approve`; `no`
+    stops there and nothing later is run. A strict deck also gets its audit report as a PDF
+    at the claims and final steps.
+
+    There is no option to approve for you and none will be added. With no terminal on stdin
+    (a script, CI) it runs up to the first approval and stops with exit 3 and the
+    `autodeck approve` command to use. `--run RUN` continues a run: finished stages are
+    skipped, and only the approvals still pending are asked.
+    """
+    from autodeck.pipeline.clarify_state import (
+        ClarifyStateError,
+        is_answered,
+        load_clarify,
+    )
+    from autodeck.ui.api import Roots, UIError, read_run_meta
+    from autodeck.ui.approvals import approve_gate
+    from autodeck.ui.profile import approver_name
+
+    interactive = _stdin_is_interactive()
+    roots = Roots(knowledge=knowledge_root, corpus=corpus_root, runs=runs_root, env=env)
+
+    existing = False
+    if run_id is not None:
+        try:
+            Orchestrator(run_id, runs_root=runs_root, env=env, create=False)
+            existing = True
+        except UnknownRunError:
+            existing = False
+    if existing:
+        assert run_id is not None
+        run_root = runs_root / run_id
+        try:
+            saved = load_clarify(run_root)
+        except ClarifyStateError:
+            saved = {}
+        meta = read_run_meta(roots, run_id)
+        client = client or saved.get("client") or meta.get("client")
+        project = project or saved.get("project") or meta.get("project")
+    if not client or not project:
+        _echo_error("--client and --project are required to start a build.")
+        raise typer.Exit(code=1)
+    if not existing and not ((prompt or "").strip() and (audience or "").strip()):
+        _echo_error("--prompt and --audience are required to start a build.")
+        raise typer.Exit(code=1)
+    if run_id is None:
+        run_id = _generated_run_id(client, project)
+    run_root = runs_root / run_id
+    typer.secho(f"Run {run_id}", bold=True)
+
+    if by is not None and not by.strip():
+        _echo_error("--by is empty: an approval needs the name of the person giving it.")
+        raise typer.Exit(code=1)
+    try:
+        approver = by.strip() if by else approver_name(roots.profile)
+    except UIError as exc:
+        _echo_error(f"{exc} Or pass --by NAME.")
+        raise typer.Exit(code=1) from None
+
+    # -- 1. clarify and answer ------------------------------------------------------
+    clarify_file = run_root / "clarify.json"
+    if not clarify_file.is_file():
+        request = f"{(prompt or '').strip()}\n\nAudience: {(audience or '').strip()}"
+        clarify(
+            run_id,
+            client=client,
+            project=project,
+            prompt=request,
+            env=env,
+            knowledge_root=knowledge_root,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
+            provenance=provenance,
+            design_mode=design_mode,
+            like=like,
+        )
+    elif like is not None and not (run_root / "like.json").is_file():
+        if Orchestrator(run_id, runs_root=runs_root, env=env, create=False).is_draft_first:
+            _echo_error(
+                "this run is already drafted without a reference deck; a run keeps the "
+                "deck it started with. Start a new run to build like another deck."
+            )
+            raise typer.Exit(code=1)
+        _start_like(run_root, knowledge_root=knowledge_root, client=client, name=like)
+    data = load_clarify(run_root)
+    if not is_answered(data):
+        done = data["answers"] or {}
+        questions = {q["id"]: q for q in data["questions"] if q["id"] not in done}
+        if not questions or not interactive:
+            if questions:
+                typer.secho(
+                    "No terminal to ask on: taking the suggested answer to each question "
+                    "(an accepted suggestion is the model's wording, never yours).",
+                    fg=typer.colors.YELLOW,
+                )
+            answer(run_id, accept_all=True, runs_root=runs_root)
+        else:
+            typer.secho("\nYour answers (Enter takes the suggestion):", bold=True)
+            typed: list[str] = []
+            accepted: list[str] = []
+            for qid, question in questions.items():
+                suggested = str(question.get("suggested_answer", ""))
+                try:
+                    reply = typer.prompt(f"{qid}: {question['question']}", default=suggested)
+                except typer.Abort:
+                    typer.echo("")
+                    typer.echo("Stopped before the answers were recorded. Continue with:")
+                    typer.echo(f"  autodeck build --run {run_id}")
+                    raise typer.Exit(code=EXIT_BUILD_STOPPED) from None
+                if reply.strip() == suggested.strip():
+                    accepted.append(qid)
+                else:
+                    typed.append(f"{qid}={reply}")
+            answer(run_id, answer=typed, accept=accepted, runs_root=runs_root)
+
+    # -- 2. draft, validate, preview ---------------------------------------------
+    orchestrator = _open_run(run_id, runs_root, env)
+    ran_something = False
+    if not orchestrator.state.is_complete("compose"):
+        draft(
+            run_id,
+            env=env,
+            client=client,
+            project=project,
+            agent=agent,
+            knowledge_root=knowledge_root,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
+            tokens=tokens,
+        )
+        ran_something = True
+    orchestrator = _open_run(run_id, runs_root, env)
+    validated = orchestrator.state.stages.get("validate")
+    if (
+        validated is None
+        or validated.status.value != "completed"
+        or validated.ir_version != orchestrator.ir.latest_version()
+    ):
+        validate(
+            run_id,
+            env=env,
+            corpus_root=corpus_root,
+            runs_root=runs_root,
+            knowledge_root=knowledge_root,
+        )
+        ran_something = True
+    orchestrator = _open_run(run_id, runs_root, env)
+    if ran_something or not orchestrator.state.is_complete("preview"):
+        preview(run_id, runs_root=runs_root, env=env)
+        orchestrator = _open_run(run_id, runs_root, env)
+    typer.secho(
+        f"\nThe draft is ready to read: {orchestrator.paths.previews / 'draft'}",
+        bold=True,
+    )
+
+    # -- 3. the four approvals, in order, each typed by a person --------------------------
+    def current(gate: Gate) -> bool:
+        state, _detail = _open_run(run_id, runs_root, env).approval_state(gate)
+        return state is ApprovalState.CURRENT
+
+    def ask(
+        gate: Gate, number: int, what: str, weak_risks: dict[str, str] | None = None
+    ) -> None:
+        """Ask for one approval and record it, or stop the whole command."""
+        if not interactive:
+            typer.secho(
+                f"\nApproval {number} of 4 ({gate.value}) is waiting for you. This command "
+                "cannot approve for you; nobody could be asked here.",
+                fg=typer.colors.YELLOW,
+            )
+            typer.echo("Approve it yourself, after reading the draft:")
+            typer.echo(f"  autodeck approve {run_id} {gate.value} --by {shlex.quote(approver)}")
+            typer.echo("then continue with:")
+            typer.echo(f"  autodeck build --run {run_id}")
+            raise typer.Exit(code=EXIT_BUILD_STOPPED)
+        risks = dict(weak_risks or {})
+        for message_id in risks:
+            typer.secho(
+                f"\n{message_id} has weak or no evidence. Carrying it is a risk you name "
+                "on the brief.",
+                fg=typer.colors.YELLOW,
+            )
+            reply = _typed_answer(
+                f"Carry {message_id} as a named risk? Type 'accept' or 'no'", ("accept", "no")
+            )
+            if reply != "accept":
+                _stop_at(run_id, gate, f"Stopped: {message_id} was not accepted.")
+        reply = _typed_answer(
+            f"\nType 'approve' to approve {what}, or 'no' to stop here", ("approve", "no")
+        )
+        if reply != "approve":
+            _stop_at(run_id, gate, f"Not approved: the {gate.value} gate stays open.")
+        try:
+            result = approve_gate(
+                roots, run_id, gate.value, approver=approver, accepted_risks=risks or None
+            )
+        except UIError as exc:
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from None
+        typer.secho(
+            f"approved {gate.value} for {run_id} by {result['by']}", fg=typer.colors.GREEN
+        )
+
+    if not current(Gate.BRIEF):
+        weak = _show_brief(_open_run(run_id, runs_root, env))
+        ask(Gate.BRIEF, 1, "this brief", weak)
+    if not current(Gate.OUTLINE):
+        _show_outline(_open_run(run_id, runs_root, env))
+        ask(Gate.OUTLINE, 2, "this outline")
+    if not current(Gate.CLAIMS):
+        try:
+            gate2(run_id, runs_root=runs_root)
+        except typer.Exit as stop:
+            if stop.exit_code != 4:
+                raise
+            typer.secho(
+                "GATE 2's checkable criteria are not all met (see above); reading the claims "
+                "table is still yours to do.",
+                fg=typer.colors.YELLOW,
+            )
+        _show_blocking_claims(_open_run(run_id, runs_root, env))
+        ask(Gate.CLAIMS, 3, "these claims")
+    if not current(Gate.FINAL_RENDER):
+        orchestrator = _open_run(run_id, runs_root, env)
+        rendered = orchestrator.state.is_complete("render")
+        if not (rendered and orchestrator.paths.deck_pptx.exists()):
+            render(run_id, runs_root=runs_root, env=env)
+        typer.secho("\nAPPROVAL 4 of 4: the final deck", bold=True, fg=typer.colors.CYAN)
+        try:
+            gate3(run_id, runs_root=runs_root, env=env, knowledge_root=knowledge_root)
+        except typer.Exit as stop:
+            if stop.exit_code != 4:
+                raise
+            _echo_error(
+                "the final audit did not pass, so the final deck cannot be approved. Fix what "
+                f"it names, then `autodeck render {run_id}`, then "
+                f"`autodeck build --run {run_id}`."
+            )
+            raise typer.Exit(code=4) from None
+        ask(Gate.FINAL_RENDER, 4, "the final deck")
+
+    final = _open_run(run_id, runs_root, env)
+    typer.secho(f"\nAll four approvals are recorded for {run_id}.", fg=typer.colors.GREEN)
+    typer.echo(f"  Deck:          {final.paths.deck_pptx}")
+    typer.echo(f"  Audit report:  {final.paths.final_audit_report}")
 
 
 @app.command("send-back")
