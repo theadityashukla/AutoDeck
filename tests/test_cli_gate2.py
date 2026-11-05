@@ -657,3 +657,25 @@ def test_assembled_context_renders_send_backs_when_present() -> None:
     rendered = with_send_back.to_prompt_context()
     assert "Claims sent back at GATE 2" in rendered
     assert "a rejected claim, with its reason" in rendered
+
+
+def test_gate2_writes_the_audit_pdf_for_a_strict_deck(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task 4.6 (B84): a strict deck's audit report is also a PDF; the call is made with the
+    deck's own mode, so a normal deck gets none (see tests/test_report_pdf.py)."""
+    import autodeck.audit.report_pdf as report_pdf
+
+    calls: list[tuple[str, str]] = []
+
+    def fake(markdown: str, out_pdf: Path, *, provenance: str, title: str = "") -> Path:
+        calls.append((provenance, Path(out_pdf).name))
+        Path(out_pdf).write_bytes(b"%PDF-1.4 fake")
+        return Path(out_pdf)
+
+    monkeypatch.setattr(report_pdf, "write_report_pdf_if_strict", fake)
+    runs_root = _validated_run(tmp_path, monkeypatch, "supported")
+    result = run_gate2(runs_root)
+    assert result.exit_code == 0, result.output
+    assert calls and calls[0][0] == "strict" and calls[0][1].endswith(".pdf")
+    assert "Audit report PDF:" in result.output

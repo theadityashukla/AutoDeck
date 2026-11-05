@@ -1836,6 +1836,7 @@ def gate2(
     # A6: every deck ships an audit report. Written every time `gate2` runs, so the file on
     # disk is always the report for the latest IR — not whatever somebody remembered to save.
     orchestrator.paths.audit_report.write_text(rendered_report + "\n", encoding="utf-8")
+    _strict_report_pdf(rendered_report, orchestrator.paths.audit_report, deck.provenance)
 
     typer.echo(rendered_report)
     typer.echo("=" * 78)
@@ -1913,6 +1914,29 @@ def _require_run_binding(runs_root: Path, run_id: str, client: str, project: str
     except PlanningSetupError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=exc.exit_code) from None
+
+
+def _strict_report_pdf(markdown: str, report_path: Path, provenance: str) -> None:
+    """A strict deck's audit report also as a PDF beside the Markdown (task 4.6, B84).
+
+    A normal deck's report is a log nobody is asked to read, so it gets no PDF. A failed
+    conversion is a yellow note: the Markdown report is the record either way.
+    """
+    from autodeck.audit.report_pdf import write_report_pdf_if_strict
+
+    if provenance != "strict":
+        return
+    pdf = write_report_pdf_if_strict(
+        markdown, report_path.with_suffix(".pdf"), provenance=provenance
+    )
+    if pdf is None:
+        typer.secho(
+            "the audit report PDF could not be made (is LibreOffice installed?); "
+            f"the Markdown report is at {report_path}",
+            fg=typer.colors.YELLOW,
+        )
+    else:
+        typer.echo(f"Audit report PDF: {pdf}")
 
 
 def _draft_setup(
@@ -3513,6 +3537,7 @@ def gate3(
     )
     report_text = render_final_report(assessment, audit_report=render_audit(audit_report))
     paths.final_audit_report.write_text(report_text, encoding="utf-8")
+    _strict_report_pdf(report_text, paths.final_audit_report, deck.provenance)
     shown_text = render_final_report(
         assessment,
         audit_report=(
