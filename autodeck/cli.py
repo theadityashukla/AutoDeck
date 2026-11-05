@@ -2525,12 +2525,6 @@ def draft(
             "the agent does not do redesigns yet; drafting in one call", fg=typer.colors.YELLOW
         )
         use_agent = False
-    elif agent and isinstance(planning, MeetingPlanning):
-        typer.secho(
-            "the agent does not draft from meetings yet (step 11); drafting in one call",
-            fg=typer.colors.YELLOW,
-        )
-        use_agent = False
     design_tokens = DesignTokens.load(tokens)
     command = f"draft {run_id}"
     built: list = []
@@ -2580,36 +2574,49 @@ def draft(
             "fell_back": False,
             "reason": None,
         }
+        agent_args: dict = {
+            "answers": answer_pairs(clarify_data or {}),
+            "index": planning.index,
+            "claims": planning.claims,
+            "documents": list(store.documents()),
+            "context": planning.assembled,
+            "store": store,
+            "tokens": design_tokens,
+            "model": model,
+            "advisor": advisor,
+            "run_id": run_id,
+            "client": client,
+            "project": project,
+            "theme_ref": str(tokens),
+            "component_lib_version": COMPONENT_LIB_VERSION,
+            "chat_brief": chat_brief,
+            "provenance": mode,
+            "named_terms": named_terms,
+            "design_mode": run_design_mode,
+            "conversation": (
+                conversation_document(run_root, run_id) if mode == "normal" else None
+            ),
+            "session_dir": session_dir,
+            "memory": _memory_store(knowledge_root, client, project, run_id),
+            "limits": SessionLimits(max_steps=agent_steps),
+            "on_step": _print_agent_step,
+        }
+        compose_agent = compose_deck_agent
+        if isinstance(planning, MeetingPlanning):
+            from autodeck.agents.meeting_deck import compose_meeting_deck_agent
+
+            notes = _meeting_notes_workspace(run_root, planning, store)
+            doc_id = planning.transcript_document.doc_id
+            agent_args.update(
+                transcript=planning.transcript_document,
+                times=_meeting_times(run_root).get(doc_id, {}),
+                notes=notes,
+            )
+            meta.update(kind="deck", from_meeting_session=notes is not None)
+            compose_agent = compose_meeting_deck_agent
         reason = None
         try:
-            ran = compose_deck_agent(
-                request,
-                answers=answer_pairs(clarify_data or {}),
-                index=planning.index,
-                claims=planning.claims,
-                documents=list(store.documents()),
-                context=planning.assembled,
-                store=store,
-                tokens=design_tokens,
-                model=model,
-                advisor=advisor,
-                run_id=run_id,
-                client=client,
-                project=project,
-                theme_ref=str(tokens),
-                component_lib_version=COMPONENT_LIB_VERSION,
-                chat_brief=chat_brief,
-                provenance=mode,
-                named_terms=named_terms,
-                design_mode=run_design_mode,
-                conversation=(
-                    conversation_document(run_root, run_id) if mode == "normal" else None
-                ),
-                session_dir=session_dir,
-                memory=_memory_store(knowledge_root, client, project, run_id),
-                limits=SessionLimits(max_steps=agent_steps),
-                on_step=_print_agent_step,
-            )
+            ran = compose_agent(request, **agent_args)
         except ComposeError as exc:
             reason = str(exc)
         else:
@@ -2660,6 +2667,30 @@ def draft(
     typer.echo(f"\nNext: autodeck validate {run_id}, then autodeck preview {run_id}")
 
 
+def _meeting_notes_workspace(  # type: ignore[no-untyped-def]
+    run_root: Path, planning: MeetingPlanning, store
+):
+    """The run's notes session as the deck agent's starting point (B82), or None when the
+    run has none (or its notes no longer match the transcript: the deck is then written from
+    the transcript alone)."""
+    from autodeck.agents.notes_agent import migrate_notes_session
+    from autodeck.agents.notes_workspace import NotesError, NotesWorkspace
+
+    session = run_root / "session"
+    migrate_notes_session(session)
+    path = session / "notes_workspace.json"
+    if not path.is_file():
+        return None
+    try:
+        return NotesWorkspace.load(path, transcript=planning.transcript_document, store=store)
+    except NotesError:
+        typer.secho(
+            "the saved notes no longer match the transcript; drafting from the transcript only",
+            fg=typer.colors.YELLOW,
+        )
+        return None
+
+
 def _print_agent_step(step: dict) -> None:
     """One line per transcript message, the stream the UI job log shows (B71)."""
     line = f"  · step {step['step']} {step['tool'] or step['role']}: {step['summary']}"
@@ -2705,9 +2736,17 @@ def revise(
         _echo_error("--instruction is empty: say what to change.")
         raise typer.Exit(code=1)
     orchestrator = _open_run(run_id, runs_root, env)
-    has_session = (orchestrator.paths.root / "session" / "transcript.jsonl").is_file()
+    session_root = orchestrator.paths.root / "session"
+    # A deck session: `workspace.json` is the deck agent's. A meeting run's notes session has
+    # `notes_workspace.json` and does not count (B82).
+    has_session = (session_root / "workspace.json").is_file()
     if agent and not has_session:
-        _echo_error("no agent session for this run; draft with --agent first")
+        if (session_root / "notes_workspace.json").is_file():
+            _echo_error(
+                "this run has a notes session but no deck session; draft with --agent first"
+            )
+        else:
+            _echo_error("no agent session for this run; draft with --agent first")
         raise typer.Exit(code=1)
     if not orchestrator.is_draft_first:
         _echo_error(f"run {run_id!r} has no draft yet. Run `autodeck draft {run_id}` first.")
@@ -2738,14 +2777,7 @@ def revise(
     if agent and is_redesign:
         _echo_error("the agent does not do redesigns yet; use --no-agent")
         raise typer.Exit(code=1)
-    if agent and isinstance(planning, MeetingPlanning):
-        _echo_error("the agent does not revise meeting decks yet; use --no-agent")
-        raise typer.Exit(code=1)
-    use_agent = (
-        has_session and not is_redesign and not isinstance(planning, MeetingPlanning)
-        if agent is None
-        else bool(agent)
-    )
+    use_agent = has_session and not is_redesign if agent is None else bool(agent)
     base = (clarify_data or {}).get("prompt") or brief.objective
     run_root = orchestrator.paths.root
     mode = _run_mode(run_root)
@@ -3853,7 +3885,7 @@ def _finish_notes_command(orchestrator: Orchestrator, ran, times: dict) -> None:
     elif note_path.exists():
         note_path.unlink()
     _write_json(
-        run_root / "session" / "meta.json",
+        run_root / "session" / "notes_meta.json",
         {
             "kind": "notes",
             "stop_reason": state.stop_reason,

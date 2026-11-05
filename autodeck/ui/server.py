@@ -304,8 +304,9 @@ class App:
         if not api._open(self.roots, run_id).is_draft_first:
             raise UIError("There is no draft to revise yet.", status=409)
         extra: dict[str, Any] = {"instruction": instruction}
-        # `autodeck revise` picks the agent by itself when a session transcript exists.
-        if (self.roots.runs / run_id / "session" / "transcript.jsonl").is_file():
+        # `autodeck revise` picks the agent by itself when a deck session exists (a meeting
+        # run's notes session does not count).
+        if (self.roots.runs / run_id / "session" / "workspace.json").is_file():
             extra["agent"] = True
         job = self.jobs.start(run_id, "revise", extra)
         return {"job": job.to_dict()}

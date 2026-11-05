@@ -214,13 +214,3 @@ def test_validate_exits_2_when_the_transcript_is_gone(
     (w.runs / RUN / "meeting" / "transcript.json").unlink()
     result = w.run("validate", RUN, *w.data_roots)
     assert result.exit_code == 2 and "meeting transcript is missing" in result.output
-
-
-def test_draft_agent_falls_back_to_one_call_on_a_meeting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    w = _world(tmp_path, monkeypatch, CLARIFIED, _composed())
-    _through_clarify(w, "--provenance", "strict")
-    result = w.run("draft", RUN, "--agent", *w.data_roots)
-    assert result.exit_code == 0, result.output
-    assert "step 11" in result.output

@@ -133,7 +133,7 @@ def test_meeting_notes_writes_the_files_and_prints_counts_not_words(
     assert data["sections"]["Decisions"][0]["cites"][0]["page"] == 2
     assert (meeting / "agent-note.md").read_text() == "Check the spelling of Shikha.\n"
     session = n.run / "session"
-    meta = json.loads((session / "meta.json").read_text())
+    meta = json.loads((session / "notes_meta.json").read_text())
     assert meta["kind"] == "notes" and meta["stop_reason"] == "finished"
     assert meta["provider_calls"] == 5 and meta["steps"] == 5
     assert (session / "notes_workspace.json").is_file()

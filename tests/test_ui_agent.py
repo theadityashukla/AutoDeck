@@ -47,6 +47,7 @@ def write_transcript(roots: Roots, run_id: str = "r1") -> None:
     (folder / "transcript.jsonl").write_text(
         "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
     )
+    (folder / "workspace.json").write_text("{}", encoding="utf-8")  # the deck session marker
 
 
 def test_cli_command_adds_agent_only_for_an_agent_draft(roots: Roots) -> None:

@@ -502,7 +502,11 @@ SESSION_FILES = (
     "system.md",
     "corpus_map.md",
     "workspace.json",
-    "notes_workspace.json",  # the meeting notes session (B80)
+    # The meeting notes session (B80), under its own names since the deck may continue it (B82).
+    "notes_transcript.jsonl",
+    "notes_system.md",
+    "notes_workspace.json",
+    "notes_meta.json",
 )
 
 
@@ -516,6 +520,9 @@ def session_record(session_dir: Path) -> dict[str, Any] | None:
     """
     session_dir = Path(session_dir)
     transcript = session_dir / "transcript.jsonl"
+    if not transcript.is_file():
+        # A meeting run with notes but no deck session yet: record the notes session (B80).
+        transcript = session_dir / "notes_transcript.jsonl"
     if not transcript.is_file():
         return None
     steps = calls = 0
@@ -531,7 +538,11 @@ def session_record(session_dir: Path) -> dict[str, Any] | None:
         for name in SESSION_FILES
         if (session_dir / name).is_file()
     }
-    archived = sorted(p.name for p in session_dir.glob("transcript.*.jsonl"))
+    archived = sorted(
+        p.name
+        for pattern in ("transcript.*.jsonl", "notes_transcript.*.jsonl")
+        for p in session_dir.glob(pattern)
+    )
     memory = {p.name: file_sha256(p) for p in sorted((session_dir / "memory").glob("*.md"))}
     return {
         "sha256": hashes,

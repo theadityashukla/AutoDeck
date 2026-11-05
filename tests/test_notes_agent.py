@@ -133,7 +133,7 @@ def test_a_full_session_reads_writes_is_refused_then_finishes(
     )
 
     session = tmp_path / "session"
-    for name in ("transcript.jsonl", "system.md", "notes_workspace.json"):
+    for name in ("notes_transcript.jsonl", "notes_system.md", "notes_workspace.json"):
         assert (session / name).is_file(), name
     saved = json.loads((session / "notes_workspace.json").read_text())
     assert saved["cold_read_revision"] is not None
@@ -156,7 +156,7 @@ def test_a_short_transcript_is_preloaded_and_citable_at_once(tmp_path: Path) -> 
     assert "every turn; all citable now" in opening
     assert "turn 2 [00:12]: We decided to go with the vendor plan" in opening
     assert run.workspace.shown_pages == {1, 2, 3, 4, 5}
-    assert (tmp_path / "session" / "system.md").is_file()
+    assert (tmp_path / "session" / "notes_system.md").is_file()
 
 
 def test_the_opening_carries_the_date_and_the_people(tmp_path: Path) -> None:
@@ -330,7 +330,7 @@ def test_resume_reseeds_a_session_that_has_grown_too_long(
     model = ScriptedConverse(turn("finish_notes", 1, note_to_person="Same."))
     again = resume(tmp_path, model)
     files = SessionFiles(tmp_path / "session")
-    assert (files.root / "transcript.1.jsonl").is_file()
+    assert (files.root / "notes_transcript.1.jsonl").is_file()
     seed = again.state.messages[0].content
     assert seed.startswith("# You are continuing meeting notes")
     assert "Vendor plan chosen." in seed and "<!-- n1 -->" in seed

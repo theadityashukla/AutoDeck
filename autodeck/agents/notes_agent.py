@@ -10,18 +10,22 @@ session showed (A1, B75), and `notes_workspace.write_notes` turns the workspace 
 
 What the agent starts with:
 - **system**: `prompts/notes_agent.md`, the `meeting-notes` skill and an index of the few other
-  skills worth loading (loaded on demand with `load_skill`). Saved as `session/system.md`, so
-  a resumed session speaks under the instructions it started with.
+  skills worth loading (loaded on demand with `load_skill`). Saved as
+  `session/notes_system.md`, so a resumed session speaks under the instructions it started with.
 - **opening message**: the meeting's date and the people the person says were there, the
   client context, what earlier runs remember (B77) and the transcript: every turn when it is
   short (all citable at once), otherwise its size and the tools to read it.
 
-Session files live in the run's `session/` folder (`transcript.jsonl`, `system.md`,
-`notes_workspace.json`, `memory/`); a meeting run has no deck session, so they do not collide.
+Session files live in the run's `session/` folder under notes-specific names
+(`notes_transcript.jsonl`, `notes_system.md`, `notes_workspace.json`, `notes_meta.json`) beside
+the shared `memory/`, so the deck session a meeting run can later have (`meeting_deck.py`,
+B82) keeps its own `transcript.jsonl`, `system.md` and `workspace.json` there. A step-10 run
+used the deck names for the notes; `migrate_notes_session` renames them.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,7 +79,7 @@ class SessionFiles:
 
     @property
     def transcript(self) -> Path:
-        return self.root / "transcript.jsonl"
+        return self.root / "notes_transcript.jsonl"
 
     @property
     def workspace(self) -> Path:
@@ -83,11 +87,47 @@ class SessionFiles:
 
     @property
     def system(self) -> Path:
-        return self.root / "system.md"
+        return self.root / "notes_system.md"
+
+    @property
+    def meta(self) -> Path:
+        return self.root / "notes_meta.json"
 
     @property
     def memory(self) -> Path:
         return self.root / "memory"
+
+
+def migrate_notes_session(session_dir: Path) -> list[str]:
+    """Rename a step-10 notes session's files to the notes names; returns what it renamed.
+
+    Step 10 wrote the notes session as `transcript.jsonl`, `system.md` and `meta.json` (plus
+    archives `transcript.N.jsonl`) beside `notes_workspace.json`. Those names belong to the deck
+    session now. The old names are the notes' only while `notes_workspace.json` exists and no
+    `workspace.json` does (no deck session has taken them); a file is never overwritten.
+    """
+    root = Path(session_dir)
+    if not (root / "notes_workspace.json").is_file() or (root / "workspace.json").exists():
+        return []
+    pairs = [("transcript.jsonl", "notes_transcript.jsonl"), ("system.md", "notes_system.md")]
+    meta = root / "meta.json"
+    try:
+        notes_meta = (
+            meta.is_file()
+            and json.loads(meta.read_text(encoding="utf-8")).get("kind") == "notes"
+        )
+    except (OSError, ValueError, AttributeError):
+        notes_meta = False
+    if notes_meta:
+        pairs.append(("meta.json", "notes_meta.json"))
+    for archived in sorted(root.glob("transcript.*.jsonl")):
+        pairs.append((archived.name, "notes_" + archived.name))
+    moved = []
+    for old, new in pairs:
+        if (root / old).is_file() and not (root / new).exists():
+            (root / old).replace(root / new)
+            moved.append(f"{old} -> {new}")
+    return moved
 
 
 @dataclass
@@ -242,8 +282,9 @@ def compose_notes_agent(
     log = None
     if files is not None:
         files.root.mkdir(parents=True, exist_ok=True)
+        migrate_notes_session(files.root)
         if files.transcript.exists():
-            files.transcript.unlink()  # fresh notes are a fresh session
+            files.transcript.unlink()  # fresh notes are a fresh session; deck files stay
         files.system.write_text(system, encoding="utf-8")
         if snapshot is not None:
             files.memory.mkdir(exist_ok=True)
@@ -327,7 +368,7 @@ def resume_notes_agent(
 ) -> NotesRun:
     """Continue a run's notes session with one instruction from the person.
 
-    The session speaks under the system prompt it started with (`session/system.md`), from
+    The session speaks under the system prompt it started with (`session/notes_system.md`), from
     the workspace it left (`session/notes_workspace.json`), with the same citable turns. A
     session over `RESEED_TOKENS` is archived and replaced by a fresh one seeded from the notes.
 
@@ -335,6 +376,7 @@ def resume_notes_agent(
         ComposeError: there is no notes session to resume, or its notes no longer match the
             transcript.
     """
+    migrate_notes_session(session_dir)
     files = SessionFiles(session_dir)
     for required in (files.system, files.workspace, files.transcript):
         if not required.exists():
@@ -351,7 +393,7 @@ def resume_notes_agent(
     state = TranscriptLog.load(files.transcript)
     if _context_tokens(state, limits) > RESEED_TOKENS:
         n = 1
-        while (archived := files.root / f"transcript.{n}.jsonl").exists():
+        while (archived := files.root / f"notes_transcript.{n}.jsonl").exists():
             n += 1
         files.transcript.replace(archived)
         state = SessionState(messages=[], summaries={})
@@ -391,6 +433,7 @@ __all__ = [
     "NotesRun",
     "SessionFiles",
     "compose_notes_agent",
+    "migrate_notes_session",
     "notes_opening_message",
     "notes_system",
     "resume_notes_agent",

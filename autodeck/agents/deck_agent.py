@@ -22,7 +22,7 @@ What the agent starts with:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,6 +73,8 @@ from autodeck.providers.base import Message
 from autodeck.retrieval.hybrid import HybridIndex
 
 AGENT_PROMPT = Path("prompts/agent.md")
+MEETING_PROMPT = Path("prompts/agent_meeting.md")
+MEETING_SKILL = "meeting-readout"
 
 SEED_BUDGET_TOKENS = 4_000
 """The opening passages, estimated as `len(text) // 4`. Small on purpose: the agent searches
@@ -125,20 +127,37 @@ class AgentRun:
 
 
 def agent_system(
-    *, provenance: ProvenanceMode, design_mode: DesignMode, project: str | None
+    *,
+    provenance: ProvenanceMode,
+    design_mode: DesignMode,
+    project: str | None,
+    meeting: bool = False,
 ) -> str:
-    """The session's system prompt. Every part is a file, so every part is hashed (A6)."""
+    """The session's system prompt. Every part is a file, so every part is hashed (A6).
+
+    With `meeting` (B82) the deck is built from a recorded meeting: `prompts/agent_meeting.md`
+    and the `meeting-readout` skill follow the deck-thinking skill, and `meeting-readout` is
+    no longer offered in the index (it is already loaded)."""
     thinking = load_skill(ALWAYS_LOADED)
+    skip = NEVER_INDEXED | {MEETING_SKILL} if meeting else NEVER_INDEXED
     index = "\n".join(
         f"- `{s.name}` — {s.summary} (use when: {s.use_when})"
         for s in (load_skill(n) for n in available_skills())
-        if s.name not in NEVER_INDEXED
+        if s.name not in skip
     )
     components = CREATIVE_PROMPT if design_mode == "creative" else COMPONENTS_PROMPT
+    meeting_parts = []
+    if meeting:
+        readout = load_skill(MEETING_SKILL)
+        meeting_parts = [
+            read_prompt(MEETING_PROMPT),
+            f"# Skill: `{readout.name}`\n\n{_without_project(readout.body, project)}",
+        ]
     return PROMPT_SEPARATOR.join(
         [
             read_prompt(AGENT_PROMPT),
             f"# Skill: `{thinking.name}`\n\n{_without_project(thinking.body, project)}",
+            *meeting_parts,
             "# Skills you can load with `load_skill`\n\n" + index,
             read_prompt(components),
             read_prompt(PROVENANCE_PROMPTS[provenance]),
@@ -187,7 +206,10 @@ def opening_message(
     corpus_map: str,
     seed: EvidencePack,
     memory_text: str = "",
+    extra_sections: Sequence[str] = (),
 ) -> str:
+    """The first message. `extra_sections` (a meeting's transcript and notes, B82) go just
+    before the seed passages."""
     parts = [f"# The request\n\n{prompt.strip()}"]
     if chat_brief is not None:
         parts.append(
@@ -202,6 +224,7 @@ def opening_message(
     if memory_text:
         parts.append(memory_text)
     parts.append("# The corpus\n\n" + corpus_map)
+    parts.extend(extra_sections)
     parts.append(
         "# Passages you start with — citable now; search and read for the rest\n\n" + seed.text
     )
@@ -373,13 +396,67 @@ def compose_deck_agent(
         seed=seed,
         memory_text=memory.context_text(snapshot) if memory is not None else "",
     )
+    return _run_fresh_session(
+        ws,
+        system=system,
+        opening=opening,
+        corpus_map=corpus_map,
+        snapshot=snapshot,
+        index=index,
+        claims=claims,
+        project=project,
+        model=model,
+        advisor=advisor,
+        memory=memory,
+        session_dir=session_dir,
+        limits=limits,
+        on_step=on_step,
+        opening_summary="opening message",
+        archive_transcript=False,
+    )
 
+
+def _archive_transcript(files: SessionFiles) -> Path:
+    n = 1
+    while (archived := files.root / f"transcript.{n}.jsonl").exists():
+        n += 1
+    files.transcript.replace(archived)
+    return archived
+
+
+def _run_fresh_session(
+    ws: DeckWorkspace,
+    *,
+    system: str,
+    opening: str,
+    corpus_map: str,
+    snapshot: Mapping[Any, str] | None,
+    index: HybridIndex,
+    claims: Sequence[CachedClaim],
+    project: str | None,
+    model: Any,
+    advisor: AdvisorModel | None,
+    memory: MemoryStore | None,
+    session_dir: Path | None,
+    limits: SessionLimits | None,
+    on_step: Callable[[dict[str, Any]], None] | None,
+    opening_summary: str,
+    archive_transcript: bool,
+) -> AgentRun:
+    """Write the session's files, run it from `opening` and return its draft. Shared by the
+    corpus deck (`compose_deck_agent`) and the meeting deck (`meeting_deck.py`, B82).
+
+    A transcript already in `session_dir` is unlinked, or with `archive_transcript` kept as
+    `transcript.N.jsonl` (a meeting run's earlier deck session)."""
     files = SessionFiles(session_dir) if session_dir is not None else None
     log = None
     if files is not None:
         files.root.mkdir(parents=True, exist_ok=True)
         if files.transcript.exists():
-            files.transcript.unlink()  # a fresh draft is a fresh session
+            if archive_transcript:
+                _archive_transcript(files)
+            else:
+                files.transcript.unlink()  # a fresh draft is a fresh session
         files.system.write_text(system, encoding="utf-8")
         files.corpus_map.write_text(corpus_map, encoding="utf-8")
         if snapshot is not None:
@@ -392,7 +469,7 @@ def compose_deck_agent(
     first = Message(role="user", content=opening)
     state.messages.append(first)
     if log is not None:
-        log.append(first, summary="opening message", step=0)
+        log.append(first, summary=opening_summary, step=0)
     toolbox = make_toolbox(
         ws,
         index=index,
@@ -502,10 +579,7 @@ def resume_deck_agent(
     ws = DeckWorkspace.load(files.workspace, settings)
     state = TranscriptLog.load(files.transcript)
     if _context_tokens(state, limits) > RESEED_TOKENS:
-        n = 1
-        while (archived := files.root / f"transcript.{n}.jsonl").exists():
-            n += 1
-        files.transcript.replace(archived)
+        archived = _archive_transcript(files)
         state = SessionState(messages=[], summaries={})
         log = TranscriptLog(files.transcript)
         memory_text = memory.context_text() if memory is not None else ""
