@@ -23,8 +23,8 @@ the loader and assembler (test 9) and, for memory, in the namespace (test 4).
     engagements/*.md          req  req  req  1 2 9
     style/headers.yaml        req  req  req  1 2 9
     memory/p-shared.md        term req  req  1 2 4 8   (Terms reach the validator in B1)
-    theme/tokens.json         -    -    -    1 9       (no build reads it yet)
-    decks/past.pptx           -    -    -    1 9       (no build reads it yet, 4.2)
+    theme/tokens.json         B1   B2   B3   1 9       (each build's theme_ref, task 4.1; tests/test_onboard.py)
+    decks/past.pptx           -    -    -    1 9       (profiles only; --like reads them, 4.3)
     run-local (transcript,    -    -    -    1 5 6     (clarify prompt, meeting transcript)
       prompt)
     owner memory              -    both both  2 4      (shared by design, checked on write)

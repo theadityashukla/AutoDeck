@@ -58,7 +58,7 @@ CLIENTS = (ALPHA, BETA)
 TAGS = {ALPHA: "ALPHA", BETA: "BETA"}
 OWNER_CANARY = "OWNER-STYLE-55aa"
 SHARED_CANARY = "SHARED-PROJECT-aa01"
-THEME_HEX = {ALPHA: "#A11CE0", BETA: "#BEE7A0"}
+THEME_HEX = {ALPHA: "A11CE0", BETA: "BEE7A0"}  # bare RRGGBB: valid palette values
 
 READ_COLD = {
     "question": "Read cold.",
@@ -121,8 +121,14 @@ def _headers(client: str) -> str:
 
 
 def _tokens(client: str) -> str:
+    """A loadable `DesignTokens`: the canary is its name, the client's colour its accent."""
     return json.dumps(
-        {"name": canary(client, "THEME"), "colors": {"primary": THEME_HEX[client]}}, indent=2
+        {
+            "name": canary(client, "THEME"),
+            "palette": {"accent1": THEME_HEX[client], "hyperlink": THEME_HEX[client]},
+            "typography": {"major": "Carlito", "minor": "Carlito"},
+        },
+        indent=2,
     )
 
 
@@ -188,8 +194,9 @@ CLIENT_SURFACES: list[Surface] = [
         "theme/tokens.json",
         ("THEME",),
         _tokens,
-        note="Not read by any build yet: `--tokens` (default config/tokens/dev.json) is the "
-        "only theme a build loads. Pinned at the assembler (`theme_assets`) until 4.1/4.4.",
+        note="Read by every build that draws (4.1): with no `--tokens`, a build loads its "
+        "client's own tokens. Asserted in tests/test_onboard.py (the tokens path in each "
+        "deck's `theme_ref`, never the other client's); not a prompt surface, so no `req`.",
     ),
     Surface(
         "decks/past.pptx",

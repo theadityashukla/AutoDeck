@@ -304,8 +304,7 @@ def cli_command(
             "--knowledge-root",
             str(roots.knowledge),
             *runs,
-            "--tokens",
-            str(roots.tokens),
+            *_tokens_args(roots),
         ]
     if step == "content":
         return [
@@ -378,7 +377,7 @@ def cli_command(
             *runs,
         ]
         if step == "draft":
-            argv += ["--tokens", str(roots.tokens)]
+            argv += _tokens_args(roots)
             if extra.get("from_chat"):
                 argv.append("--from-chat")
             if extra.get("agent"):
@@ -397,6 +396,14 @@ def cli_command(
     if step == "gate3":
         return [*base, *runs, *env, "--knowledge-root", str(roots.knowledge)]
     raise ValueError(f"unknown step {step!r}")
+
+
+def _tokens_args(roots: Any) -> list[str]:
+    """`--tokens` only when the UI was configured with a non-default tokens file, so a build
+    otherwise resolves the client's own `theme/tokens.json` exactly as the CLI does (4.1)."""
+    from autodeck.design.theme.resolve import DEFAULT_TOKENS
+
+    return [] if Path(roots.tokens) == DEFAULT_TOKENS else ["--tokens", str(roots.tokens)]
 
 
 def _meeting_command(step: str, run_id: str, roots: Any, extra: dict[str, Any]) -> list[str]:

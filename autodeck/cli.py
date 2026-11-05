@@ -93,6 +93,14 @@ EnvOption = Annotated[
 ]
 RunsRoot = Annotated[Path, typer.Option("--runs-root", help="Where run directories live.")]
 TokensOption = Annotated[Path, typer.Option("--tokens", help="Path to a tokens.json.")]
+ClientTokensOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--tokens",
+        help="Path to a tokens.json. Default: the client's theme/tokens.json, else "
+        "config/tokens/dev.json.",
+    ),
+]
 KnowledgeRoot = Annotated[
     Path, typer.Option("--knowledge-root", help="Root of the knowledge folders.")
 ]
@@ -579,6 +587,65 @@ def components_preview(
 
 
 # ---------------------------------------------------------------------------
+# client onboarding and the client theme (4.1)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_build_tokens(tokens: Path | None, knowledge_root: Path, client: str) -> Path:
+    """`--tokens`, else the client's `theme/tokens.json`, else the dev default (4.1)."""
+    from autodeck.design.theme.resolve import resolve_tokens_path
+    from autodeck.knowledge.loader import KnowledgeError
+
+    try:
+        return resolve_tokens_path(tokens, knowledge_root=knowledge_root, client=client)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+
+
+@app.command("onboard")
+def onboard(
+    client: Annotated[str, typer.Option("--client", help="New client folder name.")],
+    brand: Annotated[
+        Path,
+        typer.Option(
+            "--brand",
+            help="Brand folder: template .pptx/.potx, past decks, fonts, icons (*.svg), "
+            "tokens.json, client.md, value_prop.md, headers.yaml.",
+        ),
+    ],
+    name: Annotated[str | None, typer.Option("--name", help="Display name.")] = None,
+    template: Annotated[
+        Path | None,
+        typer.Option("--template", help="Which file in the brand folder is the template."),
+    ] = None,
+    merge: Annotated[
+        bool,
+        typer.Option("--force", help="Add to or replace an existing client (never deletes)."),
+    ] = False,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+) -> None:
+    """Turn a brand folder into a working client namespace (no model call).
+
+    Extracts the theme from a template (or validates a supplied tokens.json), checks fonts and
+    their licences, registers icons, ingests past decks into the four profiles and writes
+    stubs for client.md and value_prop.md. Prints counts and warnings, never deck text.
+    """
+    from autodeck.design.onboard import onboard_client
+    from autodeck.knowledge.loader import KnowledgeError
+
+    try:
+        result = onboard_client(
+            knowledge_root, client, brand, name=name, template=template, force=merge
+        )
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    for line in result.summary_lines():
+        typer.echo(line)
+
+
+# ---------------------------------------------------------------------------
 # knowledge
 # ---------------------------------------------------------------------------
 
@@ -672,6 +739,74 @@ def memory_forget(
     except KnowledgeError as exc:  # MemoryWriteError and ClientIsolationError
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
+
+
+# -- knowledge propose / apply (4.7): updates are a diff a person reads, never auto-written --
+
+
+@knowledge_app.command("propose")
+def knowledge_propose(
+    run_id: Annotated[str, typer.Argument(help="A finished run.")],
+    out: Annotated[
+        Path | None, typer.Option("--out", help="Write the diff here instead of printing it.")
+    ] = None,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
+) -> None:
+    """Propose knowledge updates from one finished run, as a diff. Writes nothing under knowledge/.
+
+    Supported corpus claims for the project's claims.md, an engagement note, the kept
+    headlines, and this run's learned terms and people. Read the diff, then apply it with
+    `autodeck knowledge apply FILE --yes-i-reviewed-this`.
+    """
+    from autodeck.knowledge.update_proposer import UpdateProposalError, propose_updates
+
+    if out is not None:
+        resolved_root = knowledge_root.resolve()
+        resolved_out = out.resolve()
+        if resolved_root == resolved_out or resolved_root in resolved_out.parents:
+            _echo_error("--out must be outside the knowledge folder: propose never writes there.")
+            raise typer.Exit(code=1)
+    try:
+        patch = propose_updates(runs_root, run_id, knowledge_root).render()
+    except UpdateProposalError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if out is None:
+        typer.echo(patch, nl=False)
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(patch, encoding="utf-8")
+    typer.echo(f"wrote {out}; read it, then: autodeck knowledge apply {out} --yes-i-reviewed-this")
+
+
+@knowledge_app.command("apply")
+def knowledge_apply(
+    patch: Annotated[Path, typer.Argument(help="A diff from `knowledge propose`.")],
+    yes_i_reviewed_this: Annotated[
+        bool,
+        typer.Option(
+            "--yes-i-reviewed-this", help="Required: you have read this diff and approve it."
+        ),
+    ] = False,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+) -> None:
+    """Apply a reviewed knowledge diff (A7). Refuses without --yes-i-reviewed-this."""
+    from autodeck.knowledge.update_proposer import UpdateProposalError, apply_patch
+
+    if not yes_i_reviewed_this:
+        _echo_error(
+            "knowledge is changed only by a person who has read the diff. Read "
+            f"{patch}, then run this again with --yes-i-reviewed-this."
+        )
+        raise typer.Exit(code=1)
+    try:
+        written = apply_patch(patch.read_text(encoding="utf-8"), knowledge_root)
+    except (OSError, UpdateProposalError) as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    for rel in written:
+        typer.echo(f"updated {rel}")
 
 
 @knowledge_app.command("validate")
@@ -1154,7 +1289,7 @@ def outline(
     env: EnvOption = DEFAULT_ENV,
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
-    tokens: TokensOption = Path("config/tokens/dev.json"),
+    tokens: ClientTokensOption = None,
 ) -> None:
     """Build the outline skeleton from the signed brief, then review it against that brief.
 
@@ -1179,6 +1314,7 @@ def outline(
     try:
         brief_doc = orchestrator.ir.load_brief()
         context = ContextAssembler(knowledge_root, client=client, project=project).assemble()
+        tokens = _resolve_build_tokens(tokens, knowledge_root, client)
     except (IRStoreError, KnowledgeError) as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=1) from None
@@ -2448,7 +2584,7 @@ def draft(
     knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
     corpus_root: CorpusRoot = DEFAULT_CORPUS_ROOT,
     runs_root: RunsRoot = DEFAULT_RUNS_ROOT,
-    tokens: TokensOption = Path("config/tokens/dev.json"),
+    tokens: ClientTokensOption = None,
 ) -> None:
     """Write the brief, the outline and every slide in one call (B45), or with `--agent`.
 
@@ -2542,6 +2678,7 @@ def draft(
             "the agent does not do redesigns yet; drafting in one call", fg=typer.colors.YELLOW
         )
         use_agent = False
+    tokens = _resolve_build_tokens(tokens, knowledge_root, client)
     design_tokens = DesignTokens.load(tokens)
     command = f"draft {run_id}"
     built: list = []

@@ -11,6 +11,7 @@ A4 is a **build error, never a warning**. The failure mode is a confidentiality 
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -76,7 +77,11 @@ def build_knowledge(tmp_path: Path, *, clients: tuple[str, ...] = ("acme", "glob
         )
         (client / "decks" / "past.pptx").write_bytes(b"PK stub")
         (client / "style" / "headers.yaml").write_text("style: assertion\n", encoding="utf-8")
-        (client / "theme" / "tokens.json").write_text("{}", encoding="utf-8")
+        # Builds read the client's own tokens (4.1), so the fixture must be loadable ones.
+        (client / "theme" / "tokens.json").write_text(
+            json.dumps({"name": name, "typography": {"major": "Carlito", "minor": "Carlito"}}),
+            encoding="utf-8",
+        )
 
     return root
 
