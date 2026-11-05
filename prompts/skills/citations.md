@@ -62,6 +62,10 @@ loophole.
 
 ## Quotes are selected, not written
 
+(In a **normal** deck and in meeting notes, a close quote is enough: code finds the exact
+words in the passage you point at. The rules below are the strict standard, and copying
+closely is still the surest way to have a citation resolve.)
+
 A citation is `{"doc_id": ..., "quote": ...}`. The quote is **copied exactly** from a passage
 in the evidence, character for character, including whatever the PDF extraction produced. The
 corpus is full of spans that read oddly (`2-4 ×`, `( p = 0.76)`, `HbA 1c`) because that is how
@@ -107,10 +111,10 @@ Each page is one stretch of speech; the audit shows it as "from the meeting" wit
 it was said. It is citable like any other document, and the same rules hold, with three
 things to watch:
 
-- **Copy the transcript's mistakes.** A misheard name ("Shikta"), a split word ("data
-  bricks"), a missing full stop: the quote keeps them, because that is the text. Your
-  `claim.text` may use the right spelling when the engagement's memory gives it (its
-  Terms); the quote may not.
+- **Quote the transcript, not your correction of it.** A misheard name ("Shikta"), a split
+  word ("data bricks"): the quote is the transcript's words, as close as you can get them;
+  code finds the exact ones. Your `claim.text` uses the right spelling when the engagement's
+  memory gives it (its Terms).
 - **Keep the hedge in the claim.** People in meetings guess, plan and ask. "We're hoping to
   go live the first week of February" supports a claim about a target, not about a date
   that is fixed. If the slide states it as settled, the validator will mark it down.

@@ -19,9 +19,10 @@ bricks" for Databricks, "APID" for APLD.
 
 ## What you may cite
 
-**Every item cites the turns it rests on** (`cites`: page and quote). A quote is copied
-verbatim from one turn, the machine's mistakes included: the shortest run of words that
-proves the item. A point made across several turns cites each of them, one quote per turn;
+**Every item cites the turns it rests on** (`cites`: page and quote). A quote is the
+turn's own words, the machine's mishearings and all, as close as you can get them: the
+short run of words that proves the item. Close is enough; code finds the exact words in the
+turn and stores those. A point made across several turns cites each of them, one quote per turn;
 a quote never runs from one turn into the next. You may cite only turns a tool has shown you
 in this session: the transcript in your opening message, or what `read_transcript` and
 `search_transcript` returned. Code checks every quote; a quote that is not in its turn is
@@ -55,6 +56,12 @@ for the spelling.
    or `''`.
 
 You may make several tool calls in one turn when they do not depend on each other.
+
+## Write notes people want to read
+
+Notes are for someone acting on them tomorrow. Write each item as a plain, natural sentence
+in your own words: short, specific, spelled right. Never paste a stretch of transcript into
+an item; that is what the quote is for. Keep what was said, at the strength it was said.
 
 ## Who said it
 

@@ -190,6 +190,21 @@ In a deck in **normal** provenance mode, two more kinds of claim reach you. Each
 
 A paper-cited claim is never supported by what the person typed.
 
+## In a normal-mode deck: meaning, not wording
+
+Each claim batch says whether the deck is **strict** or **normal**. In a normal deck the
+writer is asked to put points in its own words, combine passages and round figures for
+readability, so:
+
+- **Judge meaning and strength, never wording.** A claim that says what its passages say, in
+  different words, is `supported`. A changed subject, a dropped condition, a stronger verb,
+  a comparison the source does not make: those are what marks a claim down, in either mode.
+- **A rounded figure is not a discrepancy** when it is the cited figure rounded in the same
+  unit (33.4% shown as 33%, 1,212 as about 1,200). A figure moved further than rounding, or
+  into another unit, is.
+- In a strict deck, keep the stricter reading: a figure that differs from its source at all
+  is at best `partially_supported`.
+
 ## When the source is a meeting transcript
 
 A document id beginning `transcript--` is a recorded meeting, transcribed by machine: each

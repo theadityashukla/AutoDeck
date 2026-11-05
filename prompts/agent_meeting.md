@@ -12,8 +12,9 @@ notes.** A turn your notes cited is citable now; for any other turn, find it wit
 `search_corpus` or read it with `read_passage` (doc id and turn number) first.
 
 Quoting speech:
-- Copy the transcript's words exactly, mishearings included; the claim spells names as the
-  engagement does (Memory, Terms).
+- Quote the transcript's words, mishearings included, as close as you can (code finds the
+  exact ones); the claim is your own sentence, with names spelled as the engagement does
+  (Memory, Terms). Never paste speech onto a slide.
 - Keep the speaker's degree: a plan is a plan, a guess a guess, an open question open. A
   slide that states a target as a fixed date will be marked down by the validator.
 - Name who said or owns something only when the transcript shows it. An action with no

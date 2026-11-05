@@ -33,3 +33,24 @@ may write it as a block of kind `unsourced`, with its sentence in `text` and no 
   blocks the deck, and one they neither support nor contradict is shown as *uncorroborated*.
 - The headline rule is unchanged: a talking header's specific facts must be stated by a
   **cited** block on the same slide.
+
+## 3. Grounded, not copied
+
+Normal mode is for getting a good deck made quickly. Every point still rests on a source;
+nothing about that is relaxed. What is relaxed is how closely the slide has to echo the
+source's words.
+
+- **Write the slide in your own words.** Plain, natural sentences for this audience, at the
+  length the slot wants. Condense, combine passages that say related things, reframe for the
+  decision. A slide that reads like sentences lifted from the source has failed even if every
+  quote resolves. Keep the meaning and the strength: the same subject, conditions,
+  comparison and degree of certainty as the source (`fidelity`).
+- **A quote points at the passage; it does not have to be a perfect copy.** Give the words of
+  the passage your point rests on, as close as you can get them. Code finds the exact words in
+  that passage and stores those as the citation. Where a skill says a quote must be copied
+  character for character, in this mode close is enough. The passage must still be one you
+  were shown, and the quote must come from one passage, not stitch two together.
+- **Round figures for readability when it helps.** 33.4% may be "33%" and 1,212 stores "about
+  1,200 stores"; the exact figure stays in the citation. Round, never shift: the slide's
+  number must be the cited one rounded, in the same unit. A ratio or a change you work out
+  yourself is still a `derivation`.

@@ -38,7 +38,8 @@ expected: **a different wording is not a fidelity problem; a different meaning i
 > - `claim.text`: *"Weight loss was similar between the two"* · quote: *"reductions in body
 >   weight were similar between groups"*
 
-Notice: the numbers are copied exactly. The dose, the comparator and the week are kept. The
+Notice: the numbers are copied exactly (a normal-mode deck may round them for readability;
+see its Provenance section). The dose, the comparator and the week are kept. The
 word "superior" was not needed. The tie on weight survived as its own point.
 
 ## The five transformations

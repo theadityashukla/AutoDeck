@@ -61,9 +61,9 @@ source, and the validator treats it the same way.
 
 ## Quotes
 
-Each item cites the turns that prove it, one quote per turn, copied exactly from the
-transcript with its mistakes. The quote is the evidence; the item is your plain, correctly
-spelled statement of it. Pick the words that carry the point: for a decision, the turn where
+Each item cites the turns that prove it, one quote per turn, in the transcript's own words
+(close is enough; code finds the exact words). The quote is the evidence; the item is your
+plain, correctly spelled statement of it, never a pasted stretch of transcript. Pick the words that carry the point: for a decision, the turn where
 it was agreed, not the turn where it was first floated; for an action, the turn where the
 owner took it on. When agreement comes in a later turn ("Yes, let's do that"), cite both
 the proposal and the agreement.
