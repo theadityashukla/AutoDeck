@@ -2344,5 +2344,44 @@ the owner with options.
   the diff keeps the session, not the person, responsible for keeping every item cited.
 - **Consequences:**
   - The UI for both (an editor with "Apply my edits", a chat box) is step 12.
-  - Next free id: **B82**.
+
+### B82 — The meeting deck continues the notes session by reseeding it
+- **Date:** 2026-11-05
+- **Phase / branch:** meeting step 11 (`v2/integration`)
+- **Status:** active
+- **Context:** Step 10 (B80) writes meeting notes in an agent session. The plan says the deck
+  is built "from the same session": the agent that read the meeting and wrote its notes
+  should not start from nothing. The deck agent (B71) and the notes agent use different tool
+  vocabularies, and the deck agent's fresh draft used to delete the session transcript,
+  which the two now share (`runs/<run>/session/`).
+- **Decision:**
+  - **`draft --agent` on a meeting run reseeds the run's session** (the mechanism
+    `resume_deck_agent` already uses past its token budget, B74): a new deck transcript in
+    the same session folder, whose opening message carries the meeting (every turn when
+    under about 20k tokens, else a map of it), the notes with the turns each item cites, the
+    agent's note to the person, memory, and the usual deck context. It does not append deck
+    turns to the notes transcript: a history of calls to tools the provider is no longer
+    offered is fragile across providers, and the notes' tool results would crowd the deck
+    turns for no gain.
+  - **The citable set carries over (B75):** every turn the notes session showed is citable
+    from the deck's first turn; above the preload cap, any other turn must be found or read
+    first. The papers join only when the meeting's `check_papers` is on (B79).
+  - **The notes are context, never evidence.** Slides cite turns, not notes
+    (`prompts/agent_meeting.md`). The deck agent's system adds that section and the
+    `meeting-readout` skill.
+  - **Files:** the notes session keeps notes-specific names (`notes_transcript.jsonl`,
+    `notes_system.md`, `notes_workspace.json`, `notes_meta.json`); a step-10 layout is
+    renamed to them on first use. The deck keeps the deck agent's names, so `revise`
+    resumes it unchanged. A fresh meeting deck archives an earlier deck transcript as
+    `transcript.N.jsonl` instead of deleting it. Both sets are hashed by `session_record`
+    (A6).
+  - One-shot stays the default on dev-mistral (`--agent` opt-in, owner decision 2026-10-23).
+- **Rationale:** continuity is in what the agent knows and may cite, not in the literal
+  message list. Reseeding is already how a long deck session continues, so a meeting deck
+  adds no new continuation path.
+- **Consequences:**
+  - Notes and deck can be revised independently (`meeting revise-notes`, `revise`).
+  - A note corrected after the deck was drafted does not change the deck; the person revises
+    the deck, which can re-read the turns.
+  - Next free id: **B83**.
 
