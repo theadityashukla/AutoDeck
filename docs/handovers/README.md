@@ -8,11 +8,11 @@ That pairing is the design; if it stops being true, fix `TEMPLATE.md`.
 
 | Phase | Branch | Handover | Gate | Status |
 |---|---|---|---|---|
-| 4c + memory + meeting part 1 — Agent session, memory, local transcription | `v2/integration` | [AGENT-MEETING-1.md](AGENT-MEETING-1.md) | none | **paused at plan step 9 of 13 — committed and pushed for a remote session** |
+| 4c + memory + meeting part 1 — Agent session, memory, local transcription | `v2/integration` | [AGENT-MEETING-1.md](AGENT-MEETING-1.md) | none | **steps 9–12 done; step 13 (real recording) and the live checks pending** |
 | 4a/4b + design pass — Deck craft, providers, design | `v2/integration` | [CRAFT-4A-4B.md](CRAFT-4A-4B.md) | none | committed with the agent work (see AGENT-MEETING-1) |
 | UI 1 — Review UI, first slice | `v2/integration` | [UI-1.md](UI-1.md) | none (must not alter any gate) | **first slice shipped — setup and planning only** |
 | 5 — Evals & hardening | `v2/phase-5-evals-hardening` | — | — | not started |
-| 4 — Consulting workflow | `v2/phase-4-workflow` | — | GATE 4 | not started |
+| 4 — Consulting workflow | `v2/phase-4-workflow` | [PHASE-4.md](PHASE-4.md) | GATE 4 | **code complete — gate open (GATE 3c also pending, B84)** |
 | 3b — Renderer & QA | `v2/phase-3b-render-qa` | — | GATE 3 | not started |
 | 3a — Design system | `v2/phase-3a-design-system` | — | internal | not started |
 | 2b — Content & validation | `v2/phase-2b-content-validate` | — | GATE 2 | not started |

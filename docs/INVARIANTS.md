@@ -214,14 +214,22 @@ proves it). Updated in every phase handover — §5 of `docs/handovers/TEMPLATE.
 
 | Invariant | P0 | P1 | P2a | P2b | P3a | P3b | P4 | P5 |
 |---|---|---|---|---|---|---|---|---|
-| A1 citation | **tested** | **tested** | tested | **tested** | tested | **tested** | | |
-| A2 numbers | partial | partial | partial | **tested** | tested | **tested** | | |
-| A3 validation | partial | partial | partial | **tested** | tested | **tested** | | |
-| A4 isolation | not-started | **tested** | tested | tested | tested | tested | | |
-| A5 framing | not-started | partial | partial | **enforced** | **enforced** | **tested** | | |
-| A6 reproducibility | partial | partial | partial | **enforced** | enforced | **tested** | | |
-| A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | **tested** | | |
-| A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | tested | | |
+| A1 citation | **tested** | **tested** | tested | **tested** | tested | **tested** | tested | |
+| A2 numbers | partial | partial | partial | **tested** | tested | **tested** | tested | |
+| A3 validation | partial | partial | partial | **tested** | tested | **tested** | tested | |
+| A4 isolation | not-started | **tested** | tested | tested | tested | tested | **tested** | |
+| A5 framing | not-started | partial | partial | **enforced** | **enforced** | **tested** | tested | |
+| A6 reproducibility | partial | partial | partial | **enforced** | enforced | **tested** | tested | |
+| A7 gates | **enforced** | **enforced** | **tested** | **tested** | tested | **tested** | **tested** | |
+| A8 uncertainty | not-started | partial | **enforced** | **tested** | tested | tested | tested | |
+
+**Phase 4 notes.** A4 is now proven across full two-client builds
+(`tests/test_multi_client_regression.py`, 162 tests); its first run found eight leaks, fixed in
+B85 (run binding, symlink containment). A7 gains `autodeck build`, whose four approvals must be
+typed and go through the single approval route, and `knowledge apply`, which needs an explicit
+review flag. A1/A2/A3 gain B86's normal-mode bars (pointing quotes that still store exact
+words, bounded and reported rounding, meaning-not-wording validation); strict is unchanged.
+Reference decks are structurally uncitable (A1).
 
 **Phase 0 notes.** A1 is a schema constraint, not a runtime check — `Claim.citations` has
 `min_length=1`, so a citation-free claim cannot be constructed at all, notes included. A7's
