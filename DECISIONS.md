@@ -2436,5 +2436,36 @@ the owner with options.
   - The branch carries work whose gates are pending; `STATUS.md` says so.
   - A normal-mode deck's audit trail is complete but unread by default; a strict deck's is
     the review surface.
-  - Next free id: **B85**.
+
+### B85 — A run belongs to one client; knowledge files may not link out of their folder
+- **Date:** 2026-11-05
+- **Phase / branch:** Phase 4, task 4.5 (`v2/phase-4-workflow`)
+- **Status:** active
+- **Context:** The first run of the multi-client regression (task 4.5) found eight
+  cross-client leaks, two root causes. This is the phase's top escalation trigger: stop,
+  fix, regression test, record.
+  1. **`--client` could re-bind a run.** `_draft_setup` took `--client` before the client
+     the run recorded, and `clarify` never compared them. `draft r --client beta-co` on an
+     alpha-co run sent alpha's request (and, on a meeting run, alpha's transcript and notes)
+     together with beta's client knowledge.
+  2. **Symlinks bypassed the guard.** `KnowledgeLoader` read `client.md`, `value_prop.md`,
+     `style/headers.yaml` and the project's files directly, not through `ClientNamespace`;
+     a symlink inside alpha's folder (or the shared project) pointing at beta's file loaded
+     beta's text into alpha's context.
+- **Decision:**
+  - **A run is bound to the client and project its own files record** (`ui.json`,
+    `clarify.json`, `redesign.json`, `meeting/settings.json`, the latest IR).
+    `planning.require_run_binding` refuses any other client or project (exit 1) before
+    anything is read or sent, and refuses a run whose files disagree. It runs in
+    `prepare_planning` (so in clarify, draft, revise, the notes commands and the UI's
+    planning sessions) and in `meeting transcribe` and `redesign`.
+  - **Every knowledge file the loader reads must resolve inside its own folder**
+    (`loader._contained`): a client file inside that client's folder, a project file inside
+    that project's folder, and the folders themselves not links to another. A path that
+    resolves into another client's folder raises `ClientIsolationError`.
+  - The eight tests that found the leaks are now ordinary passing tests in
+    `tests/test_multi_client_regression.py`, plus one for `meeting transcribe`.
+- **Consequences:** to build a run's material for another client, the person starts a new
+  run; nothing carries over.
+  - Next free id: **B86**.
 

@@ -15,6 +15,7 @@ Owning phase: 1 (tasks 1.5 and 1.7).
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -151,7 +152,8 @@ def load_project_settings(knowledge_root: Path, project: str) -> ProjectSettings
     path = root / SETTINGS_FILE
     if not path.exists():
         return ProjectSettings()
-    return parse_project_settings(path.read_text(encoding="utf-8"), source=str(path))
+    text = _read_within(path, root, knowledge_root=Path(knowledge_root))
+    return parse_project_settings(text, source=str(path))
 
 
 def save_project_settings(
@@ -239,6 +241,10 @@ class ClientKnowledge:
     icons_dir: Path | None = None
     decks: list[Path] = field(default_factory=list)
     engagements: list[Path] = field(default_factory=list)
+    reference_profile: dict[str, object] | None = None
+    """The aggregate of the client's reference-deck profiles (`decks/profile.json`, task 4.2),
+    or None. Style and structure only — it is never evidence (A1). Not yet injected into
+    prompts; task 4.3 decides how it is used."""
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +288,10 @@ class KnowledgeLoader:
         return ProjectKnowledge(
             name=name,
             root=root,
-            project_md=(root / "project.md").read_text(encoding="utf-8"),
+            project_md=_read_within(root / "project.md", root, knowledge_root=self.root),
             claims=parse_claims_markdown(
-                claims_path.read_text(encoding="utf-8"), source=str(claims_path)
+                _read_within(claims_path, root, knowledge_root=self.root),
+                source=str(claims_path),
             ),
             papers=_pdfs(root / "papers"),
             assets=_files(root / "assets"),
@@ -305,18 +312,22 @@ class KnowledgeLoader:
         header_profile: dict[str, object] | None = None
         if headers_path.exists():
             try:
-                loaded = yaml.safe_load(headers_path.read_text(encoding="utf-8"))
+                loaded = yaml.safe_load(
+                    _read_within(headers_path, root, knowledge_root=self.root)
+                )
             except yaml.YAMLError as exc:
                 raise KnowledgeError(f"{headers_path}: not valid YAML: {exc}") from exc
             if loaded is not None and not isinstance(loaded, dict):
                 raise KnowledgeError(f"{headers_path}: must be a mapping")
             header_profile = loaded
 
+        reference_profile = _load_reference_profile(self.root, name, root)
+
         return ClientKnowledge(
             name=name,
             root=root,
-            client_md=(root / "client.md").read_text(encoding="utf-8"),
-            value_prop_md=(root / "value_prop.md").read_text(encoding="utf-8"),
+            client_md=_read_within(root / "client.md", root, knowledge_root=self.root),
+            value_prop_md=_read_within(root / "value_prop.md", root, knowledge_root=self.root),
             header_profile=header_profile,
             tokens_path=_optional(root / "theme" / "tokens.json"),
             template_path=_optional(root / "theme" / "template.pptx"),
@@ -325,12 +336,63 @@ class KnowledgeLoader:
             engagements=sorted((root / "engagements").glob("*.md"))
             if (root / "engagements").is_dir()
             else [],
+            reference_profile=reference_profile,
         )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _load_reference_profile(
+    knowledge_root: Path, client: str, client_root: Path
+) -> dict[str, object] | None:
+    """`decks/profile.json`, read through the client's namespace guard (A4)."""
+    path = client_root / "decks" / "profile.json"
+    if not path.is_file():
+        return None
+    # Imported here: the context assembler imports this module.
+    from autodeck.knowledge.context_assembler import ClientNamespace
+
+    text = ClientNamespace(client=client, knowledge_root=knowledge_root).read(path)
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise KnowledgeError(f"{path}: not valid JSON: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise KnowledgeError(f"{path}: must be a JSON object")
+    return loaded
+
+
+def _contained(path: Path, root: Path, *, knowledge_root: Path) -> Path:
+    """`path` if it resolves inside `root`, else a build error (A4).
+
+    The loader reads a client's `client.md`, `value_prop.md` and `style/headers.yaml`, and a
+    project's files, directly rather than through `ClientNamespace`. A symlink is how such a
+    file could point into another client's folder; resolving and checking containment closes
+    that route. A path that resolves into another client's folder raises
+    `ClientIsolationError`; anything else outside `root` raises `KnowledgeError`. The check
+    also applies to `root` itself, so a client folder that is a symlink to another client's
+    folder is refused.
+    """
+    resolved_root = root.resolve()
+    expected_root = root.parent.resolve() / root.name
+    resolved = Path(path).resolve()
+    clients = (Path(knowledge_root) / CLIENTS_DIR).resolve()
+    inside = resolved == resolved_root or resolved_root in resolved.parents
+    if resolved_root == expected_root and inside:
+        return Path(path)
+    if resolved == clients or clients in resolved.parents or clients in resolved_root.parents:
+        raise ClientIsolationError(
+            f"{path} resolves to {resolved}, outside {root}. A file or folder that links into "
+            "another client's knowledge is a build error (A4)."
+        )
+    raise KnowledgeError(f"{path} resolves to {resolved}, outside {root}; refusing to read it.")
+
+
+def _read_within(path: Path, root: Path, *, knowledge_root: Path) -> str:
+    return _contained(path, root, knowledge_root=knowledge_root).read_text(encoding="utf-8")
 
 
 def _safe_name(name: str) -> str:

@@ -76,6 +76,11 @@ meeting_app = typer.Typer(
     help="Local, offline transcription of meeting recordings.", no_args_is_help=True
 )
 app.add_typer(meeting_app, name="meeting")
+reference_app = typer.Typer(
+    help="Reference decks: derive style and structure profiles, find catalog gaps.",
+    no_args_is_help=True,
+)
+app.add_typer(reference_app, name="reference")
 
 #: The registry's `default_env` (config/models.yaml), not a hard-coded name.
 DEFAULT_ENV = default_env_name()
@@ -1763,6 +1768,17 @@ EXIT_NEEDS_INPUT = 3
 COMPOSE_MAX_OUTPUT_TOKENS = 32768
 
 
+def _require_run_binding(runs_root: Path, run_id: str, client: str, project: str) -> None:
+    """Refuse a command for another client or project than the run was made for (A4)."""
+    from autodeck.pipeline.planning import PlanningSetupError, require_run_binding
+
+    try:
+        require_run_binding(runs_root, run_id, client=client, project=project)
+    except PlanningSetupError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=exc.exit_code) from None
+
+
 def _draft_setup(
     run_id: str,
     *,
@@ -2285,6 +2301,7 @@ def redesign(
         raise typer.Exit(code=1)
     from autodeck.ir.store import run_paths
 
+    _require_run_binding(runs_root, run_id, client, project)
     mode = _start_run_mode(
         run_paths(runs_root, run_id).root,
         knowledge_root=knowledge_root,
@@ -3701,6 +3718,7 @@ def meeting_transcribe(
             f"unknown project {project!r}; known: {', '.join(known_projects) or 'none'}"
         )
         raise typer.Exit(code=1)
+    _require_run_binding(runs_root, run_id, client, project)
     try:
         orchestrator = Orchestrator(run_id, runs_root=runs_root, env=env)
     except UnknownRunError as exc:
@@ -4108,6 +4126,133 @@ def meeting_revise_notes(
     record["reply"] = ran.workspace.note_to_person.strip()
     _append_revision(run_root / "revisions.jsonl", record)
     _finish_notes_command(orchestrator, ran, times)
+
+
+# -- reference decks (4.2, 4.8) -------------------------------------------------------------
+
+ReferenceClient = Annotated[str, typer.Option("--client", help="Client whose decks/ to use.")]
+
+
+def _reference_namespace(knowledge_root: Path, client: str):  # type: ignore[no-untyped-def]
+    from autodeck.knowledge.context_assembler import ClientNamespace
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+
+    loader = KnowledgeLoader(knowledge_root)
+    try:
+        root = loader.client_root(client)
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if not root.is_dir():
+        known = ", ".join(loader.client_names()) or "none"
+        _echo_error(f"client {client!r} not found under {knowledge_root}. Available: {known}")
+        raise typer.Exit(code=1)
+    return ClientNamespace(client=client, knowledge_root=Path(knowledge_root))
+
+
+def _reference_summary_lines(aggregate: dict, gap_count: int) -> list[str]:  # type: ignore[type-arg]
+    header = aggregate.get("header", {}).get("profile", {})
+    roles = aggregate.get("storyline", {}).get("role_counts", {})
+    return [
+        f"decks: {aggregate.get('deck_count', 0)}  slides: {aggregate.get('slide_count', 0)}",
+        "roles: " + (", ".join(f"{k}={v}" for k, v in roles.items()) or "none"),
+        "header style: "
+        + ", ".join(f"{k}={header[k]}" for k in sorted(header))
+        if header
+        else "header style: none",
+        f"catalog gaps: {gap_count}",
+    ]
+
+
+@reference_app.command("ingest")
+def reference_ingest(
+    client: ReferenceClient,
+    decks: Annotated[
+        list[str] | None,
+        typer.Argument(help="Deck names or paths inside the client's decks/ (default: all)."),
+    ] = None,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+) -> None:
+    """Derive the four profiles from a client's reference decks (no model call).
+
+    Prints counts only, never deck text. Reference decks teach style and structure, never
+    truth (A1): nothing here enters the corpus or can back a citation.
+    """
+    from autodeck.design.reference.service import ingest_client_decks
+    from autodeck.knowledge.loader import KnowledgeError
+
+    namespace = _reference_namespace(knowledge_root, client)
+    try:
+        result = ingest_client_decks(namespace, decks or None)
+    except KnowledgeError as exc:  # ClientIsolationError, ReferenceDeckError
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if not result.decks:
+        typer.echo(f"no reference decks in {namespace.own_root / 'decks'}")
+        return
+    for line in _reference_summary_lines(result.aggregate, len(result.gaps["gaps"])):
+        typer.echo(line)
+
+
+@reference_app.command("show")
+def reference_show(
+    client: ReferenceClient,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+    exemplars: Annotated[
+        bool, typer.Option("--exemplars", help="Also print the exemplar header text.")
+    ] = False,
+) -> None:
+    """Summarise the client's aggregate reference profile (counts and derived header rules)."""
+    from autodeck.knowledge.loader import KnowledgeError, KnowledgeLoader
+
+    _reference_namespace(knowledge_root, client)
+    try:
+        profile = KnowledgeLoader(knowledge_root).load_client(client).reference_profile
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if profile is None:
+        _echo_error(f"no reference profile for {client!r}; run `autodeck reference ingest`")
+        raise typer.Exit(code=1)
+    for line in _reference_summary_lines(profile, 0)[:3]:  # type: ignore[arg-type]
+        typer.echo(line)
+    voice = profile.get("voice", {})
+    design = profile.get("design", {})
+    typer.echo(f"median sentence words: {voice.get('median_sentence_words')}")  # type: ignore[union-attr]
+    typer.echo(f"low-confidence slides: {design.get('low_confidence_slides')}")  # type: ignore[union-attr]
+    if exemplars:
+        for title in profile.get("header", {}).get("exemplar_headers", []):  # type: ignore[union-attr]
+            typer.echo(f"  exemplar: {title}")
+
+
+@reference_app.command("gaps")
+def reference_gaps(
+    client: ReferenceClient,
+    knowledge_root: KnowledgeRoot = DEFAULT_KNOWLEDGE_ROOT,
+) -> None:
+    """Print the ranked catalog gaps (layouts the component catalog cannot express)."""
+    from autodeck.ingest.deck_ingest import ReferenceStore
+    from autodeck.knowledge.loader import KnowledgeError
+
+    store = ReferenceStore(_reference_namespace(knowledge_root, client))
+    try:
+        gaps = store.read_json(store.gaps_path) if store.gaps_path.is_file() else None
+    except KnowledgeError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=1) from None
+    if not isinstance(gaps, dict):
+        _echo_error(f"no gap list for {client!r}; run `autodeck reference ingest`")
+        raise typer.Exit(code=1)
+    ranked = gaps.get("gaps", [])
+    if not ranked:
+        typer.echo("no catalog gaps")
+        return
+    for gap in ranked:
+        typer.echo(
+            f"{gap['rank']:>2}. {gap['signature']}  slides={gap['count']} "
+            f"decks={len(gap['decks'])}  best={gap['best_match']} ({gap['confidence']:.2f})  "
+            "e.g. " + ", ".join(f"{e['deck']}#{e['slide']}" for e in gap["examples"])
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -11,6 +11,8 @@ Nothing in here approves anything. Signing the brief stays `PlannerSession.sign_
 
 from __future__ import annotations
 
+import json
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -257,6 +259,74 @@ def run_source_store(
     return store, documents
 
 
+RUN_BINDING_FILES: tuple[tuple[str, ...], ...] = (
+    ("ui.json",),
+    ("clarify.json",),
+    ("redesign.json",),
+    ("meeting", "settings.json"),
+)
+"""Files in a run folder that record which client and project the run was made for."""
+
+
+def run_binding(runs_root: Path, run_id: str) -> dict[str, set[str]]:
+    """`{"client": {...}, "project": {...}}` as the run's own files record them (A4).
+
+    Reads only; a missing or unreadable file records nothing. The latest IR version's
+    `client`/`project` count too. An empty result means a new run, bound by its first command.
+    """
+    try:
+        root = run_paths(runs_root, run_id).root
+    except IRStoreError:
+        return {"client": set(), "project": set()}
+    found: dict[str, set[str]] = {"client": set(), "project": set()}
+    candidates = [root.joinpath(*parts) for parts in RUN_BINDING_FILES]
+    ir_dir = root / "ir"
+    if ir_dir.is_dir():
+        versions = sorted(
+            (p for p in ir_dir.glob("v*.json") if p.stem[1:].isdigit()),
+            key=lambda p: int(p.stem[1:]),
+        )
+        candidates.extend(versions[-1:])
+    for path in candidates:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key in ("client", "project"):
+            value = data.get(key)
+            if isinstance(value, str) and value:
+                found[key].add(value)
+    return found
+
+
+def require_run_binding(runs_root: Path, run_id: str, *, client: str, project: str) -> None:
+    """Refuse to work on a run for any client or project other than the one it was made for.
+
+    A run's own sources (the request, the conversation, a meeting transcript, a client's
+    deck) belong to the client it was made for. Building it in another client's namespace
+    would send one client's material out with another's knowledge (A4). Raises
+    `PlanningSetupError` (exit 1) before anything is read or sent.
+    """
+    bound = run_binding(runs_root, run_id)
+    for key, wanted in (("client", client), ("project", project)):
+        recorded = bound[key]
+        if len(recorded) > 1:
+            raise PlanningSetupError(
+                f"run {run_id!r} records more than one {key} ({', '.join(sorted(recorded))}); "
+                "refusing to use it (A4).",
+                exit_code=1,
+            )
+        if recorded and wanted not in recorded:
+            (only,) = recorded
+            raise PlanningSetupError(
+                f"run {run_id!r} was made for {key} {only!r}, not {wanted!r}. A run's own "
+                f"material stays with its {key} (A4); start a new run for {wanted!r}.",
+                exit_code=1,
+            )
+
+
 def prepare_planning(
     run_id: str,
     *,
@@ -277,8 +347,10 @@ def prepare_planning(
     Raises:
         PlanningSetupError: the knowledge folders are malformed (exit 1), or the project
             has no ingested documents (exit 2) — the evidence-gap check is the point of
-            planning, so it does not start without them.
+            planning, so it does not start without them. Also exit 1 when the run was made
+            for another client or project (`require_run_binding`, A4).
     """
+    require_run_binding(runs_root, run_id, client=client, project=project)
     run_source = run_source_settings(runs_root, run_id)
     if run_source is not None:
         kind, settings = run_source
