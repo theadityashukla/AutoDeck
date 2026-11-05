@@ -464,47 +464,82 @@ def restore_env(roots: Roots) -> None:
 
 
 def write_run_meta(
-    roots: Roots, run_id: str, *, client: str, project: str, agent: bool | None = None
+    roots: Roots,
+    run_id: str,
+    *,
+    client: str,
+    project: str,
+    agent: bool | None = None,
+    meeting: bool | None = None,
 ) -> None:
-    """Remember the run's client and project; `agent` (Phase 4c) is kept only when true.
+    """Remember the run's client and project; `agent` (Phase 4c) and `meeting` (step 12) are
+    kept only when true.
 
-    `agent=None` leaves an earlier choice alone, so a later write cannot lose it.
+    `None` leaves an earlier choice alone, so a later write (the CLI's own, for one) cannot
+    lose it.
     """
     folder = roots.runs / run_id
     folder.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {"client": client, "project": project}
     if agent or (agent is None and run_uses_agent(roots, run_id)):
         data["agent"] = True
+    if meeting or (meeting is None and _meta_flag(roots, run_id, "meeting")):
+        data["meeting"] = True
     (folder / UI_META).write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def run_uses_agent(roots: Roots, run_id: str) -> bool:
-    """Whether the person chose the deck agent when starting this run."""
+def _meta_flag(roots: Roots, run_id: str, key: str) -> bool:
     try:
         data = json.loads((roots.runs / run_id / UI_META).read_text(encoding="utf-8"))
-        return bool(data.get("agent"))
+        return bool(data.get(key))
     except (OSError, ValueError, AttributeError):
         return False
 
 
+def run_uses_agent(roots: Roots, run_id: str) -> bool:
+    """Whether the person chose the deck agent when starting this run."""
+    return _meta_flag(roots, run_id, "agent")
+
+
+def run_is_meeting(roots: Roots, run_id: str) -> bool:
+    """Whether the run started from a meeting recording."""
+    return (
+        _meta_flag(roots, run_id, "meeting")
+        or (roots.runs / run_id / "meeting" / "settings.json").is_file()
+    )
+
+
 def session_view(roots: Roots, run_id: str, *, active: bool) -> dict[str, Any]:
-    """The deck agent's session for a run: the last 200 timeline rows and its meta."""
+    """The agent's session for a run: the last 200 timeline rows and its meta.
+
+    A deck session (`transcript.jsonl`) wins; a meeting run that has only a notes session
+    (`notes_transcript.jsonl`, `notes_meta.json`) shows that, with `kind: "notes"`. When both
+    exist the deck is shown and `notes_session` says the notes session is there too.
+    """
     from autodeck.agents.session import timeline
 
     run_id = check_run_id(run_id)
     folder = roots.runs / run_id / "session"
-    transcript = folder / "transcript.jsonl"
-    if not transcript.is_file():
+    deck = folder / "transcript.jsonl"
+    notes = folder / "notes_transcript.jsonl"
+    if deck.is_file():
+        kind, transcript, meta_name = "deck", deck, "meta.json"
+    elif notes.is_file():
+        kind, transcript, meta_name = "notes", notes, "notes_meta.json"
+    else:
         return {"timeline": [], "meta": None, "active": False}
     try:
         rows = timeline(transcript)[-200:]
     except (OSError, ValueError, KeyError):
         rows = []
     try:
-        meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+        meta = json.loads((folder / meta_name).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         meta = None
-    return {"timeline": rows, "meta": meta, "active": active}
+    out: dict[str, Any] = {"timeline": rows, "meta": meta, "active": active, "kind": kind}
+    if kind == "deck" and notes.is_file():
+        out["notes_session"] = True
+    return out
 
 
 def read_run_meta(roots: Roots, run_id: str) -> dict[str, str]:
@@ -596,7 +631,19 @@ def run_summary(roots: Roots, run_id: str, running_step: str = "") -> dict[str, 
             stages[key] = "todo"
 
     nxt, hint, resume = _next_step(orch, current, run_id, client, project)
+    meeting_fields: dict[str, Any] = {}
+    if run_is_meeting(roots, run_id):
+        stage = meeting_stage(orch, running_step)
+        meeting_fields = {"meeting": True, "meeting_stage": stage}
+        if not is_draft_mode(orch):
+            # A meeting run that is not yet a draft is not waiting on the gate-first steps.
+            nxt, hint, resume = (
+                stage,
+                _meeting_hint(orch, run_id, client, project),
+                (f"#/meeting/{run_id}"),
+            )
     return {
+        **meeting_fields,
         "stage_list": stage_list(orch, current, running_step),
         "id": run_id,
         "client": client,
@@ -608,6 +655,48 @@ def run_summary(roots: Roots, run_id: str, running_step: str = "") -> dict[str, 
         "command_hint": hint,
         "resume": resume,
     }
+
+
+#: The running job step, as the run list words it for a meeting run.
+MEETING_RUNNING = {
+    "transcribe": "Transcribing",
+    "notes": "Writing the notes",
+    "revise-notes": "Revising the notes",
+    "clarify": "Drafting",
+    "draft": "Drafting",
+    "revise": "Drafting",
+    "validate": "Drafting",
+    "preview": "Drafting",
+}
+
+
+def meeting_stage(orch: Orchestrator, running_step: str = "") -> str:
+    """Where a meeting run stands in one or two words: Transcribing, Notes ready, Draft..."""
+    if running_step in MEETING_RUNNING:
+        return MEETING_RUNNING[running_step]
+    root = orch.paths.root
+    if orch.state.is_complete("compose"):
+        return "Draft"
+    if (root / "clarify.json").exists():
+        return "Drafting"
+    if (root / "meeting" / "notes.md").is_file():
+        return "Notes ready"
+    if (root / "meeting" / "transcript.json").is_file():
+        return "Transcribed"
+    return "Transcribing"
+
+
+def _meeting_hint(orch: Orchestrator, run_id: str, client: str, project: str) -> str:
+    """The terminal command for a meeting run's next step."""
+    root = orch.paths.root
+    if (root / "meeting" / "notes.md").is_file():
+        return (
+            f"autodeck clarify {run_id} --client {client or '<client>'} "
+            f"--project {project or '<project>'} --prompt ..."
+        )
+    if (root / "meeting" / "transcript.json").is_file():
+        return f"autodeck meeting notes {run_id}"
+    return ""
 
 
 def _next_step(
@@ -974,7 +1063,7 @@ def draft_preview_file(roots: Roots, run_id: str, n: int) -> tuple[bytes, str]:
         raise UIError(f"No draft preview for slide {n}.", status=404) from None
 
 
-def _block_view(block: Any) -> dict[str, Any]:
+def _block_view(block: Any, times: dict[str, dict[int, float]] | None = None) -> dict[str, Any]:
     claim = block.claim
     return {
         "id": block.id,
@@ -985,15 +1074,26 @@ def _block_view(block: Any) -> dict[str, Any]:
         "verdict_notes": (claim.verdict_notes or "") if claim is not None else "",
         "basis": claim.basis if claim is not None else "",
         "citations": [
-            {
-                "doc_id": c.doc_id,
-                "page": c.page,
-                "quote": c.quote,
-                "source_class": c.source_class,
-            }
-            for c in (claim.citations if claim is not None else [])
+            _citation_view(c, times) for c in (claim.citations if claim is not None else [])
         ],
     }
+
+
+def _citation_view(c: Any, times: dict[str, dict[int, float]] | None) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "doc_id": c.doc_id,
+        "page": c.page,
+        "quote": c.quote,
+        "source_class": c.source_class,
+    }
+    if c.source_class == "transcript":
+        # The meeting's time for the turn, for "from the meeting · mm:ss" (step 12). Local UI
+        # only: the Document itself carries no times (B79, A6).
+        from autodeck.audit.report import meeting_stamp
+
+        seconds = (times or {}).get(c.doc_id, {}).get(c.page) if c.page is not None else None
+        out["time"] = meeting_stamp(seconds) if seconds is not None else None
+    return out
 
 
 def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
@@ -1025,6 +1125,9 @@ def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
     images = _draft_images(orch)
 
     redesign = _redesign_info(roots, orch, run_id, extras, {s.id for s in deck.slides})
+    from autodeck.ingest.transcript_source import meeting_times
+
+    times = meeting_times(orch.paths.root)
     story = deck.storyline_check
     slides = []
     for number, slide in enumerate(deck.slides, start=1):
@@ -1059,8 +1162,8 @@ def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
                     for f in (story.findings if story is not None else [])
                     if f.slide_id == slide.id
                 ],
-                "blocks": [_block_view(b) for b in slide.blocks],
-                "notes": [_block_view(b) for b in slide.speaker_notes],
+                "blocks": [_block_view(b, times) for b in slide.blocks],
+                "notes": [_block_view(b, times) for b in slide.speaker_notes],
                 "preview": (
                     f"/api/runs/{run_id}/draft-preview/{number}" if number in images else None
                 ),
@@ -1116,6 +1219,7 @@ def draft_view(roots: Roots, run_id: str) -> dict[str, Any]:
             else {}
         ),
         "run_id": run_id,
+        "meeting": run_is_meeting(roots, run_id),
         "version": deck.version,
         "validated": orch.state.is_complete("validate"),
         "previewed": orch.state.is_complete("preview"),

@@ -95,6 +95,8 @@ function screenHref(screen, id) { return screen ? `#/${screen}/${enc(id)}` : run
 function isDraftRun(r) { return (r.stage_list || []).some((s) => s.key === "compose"); }
 
 function runTarget(r) {
+  // A meeting run that is not a draft yet opens on its meeting screen (step 12).
+  if (r.meeting && !isDraftRun(r)) return `#/meeting/${enc(r.id)}`;
   // A draft-first run with a draft opens on the draft (B43); before that, on its run page.
   if (isDraftRun(r)) {
     const composed = (r.stage_list || []).find((s) => s.key === "compose")?.status === "done";
@@ -108,8 +110,15 @@ function runTarget(r) {
 }
 
 // The one-line status of a run, from the stage list when the API gives it.
+const MEETING_BUSY = ["Transcribing", "Writing the notes", "Revising the notes", "Drafting"];
 function runStatus(r) {
   const list = r.stage_list || [];
+  if (r.meeting && !isDraftRun(r)) {
+    const text = r.meeting_stage || "Meeting";
+    if (MEETING_BUSY.includes(text)) return { group: "running", text: `Running · ${text}`, kind: "accent" };
+    if (/failed/i.test(text)) return { group: "waiting", text, kind: "bad" };
+    return { group: "waiting", text: `Meeting · ${text}`, kind: text === "Notes ready" ? "warn" : "muted" };
+  }
   const running = list.find((s) => s.status === "running") || (r.job?.status === "running" ? { label: r.job.step || "pipeline" } : null);
   if (running) return { group: "running", text: `Running · ${running.label}`, kind: "accent" };
   const failed = list.find((s) => s.status === "failed");
@@ -217,6 +226,10 @@ const EXAMPLES = [
   ["Results and caveats, one slide each", "Results and caveats across the studies, for a review board. Four slides. Say plainly where the sources do not compare."],
 ];
 
+// The audio and video types `autodeck meeting transcribe` accepts (autodeck/meeting/audio.py).
+const MEETING_TYPES = [".m4a", ".mp3", ".wav", ".mp4", ".aiff", ".aif", ".flac", ".ogg", ".webm", ".mov"];
+const MAX_AUDIO = 1024 * 1024 * 1024;
+
 async function homeView() {
   setNav("home");
   const data = await api("/api/home");
@@ -238,6 +251,7 @@ async function homeView() {
           <button type="button" data-mode="draft" aria-pressed="true">Draft from a prompt</button>
           <button type="button" data-mode="plan" aria-pressed="false">Plan in a chat first</button>
           <button type="button" data-mode="deck" aria-pressed="false">From an existing deck</button>
+          <button type="button" data-mode="meeting" aria-pressed="false">From a meeting recording</button>
         </div>
         <div class="stack gap-16" id="prompt-wrap">
           <label class="field">Describe the deck
@@ -267,6 +281,26 @@ async function homeView() {
           </div>
           <div class="note">${ICON.info}<span><b>Your deck is the source.</b> Every statement on a new slide cites the original slide it came from. Nothing is added that the deck does not say. Citations are labelled as client-supplied deck.</span></div>
         </div>
+        <div class="stack gap-16" id="meeting-wrap" hidden>
+          <label class="dropzone" id="meeting-drop" for="meeting-file">
+            ${ICON.upload}<span id="meeting-name">Drop a recording here, or choose one</span>
+            <span class="field-hint" id="meeting-hint">${esc(MEETING_TYPES.join(" "))} · up to 1 GB</span>
+            <input class="file-input" type="file" id="meeting-file" accept="${esc(MEETING_TYPES.join(","))},audio/*,video/mp4,video/quicktime,video/webm">
+          </label>
+          <div id="meeting-err" class="note warn" role="alert" hidden></div>
+          <div class="grid-even gap-16">
+            <label class="field">Date of the meeting (optional)
+              <input class="input" id="mt-date" maxlength="120" placeholder="e.g. Tuesday 4 November">
+              <span class="field-hint">As you would say it. It is a hint for the notes, not evidence.</span>
+            </label>
+            <label class="field">Who was there (optional)
+              <input class="input" id="mt-attendees" maxlength="400" placeholder="e.g. Shikha, Dev, Priya">
+              <span class="field-hint">Spellings only: names are never taken as fact.</span>
+            </label>
+          </div>
+          <label class="switch"><input type="checkbox" id="mt-papers"><span class="track" aria-hidden="true"></span><span>Also check against the project's papers</span></label>
+          <div class="note">${ICON.lock}<span>The recording is transcribed on this computer; only the text is sent to the model, and the file is deleted after transcription.</span></div>
+        </div>
         <div class="grid-even gap-16">
           <label class="field">Client
             <select class="select" name="client" required>${clientOpts}</select>
@@ -280,7 +314,7 @@ async function homeView() {
             <span class="field-hint">Letters, numbers, dots, dashes and underscores.</span>
           </label>
         </div>
-        <fieldset class="field" role="radiogroup" aria-label="Design">
+        <fieldset class="field" role="radiogroup" aria-label="Design" id="design-set">
           <legend>Design</legend>
           ${["structured", "creative"].map((m) => `
             <label class="radio-row"><input type="radio" name="design_mode" value="${m}" ${(data.env.design_mode || "structured") === m ? "checked" : ""}>
@@ -335,12 +369,15 @@ async function homeView() {
     draft: ["Draft the deck", "AutoDeck asks what it needs to know, then drafts. Nothing is approved until you approve it."],
     plan: ["Start planning", "Opens a conversation with the planner. When the brief is right, draft the deck from it."],
     deck: ["Redesign the deck", "AutoDeck keeps your story and asks what it needs to know before it redesigns. Nothing is approved until you approve it."],
+    meeting: ["Transcribe and write notes", "Transcribes the recording on this computer, then writes the notes. You review the notes before any deck."],
   };
   const setMode = (m) => {
     mode = m;
     view.querySelectorAll("#mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
     document.getElementById("prompt-wrap").hidden = m !== "draft";
     document.getElementById("deck-wrap").hidden = m !== "deck";
+    document.getElementById("meeting-wrap").hidden = m !== "meeting";
+    document.getElementById("design-set").hidden = m === "meeting";
     prompt.required = m === "draft";
     document.getElementById("go").textContent = MODE_TEXT[m][0];
     document.getElementById("go-hint").textContent = MODE_TEXT[m][1];
@@ -364,6 +401,27 @@ async function homeView() {
     deckFile = file;
     label.textContent = `${file.name} · ${sizeText(file.size)}`;
   };
+  let meetingFile = null;
+  const meetingErr = document.getElementById("meeting-err");
+  const pickMeeting = (file) => {
+    meetingFile = null;
+    meetingErr.hidden = true;
+    const label = document.getElementById("meeting-name");
+    const reset = "Drop a recording here, or choose one";
+    const refuse = (text) => { meetingErr.hidden = false; meetingErr.innerHTML = `${ICON.warn}<span>${esc(text)}</span>`; label.textContent = reset; };
+    if (!file) { label.textContent = reset; return; }
+    const suffix = (file.name.match(/\.[^.]+$/) || [""])[0].toLowerCase();
+    if (!MEETING_TYPES.includes(suffix)) { refuse(`${file.name} is not a recording AutoDeck can transcribe. Use one of ${MEETING_TYPES.join(" ")}.`); return; }
+    if (file.size > MAX_AUDIO) { refuse(`${file.name} is ${sizeText(file.size)}. Recordings over 1 GB are not accepted.`); return; }
+    if (file.size <= 0) { refuse(`${file.name} is empty.`); return; }
+    meetingFile = file;
+    label.textContent = `${file.name} · ${sizeText(file.size)}`;
+  };
+  document.getElementById("meeting-file").addEventListener("change", (e) => pickMeeting(e.target.files[0]));
+  const mdrop = document.getElementById("meeting-drop");
+  ["dragover", "dragenter"].forEach((ev) => mdrop.addEventListener(ev, (e) => { e.preventDefault(); mdrop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => mdrop.addEventListener(ev, () => mdrop.classList.remove("over")));
+  mdrop.addEventListener("drop", (e) => { e.preventDefault(); pickMeeting(e.dataTransfer?.files?.[0]); });
   const agentBox = document.getElementById("agent-on");
   try { if (agentBox && localStorage.getItem("autodeck.agent") === "1") agentBox.checked = true; } catch { /* optional */ }
   if (agentBox) agentBox.addEventListener("change", () => {
@@ -390,6 +448,19 @@ async function homeView() {
     if (mode === "deck" && !deckFile) {
       deckErr.hidden = false;
       if (!deckErr.textContent.trim()) deckErr.innerHTML = `${ICON.warn}<span>Choose the .pptx you want redesigned.</span>`;
+      return;
+    }
+    if (mode === "meeting") {
+      if (!meetingFile) {
+        meetingErr.hidden = false;
+        if (!meetingErr.textContent.trim()) meetingErr.innerHTML = `${ICON.warn}<span>Choose the recording first.</span>`;
+        return;
+      }
+      await startMeeting(form, body, meetingFile, {
+        date: document.getElementById("mt-date").value.trim(),
+        attendees: document.getElementById("mt-attendees").value.trim(),
+        with_papers: document.getElementById("mt-papers").checked,
+      });
       return;
     }
     if (mode === "plan") {
@@ -432,6 +503,68 @@ async function homeView() {
     }
   });
 }
+
+// The recording goes up as an XHR so the bar can show bytes sent (a fetch cannot). The body is
+// the raw file; the server streams it to disk and starts transcription once it has all arrived.
+function uploadMeeting(file, body, opts, onProgress) {
+  const q = new URLSearchParams({
+    run_id: body.run_id, client: body.client, project: body.project, name: file.name,
+    with_papers: String(opts.with_papers),
+  });
+  if (opts.date) q.set("date", opts.date);
+  if (opts.attendees) q.set("attendees", opts.attendees);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/meeting/upload?${q}`);
+    xhr.setRequestHeader("X-AutoDeck-Upload", "1");
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); };
+    xhr.onerror = () => reject(new Error("The upload failed. Is AutoDeck still running?"));
+    xhr.onabort = () => reject(new Error("The upload was cancelled."));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* empty body */ }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(data); return; }
+      const err = new Error(data.error || `${xhr.status} ${xhr.statusText}`);
+      err.status = xhr.status;
+      reject(err);
+    };
+    xhr.send(file);
+  });
+}
+
+async function startMeeting(form, body, file, opts) {
+  const goRow = document.getElementById("go-row");
+  const working = document.getElementById("working");
+  goRow.hidden = true;
+  working.hidden = false;
+  working.innerHTML = `
+    <div class="stack gap-8" role="status" aria-live="polite">
+      <div class="row between"><span class="small-13 strong" id="up-label">Sending the recording to this computer's AutoDeck…</span><span class="small-13 muted" id="up-pct">0%</span></div>
+      <progress class="upload-bar" id="up-bar" max="100" value="0" aria-label="Upload progress"></progress>
+      <div class="small muted">Nothing leaves this computer. Keep this page open until the upload finishes.</div>
+    </div>`;
+  form.setAttribute("aria-busy", "true");
+  const onProgress = (loaded, total) => {
+    const pct = Math.min(100, Math.round((loaded / total) * 100));
+    const bar = document.getElementById("up-bar");
+    if (!bar) return;
+    bar.value = pct;
+    document.getElementById("up-pct").textContent = `${pct}% · ${sizeBytes(loaded)} of ${sizeBytes(total)}`;
+    if (pct >= 100) document.getElementById("up-label").textContent = "Starting the transcription…";
+  };
+  try {
+    const res = await uploadMeeting(file, body, opts, onProgress);
+    location.hash = `#/meeting/${enc(res.run_id || body.run_id)}`;
+  } catch (err) {
+    form.removeAttribute("aria-busy");
+    working.hidden = true;
+    goRow.hidden = false;
+    toast(err.message, true);
+  }
+}
+
+const sizeBytes = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 // Sends the .pptx raw to the upload route. The custom header is required by the server.
 async function uploadDeck(file, body, opts) {
@@ -1150,6 +1283,7 @@ function nextAction(list, jobRunning) {
 async function runView(runId) {
   setNav("runs");
   const r = await api(`/api/runs/${enc(runId)}`);
+  if (r.meeting && !isDraftRun(r)) { await meetingView(runId, r); return; }
   if (isDraftRun(r) && showAssembling(r)) { await assemblingView(runId, r); return; }
   const list = r.stage_list || [];
   const job = r.job || null;
@@ -1255,6 +1389,232 @@ async function runView(runId) {
       } catch { /* keep polling; the server may be busy */ }
     }, 1500);
   }
+}
+
+// ---- meeting (step 12) ------------------------------------------------------
+
+const MEETING_JOB_NOTE = {
+  transcribe: "Listening to the recording on this computer. A long meeting takes a while; nothing leaves this machine.",
+  notes: "The agent reads the transcript and writes the notes, citing the turn behind every item.",
+  "revise-notes": "The agent is changing the notes as you asked.",
+};
+const fmtDuration = (s) => {
+  const t = Math.round(s || 0);
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+};
+
+function jobPanelHtml(j) {
+  const kind = j.status === "failed" ? "bad" : j.status === "running" ? "accent" : j.status === "stopped" ? "warn" : "ok";
+  const lines = (j.log || []).slice(-60);
+  return `
+    <div class="job-head">
+      <span class="badge ${kind}">${esc(j.status)}</span>
+      <span class="small muted">${esc((j.steps || []).join(" → "))}${j.step ? ` · now ${esc(j.step)}` : ""}${j.exit_code != null ? ` · exit ${esc(j.exit_code)}` : ""}${j.finished_at ? ` · ${esc(fmtTime(j.finished_at))}` : ""}</span>
+    </div>
+    ${j.message ? `<div class="small-13">${esc(j.message)}</div>` : ""}
+    <pre class="log" id="log" tabindex="0" aria-label="Job log">${esc(lines.join("\n") || "No output yet.")}</pre>`;
+}
+
+async function meetingView(runId, r0) {
+  setNav("runs");
+  const r = r0 || await api(`/api/runs/${enc(runId)}`);
+  const job = r.job || null;
+  const running = job?.status === "running";
+  let m = null;
+  try { m = await api(`/api/runs/${enc(runId)}/meeting`); } catch (err) { if (err.status !== 404 && err.status !== 409) throw err; }
+  const notes = m?.notes || null;
+  const hasNotes = !!(notes && notes.markdown != null);
+  let turns = [];
+  if (m) { try { turns = (await api(`/api/runs/${enc(runId)}/transcript`)).turns || []; } catch { /* the transcript panel stays empty */ } }
+  await loadAgentSession(runId);
+
+  const head = (sub) => `
+    <div class="page-head">
+      <div class="head-text">
+        <div class="crumbs"><a href="#/runs">Runs</a> / ${esc(runId)} / Meeting</div>
+        <h1 class="page-title">${esc(m?.audio_name || runId)}</h1>
+        ${sub ? `<p class="page-sub">${esc(sub)}</p>` : ""}
+      </div>
+      ${r.env ? `<span class="chip" title="Models: ${esc(r.env)}"><span class="dot ${r.env.startsWith("dev") ? "dot-warn" : "dot-ok"}"></span>${esc(ENV_WORD[r.env] || r.env)} models</span>` : ""}
+    </div>`;
+
+  const jobSection = job ? `
+    <section class="panel" aria-labelledby="mjob-h">
+      <div class="row between wrap"><h2 class="h2" id="mjob-h">${running ? esc(job.step_label || "Working") : job.status === "failed" ? "That step did not finish" : "Last step"}</h2>
+        ${running ? '<button class="btn btn-quiet-accent" id="m-stop" type="button">Stop</button>' : ""}</div>
+      ${running ? `<div class="bar"><i></i></div><div class="small muted">${esc(MEETING_JOB_NOTE[job.step] || "Working.")}</div>` : ""}
+      <div id="m-job">${jobPanelHtml(job)}</div>
+    </section>` : "";
+
+  // Before a transcript exists there is only progress to show.
+  if (!m) {
+    const failedNote = job?.status === "failed" ? `<div class="note warn">${ICON.warn}<span>The uploaded recording has been deleted from this computer's upload folder. To try again, start from <a href="#/">Home</a> with the recording and a new run name.</span></div>` : "";
+    view.innerHTML = `${head(running ? "" : "The recording has not been transcribed.")}
+      <div class="stack gap-16">${jobSection}${failedNote}${job ? "" : `<div class="note warn">${ICON.warn}<span>Nothing is running for this run and there is no transcript yet. Start again from Home with the recording.</span></div>`}</div>`;
+    bindMeetingJob(runId, running);
+    return;
+  }
+
+  const counts = Object.entries(notes.counts || {});
+  const sub = `${fmtDuration(m.duration_s)} · ${plural(m.turns, "turn")}${m.speakers_labelled ? " · speakers labelled" : ""}${m.check_papers ? " · also checked against the papers" : ""}`;
+  const busy = running;
+  view.innerHTML = `
+    ${head(sub)}
+    <div class="stack gap-16">
+      ${jobSection}
+      <div class="grid-2 equal align-start meeting-grid">
+        <section class="panel" aria-labelledby="notes-h">
+          <div class="panel-head"><h2 class="h2" id="notes-h">Notes</h2>
+            <span class="small muted" id="notes-state">${hasNotes ? (notes.edited ? "Edited by you, not yet applied" : "As the agent wrote them") : ""}</span></div>
+          ${hasNotes ? `
+            ${notes.agent_note ? `<div class="note">${ICON.info}<span><b>The agent says:</b> ${esc(notes.agent_note)}</span></div>` : ""}
+            <div class="chips-row" aria-label="Items per section">${counts.map(([k, n]) => `<span class="chip">${esc(k)} · ${n}</span>`).join("")}</div>
+            <label class="sr-only" for="notes-text">Meeting notes (editable)</label>
+            <textarea class="textarea notes-area" id="notes-text" spellcheck="true" ${busy ? "readonly" : ""}>${esc(notes.markdown)}</textarea>
+            <div class="small muted">Edit the text freely. Keep the tags like <span class="mono">&lt;!-- n3 --&gt;</span> on the lines you keep: they are how an edit is matched to its source.</div>
+            <div id="notes-note" hidden></div>
+            <div class="row gap-12 wrap">
+              <button class="btn btn-outline" id="notes-save" type="button" disabled>Save</button>
+              <button class="btn" id="notes-apply" type="button" ${busy || !notes.edited ? "disabled" : ""}>Apply my edits</button>
+              <span class="small muted" id="notes-hint">Apply asks the agent to make the notes match your edits, and re-checks every citation.</span>
+            </div>
+            <form class="stack gap-8" id="notes-say" aria-label="Tell the agent what to fix">
+              <label class="field">Tell the agent what to fix
+                <input class="input" id="say-text" maxlength="2000" autocomplete="off" placeholder="e.g. it's APLD, not APID" ${busy ? "disabled" : ""}>
+              </label>
+              <div class="row-end"><button class="btn" id="say-go" type="submit" ${busy ? "disabled" : ""}>Send</button></div>
+            </form>`
+          : `<div class="empty">${busy ? "The notes are being written." : "There are no notes yet."}</div>
+             ${!busy && !hasNotes ? `<div class="note">${ICON.info}<span>From a terminal: <span class="mono">autodeck meeting notes ${esc(runId)}</span></span></div>` : ""}`}
+        </section>
+        <section class="panel" aria-labelledby="tr-h">
+          <div class="panel-head"><h2 class="h2" id="tr-h">What was said</h2><span class="small muted">${plural(turns.length, "turn")}</span></div>
+          <div class="transcript-list" id="transcript" tabindex="0" aria-label="Transcript">
+            ${turns.map((t) => `<div class="turn" id="turn-${esc(t.page)}"><span class="turn-time mono">${esc(t.time || "turn " + t.page)}</span><span class="turn-text">${esc(t.text)}</span></div>`).join("") || '<div class="empty">No transcript.</div>'}
+          </div>
+        </section>
+      </div>
+      <section class="panel" aria-labelledby="deck-h">
+        <div class="panel-head"><h2 class="h2" id="deck-h">Make a deck from this meeting</h2>
+          ${m.has_deck ? `<a class="btn btn-pill" href="#/draft/${enc(runId)}">Open the draft</a>` : ""}</div>
+        ${m.has_deck ? '<div class="small-13 muted">This run already has a draft. Revise it from the draft screen.</div>' : `
+        <form class="stack gap-12" id="deck-form">
+          <label class="field">What is the deck for?
+            <textarea class="textarea" id="deck-prompt" rows="2" maxlength="2000" placeholder="A short readout of this meeting for people who were not there" ${busy || !hasNotes ? "disabled" : ""}></textarea>
+            <span class="field-hint">Leave it empty for the default. The deck cites the meeting; it is checked against what was said.</span>
+          </label>
+          <div id="deck-note" hidden></div>
+          <div class="row between wrap">
+            <label class="switch"><input type="checkbox" id="deck-agent"><span class="track" aria-hidden="true"></span><span>Let the agent build it (beta)</span></label>
+            <button class="btn" id="deck-go" type="submit" ${busy || !hasNotes ? "disabled" : ""}>Make a deck</button>
+          </div>
+          <div id="deck-working" hidden></div>
+        </form>`}
+      </section>
+      ${agentTimelineHtml(runId) ? `
+      <section class="panel tight" aria-labelledby="ag-h">
+        <h2 class="h3" id="ag-h">${notes.has_session ? "The agent on the notes" : "The agent"}</h2>
+        ${agentMetaLine(runId)}${agentTimelineHtml(runId)}
+      </section>` : ""}
+    </div>`;
+
+  bindAgentToggle(view, () => meetingView(runId));
+  bindMeetingJob(runId, running);
+  if (!hasNotes) return;
+
+  const area = document.getElementById("notes-text");
+  const save = document.getElementById("notes-save");
+  const apply = document.getElementById("notes-apply");
+  const note = document.getElementById("notes-note");
+  const state = { saved: notes.markdown, edited: notes.edited };
+  const dirty = () => area.value !== state.saved;
+  const paint = () => {
+    save.disabled = busy || !dirty();
+    apply.disabled = busy || !(state.edited || dirty());
+    document.getElementById("notes-state").textContent = dirty() ? "Unsaved changes" : state.edited ? "Edited by you, not yet applied" : "As the agent wrote them";
+  };
+  area.addEventListener("input", paint);
+  const saveNow = async () => {
+    const out = await api(`/api/runs/${enc(runId)}/notes`, { markdown: area.value }, "PUT");
+    state.saved = out.markdown; state.edited = out.edited;
+    paint();
+    return out;
+  };
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    try { await saveNow(); toast("Saved. Nothing has been sent to the agent yet."); } catch (err) { toast(err.message, true); paint(); }
+  });
+  apply.addEventListener("click", async () => {
+    apply.disabled = true; save.disabled = true;
+    try {
+      if (dirty()) await saveNow();
+      const res = await api(`/api/runs/${enc(runId)}/notes/apply`, {});
+      if (!res.job) { toast(res.message || "No edits to apply."); paint(); return; }
+      route();
+    } catch (err) { paint(); actionError(note, err, runId); }
+  });
+  document.getElementById("notes-say").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("say-text");
+    const text = input.value.trim();
+    if (!text) { input.focus(); return; }
+    document.getElementById("say-go").disabled = true;
+    try {
+      if (dirty()) await saveNow();
+      await api(`/api/runs/${enc(runId)}/notes/say`, { text });
+      route();
+    } catch (err) { document.getElementById("say-go").disabled = false; actionError(note, err, runId); }
+  });
+
+  const deckForm = document.getElementById("deck-form");
+  if (deckForm) {
+    const agentBox = document.getElementById("deck-agent");
+    try { if (localStorage.getItem("autodeck.agent") === "1") agentBox.checked = true; } catch { /* optional */ }
+    deckForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const go = document.getElementById("deck-go");
+      const working = document.getElementById("deck-working");
+      const text = "Reading the meeting and working out what the draft needs…";
+      go.disabled = true;
+      working.hidden = false;
+      working.innerHTML = thinkingHtml(text);
+      const stop = startTicker(text, "this is one short model call");
+      const body = { prompt: document.getElementById("deck-prompt").value.trim() };
+      if (agentBox.checked) body.agent = true;
+      try {
+        if (dirty()) await saveNow();
+        await api(`/api/runs/${enc(runId)}/meeting-deck`, body);
+        stop();
+        location.hash = `#/clarify/${enc(runId)}`;
+      } catch (err) {
+        stop();
+        go.disabled = false;
+        working.hidden = true;
+        actionError(document.getElementById("deck-note"), err, runId);
+      }
+    });
+  }
+}
+
+// Stop button and polling for the job panel of the meeting screen.
+function bindMeetingJob(runId, running) {
+  const stop = document.getElementById("m-stop");
+  if (stop) stop.addEventListener("click", async () => {
+    stop.disabled = true;
+    try { await api(`/api/runs/${enc(runId)}/stop`, {}); route(); } catch (err) { stop.disabled = false; toast(err.message, true); }
+  });
+  if (!running) return;
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    if (!location.hash.startsWith(`#/meeting/${enc(runId)}`) && !location.hash.startsWith(`#/run/${enc(runId)}`)) { stopPolling(); return; }
+    try {
+      const res = await api(`/api/runs/${enc(runId)}/job`);
+      const box = document.getElementById("m-job");
+      if (res.job && res.job.status === "running") { if (box) box.innerHTML = jobPanelHtml(res.job); }
+      else { stopPolling(); route(); }
+    } catch { /* keep polling; the server may be busy */ }
+  }, 1500);
 }
 
 // ---- knowledge --------------------------------------------------------------
@@ -1701,10 +2061,11 @@ async function settingsView(tab = "profile") {
 const DRAFT_STEPS = ["draft", "revise", "validate", "preview"];
 const draftPill = (text = "Draft — not approved") => `<span class="draft-pill"><span class="dot"></span>${esc(text)}</span>`;
 
-const docLabel = (id, page) => {
+const docLabel = (id, page, time) => {
   const s = String(id ?? "");
   if (s.startsWith("conversation--")) return page != null && page !== "" ? `from you · message ${page}` : "from you";
-  if (s.startsWith("transcript--")) return page != null && page !== "" ? `from the meeting · turn ${page}` : "from the meeting";
+  // The meeting's own time when the API has it (the local UI reads it from the times sidecar).
+  if (s.startsWith("transcript--")) return time ? `from the meeting · ${time}` : page != null && page !== "" ? `from the meeting · turn ${page}` : "from the meeting";
   return s.startsWith("client-deck--") ? `client-supplied deck · ${s.slice("client-deck--".length)}` : s;
 };
 // A block that makes a claim: judged, cited, or the model's own general knowledge (unsourced).
@@ -1775,7 +2136,7 @@ function draftHead(runId, d, title, sub) {
   return `
     <div class="page-head">
       <div class="head-text">
-        <div class="crumbs"><a href="#/runs">Runs</a> / <a href="${runHref(runId)}">${esc(runId)}</a> / Draft</div>
+        <div class="crumbs"><a href="#/runs">Runs</a> / <a href="${runHref(runId)}">${esc(runId)}</a> / Draft${d.meeting ? ` · <a href="#/meeting/${enc(runId)}">Meeting notes</a>` : ""}</div>
         <div class="row gap-12 wrap"><h1 class="page-title">${esc(title)}</h1>${draftPill()}</div>
         ${sub ? `<p class="page-sub">${esc(sub)}</p>` : ""}
         <div class="chips-row">
@@ -1942,7 +2303,8 @@ function agentTimelineHtml(runId) {
   const rows = agentSess.runId === runId ? agentSess.data?.timeline || [] : [];
   if (!rows.length) return "";
   const shown = agentSess.all ? rows : rows.slice(-30);
-  return `<div class="agent-tl" aria-label="What the agent has done">
+  const label = agentSess.data?.kind === "notes" ? "What the agent has done on the notes" : "What the agent has done";
+  return `<div class="agent-tl" aria-label="${label}">
     ${shown.map((x) => `<div class="agent-row${x.error ? " err" : ""}"><span class="mono muted">${esc(x.step)}</span> · ${esc(x.tool || x.role)} — ${esc(x.summary || "")}</div>`).join("")}
     ${rows.length > 30 ? `<button type="button" class="link-btn small" data-agent-all>${agentSess.all ? "Show the last 30" : `Show all ${rows.length}`}</button>` : ""}
   </div>`;
@@ -2345,7 +2707,7 @@ async function draftView(runId) {
           ${isClaim ? `
             <div class="kv"><div class="eyebrow">Source</div>
               ${cites.map((q) => `<blockquote class="quote"><div class="quote-text">${esc(q.quote)}</div>
-                <div class="small muted"><span class="strong">${esc(docLabel(q.doc_id, q.page))}</span> · ${q.page != null && q.page !== "" ? `p.${esc(q.page)}` : "no page"}</div></blockquote>`).join("")
+                <div class="small muted"><span class="strong">${esc(docLabel(q.doc_id, q.page, q.time))}</span> · ${q.page != null && q.page !== "" ? `p.${esc(q.page)}` : "no page"}</div></blockquote>`).join("")
                 || (unsourced
                   ? `<div class="note plain">${ICON.info}<span>General knowledge: the model wrote this without a source. It is checked against your papers; if they do not confirm it, it is marked uncorroborated.</span></div>`
                   : `<div class="note warn">${ICON.warn}<span>No source resolved for this sentence.</span></div>`)}
@@ -2740,6 +3102,7 @@ async function route() {
     else if (parts[0] === "runs") await runsView();
     else if (parts[0] === "plan" && runId) await planView(runId);
     else if (parts[0] === "clarify" && runId) await clarifyView(runId);
+    else if (parts[0] === "meeting" && runId) await meetingView(runId);
     else if (parts[0] === "draft" && runId) await draftView(runId);
     else if (parts[0] === "approve" && runId) await approveDraftView(runId);
     else if (parts[0] === "outline" && runId) await outlineView(runId);

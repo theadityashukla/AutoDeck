@@ -11,6 +11,7 @@ Nothing here approves anything, and nothing here imports the module that does
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 LOG_LINES = 200
@@ -35,13 +37,23 @@ CHAINS: dict[str, list[str]] = {
     # `App.start_draft`), through the same CLI command.
     "draft": ["draft", "validate", "preview"],
     "revise": ["revise", "validate", "preview"],
+    # The meeting (step 12): a recording becomes a transcript and then notes, as one chain;
+    # a correction to the notes is its own one-step chain (B83).
+    "meeting": ["transcribe", "notes"],
+    "revise-notes": ["revise-notes"],
 }
+
+#: Chains the generic "run this stage" route never starts: each has its own screen and checks.
+OWN_ROUTE_CHAINS = {"draft", "revise", "meeting", "revise-notes"}
 
 #: Exit codes a step can end with and still let the chain continue. 4 is "a report with
 #: findings" (`outline`, `gate2`, `gate3`): the report is the point, and the person reads it.
 CONTINUE_CODES = {0, 4}
 
 STEP_LABELS = {
+    "transcribe": "Transcribing on this computer",
+    "notes": "Writing the notes",
+    "revise-notes": "Revising the notes",
     "redesign": "Reading your deck",
     "clarify": "Working out what the draft needs",
     "draft": "Writing the brief, outline and slides",
@@ -157,6 +169,26 @@ class JobManager:
     # -- the worker --------------------------------------------------------
 
     def _run(self, job: Job) -> None:
+        try:
+            self._run_steps(job)
+        finally:
+            # Whatever ended the job, an uploaded recording does not outlive it (B83).
+            self._delete_after(job, None)
+
+    @staticmethod
+    def _delete_after(job: Job, step: str | None) -> None:
+        """Delete the file named by `extra["delete_after"] = {"step", "path"}`.
+
+        Called right after that step's process exits, and again when the job ends however it
+        ends (`step=None`), so a stopped or failed job leaves nothing behind. Only a file
+        inside the uploads folder is ever deleted.
+        """
+        spec = job.extra.get("delete_after")
+        if not isinstance(spec, dict) or (step is not None and spec.get("step") != step):
+            return
+        remove_upload(str(spec.get("path", "")))
+
+    def _run_steps(self, job: Job) -> None:
         env = {**os.environ, "PYTHONUNBUFFERED": "1", "NO_COLOR": "1"}
         for step in job.steps:
             if job.stop_requested:
@@ -189,6 +221,7 @@ class JobManager:
                 job.log.append(line.rstrip("\n"))
             code = process.wait()
             job.exit_code = code
+            self._delete_after(job, step)
             if job.stop_requested:
                 break
             if code not in CONTINUE_CODES:
@@ -206,6 +239,31 @@ class JobManager:
         job.message = message
         job.finished_at = _now()
         job.status = status
+
+
+def remove_upload(path: str) -> bool:
+    """Delete one uploaded recording, and its run folder when that is left empty.
+
+    Refuses (returns False) anything that does not resolve to a file strictly inside the
+    uploads folder, so a crafted path can never delete something else.
+    """
+    from autodeck.ui.profile import uploads_dir
+
+    if not path:
+        return False
+    try:
+        root = uploads_dir().resolve()
+        target = Path(path).resolve()
+        if target == root or not target.is_relative_to(root) or not target.is_file():
+            return False
+        target.unlink()
+        folder = target.parent
+        if folder != root and folder.is_relative_to(root):
+            with contextlib.suppress(OSError):
+                folder.rmdir()  # only when empty
+    except OSError:
+        return False
+    return True
 
 
 def _failure_message(step: str, code: int) -> str:
@@ -232,6 +290,8 @@ def cli_command(
     base = [sys.executable, "-m", "autodeck.cli", step, run_id]
     runs = ["--runs-root", str(roots.runs)]
     env = ["--env", roots.env]
+    if step in ("transcribe", "notes", "revise-notes"):
+        return _meeting_command(step, run_id, roots, extra)
     if step == "outline":
         meta = read_run_meta(roots, run_id)
         return [
@@ -337,3 +397,41 @@ def cli_command(
     if step == "gate3":
         return [*base, *runs, *env, "--knowledge-root", str(roots.knowledge)]
     raise ValueError(f"unknown step {step!r}")
+
+
+def _meeting_command(step: str, run_id: str, roots: Any, extra: dict[str, Any]) -> list[str]:
+    """`autodeck meeting transcribe | notes | revise-notes RUN ...` (step 12, B83)."""
+    from autodeck.ui.api import read_run_meta
+
+    base = [sys.executable, "-m", "autodeck.cli", "meeting", step, run_id]
+    runs = ["--runs-root", str(roots.runs)]
+    env = ["--env", roots.env]
+    knowledge = ["--knowledge-root", str(roots.knowledge)]
+    if step == "transcribe":
+        meta = read_run_meta(roots, run_id)
+        argv = [
+            *base,
+            "--audio",
+            str(extra.get("audio", "")),
+            "--client",
+            str(extra.get("client") or meta.get("client", "")),
+            "--project",
+            str(extra.get("project") or meta.get("project", "")),
+            *env,
+            *knowledge,
+            *runs,
+        ]
+        if extra.get("with_papers"):
+            argv.append("--with-papers")
+        return argv
+    argv = [*base]
+    if step == "notes":
+        if extra.get("date"):
+            argv += ["--date", str(extra["date"])]
+        if extra.get("attendees"):
+            argv += ["--attendees", str(extra["attendees"])]
+    elif extra.get("apply_edits"):
+        argv.append("--apply-edits")
+    else:
+        argv += ["--say", str(extra.get("say", ""))]
+    return [*argv, *env, *knowledge, "--corpus-root", str(roots.corpus), *runs]

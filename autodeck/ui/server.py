@@ -29,7 +29,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from autodeck.ui import api, jobs, profile, review, workspace
+from autodeck.ui import api, jobs, meeting_view, profile, review, workspace
 from autodeck.ui.api import Roots, UIError
 from autodeck.ui.approvals import approve_gate
 
@@ -45,6 +45,11 @@ STATIC_FILES = {
 MAX_BODY = 1_000_000
 MAX_UPLOAD = 50 * 1024 * 1024
 """A client's deck, as a raw request body (B41). Larger is refused before it is read."""
+MAX_AUDIO_UPLOAD = 1024 * 1024 * 1024
+"""A meeting recording (B83). Larger is refused before it is read; the body is streamed to
+disk in `AUDIO_CHUNK` pieces and never held in memory."""
+AUDIO_CHUNK = 1024 * 1024
+MAX_NOTE_FIELD = 500
 PPTX_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 UPLOAD_HEADER = "X-AutoDeck-Upload"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
@@ -65,6 +70,9 @@ class LiveSession:
     #: The last turn's failure, shown once the person comes back to the screen.
     last_error: str = ""
 
+
+DEFAULT_MEETING_PROMPT = "A short readout of this meeting for people who were not there"
+"""The deck prompt of "Make a deck from this meeting" when the person leaves it empty."""
 
 CLARIFY_TIMEOUT = 600
 """Seconds the person may wait for the one short clarify call before it is given up on."""
@@ -120,13 +128,25 @@ class App:
         running = job.step if job is not None and job.status == "running" else ""
         out = api.run_summary(self.roots, run_id, running_step=running)
         out["job"] = job.to_dict() if job is not None else None
+        self._meeting_job_stage(out, job)
         return out
+
+    @staticmethod
+    def _meeting_job_stage(out: dict[str, Any], job: jobs.Job | None) -> None:
+        """A meeting run's stage word, corrected by a failed job (the files cannot tell)."""
+        if not out.get("meeting") or job is None or job.status != "failed":
+            return
+        failed = {"transcribe": "Transcription failed", "notes": "Notes failed"}.get(job.step)
+        if failed and out["meeting_stage"] in ("Transcribing", "Transcribed"):
+            out["meeting_stage"] = failed
+            out["next"] = failed
 
     def runs(self) -> list[dict[str, Any]]:
         out = []
         for run in api.list_runs(self.roots):
             job = self.jobs.get(run["id"])
             run["job"] = job.to_dict() if job is not None else None
+            self._meeting_job_stage(run, job)
             out.append(run)
         return out
 
@@ -134,7 +154,7 @@ class App:
         api._open(self.roots, run_id)  # 404 for an unknown run, before anything starts
         # A person starts a draft or a revision through its own route, which checks what
         # that step needs; the generic route is for the gate-first steps.
-        if chain in ("draft", "revise"):
+        if chain in jobs.OWN_ROUTE_CHAINS:
             raise UIError(f"Start {chain!r} from its own screen.")
         return self.jobs.start(run_id, chain).to_dict()
 
@@ -358,6 +378,137 @@ class App:
             raise UIError(_cli_failure("redesign", code, output))
         return api.clarify_view(self.roots, run_id)
 
+    # -- the meeting (step 12, B83) -------------------------------------------
+
+    def start_meeting(self, params: dict[str, str], stream: Any, length: int) -> dict[str, Any]:
+        """A recording in; the transcribe → notes chain out.
+
+        The body is copied to `<uploads>/<run>/<name>` in 1 MiB pieces (never held in memory,
+        never in the repository folder); a short read, such as the browser closing, deletes the
+        partial file. The run, its meta and the job exist only once the whole file has arrived.
+        The job deletes the file when its transcribe step ends, however it ends.
+        """
+        run_id, client, project = self._checked_new_run(
+            {k: params.get(k, "") for k in ("run_id", "client", "project")}
+        )
+        if (self.roots.runs / run_id).exists():
+            raise UIError(
+                f"Run {run_id!r} already exists. Pick another name for this meeting.",
+                status=409,
+            )
+        name = _audio_name(params.get("name", ""))
+        folder = profile.uploads_dir() / run_id
+        target = folder / name
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            with target.open("wb") as out:
+                remaining = length
+                while remaining > 0:
+                    chunk = stream.read(min(AUDIO_CHUNK, remaining))
+                    if not chunk:
+                        raise UIError("The upload stopped before the whole recording arrived.")
+                    out.write(chunk)
+                    remaining -= len(chunk)
+            extra: dict[str, Any] = {
+                "client": client,
+                "project": project,
+                "audio": str(target),
+                "with_papers": _flag(params.get("with_papers"), default=False),
+                "delete_after": {"step": "transcribe", "path": str(target)},
+            }
+            for key in ("date", "attendees"):
+                value = " ".join(params.get(key, "").split())[:MAX_NOTE_FIELD]
+                if value:
+                    extra[key] = value
+            api.write_run_meta(self.roots, run_id, client=client, project=project, meeting=True)
+            job = self.jobs.start(run_id, "meeting", extra)
+        except BaseException:
+            jobs.remove_upload(str(target))
+            raise
+        return {"run_id": run_id, "job": job.to_dict()}
+
+    def _notes_job(self, run_id: str, extra: dict[str, Any]) -> dict[str, Any]:
+        job = self.jobs.start(run_id, "revise-notes", extra)
+        return {"job": job.to_dict()}
+
+    def _checked_notes_run(self, run_id: str) -> str:
+        """A meeting run with notes and no job in progress, else a refusal in words."""
+        run_id = api.check_run_id(run_id)
+        directory = meeting_view.meeting_dir(self.roots, run_id)
+        if not (directory / meeting_view.NOTES_FILE).is_file():
+            raise UIError("There are no notes for this run yet.", status=409)
+        if self.jobs.running(run_id):
+            raise UIError("A step is already running for this run.", status=409)
+        return run_id
+
+    def save_notes(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        run_id = api.check_run_id(run_id)
+        if self.jobs.running(run_id):
+            raise UIError(
+                "A step is running for this run; save once it has finished.", status=409
+            )
+        return meeting_view.save_notes(self.roots, run_id, body.get("markdown"))
+
+    def apply_notes_edits(self, run_id: str) -> dict[str, Any]:
+        """Apply my edits: `meeting revise-notes --apply-edits`, if there are edits."""
+        run_id = self._checked_notes_run(run_id)
+        directory = meeting_view.meeting_dir(self.roots, run_id)
+        if not meeting_view.notes_edited(directory):
+            return {"job": None, "message": "No edits to apply."}
+        return self._notes_job(run_id, {"apply_edits": True})
+
+    def say_to_notes(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """The chat box: `meeting revise-notes --say TEXT`."""
+        text = str(body.get("text", "")).strip()
+        if not text:
+            raise UIError("Say what to fix first.")
+        run_id = self._checked_notes_run(run_id)
+        return self._notes_job(run_id, {"say": text})
+
+    def start_meeting_deck(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Make a deck from this meeting: `clarify` on the run, while the person waits.
+
+        The clarify screen and the answers → `draft` chain are the ordinary ones: the run
+        already exists, and `submit_answers` never assumed otherwise.
+        """
+        run_id = api.check_run_id(run_id)
+        orch = api._open(self.roots, run_id)
+        meeting_view.meeting_dir(self.roots, run_id)
+        if not api.run_is_meeting(self.roots, run_id):
+            raise UIError(f"Run {run_id!r} has no meeting.", status=404)
+        if self.jobs.running(run_id):
+            raise UIError("A step is already running for this run.", status=409)
+        if orch.state.is_complete("compose"):
+            raise UIError(
+                "This run already has a draft. Revise it, or start a new run.", status=409
+            )
+        if not (orch.paths.root / "meeting" / "transcript.json").is_file():
+            raise UIError("The recording has not been transcribed yet.", status=409)
+        meta = api.read_run_meta(self.roots, run_id)
+        prompt = str(body.get("prompt", "")).strip() or DEFAULT_MEETING_PROMPT
+        if body.get("agent"):
+            api.write_run_meta(
+                self.roots,
+                run_id,
+                client=meta.get("client", ""),
+                project=meta.get("project", ""),
+                agent=True,
+            )
+        argv = jobs.cli_command(
+            "clarify",
+            run_id,
+            roots=self.roots,
+            extra={
+                "prompt": prompt,
+                "provenance": _provenance_field(body.get("provenance")),
+                "design_mode": _design_mode_field(body.get("design_mode")),
+            },
+        )
+        code, output = self.cli_runner(argv)
+        if code != 0:
+            raise UIError(_cli_failure("clarify", code, output))
+        return api.clarify_view(self.roots, run_id)
+
     def chat(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """One conversation per run (B48): the planner first, revisions once a draft exists."""
         run_id = api.check_run_id(run_id)
@@ -566,6 +717,15 @@ def _upload_name(raw: str) -> str:
     return f"{stem or 'deck'}.pptx"
 
 
+def _audio_name(raw: str) -> str:
+    """A safe file name for an uploaded recording: no directories, a conservative alphabet,
+    and the (already validated) suffix kept."""
+    path = PurePosixPath(raw.replace("\\", "/"))
+    suffix = path.suffix.lower()
+    stem = re.sub(r"[^A-Za-z0-9._ -]+", "_", path.name[: len(path.name) - len(path.suffix)])
+    return f"{stem.strip(' .') or 'recording'}{suffix}"
+
+
 def _cli_failure(step: str, code: int, output: str) -> str:
     """The tail of a failed command's output, in a sentence a person can act on."""
     lines = [line.strip() for line in output.splitlines() if line.strip()]
@@ -655,6 +815,37 @@ class Handler(BaseHTTPRequestHandler):
         data = self.rfile.read(length)
         return self.app.start_redesign(params, data)
 
+    def _meeting_upload(self) -> dict[str, Any]:
+        """`POST /api/meeting/upload?run_id=&client=&project=&name=&...`, body = the recording.
+
+        The other query fields are `with_papers`, `date` and `attendees`. Refused, in this
+        order and before the body is read: no `X-AutoDeck-Upload: 1` header (403), a file name
+        whose suffix is not an audio type we transcribe (415), no length (411), a length over
+        `MAX_AUDIO_UPLOAD` (413), an empty body (400). The body is then streamed to disk by
+        `App.start_meeting`.
+        """
+        from autodeck.meeting.audio import ALLOWED_SUFFIXES
+
+        if self.headers.get(UPLOAD_HEADER) != "1":
+            raise UIError(f"Uploads need the {UPLOAD_HEADER}: 1 header.", status=403)
+        params = dict(parse_qsl(urlsplit(self.path).query))
+        suffix = PurePosixPath(params.get("name", "").replace("\\", "/")).suffix.lower()
+        if suffix not in ALLOWED_SUFFIXES:
+            raise UIError(
+                f"AutoDeck cannot transcribe {suffix or 'that kind of file'}. Use one of "
+                f"{', '.join(sorted(ALLOWED_SUFFIXES))}.",
+                status=415,
+            )
+        try:
+            length = int(self.headers.get("Content-Length") or "")
+        except ValueError:
+            raise UIError("Content-Length is required.", status=411) from None
+        if length > MAX_AUDIO_UPLOAD:
+            raise UIError("That recording is over the 1 GB limit.", status=413)
+        if length <= 0:
+            raise UIError("The upload is empty.")
+        return self.app.start_meeting(params, self.rfile, length)
+
     # -- routing -----------------------------------------------------------
 
     def do_GET(self) -> None:
@@ -693,6 +884,9 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     self._send(HTTPStatus.OK, data, content_type)
                     return
+            if method == "POST" and parts == ["meeting", "upload"]:
+                self._json(HTTPStatus.OK, self._meeting_upload())
+                return
             if method == "POST" and parts == ["redesign", "upload"]:
                 self._json(HTTPStatus.OK, self._upload())
                 return
@@ -741,6 +935,19 @@ class Handler(BaseHTTPRequestHandler):
                 return app.draft_from_chat(run_id)
             case "POST", ["runs", run_id, "revise"]:
                 return app.start_revise(run_id, self._body())
+            case "GET", ["runs", run_id, "meeting"]:
+                return meeting_view.meeting_view(roots, api.check_run_id(run_id))
+            case "GET", ["runs", run_id, "transcript"]:
+                return meeting_view.transcript_view(roots, api.check_run_id(run_id))
+            case "PUT", ["runs", run_id, "notes"]:
+                return app.save_notes(run_id, self._body())
+            case "POST", ["runs", run_id, "notes", "apply"]:
+                self._body()
+                return app.apply_notes_edits(run_id)
+            case "POST", ["runs", run_id, "notes", "say"]:
+                return app.say_to_notes(run_id, self._body())
+            case "POST", ["runs", run_id, "meeting-deck"]:
+                return app.start_meeting_deck(run_id, self._body())
             case "POST", ["runs", run_id, "chat"]:
                 return app.chat(run_id, self._body())
             case "GET", ["runs", run_id, "outline"]:

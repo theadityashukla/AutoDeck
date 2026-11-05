@@ -21,6 +21,7 @@ from typing import Any
 DEFAULT_PROFILE = Path.home() / ".autodeck" / "profile.json"
 MAX_NAME = 80
 OWNER_MEMORY_ENV = "AUTODECK_OWNER_MEMORY"
+UPLOADS_ENV = "AUTODECK_UPLOADS_DIR"
 
 
 def owner_memory_path() -> Path:
@@ -30,6 +31,14 @@ def owner_memory_path() -> Path:
 
     override = os.environ.get(OWNER_MEMORY_ENV, "").strip()
     return Path(override) if override else DEFAULT_OWNER_PATH
+
+
+def uploads_dir() -> Path:
+    """Where uploaded recordings wait for transcription: `$AUTODECK_UPLOADS_DIR`, else
+    `~/.autodeck/uploads`. Never inside the repository: a recording is client-confidential,
+    and it is deleted when its transcription step ends (B83)."""
+    override = os.environ.get(UPLOADS_ENV, "").strip()
+    return Path(override).expanduser() if override else Path.home() / ".autodeck" / "uploads"
 
 
 def _git_name() -> str:
