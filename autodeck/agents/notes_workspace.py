@@ -42,7 +42,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from autodeck.agents.content import CitationResolutionError, ProposedCitation, _resolve_citation
+from autodeck.agents.content import (
+    CitationResolutionError,
+    ProposedCitation,
+    _resolve_citation,
+    loose_snapping,
+)
 from autodeck.agents.evidence_pack import document_spans
 from autodeck.agents.workspace import WorkspaceError
 from autodeck.ingest.document_store import Document, DocumentStore
@@ -262,18 +267,21 @@ class NotesWorkspace:
         spans = self.shown_spans()
         on_page = [s for s in spans if s.page == cite.page]
         proposed = ProposedCitation(doc_id=self.doc_id, quote=cite.quote)
-        try:
-            return _resolve_citation(proposed, store=self.store, claims=(), spans=on_page)
-        except CitationResolutionError:
-            pass
-        try:
-            found = _resolve_citation(proposed, store=self.store, claims=(), spans=spans)
-        except CitationResolutionError as exc:
-            raise NotesError(
-                f"the quote cited from turn {cite.page} is not verbatim in it (or in any turn "
-                f"shown): {exc}. Copy the words exactly as the transcript has them, within one "
-                "turn."
-            ) from None
+        # B86: notes are written the normal-mode way; a quote that points at the turn
+        # resolves to the turn's exact words without being copied character for character.
+        with loose_snapping():
+            try:
+                return _resolve_citation(proposed, store=self.store, claims=(), spans=on_page)
+            except CitationResolutionError:
+                pass
+            try:
+                found = _resolve_citation(proposed, store=self.store, claims=(), spans=spans)
+            except CitationResolutionError as exc:
+                raise NotesError(
+                    f"the quote cited from turn {cite.page} does not match that turn (or any "
+                    f"turn shown): {exc}. Use the words the transcript has, within one turn; "
+                    "close is enough, code finds the exact words."
+                ) from None
         raise NotesError(
             f"that quote is in turn {found.page}, not turn {cite.page}. Cite it with page "
             f"{found.page}."

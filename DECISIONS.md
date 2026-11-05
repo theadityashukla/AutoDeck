@@ -2467,5 +2467,43 @@ the owner with options.
     `tests/test_multi_client_regression.py`, plus one for `meeting transcribe`.
 - **Consequences:** to build a run's material for another client, the person starts a new
   run; nothing carries over.
-  - Next free id: **B86**.
+
+### B86 — Normal mode is grounded, not copied
+- **Date:** 2026-11-05
+- **Phase / branch:** cross-cutting, decided during Phase 4 (`v2/phase-4-workflow`)
+- **Status:** active
+- **Context:** The owner (2026-11-05): the system feels like a strict environment, focused on
+  verbatim quotes and exact phrases, which "would definitely ruin the experience of somebody
+  trying to create [a deck] quickly"; the balance should be "grounded, but it doesn't feel
+  like a copy-paste job". Strict mode exists for decks that go for approval (MLR); normal mode
+  is everyday use (B84). The prompts and checks applied the strict standard to both.
+- **Decision (strict mode unchanged in every point):**
+  - **Point, don't copy.** In a normal deck and in meeting notes, a quote only has to point at
+    its passage: one that shares at least 60% of its text with one shown passage
+    (`NORMAL_SNAP_MIN_COVERAGE`, against 85% in strict) resolves to that passage's exact
+    words. A1 is unchanged: the stored citation is always the source's verbatim text, the
+    passage must have been shown (B75), and a quote stitched from two passages still fails.
+  - **Readable rounding (A2, owner's choice of "any reasonable rounding").** In a normal deck
+    a slide figure matches a cited figure when it is that figure rounded to the slide's own
+    precision (decimal places or significant figures), in the same unit, within 10%
+    (`NORMAL_ROUNDING_REL_LIMIT`). 33.4% → 33% and 1,212 → about 1,200 pass; 33.4% → 30% (10.2%)
+    and any change of unit do not. A rounded match is reported (`via_rounding`), never
+    silent. It applies to the IR lint, the rendered-text lint and the talking-header rule.
+  - **Natural words.** `prompts/provenance_normal.md` gains "Grounded, not copied": the slide
+    is the writer's own natural sentences, condensed and combined; the quote points; figures
+    may be rounded. The skills keep the strict standard with a note that normal mode relaxes
+    it. `provenance_strict.md` states the exact standard explicitly.
+  - **The validator judges meaning, not wording**, and is told each batch's mode; a rounding
+    is not a discrepancy in a normal deck.
+  - **Meeting notes are always written the normal way** (owner's choice): plain sentences,
+    close quotes.
+- **Rationale:** what protects accuracy is that every point rests on a shown passage, that
+  the stored evidence is exact, and that an independent validator judges meaning. None of
+  that needs the writer to copy text, and copying is what made slides read like the source.
+- **Consequences:**
+  - The validator carries more of the weight in normal mode: a looser pointer can land on the
+    right passage for the wrong reason, and the validator is what says whether it supports
+    the claim.
+  - Live accuracy on dev-mistral should be re-measured once a key is available.
+  - Next free id: **B87**.
 

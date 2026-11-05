@@ -129,7 +129,9 @@ def run_draft_checks(
             elif block.claim is not None:
                 demotion = lint_unsourced(block, slide_id=slide.id)
             elif block.slot in HEADER_SLOTS and where == "face":
-                demotion = lint_header(block, slide, terms=terms)
+                demotion = lint_header(
+                    block, slide, terms=terms, rounding=deck.provenance == "normal"
+                )
             else:
                 demotion = lint_block(block, slide_id=slide.id, terms=terms)
             if demotion is not None:

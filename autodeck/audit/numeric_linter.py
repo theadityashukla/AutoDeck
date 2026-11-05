@@ -1373,6 +1373,12 @@ DERIVATION_REL_TOL = 1e-9
 #: Beyond this relative distance it is not rounding, it is a different number.
 ROUNDING_REL_LIMIT = 0.05
 
+NORMAL_ROUNDING_REL_LIMIT = 0.10
+"""B86: in a `normal` deck a slide may round a cited figure for readability (33.4% → 33%,
+1,212 → 1,200, 2.47x → 2.5x). The slide's figure must be the cited value rounded to the
+slide's own precision (decimal places or significant figures), within this distance of it.
+A `strict` deck keeps the exact rule: no rounding of a cited number."""
+
 
 def re_execute_derivation(
     derivation: Derivation, *, location: str = ""
@@ -1767,6 +1773,7 @@ def match_numerals(
     derivations: Sequence[Derivation] = (),
     allow: Sequence[AllowedNumeral] = ALLOWLIST,
     location: str = "",
+    rounding: bool = False,
 ) -> tuple[list[NumeralMatch], list[Numeral]]:
     """Trace each numeral to a cited span, a derivation result, or a derivation input.
 
@@ -1775,6 +1782,10 @@ def match_numerals(
     `re_execute_derivation` is what proves the number is right, and keeping the two apart is
     what makes "disable the defence and confirm red" a test rather than a thought
     experiment.
+
+    `rounding` (B86, `normal` decks only) adds one last tier: a numeral that is a cited value
+    rounded to the numeral's own precision, within `NORMAL_ROUNDING_REL_LIMIT`, matches and
+    is reported as a rounding.
     """
     allowed = {entry.surface for entry in allow}
     citation_forms = _citation_forms(citations)
@@ -1787,6 +1798,8 @@ def match_numerals(
         match = _match_against_citations(numeral, citation_forms, location)
         if match is None:
             match = _match_against_derivations(numeral, derivations, location)
+        if match is None and rounding:
+            match = _match_rounded_citation(numeral, citation_forms, location)
         if match is None:
             unmatched.append(numeral)
         else:
@@ -1929,6 +1942,52 @@ def _match_against_citations(
                 other_sources=tuple(_citation_label(c) for c, _ in unqualified[1:]),
                 matched_on=(span_key[0], ""),
             )
+    return None
+
+
+def _rounds_to(cited: Decimal, shown: Decimal) -> bool:
+    """Whether `shown` is `cited` rounded to `shown`'s decimal places or significant figures."""
+    if cited == shown:
+        return True
+    places = _places_of(shown)
+    if Decimal(str(round(float(cited), places))) == shown:
+        return True
+    if shown == 0 or cited == 0:
+        return False
+    digits = len(str(abs(shown)).replace(".", "").lstrip("0").rstrip("0")) or 1
+    magnitude = abs(cited).adjusted()
+    quantum = Decimal(1).scaleb(magnitude - digits + 1)
+    return cited.quantize(quantum, rounding="ROUND_HALF_UP") == shown.quantize(quantum)
+
+
+def _match_rounded_citation(
+    numeral: Numeral, citation_forms: Sequence[CitationForms], location: str
+) -> NumeralMatch | None:
+    """B86 (`normal` decks): a numeral that rounds a cited value of the same unit.
+
+    Same unit only, and only from a cited value to a coarser printed one, within
+    `NORMAL_ROUNDING_REL_LIMIT`. Reported (`via_rounding`), never silent: the audit log says
+    the slide shows a rounded figure. The exact figure stays in the citation.
+    """
+    for citation, forms, _alt, _quals in citation_forms:
+        for value, unit in sorted(numeral.forms, key=lambda k: (k[0], k[1])):
+            for cited_value, cited_unit in sorted(forms, key=lambda k: (k[0], k[1])):
+                if cited_unit != unit or not _rounds_to(cited_value, value):
+                    continue
+                drift = _relative_difference(float(cited_value), float(value))
+                if drift > NORMAL_ROUNDING_REL_LIMIT:
+                    continue
+                return NumeralMatch(
+                    numeral=numeral,
+                    source="citation",
+                    detail=(
+                        f"rounds {cited_value} in {_citation_label(citation)} "
+                        f"({drift:.1%} from the cited figure)"
+                    ),
+                    location=location,
+                    via_rounding=True,
+                    matched_on=(value, unit),
+                )
     return None
 
 
@@ -2093,7 +2152,7 @@ def _citation_label(citation: Citation) -> str:
 
 
 def lint_scope(
-    scope: LintScope, *, allow: Sequence[AllowedNumeral] = ALLOWLIST
+    scope: LintScope, *, allow: Sequence[AllowedNumeral] = ALLOWLIST, rounding: bool = False
 ) -> NumericReport:
     """Run A2 over one piece of text and the evidence in force over it.
 
@@ -2121,6 +2180,7 @@ def lint_scope(
         derivations=scope.derivations,
         allow=allow,
         location=scope.location,
+        rounding=rounding,
     )
     report.matches.extend(matches)
 
@@ -2279,12 +2339,15 @@ def _ambiguity_findings(matches: Sequence[NumeralMatch], location: str) -> list[
 
 
 def lint_scopes(
-    scopes: Iterable[LintScope], *, allow: Sequence[AllowedNumeral] = ALLOWLIST
+    scopes: Iterable[LintScope],
+    *,
+    allow: Sequence[AllowedNumeral] = ALLOWLIST,
+    rounding: bool = False,
 ) -> NumericReport:
     """Run `lint_scope` over many scopes into one report."""
     report = NumericReport()
     for scope in scopes:
-        report.extend(lint_scope(scope, allow=allow))
+        report.extend(lint_scope(scope, allow=allow, rounding=rounding))
     return report
 
 
@@ -2293,7 +2356,8 @@ def lint_deck(deck: Deck, *, allow: Sequence[AllowedNumeral] = ALLOWLIST) -> Num
 
     Uses `Slide.all_blocks()`, so **speaker notes are linted exactly like slide faces**.
     INVARIANTS says notes are the most common place for an uncited number to hide, and a
-    linter that iterated `slide.blocks` would be blind to precisely that.
+    linter that iterated `slide.blocks` would be blind to precisely that. A `normal` deck may
+    round a cited figure (B86); a `strict` deck may not.
     """
     scopes = _deck_scopes(deck)
     if deck.named_terms:
@@ -2301,7 +2365,7 @@ def lint_deck(deck: Deck, *, allow: Sequence[AllowedNumeral] = ALLOWLIST) -> Num
             dataclasses.replace(scope, text=mask_terms(scope.text, deck.named_terms))
             for scope in scopes
         ]
-    return lint_scopes(scopes, allow=allow)
+    return lint_scopes(scopes, allow=allow, rounding=deck.provenance == "normal")
 
 
 #: The slot a content slide's talking header fills (B54); `framing_linter.HEADER_SLOTS`
@@ -2524,6 +2588,7 @@ def lint_rendered_slides(
             derivations=scope.derivations,
             allow=allow,
             location=scope.location,
+            rounding=deck.provenance == "normal",
         )
         report.matches.extend(matches)
         report.findings.extend(

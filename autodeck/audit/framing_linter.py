@@ -636,7 +636,9 @@ def lint_diagram(
     )
 
 
-def lint_header(block: Block, slide: Slide, *, terms: Sequence[str] = ()) -> Demotion | None:
+def lint_header(
+    block: Block, slide: Slide, *, terms: Sequence[str] = (), rounding: bool = False
+) -> Demotion | None:
     """Check a talking header (B54). Returns the demotion it earned, or None.
 
     On a slide with no cited content (title, divider, agenda) a header is held to the full
@@ -664,6 +666,7 @@ def lint_header(block: Block, slide: Slide, *, terms: Sequence[str] = ()) -> Dem
         extract_numerals(mask_terms(block.text, terms)),
         citations=citations,
         derivations=derivations,
+        rounding=rounding,  # B86: a normal deck's header may round a figure on its slide
     )
     for numeral in unmatched:
         findings.append(
@@ -781,7 +784,9 @@ def lint_framing(deck: Deck) -> FramingReport:
                 continue
             report.text_blocks_checked += 1
             if block.slot in HEADER_SLOTS and any(b.id == block.id for b in slide.blocks):
-                demotion = lint_header(block, slide, terms=terms)
+                demotion = lint_header(
+                    block, slide, terms=terms, rounding=deck.provenance == "normal"
+                )
             else:
                 demotion = lint_block(block, slide_id=slide.id, terms=terms)
             if demotion is not None:

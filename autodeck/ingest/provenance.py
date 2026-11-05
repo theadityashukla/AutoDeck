@@ -117,10 +117,17 @@ def find_span(haystack: str, needle: str) -> tuple[int, int] | None:
 SNAP_MIN_COVERAGE = 0.85
 SNAP_MAX_STRETCH = 1.5
 SNAP_MIN_QUOTE_CHARS = 20
+NORMAL_SNAP_MIN_COVERAGE = 0.6
+"""B86: in a `normal` deck (and in meeting notes) the writer points at a passage rather than
+copying it character for character: a quote that shares at least this much of its text with
+one shown passage is resolved to that passage's exact words. The stored citation is always
+the source's verbatim text (A1); only the burden of copying is lighter."""
 _SNAP_MIN_RUN = 4
 
 
-def snap_span(haystack: str, needle: str) -> tuple[tuple[int, int], float] | None:
+def snap_span(
+    haystack: str, needle: str, *, min_coverage: float = SNAP_MIN_COVERAGE
+) -> tuple[tuple[int, int], float] | None:
     """Locate the passage of `haystack` that `needle` is a slightly-off copy of (B52).
 
     For when `find_span` fails because a model copied a quote imperfectly: a period added
@@ -131,7 +138,8 @@ def snap_span(haystack: str, needle: str) -> tuple[tuple[int, int], float] | Non
     offsets, so the citation built from it carries the document's words, never the model's.
 
     Returns `((start, end), coverage)`, or None when no single passage accounts for at
-    least `SNAP_MIN_COVERAGE` of the quote within `SNAP_MAX_STRETCH` of its length.
+    least `min_coverage` (default `SNAP_MIN_COVERAGE`) of the quote within `SNAP_MAX_STRETCH`
+    of its length. A `normal` deck passes `NORMAL_SNAP_MIN_COVERAGE` (B86).
     """
     target = normalise_for_match(needle)
     if len(target) < SNAP_MIN_QUOTE_CHARS:
@@ -146,7 +154,7 @@ def snap_span(haystack: str, needle: str) -> tuple[tuple[int, int], float] | Non
         return None
     coverage = sum(run.size for run in runs) / len(target)
     start_n, end_n = runs[0].a, runs[-1].a + runs[-1].size
-    if coverage < SNAP_MIN_COVERAGE or end_n - start_n > SNAP_MAX_STRETCH * len(target):
+    if coverage < min_coverage or end_n - start_n > SNAP_MAX_STRETCH * len(target):
         return None
 
     start, end = offsets[start_n], offsets[end_n - 1] + 1

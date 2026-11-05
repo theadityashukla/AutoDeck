@@ -88,7 +88,8 @@ from __future__ import annotations
 import dataclasses
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -111,7 +112,12 @@ from autodeck.design.components.catalog import (
 from autodeck.design.headers.prompt import render_for_prompt, resolve_profile
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ingest.document_store import DocumentStore, IngestError, UncitableSourceError
-from autodeck.ingest.provenance import diagnose_quote, snap_span
+from autodeck.ingest.provenance import (
+    NORMAL_SNAP_MIN_COVERAGE,
+    SNAP_MIN_COVERAGE,
+    diagnose_quote,
+    snap_span,
+)
 from autodeck.ir.models import (
     GEOMETRIES,
     Block,
@@ -558,6 +564,22 @@ def _passages(store: DocumentStore, spans: Sequence[RetrievedSpan]) -> list[str]
 #: sits four calls deep (block -> claim/chart/diagram -> step -> citation).
 _SNAP_NOTES: ContextVar[tuple[str, list[str]] | None] = ContextVar("_SNAP_NOTES", default=None)
 
+#: How much of a quote must match one shown passage for `_snap_citation` to resolve it to
+#: that passage's words (B52, B86): strict and redesign keep `SNAP_MIN_COVERAGE`; a `normal`
+#: deck and meeting notes use `NORMAL_SNAP_MIN_COVERAGE`. Set by `resolve_blocks` and by
+#: `loose_snapping()`; a context variable for the same reason as `_SNAP_NOTES`.
+_SNAP_COVERAGE: ContextVar[float] = ContextVar("_SNAP_COVERAGE", default=SNAP_MIN_COVERAGE)
+
+
+@contextmanager
+def loose_snapping() -> Iterator[None]:
+    """Resolve near quotes at the `normal`-mode bar for the duration (B86)."""
+    token = _SNAP_COVERAGE.set(NORMAL_SNAP_MIN_COVERAGE)
+    try:
+        yield
+    finally:
+        _SNAP_COVERAGE.reset(token)
+
 
 def _snap_citation(
     proposed: ProposedCitation,
@@ -580,7 +602,7 @@ def _snap_citation(
         element = store.get(span.doc_id).element(span.element_id)
         if element is None:
             continue
-        found = snap_span(element.text, proposed.quote)
+        found = snap_span(element.text, proposed.quote, min_coverage=_SNAP_COVERAGE.get())
         if found is None:
             continue
         (start, end), coverage = found
@@ -1489,6 +1511,10 @@ def resolve_blocks(
     """
     resolved: list[Block] = []
     token = _SNAP_NOTES.set((location, snapped) if snapped is not None else None)
+    # B86: `allow_unsourced` is exactly a normal-mode deck that is not a redesign.
+    coverage = _SNAP_COVERAGE.set(
+        NORMAL_SNAP_MIN_COVERAGE if allow_unsourced else _SNAP_COVERAGE.get()
+    )
     try:
         for item in proposed:
             block = _resolve_block(
@@ -1506,6 +1532,7 @@ def resolve_blocks(
             if block is not None:
                 resolved.append(block)
     finally:
+        _SNAP_COVERAGE.reset(coverage)
         _SNAP_NOTES.reset(token)
     return resolved
 

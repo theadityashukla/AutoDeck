@@ -410,14 +410,25 @@ def _render_terms(terms: Sequence[str]) -> str:
     )
 
 
+_MODE_LINES = {
+    "strict": "This deck is in STRICT mode: figures must match their sources exactly.\n\n",
+    "normal": (
+        "This deck is in NORMAL mode: judge meaning and strength, not wording; a figure "
+        "that is its cited value rounded, in the same unit, is not a discrepancy.\n\n"
+    ),
+}
+
+
 def _render_batch_prompt(
     sites: Sequence[ClaimSite],
     evidence: dict[str, ValidatorEvidence],
     terms: Sequence[str] = (),
+    provenance: str | None = None,
 ) -> str:
     parts = [_render_claim_section(site, evidence[site.claim_id]) for site in sites]
     return (
-        _render_terms(terms)
+        _MODE_LINES.get(provenance or "", "")
+        + _render_terms(terms)
         + f"Judge each of the following {len(sites)} claim(s). Return one judgement per "
         "claim_id, copied exactly as shown.\n\n" + "\n\n---\n\n".join(parts)
     )
@@ -430,6 +441,7 @@ def _judge_batch(
     model: ValidationModel,
     system: str,
     terms: Sequence[str] = (),
+    provenance: str | None = None,
 ) -> dict[str, VerdictJudgement]:
     """One structured-output call for a whole batch. Never raises.
 
@@ -440,7 +452,9 @@ def _judge_batch(
     """
     try:
         draft = model.complete_structured(
-            _render_batch_prompt(sites, evidence, terms), ValidationDraft, system=system
+            _render_batch_prompt(sites, evidence, terms, provenance),
+            ValidationDraft,
+            system=system,
         )
     except Exception as exc:  # any provider failure, deliberately broad
         logger.warning(
@@ -827,7 +841,9 @@ def validate_deck(
     for batch in _pack_batches(
         to_judge, evidence, budget_tokens=batch_budget_tokens, max_claims=max_batch_claims
     ):
-        judgements = _judge_batch(batch, evidence, model=model, system=system, terms=terms)
+        judgements = _judge_batch(
+            batch, evidence, model=model, system=system, terms=terms, provenance=deck.provenance
+        )
         provider_calls += 1
         for site in batch:
             assessment = assess_claim(

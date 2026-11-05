@@ -82,13 +82,13 @@ def test_a_quote_on_another_turn_names_that_turn(tmp_path: Path) -> None:
 def test_a_quote_spanning_two_turns_is_refused(tmp_path: Path) -> None:
     ws = shown(tmp_path)
     spliced = "pilot review. We decided to go"
-    with pytest.raises(NotesError, match="not verbatim"):
+    with pytest.raises(NotesError, match="does not match that turn"):
         ws.add_item("Decisions", item("x", 1, spliced))
 
 
 def test_a_quote_that_is_not_in_the_transcript_is_refused(tmp_path: Path) -> None:
     ws = shown(tmp_path)
-    with pytest.raises(NotesError, match="not verbatim"):
+    with pytest.raises(NotesError, match="does not match that turn"):
         ws.add_item("Decisions", item("x", 2, "we chose the other vendor"))
 
 
