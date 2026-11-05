@@ -2412,5 +2412,29 @@ the owner with options.
 - **Consequences:**
   - A failed transcription needs the file uploaded again.
   - Step 13 (the real recording) can now run from the UI on the owner's Mac.
-  - Next free id: **B84**.
+
+### B84 — Phase 4 starts before GATE 3c; the audit report is reviewed only for strict decks
+- **Date:** 2026-11-05
+- **Phase / branch:** Phase 4 (`v2/phase-4-workflow`, cut from `v2/integration` at `1b5e38c`)
+- **Status:** active
+- **Context:** `docs/phases/PHASE-4.md` lists GATE 3 approved as a precondition. GATE 2/3
+  moved to GATE 3c (B46), which has not been approved in writing; `STATUS.md` still names
+  GATE 1 as the last gate passed. Open question Q4 asked who reads the audit report.
+- **Decision:**
+  - **Phase 4 is built now, on its own branch**, at the owner's instruction (2026-11-05).
+    Nothing merges into `v2/integration` until the owner approves GATE 3c and then GATE 4 in
+    writing (BRANCHING.md rule 3). The owner asked for all eight tasks, not one at a time;
+    they are still built and committed task by task.
+  - **Q4, answered by the owner:** the audit report is internal. It is a reviewed document
+    only for **strict** decks (MLR, anything going for approval), where someone signs off
+    on the claims. In **normal** use nobody has time to review it; it is still written, as a
+    log (Markdown report and manifest, A6), but nothing produces a PDF of it or asks the
+    person to read it. Task 4.6 is therefore a PDF for strict decks only.
+  - The phase's tasks are re-scoped to what exists since the phase was written: 4.4's
+    `build` runs the draft-first flow (B43), whose four approvals are on the draft.
+- **Consequences:**
+  - The branch carries work whose gates are pending; `STATUS.md` says so.
+  - A normal-mode deck's audit trail is complete but unread by default; a strict deck's is
+    the review surface.
+  - Next free id: **B85**.
 
