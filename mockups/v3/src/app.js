@@ -1011,6 +1011,7 @@
     if (!d.matches || !d.matches('details.route')) return;
     var mid = +d.getAttribute('data-mid');
     ui.msgs.concat(ui.notesMsgs).forEach(function (m) { if (m.id === mid) m.open = d.open; });
+    if (d.open) d.scrollIntoView({ block: 'nearest' });
   }, true);
 
   document.addEventListener('keydown', function (e) {

@@ -505,16 +505,23 @@ h1:focus { outline: none; }
   .home-head h1, .strict-title h1, .notes-doc > h1 { font-size: 22px; }
 }
 @media (max-width: 700px) {
-  .note { order: 9; flex-basis: 100%; margin-left: 0; }
-  #restart { margin-left: auto; }
+  .topbar { gap: 6px 10px; padding: 8px 0; }
+  .brand { order: 1; }
+  .note { order: 2; flex: 1 1 auto; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .switcher { order: 3; flex: 1 1 220px; }
+  .sw-btn { width: 100%; justify-content: space-between; }
+  #restart { order: 4; }
   .tr-layer { font-size: 12.5px; }
 }
 @media (max-width: 480px) {
   .pv-row { grid-template-columns: minmax(0, 1fr); }
-  .controls { flex-direction: column; align-items: flex-start; }
+  .composer { padding: 8px 10px 10px; gap: 6px; }
+  .about-chip:not(.active) { display: none; }
+  .about { min-height: 0; }
   .msgs { padding: 12px; }
   .tr { grid-template-columns: 5.6rem auto 1fr auto 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+#dlg-body { display: flex; flex-direction: column; gap: 10px; }
