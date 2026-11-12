@@ -425,8 +425,38 @@ phase starts.
 
 ## 12. Build order
 
-Each phase ends with something the owner can use and judge. There are no approval gates in
-the build beyond the owner saying whether the phase did its job.
+The build starts with an interactive mock-up, then eight phases. Each phase ends with
+something the owner can use and judge. There are no approval gates in the build beyond the
+owner saying whether the phase did its job.
+
+### First step — An interactive mock-up (before any phase)
+
+Nothing in Phases 0–7 starts until the owner has used a mock-up and this plan has been
+revised from what it showed. The plan describes a conversation; the cheapest way to find
+out where it is wrong is to click through one.
+
+**What it is:** a clickable front end with scripted content. No model calls, no rendering
+to PPTX, no engine behind it. Slides are static images or simple drawn layouts.
+
+**What it must let the owner try:**
+
+- an engagement's home: its sources, artifacts and threads;
+- opening a returning thread and reading the recap built from state (§5.1);
+- the three kinds of turn: talk, propose and change (§5.2);
+- a design question answered with two or three rendered directions to pick from (§7.2);
+- the slide strip with `decided`, `provisional` and `stale` markers (§4);
+- selecting a slide or an element and sending a message scoped to it (§5.3);
+- the change log, with undo of a single change (§4);
+- which layer and model handled a message, and the manual override (§6.4);
+- auto and propose-first editing (V3);
+- a notes artifact beside a deck in one engagement (§10);
+- the single export confirmation (V6), and how a strict deck looks different (§9).
+
+**What it is not:** a prototype to grow into the product. It is thrown away, or kept only as
+a visual reference. The interface stack (§14, question 2) is decided after it, not by it.
+
+**Done when:** the owner has walked through it, said what feels wrong or missing, and this
+plan has been updated to match. Only then does Phase 0 begin.
 
 ### Phase 0 — Foundations
 
