@@ -1,0 +1,1810 @@
+<title>AutoDeck v3 Mock-up</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* AutoDeck v3 mock-up. All colours are tokens. */
+:root {
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --surface-2: #f6f8fb;
+  --surface-3: #eceff5;
+  --stage: #dfe4ec;
+  --line: #dde2ea;
+  --line-strong: #c3cad7;
+  --text: #19202e;
+  --text-2: #4f596d;
+  --text-3: #727c90;
+  --accent: #0a64d8;
+  --accent-text: #0a5bc4;
+  --on-accent: #ffffff;
+  --accent-soft: #e5effd;
+  --accent-wash: rgba(10, 100, 216, 0.1);
+  --accent-ring: rgba(10, 100, 216, 0.35);
+  --warn-text: #8a5700;
+  --warn-bg: #fcf0d4;
+  --warn-line: #d6a032;
+  --stale-text: #b23a0d;
+  --stale-bg: #fde9de;
+  --stale-line: #e08a63;
+  --t-lead: #0a64d8;
+  --t-lead-ink: #ffffff;
+  --t-senior: #75a8f0;
+  --t-senior-ink: #0a2750;
+  --t-mid: #b0cdf8;
+  --t-mid-ink: #0a2750;
+  --t-low: #dbe8fc;
+  --t-low-ink: #0a2750;
+  --seg-bg: #e6e9f0;
+  --frost: rgba(246, 248, 252, 0.78);
+  --scrim: rgba(24, 31, 46, 0.38);
+  --toast-bg: #1d2535;
+  --toast-ink: #f3f6fb;
+  --shadow-s: 0 1px 2px rgba(25, 32, 46, 0.08), 0 0 0 1px rgba(25, 32, 46, 0.04);
+  --shadow-m: 0 4px 14px rgba(25, 32, 46, 0.1), 0 1px 3px rgba(25, 32, 46, 0.08);
+  --shadow-slide: 0 10px 30px rgba(25, 32, 46, 0.22), 0 2px 6px rgba(25, 32, 46, 0.14);
+  --focus: #0a64d8;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e121a;
+    --surface: #171c27;
+    --surface-2: #1b212d;
+    --surface-3: #212837;
+    --stage: #0a0d13;
+    --line: #272f3f;
+    --line-strong: #394357;
+    --text: #e8ecf4;
+    --text-2: #a4aec1;
+    --text-3: #7c869b;
+    --accent: #2f7be5;
+    --accent-text: #6cb0ff;
+    --on-accent: #ffffff;
+    --accent-soft: #182a47;
+    --accent-wash: rgba(76, 154, 255, 0.14);
+    --accent-ring: rgba(76, 154, 255, 0.5);
+    --warn-text: #f0c26a;
+    --warn-bg: #31270f;
+    --warn-line: #8a6a24;
+    --stale-text: #ff9f74;
+    --stale-bg: #3a2119;
+    --stale-line: #a4573a;
+    --t-lead: #2f7be5;
+    --t-lead-ink: #ffffff;
+    --t-senior: #2b5fa8;
+    --t-senior-ink: #e5efff;
+    --t-mid: #234878;
+    --t-mid-ink: #d3e4ff;
+    --t-low: #1c3557;
+    --t-low-ink: #bdd4f5;
+    --seg-bg: #0f131c;
+    --frost: rgba(20, 25, 36, 0.78);
+    --scrim: rgba(3, 5, 10, 0.6);
+    --toast-bg: #e8ecf4;
+    --toast-ink: #141a26;
+    --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    --shadow-m: 0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-slide: 0 10px 34px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+    --focus: #6cb0ff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e121a;
+  --surface: #171c27;
+  --surface-2: #1b212d;
+  --surface-3: #212837;
+  --stage: #0a0d13;
+  --line: #272f3f;
+  --line-strong: #394357;
+  --text: #e8ecf4;
+  --text-2: #a4aec1;
+  --text-3: #7c869b;
+  --accent: #2f7be5;
+  --accent-text: #6cb0ff;
+  --on-accent: #ffffff;
+  --accent-soft: #182a47;
+  --accent-wash: rgba(76, 154, 255, 0.14);
+  --accent-ring: rgba(76, 154, 255, 0.5);
+  --warn-text: #f0c26a;
+  --warn-bg: #31270f;
+  --warn-line: #8a6a24;
+  --stale-text: #ff9f74;
+  --stale-bg: #3a2119;
+  --stale-line: #a4573a;
+  --t-lead: #2f7be5;
+  --t-lead-ink: #ffffff;
+  --t-senior: #2b5fa8;
+  --t-senior-ink: #e5efff;
+  --t-mid: #234878;
+  --t-mid-ink: #d3e4ff;
+  --t-low: #1c3557;
+  --t-low-ink: #bdd4f5;
+  --seg-bg: #0f131c;
+  --frost: rgba(20, 25, 36, 0.78);
+  --scrim: rgba(3, 5, 10, 0.6);
+  --toast-bg: #e8ecf4;
+  --toast-ink: #141a26;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-m: 0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-slide: 0 10px 34px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+  --focus: #6cb0ff;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+[hidden] { display: none !important; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent-text); }
+h1, h2, h3, p, ul, ol, dl, dd, blockquote { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--text-3); font-size: 13px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+[aria-disabled="true"], button:disabled { cursor: not-allowed; }
+
+/* ---------- shell ---------- */
+.wrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 100%;
+}
+.topbar {
+  flex: none;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
+  padding: 10px 0;
+  position: relative; z-index: 5;
+}
+.brand { display: inline-flex; align-items: center; gap: 7px; font-weight: 650; font-size: 15px; color: var(--text); text-decoration: none; letter-spacing: -0.01em; }
+.brand svg { color: var(--accent); }
+.switcher { position: relative; min-width: 0; }
+.sw-btn {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 10px; box-shadow: var(--shadow-s); color: var(--text-2); font-size: 13px;
+}
+.sw-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10; width: min(360px, calc(100vw - 32px));
+  background: var(--frost); backdrop-filter: saturate(1.5) blur(18px); -webkit-backdrop-filter: saturate(1.5) blur(18px);
+  border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: var(--shadow-m);
+}
+.menu-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 9px; font-size: 13px; }
+.menu-item.current { background: var(--accent-soft); color: var(--accent-text); }
+.menu-item:disabled { color: var(--text-3); }
+.menu-note { color: var(--text-3); font-size: 12px; padding: 6px 9px 4px; }
+.note { margin-left: auto; color: var(--text-3); font-size: 12px; }
+#main { flex: 1; min-height: 0; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+.view { height: 100%; }
+.home, .notes, .strict, .history { overflow-y: auto; overflow-x: hidden; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 5px 12px; font-size: 13px; font-weight: 500; color: var(--text); text-decoration: none; box-shadow: var(--shadow-s);
+  min-height: 30px;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { filter: brightness(1.07); background: var(--accent); }
+.btn[aria-disabled="true"] { opacity: 0.5; box-shadow: none; }
+.btn[aria-disabled="true"]:hover { background: var(--surface); }
+.btn.primary[aria-disabled="true"]:hover { background: var(--accent); filter: none; }
+.linkbtn { background: none; border: 0; padding: 2px 0; color: var(--accent-text); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
+
+.tag { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 7px; border-radius: 99px; border: 1px solid var(--line-strong); color: var(--text-2); white-space: nowrap; font-weight: 500; }
+.tag-prov { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.tag-stale { color: var(--stale-text); background: var(--stale-bg); border-color: var(--stale-line); }
+.tag-ok { color: var(--accent-text); background: var(--accent-soft); border-color: transparent; }
+.tag-strict { color: var(--on-accent); background: var(--text); border-color: var(--text); letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; }
+.tag-plain { background: var(--surface-3); border-color: transparent; }
+
+.pane-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.pane-head h1, .pane-title { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back { font-size: 13px; color: var(--text-2); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.back::before { content: ""; width: 7px; height: 7px; border-left: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: rotate(45deg); margin-right: 2px; }
+.back:hover { color: var(--text); }
+h1:focus { outline: none; }
+
+/* ---------- home ---------- */
+.home-inner, .strict-inner, .hist-inner { max-width: 1180px; margin: 0 auto; padding: 14px 0 40px; }
+.home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.home-head h1, .strict-title h1, .notes-doc > h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; }
+.lede { color: var(--text-2); margin-top: 4px; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.col { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 6px 8px; box-shadow: var(--shadow-s); min-width: 0; }
+.col-h { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding: 10px 10px 6px; display: flex; gap: 8px; align-items: center; }
+.count { font-weight: 500; background: var(--surface-3); border-radius: 99px; padding: 0 7px; letter-spacing: 0; }
+.row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 9px; text-decoration: none; color: var(--text); width: 100%; text-align: left; background: none; border: 0; }
+.row.link:hover { background: var(--surface-2); }
+.ico { flex: none; color: var(--text-3); margin-top: 3px; display: inline-flex; }
+.row-b { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row-t { font-size: 13.5px; font-weight: 500; overflow-wrap: anywhere; }
+.row-m { font-size: 12px; color: var(--text-3); }
+.row .tag { flex: none; margin-top: 2px; }
+
+/* ---------- thread ---------- */
+.thread { display: flex; flex-direction: column; overflow: hidden; }
+.thread-tabs { display: none; }
+.thread-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 2fr) minmax(0, 3fr); gap: 14px; }
+.chat, .panel { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s); overflow: hidden; }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.msg { display: flex; flex-direction: column; gap: 5px; max-width: 100%; }
+.msg.user { align-items: flex-end; }
+.msg.user .bubble { background: var(--accent); color: var(--on-accent); border-radius: 14px 14px 4px 14px; padding: 7px 12px; max-width: 88%; overflow-wrap: anywhere; }
+.u-about { font-size: 11.5px; color: var(--text-3); }
+.msg.assistant .bubble { background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px; padding: 10px 13px; display: flex; flex-direction: column; gap: 9px; overflow-wrap: anywhere; }
+.msg-meta { display: flex; gap: 8px; align-items: center; }
+.kind { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+.kind::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--text-3); }
+.kind-proposal { color: var(--warn-text); }
+.kind-proposal::before { border-color: var(--warn-text); border-style: dashed; }
+.kind-change { color: var(--accent-text); }
+.kind-change::before { background: var(--accent); border-color: var(--accent); }
+.pstat { font-size: 11.5px; color: var(--text-3); }
+.items { padding-left: 16px; list-style: disc; display: flex; flex-direction: column; gap: 2px; color: var(--text-2); font-size: 13px; }
+.items li::marker { color: var(--text-3); }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.typing .bubble { padding: 12px 14px; width: fit-content; }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); animation: blink 1.1s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+
+/* routing trace */
+.route { font-size: 12px; color: var(--text-3); }
+.route.plain { display: flex; gap: 8px; padding: 0 2px; }
+.route-l { font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; padding-top: 1px; }
+.route > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; padding: 0 2px; border-radius: 6px; }
+.route > summary::-webkit-details-marker { display: none; }
+.route > summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin-left: 2px; align-self: center; flex: none; }
+.route[open] > summary::after { transform: rotate(-135deg); }
+.route-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.route-t { margin-left: auto; font-family: var(--mono); font-size: 11px; flex: none; }
+.route:not([open]) > summary .route-t { margin-left: 0; }
+.trace { margin-top: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.tr { display: grid; grid-template-columns: 6.4rem auto 1fr auto 64px; gap: 2px 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tr:last-child { border-bottom: 0; }
+.tr-layer { color: var(--text); font-weight: 550; }
+.tr-note { grid-column: 1 / -1; color: var(--text-2); }
+.tr-time { font-family: var(--mono); font-size: 11px; grid-column: 4; grid-row: 1; text-align: right; }
+.tr .bar { grid-column: 5; grid-row: 1; }
+.tr.skip { opacity: 0.7; }
+.tr.skip .tr-note { color: var(--text-3); }
+.tier { font-size: 11px; line-height: 16px; padding: 0 8px; border-radius: 99px; font-weight: 600; width: fit-content; }
+.t-lead { background: var(--t-lead); color: var(--t-lead-ink); }
+.t-senior { background: var(--t-senior); color: var(--t-senior-ink); }
+.t-mid { background: var(--t-mid); color: var(--t-mid-ink); }
+.t-low { background: var(--t-low); color: var(--t-low-ink); }
+.tier.off { background: transparent; color: var(--text-3); border: 1px dashed var(--line-strong); line-height: 14px; }
+.bar { display: block; height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.bar.big { height: 8px; flex: 1; }
+.pin-lead .bar { height: 9px; }
+.pin-lead .bar.big { height: 13px; }
+.trace-foot { margin-top: 6px; padding: 0 2px; color: var(--text-2); }
+.trace-foot.pinned { color: var(--accent-text); font-weight: 550; }
+.trace-total { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 0 2px; font-family: var(--mono); font-size: 11px; }
+.trace-total span:first-child { flex: none; }
+.trace-total span:last-child { flex: none; }
+
+/* direction cards, previews, check */
+.dir-cards { display: grid; gap: 10px; }
+.dir-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.dir-card-h { font-size: 14px; }
+.dir-concept { color: var(--text-2); font-size: 13px; }
+.samples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.sample { border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-s); background: var(--stage); }
+.preview { display: flex; flex-direction: column; gap: 8px; }
+.pv-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pv { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pv-l { font-size: 11px; color: var(--text-3); }
+.pv-s { border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-s); }
+.pv-more { font-size: 12px; color: var(--text-3); }
+.check { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 6px; }
+.check-h { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0 4px; }
+.check li { display: grid; grid-template-columns: 4.6rem 1fr; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.ck-s { font-size: 11px; font-weight: 600; color: var(--accent-text); }
+.check li.no .ck-s { color: var(--stale-text); }
+.ck-t { display: flex; flex-direction: column; font-size: 13px; }
+.ck-src { color: var(--text-2); font-size: 12.5px; }
+.check li.no { background: var(--stale-bg); margin: 0 -12px; padding: 7px 12px; border-radius: 0 0 11px 11px; }
+
+/* composer */
+.composer { flex: none; border-top: 1px solid var(--line); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { background: var(--accent-soft); color: var(--accent-text); border: 1px solid transparent; border-radius: 99px; padding: 4px 11px; font-size: 12.5px; text-align: left; }
+.chip:hover { border-color: var(--accent-ring); }
+.chip[aria-disabled="true"] { opacity: 0.5; }
+.chip-hint { color: var(--text-3); font-size: 12.5px; }
+.about { min-height: 22px; }
+.about-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); background: var(--surface-3); border-radius: 99px; padding: 1px 10px; }
+.about-chip.active { background: var(--accent-soft); color: var(--accent-text); padding-right: 4px; }
+.about-chip .x { background: none; border: 0; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: inherit; padding: 0; }
+.about-chip .x:hover { background: var(--accent-wash); }
+.cform { display: flex; gap: 8px; }
+.cinput { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 9px; padding: 6px 11px; }
+.cinput::placeholder { color: var(--text-3); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.ctl { display: flex; align-items: center; gap: 8px; }
+.ctl-l { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); }
+.seg { display: inline-flex; background: var(--seg-bg); border-radius: 8px; padding: 2px; gap: 1px; }
+.seg button { background: none; border: 0; border-radius: 6px; padding: 2px 9px; font-size: 12px; color: var(--text-2); min-height: 24px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-s); font-weight: 550; }
+.seg.locked { opacity: 0.8; }
+.seg.locked button { cursor: not-allowed; }
+
+/* panel */
+.panel-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.ptabs { display: flex; gap: 2px; background: var(--seg-bg); border-radius: 9px; padding: 2px; overflow-x: auto; min-width: 0; }
+.ptabs button { background: none; border: 0; border-radius: 7px; padding: 3px 11px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.ptabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-s); font-weight: 550; }
+.panel-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+.strip { display: flex; gap: 10px; overflow-x: auto; padding: 6px 4px 8px; margin: 0 -4px; flex: none; }
+.thumb { flex: none; width: 124px; background: none; border: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; text-align: left; border-radius: 6px; }
+.th-frame { display: block; border-radius: 4px; overflow: hidden; box-shadow: var(--shadow-s); background: var(--stage); }
+.th-slide { display: block; pointer-events: none; }
+.thumb.mk-provisional .th-frame { outline: 1.5px dashed var(--warn-line); outline-offset: 2px; }
+.thumb.mk-stale .th-frame { outline: 1.5px solid var(--stale-line); outline-offset: 2px; }
+.mk-stale .th-slide, .stage.mk-stale .stage-slide > .ms-slide { filter: saturate(0.45) contrast(0.95); }
+.thumb.cur .th-frame { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.thumb.flash .th-frame { animation: flash 1.6s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 var(--accent-ring), 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 12px transparent, 0 0 0 0 var(--accent); } }
+.th-meta { display: flex; align-items: center; gap: 6px; min-height: 18px; }
+.th-n { font-family: var(--mono); font-size: 11px; color: var(--text-3); width: 14px; }
+.th-sel { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.thumb .tag { font-size: 10px; line-height: 15px; padding: 0 6px; }
+
+.stage-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex: none; }
+.stage-title { display: flex; flex-direction: column; min-width: 0; }
+.stage-title .mono { color: var(--text-3); }
+.stage-head { font-weight: 600; font-size: 14px; }
+.stage-tags { display: flex; gap: 8px; align-items: center; flex: none; }
+.dir-name { font-size: 12px; color: var(--text-3); }
+.stage { background: var(--stage); border-radius: 12px; padding: clamp(12px, 3vw, 28px); flex: none; }
+.stage.mk-provisional { outline: 1.5px dashed var(--warn-line); outline-offset: -6px; }
+.stage.mk-stale { outline: 1.5px solid var(--stale-line); outline-offset: -6px; }
+.stage-slide { position: relative; max-width: 860px; margin: 0 auto; border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-slide); }
+.stage-slide[data-stage] { cursor: pointer; }
+.sel { position: absolute; left: 0; right: 0; pointer-events: none; box-shadow: inset 0 0 0 3px var(--accent); background: var(--accent-wash); }
+.sel-slide { top: 0; bottom: 0; }
+.sel-header { top: 0; height: 26%; }
+.sel-body { top: 26%; bottom: 0; }
+.pick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
+.pick-l { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-right: 2px; }
+.pickbtn { background: var(--surface-2); border: 1px solid var(--line); border-radius: 99px; padding: 2px 11px; font-size: 12.5px; color: var(--text-2); }
+.pickbtn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-ring); }
+.narrow-only { display: none; }
+.gochat { align-items: center; justify-content: space-between; gap: 10px; background: var(--accent-soft); color: var(--accent-text); border-radius: 10px; padding: 8px 10px; font-size: 13px; flex: none; }
+.stale-note { color: var(--stale-text); font-size: 13px; flex: none; }
+
+.story { display: flex; flex-direction: column; }
+.story-i { display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line); align-items: start; }
+.story-i:last-child { border-bottom: 0; }
+.story-n { color: var(--text-3); padding-top: 2px; }
+.story-h { font-weight: 600; }
+.story-int { color: var(--text-2); font-size: 13px; }
+.story-note { color: var(--stale-text); font-size: 12.5px; margin-top: 2px; }
+.story-t { padding-top: 1px; }
+
+.design { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.design-top { display: flex; align-items: center; gap: 10px; }
+.design h2 { font-size: 20px; letter-spacing: -0.01em; }
+.status-line { color: var(--text-2); }
+.concept { font-size: 15px; }
+.mini-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin-top: 6px; }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.swatches li { display: grid; grid-template-columns: 32px 1fr; grid-template-rows: auto auto auto; column-gap: 10px; align-items: center; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.sw { grid-row: 1 / 3; width: 32px; height: 32px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.sw-n { font-weight: 550; font-size: 13px; }
+.sw-h { color: var(--text-3); }
+.sw-r { grid-column: 1 / -1; font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.type { display: grid; grid-template-columns: 5rem 1fr; gap: 4px 10px; }
+.type dt { color: var(--text-3); }
+.rules { list-style: disc; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; color: var(--text-2); }
+
+.changes { display: flex; flex-direction: column; gap: 8px; }
+.chg { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.chg-main { min-width: 0; }
+.chg-what { font-weight: 550; }
+.chg-meta { display: flex; flex-direction: column; font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+.chg.undone .chg-what { text-decoration: line-through; color: var(--text-3); }
+.chg.undone .chg-what .tag { text-decoration: none; display: inline-block; }
+.empty { padding: 28px 8px; color: var(--text-2); }
+.empty strong { color: var(--text); }
+
+/* ---------- notes ---------- */
+.notes { padding: 0; }
+.notes-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 14px; height: 100%; }
+.notes-doc { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s); overflow-y: auto; padding: 0 28px 28px; min-width: 0; }
+.notes-doc .pane-head { margin: 0 -28px 18px; }
+.n-sec { margin-top: 22px; }
+.n-sec h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.n-item { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.n-item:last-child { border-bottom: 0; }
+.n-line { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+.n-text { min-width: 0; overflow-wrap: anywhere; }
+.time { flex: none; background: var(--surface-3); border: 0; border-radius: 6px; padding: 1px 7px; color: var(--accent-text); }
+.time[aria-expanded="true"] { background: var(--accent-soft); }
+.quote { margin-top: 7px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; color: var(--text-2); font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.q-l { color: var(--text-3); }
+.notes-chat .pane-head { padding: 12px 14px; }
+
+/* ---------- strict ---------- */
+.strict-title { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding-top: 14px; }
+.strict-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.why { font-size: 12.5px; color: var(--stale-text); }
+.strict .pane-head { border-bottom: 0; padding-left: 0; }
+.approvals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
+.ap { display: grid; grid-template-columns: 14px 1fr; column-gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.ap-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-strong); margin-top: 4px; }
+.ap.done .ap-dot { background: var(--accent); border-color: var(--accent); }
+.ap.now .ap-dot { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.ap.now { border-color: var(--accent-ring); }
+.ap-t { font-weight: 600; }
+.ap-s { grid-column: 2; font-size: 12.5px; color: var(--text-3); }
+.ap.todo { color: var(--text-3); }
+.strict-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.strict-slide .cap { color: var(--text-3); font-size: 12.5px; margin-top: 8px; }
+.claims { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 14px 10px; box-shadow: var(--shadow-s); }
+.claims .col-h { padding-left: 0; }
+.claim { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.claim-top { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; width: 100%; }
+.claim-t { font-weight: 500; }
+.verdict { flex: none; font-size: 11.5px; font-weight: 600; padding: 0 8px; line-height: 18px; border-radius: 99px; }
+.v-ok { background: var(--accent-soft); color: var(--accent-text); }
+.v-part { background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--warn-line); line-height: 16px; }
+.src { width: 100%; }
+.src-doc { font-size: 12.5px; color: var(--text-2); font-weight: 550; }
+.strict-mode { margin-top: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------- history ---------- */
+.hist-inner { max-width: 760px; }
+.hist-inner .pane-head { padding-left: 0; padding-right: 0; }
+.banner { background: var(--surface-3); color: var(--text-2); border-radius: 10px; padding: 8px 12px; margin: 10px 0 4px; font-size: 13px; }
+.hist-msgs { overflow: visible; padding: 14px 0; }
+
+/* ---------- toast and dialog ---------- */
+.toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-ink); padding: 9px 16px; border-radius: 10px; box-shadow: var(--shadow-m); font-size: 13px; z-index: 40; max-width: calc(100vw - 32px); }
+.scrim { position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 30; }
+.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-m); padding: 20px; width: min(460px, 100%); max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.dialog h2 { font-size: 17px; letter-spacing: -0.01em; }
+.dialog p { color: var(--text-2); }
+.dlg-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 900px) {
+  .cols, .strict-grid { grid-template-columns: minmax(0, 1fr); }
+  .thread-tabs { display: flex; gap: 2px; background: var(--seg-bg); border-radius: 9px; padding: 2px; margin-bottom: 10px; flex: none; }
+  .thread-tabs button { flex: 1; background: none; border: 0; border-radius: 7px; padding: 5px 10px; color: var(--text-2); font-weight: 500; }
+  .thread-tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-s); }
+  .thread-grid { grid-template-columns: minmax(0, 1fr); }
+  .thread[data-tab="chat"] .panel, .thread[data-tab="deck"] .chat { display: none; }
+  .narrow-only { display: flex; }
+  .notes { overflow-y: auto; }
+  .notes-grid { display: block; height: auto; }
+  .notes-doc { overflow: visible; padding: 0 16px 20px; }
+  .notes-doc .pane-head { margin: 0 -16px 14px; }
+  .notes-chat { height: 440px; margin-top: 14px; }
+  .composer .chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .chip { white-space: nowrap; flex: none; }
+  .approvals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-head h1, .strict-title h1, .notes-doc > h1 { font-size: 22px; }
+}
+@media (max-width: 700px) {
+  .note { order: 9; flex-basis: 100%; margin-left: 0; }
+  #restart { margin-left: auto; }
+  .tr-layer { font-size: 12.5px; }
+}
+@media (max-width: 480px) {
+  .pv-row { grid-template-columns: minmax(0, 1fr); }
+  .controls { flex-direction: column; align-items: flex-start; }
+  .msgs { padding: 12px; }
+  .tr { grid-template-columns: 5.6rem auto 1fr auto 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+</style>
+<div class="wrap" id="app">
+  <header class="topbar">
+    <a class="brand" href="#home" aria-label="AutoDeck, engagement home">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="1.5" y="3" width="15" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>AutoDeck</span>
+    </a>
+    <div class="switcher">
+      <button type="button" id="sw-btn" class="sw-btn" aria-haspopup="true" aria-expanded="false" aria-controls="sw-menu">
+        <span class="sw-label">Northwind Retail · Inference efficiency</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="sw-menu" class="menu" hidden>
+        <button type="button" class="menu-item current" data-action="close-menu">Northwind Retail · Inference efficiency</button>
+        <button type="button" class="menu-item" disabled>Contoso Health · locked to its own engagement</button>
+        <p class="menu-note">Each engagement keeps its own sources, threads and preferences. Nothing is shared across clients.</p>
+      </div>
+    </div>
+    <span class="note">Scripted mock-up, fictional data</span>
+    <button type="button" id="restart" class="btn">Restart</button>
+  </header>
+
+  <main id="main">
+    <!-- Engagement home -->
+    <section id="home" class="view home" aria-labelledby="home-h" hidden>
+      <div class="home-inner">
+        <div class="home-head">
+          <div>
+            <h1 id="home-h" tabindex="-1">Northwind Retail</h1>
+            <p class="lede">Inference efficiency. Everything here belongs to this engagement only.</p>
+          </div>
+          <a class="btn primary" href="#thread">Continue: Design and refinement</a>
+        </div>
+        <div class="cols">
+          <section class="col" aria-labelledby="h-src">
+            <h2 id="h-src" class="col-h">Sources <span class="count">8</span></h2>
+            <ul class="list" id="home-sources"></ul>
+          </section>
+          <section class="col" aria-labelledby="h-art">
+            <h2 id="h-art" class="col-h">Artifacts <span class="count" id="art-count">3</span></h2>
+            <ul class="list" id="home-artifacts"></ul>
+          </section>
+          <section class="col" aria-labelledby="h-thr">
+            <h2 id="h-thr" class="col-h">Threads <span class="count">3</span></h2>
+            <ul class="list" id="home-threads"></ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Thread: Design and refinement -->
+    <section id="thread" class="view thread" aria-label="Design and refinement thread" data-tab="chat" hidden>
+      <div class="thread-tabs" role="tablist" aria-label="Thread panes">
+        <button type="button" role="tab" id="ttab-chat" data-ttab="chat" aria-selected="true">Chat</button>
+        <button type="button" role="tab" id="ttab-deck" data-ttab="deck" aria-selected="false">Deck</button>
+      </div>
+      <div class="thread-grid">
+        <section class="chat" id="chat-pane" aria-label="Conversation">
+          <div class="pane-head">
+            <a class="back" href="#home">Engagement</a>
+            <h1 id="thread-h" tabindex="-1">Design and refinement</h1>
+            <span class="muted">Today</span>
+          </div>
+          <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages"></div>
+          <div class="composer" data-scope="thread"></div>
+        </section>
+        <section class="panel" id="panel" aria-label="Artifact: Serving the assistant for less">
+          <div class="panel-head">
+            <div class="ptabs" role="tablist" aria-label="Artifact views" id="ptabs"></div>
+            <button type="button" class="btn primary" id="export-btn" data-action="export">Export</button>
+          </div>
+          <div class="panel-body" id="panel-body"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Notes -->
+    <section id="notes" class="view notes" aria-labelledby="notes-h" hidden>
+      <div class="notes-grid">
+        <article class="notes-doc">
+          <div class="pane-head">
+            <a class="back" href="#home">Engagement</a>
+            <span class="tag tag-plain">Notes</span>
+          </div>
+          <h1 id="notes-h" tabindex="-1">Scoping call notes</h1>
+          <p class="lede">14 July, 42 minutes. Select a time to see the line in the transcript each item came from.</p>
+          <div id="notes-body"></div>
+        </article>
+        <aside class="chat notes-chat" aria-label="Notes chat">
+          <div class="pane-head"><h2 class="pane-title">Chat</h2></div>
+          <div class="msgs" id="notes-msgs" role="log" aria-live="polite" aria-label="Messages"></div>
+          <div class="composer" data-scope="notes"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Strict -->
+    <section id="strict" class="view strict" aria-labelledby="strict-h" hidden>
+      <div class="strict-inner">
+        <div class="pane-head">
+          <a class="back" href="#home">Engagement</a>
+          <span class="tag tag-strict">Strict</span>
+        </div>
+        <div class="strict-title">
+          <div>
+            <h1 id="strict-h" tabindex="-1">Board evidence pack</h1>
+            <p class="lede">Strict mode: every claim needs a source, and nothing is exported until it has been approved.</p>
+          </div>
+          <div class="strict-actions">
+            <button type="button" class="btn primary" id="strict-export" aria-disabled="true" aria-describedby="strict-export-why">Export</button>
+            <span class="why" id="strict-export-why">Two approvals outstanding</span>
+          </div>
+        </div>
+        <ol class="approvals" aria-label="Approvals">
+          <li class="ap done"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Brief approved</span><span class="ap-s">Done</span></li>
+          <li class="ap done"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Outline approved</span><span class="ap-s">Done</span></li>
+          <li class="ap now"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Claims pending</span><span class="ap-s">Waiting for you</span></li>
+          <li class="ap todo"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Final render locked</span><span class="ap-s">After claims</span></li>
+        </ol>
+        <div class="strict-grid">
+          <div class="strict-slide">
+            <div class="stage" id="strict-stage"></div>
+            <p class="cap">Slide 4 as it would be exported. Claims on it are checked below.</p>
+          </div>
+          <div class="claims">
+            <h2 class="col-h">Claims</h2>
+            <div id="claims-list"></div>
+          </div>
+        </div>
+        <div class="strict-mode">
+          <div class="ctl">
+            <span class="ctl-l">Editing</span>
+            <div class="seg locked" role="group" aria-label="Editing mode, locked">
+              <button type="button" aria-pressed="false" aria-disabled="true">Auto</button>
+              <button type="button" aria-pressed="true" aria-disabled="true">Propose first</button>
+            </div>
+          </div>
+          <p class="muted">Locked to Propose first. In strict mode an edit can change a claim, so nothing is applied until you have seen it.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Earlier thread, read only -->
+    <section id="history" class="view history" aria-labelledby="hist-h" hidden>
+      <div class="hist-inner">
+        <div class="pane-head">
+          <a class="back" href="#home">Engagement</a>
+          <h1 id="hist-h" tabindex="-1">Storyline and first draft</h1>
+          <span class="muted">Yesterday</span>
+        </div>
+        <p class="banner">This thread is closed. It is read-only. Your decisions from it are in the deck's change log.</p>
+        <div class="msgs hist-msgs" id="hist-msgs"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="dialog" class="scrim" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-h">
+      <h2 id="dlg-h">Export Serving the assistant for less</h2>
+      <div id="dlg-body"></div>
+      <div class="dlg-foot">
+        <button type="button" class="btn" data-action="close-dialog">Cancel</button>
+        <button type="button" class="btn primary" id="dlg-export" data-action="do-export">Export .pptx</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* FONT_LINKS
+*/
+/* Minimal stand-in for slides.js. Same window.MockSlides interface, simple slides. */
+window.MockSlides = (function () {
+  var ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
+  var H = {
+    s1: ['Northwind can serve its shopping assistant at 38% lower cost', 'Northwind\'s shopping assistant can answer in under a second', 'Open with the claim'],
+    s2: ['Inference, not training, is now most of the bill', 'Shoppers leave when an answer takes more than two seconds', 'Show where the money goes'],
+    s3: ['Three techniques account for most of the saving', 'Three techniques cut response time and cost together', 'Name the three techniques'],
+    s4: ['Quantisation alone cuts serving cost by 38%', null, 'Prove the biggest lever'],
+    s5: ['Caching repeated context removes a fifth of the compute', null, 'Explain how caching works'],
+    s6: ['A phased rollout over two quarters keeps risk low while the savings build', null, 'Show the rollout is safe'],
+    s7: ['What it costs and what it returns', 'What faster answers are worth', 'Put the numbers side by side'],
+    s8: ['Decision needed: approve the pilot by 30 November', null, 'Ask for the decision']
+  };
+  function head(id, st) {
+    var h = H[id];
+    if (id === 's6' && st.s6Short) return 'Two quarters, three phases';
+    return (st.lead === 'latency' && h[1]) ? h[1] : h[0];
+  }
+  var css = [
+    '.ms-slide{aspect-ratio:16/9;width:100%;container-type:inline-size;overflow:hidden;position:relative;font-family:system-ui,sans-serif}',
+    '.ms-slide h3{margin:0;font-weight:700;line-height:1.15}',
+    '.ms-slide .b{position:absolute;left:6cqw;right:6cqw;bottom:6cqw;font-size:2.2cqw;line-height:1.4}',
+    '.ms-slide .t{position:absolute;left:6cqw;right:6cqw;top:5cqw;font-size:3.6cqw}',
+    '.ms-slide .n{position:absolute;right:3cqw;top:2cqw;font-size:1.8cqw;opacity:.6}',
+    '.ms-slide .hero{position:absolute;left:6cqw;top:16cqw;font-size:16cqw;font-weight:800}',
+    '.ms-slide .bars{position:absolute;left:6cqw;bottom:6cqw;display:flex;gap:2cqw;align-items:flex-end}',
+    '.ms-slide .bars i{display:block;width:6cqw;background:currentColor;opacity:.7}',
+    '.ms-slide .foot{position:absolute;right:6cqw;bottom:3cqw;font-size:1.6cqw;opacity:.7}',
+    '.ms-dir-default{background:#fff;color:#222}',
+    '.ms-dir-default::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1.4cqw;background:#2b6cb0}',
+    '.ms-dir-a{background:#14202b;color:#f1ece2;font-family:Georgia,serif}',
+    '.ms-dir-b{background:#f4efe6;color:#1b3a2f}',
+    '.ms-dir-b h3{text-transform:uppercase;letter-spacing:.04em}',
+    '.ms-dir-c{background:#e84a2f;color:#fff;font-family:Helvetica,Arial,sans-serif}'
+  ].join('');
+  function render(id, dir, st) {
+    var n = ids.indexOf(id) + 1, h = head(id, st), body = '';
+    if (id === 's4' && st.s4Hero) body = '<div class="hero">38%</div><div class="foot">Before 100, after 62</div>';
+    else if (id === 's4') body = '<div class="bars"><i style="height:20cqw"></i><i style="height:12.4cqw"></i></div>';
+    else if (id === 's5') body = '<div class="b">Cache hit: reuse context<br>Point one<br>Point two<br>Point three<br>Point four</div>';
+    else body = '<div class="b">' + (st.lead === 'latency' && 's1 s2 s3 s7'.indexOf(id) >= 0 ? 'Latency lead. ' : 'Cost lead. ') + 'Body of slide ' + n + '</div>';
+    return '<div class="ms-slide ms-dir-' + dir + '"><div class="n">' + n + '</div><h3 class="t">' + h + '</h3>' + body + '</div>';
+  }
+  var dirs = [
+    { id: 'default', name: 'Default', provisional: true, concept: 'The template look: title top-left, bullets and a blue bar.', palette: [{ name: 'Blue', hex: '#2b6cb0', role: 'Accent bar' }, { name: 'White', hex: '#ffffff', role: 'Ground' }], type: { display: 'System sans', body: 'System sans' }, rules: ['Title top-left.', 'Bullets for everything.', 'Blue bar on the left.'] },
+    { id: 'a', name: 'Ledger', provisional: false, concept: 'Dark ground and a serif, like a financial statement.', palette: [{ name: 'Ink', hex: '#14202b', role: 'Ground' }, { name: 'Paper', hex: '#f1ece2', role: 'Text' }], type: { display: 'Georgia', body: 'Georgia' }, rules: ['One idea per slide.', 'No decoration.', 'Numbers set large.'] },
+    { id: 'b', name: 'Field notes', provisional: false, concept: 'Warm paper and green, with capitals for headers.', palette: [{ name: 'Paper', hex: '#f4efe6', role: 'Ground' }, { name: 'Pine', hex: '#1b3a2f', role: 'Text' }], type: { display: 'System sans, capitals', body: 'System sans' }, rules: ['Capitals for headers.', 'Warm ground.', 'Short lines.'] },
+    { id: 'c', name: 'Signal', provisional: false, concept: 'A single hot colour field with white type.', palette: [{ name: 'Signal', hex: '#e84a2f', role: 'Ground' }, { name: 'White', hex: '#ffffff', role: 'Text' }], type: { display: 'Helvetica', body: 'Helvetica' }, rules: ['One colour.', 'White type only.', 'Big headers.'] }
+  ];
+  return {
+    css: css,
+    directions: dirs,
+    slideIds: ids,
+    headers: function (st) { return ids.map(function (id, i) { return { id: id, n: i + 1, header: head(id, st), intent: H[id][2] }; }); },
+    render: render,
+    renderSample: function (d) {
+      var st = { lead: 'cost', s4Hero: false, s6Short: false };
+      return [render('s1', d, st), render('s2', d, st), render('s4', d, st)];
+    }
+  };
+})();
+
+</script>
+<script>
+(function () {
+  'use strict';
+
+  var MS = window.MockSlides;
+  var TIER = { lead: 'Lead', senior: 'Senior', mid: 'Mid', low: 'Low' };
+  var TIER_W = { lead: 6, senior: 3, mid: 1.5, low: 0.5 };   // relative cost per unit of work
+  var TIER_T = { lead: 2.2, senior: 1.4, mid: 1, low: 0.6 }; // relative time
+  var ALL = MS.slideIds.slice();
+  var THREAD = 'Design and refinement';
+  var VIEWS = ['home', 'thread', 'notes', 'strict', 'history'];
+  var KIND = { talk: 'Talk', proposal: 'Proposal', change: 'Change' };
+
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+
+  /* ------------------------------------------------------------------ data */
+
+  var SOURCES = [
+    ['Post-training quantisation for large language model serving: an empirical study', 'Paper · 2025 · 18 pages'],
+    ['Eight-bit weights, four-bit activations: where the accuracy goes', 'Paper · 2025 · 12 pages'],
+    ['Prefix caching and context reuse in production assistants', 'Paper · 2024 · 14 pages'],
+    ['Continuous batching under bursty retail traffic', 'Paper · 2025 · 10 pages'],
+    ['Cost per answer: a measurement framework for hosted inference', 'Paper · 2024 · 16 pages'],
+    ['Scoping call, 14 July (transcript, 42 min)', 'Transcript · 3 speakers'],
+    ['Northwind 2025 vendor deck (uploaded)', 'Slides · 24 pages'],
+    ['What you have said in threads', 'Decisions and preferences · updated today']
+  ];
+
+  var NOTES = [
+    { h: 'Summary', items: [
+      ['02:10', 'Northwind runs a shopping assistant that costs more to serve each month than the team budgeted. They want a plan that lowers the cost of each answer without a visible drop in quality.',
+        'Priya: The assistant costs more to serve every month than we budgeted, and traffic is still growing. I need a plan I can take to finance.']
+    ] },
+    { h: 'Attendees', items: [
+      ['00:30', 'Dana Okafor, engagement lead (us)', 'Dana: Thanks for making time. I am Dana, I lead the engagement on our side.'],
+      ['00:48', 'Priya Raman, platform lead (Northwind)', 'Priya: I am Priya. I run the platform team that owns the assistant.'],
+      ['01:05', 'Marcus Webb, finance partner (Northwind)', 'Marcus: Marcus, finance. I sign off the serving budget, so I will mostly be listening for numbers.']
+    ] },
+    { h: 'Themes', items: [
+      ['08:20', 'Serving cost is the pressure, not model quality. The team is happy with the answers.',
+        'Priya: Nobody is complaining about the answers. The complaint is the invoice.'],
+      ['17:35', 'Slow answers at peak hours lose shoppers, which makes latency a useful second argument.',
+        'Priya: At peak, answers take three or four seconds. We see people leave the chat during that wait.'],
+      ['26:10', 'There is little appetite for a large migration or a change of vendor.',
+        'Marcus: I will say it plainly: we are not moving vendors this year. Anything that works on what we run today is welcome.']
+    ] },
+    { h: 'Decisions', items: [
+      ['31:45', 'Lead the proposal with cost. Latency is the supporting argument.',
+        'Dana: So we lead with cost and use latency as the supporting point. Priya: Yes, that is what finance will read first.'],
+      ['33:02', 'No ROI calculator in the first draft.',
+        'Marcus: I do not want a calculator in the room. Show me the three figures and let me ask questions.'],
+      ['38:15', 'Pilot on one product category, not the whole catalogue.',
+        'Priya: Footwear is a good first category. High traffic, simple questions, easy to measure.']
+    ] },
+    { h: 'Key dates', items: [
+      ['12:40', 'Board pack is due on 12 December.',
+        'Marcus: The board pack closes on the twelfth of December. Anything after that waits for February.'],
+      ['36:20', 'Northwind wants the pilot decision by 30 November.',
+        'Priya: If we are going to pilot before the new year, we need a yes by the thirtieth of November.'],
+      ['19:50', 'The peak trading period starts on 20 November. No changes to production during it.',
+        'Priya: From the twentieth we freeze. No deploys, nothing that touches the assistant.']
+    ] },
+    { h: 'Action items', items: [
+      ['40:05', 'Dana to send the draft deck to Priya by Friday.',
+        'Dana: I will get a draft deck to you by Friday.'],
+      ['40:30', 'Priya to share twelve months of serving cost by endpoint.',
+        'Priya: I can pull twelve months of cost by endpoint. I will send it this week.'],
+      ['41:02', 'Marcus to confirm the budget ceiling for a pilot.',
+        'Marcus: Let me check the ceiling with my director and come back to you.'],
+      ['41:30', 'Agree who signs off a change to how traffic is shaped. Owner TBD.',
+        'Priya: Someone has to approve the traffic shaping. Marcus: Not me. Dana: We will park that. Nobody took it.', 'Owner TBD']
+    ] },
+    { h: 'Open questions and risks', items: [
+      ['22:48', 'Does eight-bit quantisation change the quality of product comparisons?',
+        'Priya: My worry is comparisons. If it gets the size or the price wrong in a comparison, we lose trust fast.'],
+      ['24:10', 'How fresh must a cached answer be when prices change hourly?',
+        'Priya: Prices move every hour on some lines. A cached answer with an old price is worse than a slow one.'],
+      ['29:15', 'The vendor contract may limit self-hosting.',
+        'Marcus: I have not read the self-hosting clause since we signed. I would not assume it is open.']
+    ] }
+  ];
+
+  var CLAIMS = [
+    { t: 'Inference accounts for 71% of the monthly bill for the shopping assistant.', v: 'Supported',
+      doc: 'Northwind 2025 vendor deck', page: 'p. 12',
+      q: 'Serving and inference now account for 71% of total assistant run cost; training and fine-tuning make up the rest.' },
+    { t: 'Caching repeated context removes about a fifth of the compute.', v: 'Supported',
+      doc: 'Prefix caching and context reuse in production assistants', page: 'p. 6',
+      q: 'On workloads with a shared system prompt, prefix caching removed 19 to 23% of total compute.' },
+    { t: 'Quantisation alone cuts serving cost by 38%.', v: 'Partially supported',
+      doc: 'Post-training quantisation for large language model serving: an empirical study', page: 'p. 9',
+      q: 'Across the models tested, serving cost fell by between 35 and 41%, depending on batch size and hardware.' }
+  ];
+
+  var CHECK = [
+    { fig: '$412,000 a month to serve the assistant (slide 2)', ok: true, src: 'Northwind 2025 vendor deck, p. 7' },
+    { fig: '71% of the bill is inference (slide 2)', ok: true, src: 'Northwind 2025 vendor deck, p. 12' },
+    { fig: '21% of compute removed by caching (slide 5)', ok: true, src: 'Prefix caching and context reuse in production assistants, p. 6' },
+    { fig: '$180,000 pilot cost over one quarter (slide 7)', ok: true, src: 'Northwind 2025 vendor deck, p. 19' },
+    { fig: '38% (slides 1 and 4)', ok: false, src: 'The quantisation paper reports a range of 35 to 41%. The exact figure does not appear.' }
+  ];
+
+  var HISTORY = [
+    { role: 'user', text: 'Draft a storyline for the Northwind deck from the scoping call and the papers.' },
+    { role: 'assistant', kind: 'proposal',
+      text: 'Here is a storyline in eight slides. It opens with the saving, shows where the money goes, names three techniques, proves the biggest one, explains caching, sets out a phased rollout, puts the numbers side by side and ends with the decision. I have not built any slides yet.',
+      trace: { rows: [
+        { layer: 'Direction', tier: 'lead', note: 'wrote the argument and eight headers', units: 1, secs: 9 },
+        { layer: 'Review', tier: 'senior', note: 'checked the order against the call notes', units: 1, secs: 5 }
+      ] } },
+    { role: 'user', text: 'Lead with cost. Drop the ROI calculator slide.' },
+    { role: 'assistant', kind: 'change',
+      text: 'Done. The storyline leads with cost and the ROI calculator slide is gone. Eight slides remain.',
+      items: ['Slide 1 now states the 38% saving', 'ROI calculator slide removed', 'Rejected idea noted: ROI calculator'],
+      trace: { rows: [
+        { layer: 'Direction', tier: 'lead', note: 'reordered the argument', units: 1, secs: 6 },
+        { layer: 'Mechanics', tier: 'low', note: 'renumbered slides', units: 1, secs: 1 }
+      ] } },
+    { role: 'assistant', kind: 'talk',
+      text: 'The design is still the provisional default. We have not decided on one. That is the next thread.',
+      trace: { plain: 'Built from the deck\'s state and change log. No earlier chat was read.' } }
+  ];
+
+  /* ----------------------------------------------------------------- state */
+
+  var state, ui;
+
+  function freshState() {
+    return {
+      direction: 'default', designDecided: false, lead: 'cost', s4Hero: false, s6Short: false,
+      stale: [], checked: false, log: [], step: 0, mode: 'auto', route: 'auto', selection: null
+    };
+  }
+  function freshUi() {
+    return {
+      slide: 's1', ptab: 'slides', nextId: 1, busy: false, gen: (ui ? ui.gen + 1 : 1),
+      msgs: [], notesMsgs: [], readout: false, did1: false, did5: false, followup5: false,
+      flash: null, scroll: { main: true, notes: true }, notesChipUsed: false, logId: 1
+    };
+  }
+
+  function initMessages() {
+    pushMsg({
+      role: 'assistant', kind: 'talk',
+      text: 'Picking up from yesterday. The deck has 8 slides and the argument is settled: it leads with cost. The design is still the provisional default, since nothing was decided. Rejected so far: a dark theme, and an ROI calculator slide. Open: whether slide 5 is too dense, and the pilot date on slide 8.',
+      trace: { plain: 'Built from the deck\'s state and change log. No earlier chat was read.' }
+    }, 'main');
+    pushMsg({
+      role: 'assistant', kind: 'talk',
+      text: 'I wrote these notes from the transcript. Every item links to the line it came from. I can turn them into a short readout deck.',
+      trace: { plain: 'Built from the transcript only. No other thread was read.' }
+    }, 'notes');
+  }
+
+  function reset() {
+    state = freshState();
+    ui = freshUi();
+    initMessages();
+  }
+
+  /* ------------------------------------------------------------- selectors */
+
+  function slideState(st, lead) { return { lead: lead || st.lead, s4Hero: st.s4Hero, s6Short: st.s6Short }; }
+  function effLead(id, st, ignoreStale) { return (!ignoreStale && st.stale.indexOf(id) >= 0) ? 'cost' : st.lead; }
+  function slideHtml(id, st, ignoreStale) {
+    return MS.render(id, st.direction, slideState(st, effLead(id, st, ignoreStale)));
+  }
+  function marker(id, st) {
+    return st.stale.indexOf(id) >= 0 ? 'stale' : (st.designDecided ? 'decided' : 'provisional');
+  }
+  function dirOf(id) { return MS.directions.filter(function (d) { return d.id === id; })[0] || MS.directions[0]; }
+  function headerFor(id, st) {
+    var hs = MS.headers(slideState(st, effLead(id, st)));
+    return hs.filter(function (h) { return h.id === id; })[0] || { n: 0, header: '', intent: '' };
+  }
+  function slideNum(id) { return ALL.indexOf(id) + 1; }
+  function tagHtml(mk) {
+    if (mk === 'provisional') return '<span class="tag tag-prov">Provisional</span>';
+    if (mk === 'stale') return '<span class="tag tag-stale">Stale</span>';
+    return '';
+  }
+  function aboutLabel(sel) {
+    if (!sel) return 'whole deck';
+    var s = 'slide ' + slideNum(sel.slide);
+    if (sel.part === 'header') s += ' · header';
+    if (sel.part === 'body') s += ' · body';
+    return s;
+  }
+  function withPatch(st, patch) {
+    var c = clone(st);
+    Object.keys(patch).forEach(function (k) { c[k] = clone(patch[k]); });
+    return c;
+  }
+
+  /* --------------------------------------------------------------- tracing */
+
+  function makeTrace(rows, foot) {
+    var pin = state.route;
+    if (pin === 'auto') return { rows: clone(rows), foot: foot || '' };
+    var out = [];
+    rows.forEach(function (r) {
+      if (r.skip) return;
+      var c = clone(r);
+      c.secs = Math.round(r.secs * TIER_T[pin] / TIER_T[r.tier] * 10) / 10;
+      c.tier = pin;
+      out.push(c);
+    });
+    return { rows: out, pinned: pin, foot: 'Pinned by you' + (pin === 'lead' ? '. Every layer ran on the Lead, which is the most expensive tier.' : '.') };
+  }
+  function layerSummary(rows) {
+    return rows.filter(function (r) { return !r.skip; }).map(function (r) { return r.layer + ' · ' + TIER[r.tier]; }).join(', ');
+  }
+  function traceTotals(t) {
+    var s = 0, c = 0;
+    t.rows.forEach(function (r) { if (!r.skip) { s += r.secs; c += r.units * TIER_W[r.tier]; } });
+    return { secs: Math.round(s * 10) / 10, cost: Math.round(c * 10) / 10 };
+  }
+  function traceHtml(m) {
+    var t = m.trace;
+    if (!t) return '';
+    if (t.plain) return '<div class="route plain"><span class="route-l">Routing</span><span>' + esc(t.plain) + '</span></div>';
+    var run = t.rows.filter(function (r) { return !r.skip; });
+    var tot = traceTotals(t);
+    var summary = run.map(function (r) { return r.layer + ' ' + TIER[r.tier]; }).join(' · ');
+    var rows = t.rows.map(function (r) {
+      if (r.skip) {
+        return '<li class="tr skip"><span class="tr-layer">' + r.layer + '</span><span class="tier t-' + r.tier + ' off">' + TIER[r.tier] + '</span><span class="tr-note">Not needed</span><span class="tr-time"></span><span class="bar"></span></li>';
+      }
+      var cost = r.units * TIER_W[r.tier];
+      var w = Math.max(3, Math.min(100, cost / 25 * 100));
+      return '<li class="tr"><span class="tr-layer">' + r.layer + '</span><span class="tier t-' + r.tier + '">' + TIER[r.tier] + '</span><span class="tr-note">' + esc(r.note) + '</span><span class="tr-time">' + r.secs + ' s</span><span class="bar" title="Relative cost ' + cost + '"><i style="width:' + w + '%"></i></span></li>';
+    }).join('');
+    var tw = Math.max(3, Math.min(100, tot.cost / 150 * 100));
+    return '<details class="route' + (t.pinned === 'lead' ? ' pin-lead' : '') + '" data-mid="' + m.id + '"' + (m.open ? ' open' : '') + '>' +
+      '<summary><span class="route-l">Routing</span><span class="route-sum">' + esc(summary || 'No layers ran') + '</span><span class="route-t">' + tot.secs + ' s</span></summary>' +
+      '<ol class="trace">' + rows + '</ol>' +
+      (t.foot ? '<p class="trace-foot' + (t.pinned ? ' pinned' : '') + '">' + esc(t.foot) + '</p>' : '') +
+      '<div class="trace-total"><span>Total ' + tot.secs + ' s</span><span class="bar big" title="Relative cost ' + tot.cost + '"><i style="width:' + tw + '%"></i></span><span>Relative cost ' + tot.cost + '</span></div>' +
+      '</details>';
+  }
+
+  /* -------------------------------------------------------------- messages */
+
+  function pushMsg(m, list) {
+    m.id = ui.nextId++;
+    m.list = list || 'main';
+    (m.list === 'notes' ? ui.notesMsgs : ui.msgs).push(m);
+    ui.scroll[m.list] = true;
+    return m;
+  }
+
+  function msgHtml(m) {
+    if (m.role === 'user') {
+      return '<article class="msg user"><div class="bubble">' + esc(m.text) + '</div>' +
+        (m.about ? '<div class="u-about">About: ' + esc(m.about) + '</div>' : '') + '</article>';
+    }
+    var h = '<article class="msg assistant m-' + m.kind + '" data-mid="' + m.id + '">';
+    h += '<div class="msg-meta"><span class="kind kind-' + m.kind + '">' + KIND[m.kind] + '</span>';
+    if (m.kind === 'proposal' && m.status) h += '<span class="pstat">' + (m.status === 'applied' ? 'Applied' : m.status === 'dismissed' ? 'Dismissed' : 'Waiting for you') + '</span>';
+    h += '</div><div class="bubble">';
+    h += '<p>' + esc(m.text) + '</p>';
+    if (m.cards) h += cardsHtml(m);
+    if (m.preview) h += previewHtml(m);
+    if (m.items) h += '<ul class="items">' + m.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    if (m.check) h += checkHtml(m);
+    if (m.after) h += '<p>' + esc(m.after) + '</p>';
+    var acts = '';
+    if (m.kind === 'proposal' && m.change) {
+      if (m.status === 'open') acts += '<button type="button" class="btn primary" data-action="apply" data-mid="' + m.id + '">Apply</button><button type="button" class="btn" data-action="dismiss" data-mid="' + m.id + '">Dismiss</button>';
+    }
+    if (m.rebuild) {
+      var n = state.stale.length;
+      acts += n > 0
+        ? '<button type="button" class="btn" data-action="rebuild">Rebuild the 4 stale slides</button>'
+        : '<button type="button" class="btn" aria-disabled="true" title="Nothing is stale right now">Rebuild the 4 stale slides</button>';
+    }
+    if (m.link === 'changes') acts += '<button type="button" class="linkbtn" data-action="goto-changes">View in the Changes tab</button>';
+    if (m.link === 'home') acts += '<a class="linkbtn" href="#home">See it on the engagement home</a>';
+    if (acts) h += '<div class="acts">' + acts + '</div>';
+    h += '</div>' + traceHtml(m) + '</article>';
+    return h;
+  }
+
+  function cardsHtml(m) {
+    return '<div class="dir-cards">' + MS.directions.slice(1).map(function (d) {
+      var chosen = state.designDecided && state.direction === d.id;
+      var locked = state.designDecided;
+      var pending = state.mode === 'propose';
+      var btn;
+      if (chosen) btn = '<button type="button" class="btn" aria-disabled="true">In use</button>';
+      else if (locked) btn = '<button type="button" class="btn" aria-disabled="true" title="A direction is already decided">Use this direction</button>';
+      else btn = '<button type="button" class="btn primary" data-action="pick-dir" data-dir="' + d.id + '">Use this direction</button>';
+      return '<div class="dir-card"><div class="dir-card-h"><strong>' + esc(d.name) + '</strong></div><p class="dir-concept">' + esc(d.concept) + '</p>' +
+        '<div class="samples">' + (m.samples[d.id] || []).map(function (s) { return '<div class="sample">' + s + '</div>'; }).join('') + '</div>' + btn + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function previewHtml(m) {
+    var p = m.preview;
+    var h = '<div class="preview">';
+    p.slides.forEach(function (s) {
+      h += '<div class="pv-row"><div class="pv"><span class="pv-l">Before · slide ' + s.n + '</span><div class="pv-s">' + s.before + '</div></div>' +
+        '<div class="pv"><span class="pv-l">After · slide ' + s.n + '</span><div class="pv-s">' + s.after + '</div></div></div>';
+    });
+    if (p.more) h += '<p class="pv-more">' + esc(p.more) + '</p>';
+    if (p.list) h += '<ul class="items">' + p.list.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    return h + '</div>';
+  }
+
+  function checkHtml() {
+    return '<div class="check"><div class="check-h">Five figures checked</div><ul>' + CHECK.map(function (c) {
+      return '<li class="' + (c.ok ? 'ok' : 'no') + '"><span class="ck-s">' + (c.ok ? 'Found' : 'Not found') + '</span><span class="ck-t"><strong>' + esc(c.fig) + '</strong>' +
+        (c.ok ? '<span class="ck-src">' + esc(c.src) + '</span>' : '<span class="ck-src">' + esc(c.src) + '</span>') + '</span></li>';
+    }).join('') + '</ul></div>';
+  }
+
+  function renderMsgsInto(el, list, key) {
+    var prev = el.scrollTop;
+    var h = list.map(msgHtml).join('');
+    if (ui.busy && ui.busyList === key) h += '<article class="msg assistant typing" aria-label="Working"><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div></article>';
+    el.innerHTML = h;
+    if (ui.scroll[key]) {
+      var last = el.querySelector('.msg:last-child');
+      el.scrollTop = el.scrollHeight;
+      if (last && !last.classList.contains('typing') && last.offsetHeight > el.clientHeight - 24) el.scrollTop = last.offsetTop - el.offsetTop - 12;
+      ui.scroll[key] = false;
+    } else el.scrollTop = prev;
+  }
+
+  function renderChats() {
+    renderMsgsInto($('#msgs'), ui.msgs, 'main');
+    renderMsgsInto($('#notes-msgs'), ui.notesMsgs, 'notes');
+  }
+
+  /* ------------------------------------------------------------- composer */
+
+  function buildComposers() {
+    $$('.composer').forEach(function (c) {
+      var scope = c.getAttribute('data-scope');
+      c.innerHTML =
+        '<div class="chips" role="group" aria-label="Suggested messages"></div>' +
+        (scope === 'thread' ? '<div class="about"></div>' : '') +
+        '<form class="cform" autocomplete="off"><input type="text" class="cinput" aria-label="Message" placeholder="' + (scope === 'thread' ? 'Message about the deck' : 'Message about the notes') + '"><button type="submit" class="btn primary">Send</button></form>' +
+        '<div class="controls">' +
+        '<div class="ctl"><span class="ctl-l" id="ml-' + scope + '">Editing</span><div class="seg" role="group" aria-labelledby="ml-' + scope + '" data-seg="mode">' +
+        '<button type="button" data-mode="auto" title="Edits are applied and logged straight away">Auto</button>' +
+        '<button type="button" data-mode="propose" title="Edits are shown as a preview first">Propose first</button></div></div>' +
+        '<div class="ctl"><span class="ctl-l" id="rl-' + scope + '">Routing</span><div class="seg" role="group" aria-labelledby="rl-' + scope + '" data-seg="route">' +
+        ['auto', 'lead', 'senior', 'mid', 'low'].map(function (r) { return '<button type="button" data-route="' + r + '">' + (r === 'auto' ? 'Auto' : TIER[r]) + '</button>'; }).join('') +
+        '</div></div></div>';
+    });
+  }
+
+  function chipDefs(scope) {
+    var c = [];
+    if (scope === 'notes') {
+      if (!ui.notesChipUsed) c.push({ id: 'n1', label: 'Turn this into a readout deck' });
+      return c;
+    }
+    if (ui.followup5) c.push({ id: 'f5y', label: 'Yes, cut it down' }, { id: 'f5n', label: 'Leave it' });
+    if (!ui.did1) c.push({ id: 's1', label: 'The deck looks generic. Give it a real design.' });
+    if (state.designDecided) {
+      if (!state.s4Hero) c.push({ id: 's3', label: 'Make the number the hero' });
+      if (!state.s6Short) c.push({ id: 's4', label: 'Shorten this title' });
+      if (!ui.did5) c.push({ id: 's5', label: 'Is slide 5 too dense?' });
+      if (state.lead === 'cost') c.push({ id: 's6', label: 'Lead with latency, not cost' });
+      if (!state.checked) c.push({ id: 's7', label: 'Check the numbers against my sources' });
+    }
+    return c;
+  }
+
+  function renderComposers() {
+    $$('.composer').forEach(function (c) {
+      var scope = c.getAttribute('data-scope');
+      var chips = chipDefs(scope);
+      var hint = '';
+      if (scope === 'thread' && ui.did1 && !state.designDecided) hint = '<span class="chip-hint">Choose a direction on one of the cards to continue.</span>';
+      if (scope === 'thread' && !chips.length && !hint) hint = '<span class="chip-hint">Nothing left in this script. Export when you are ready.</span>';
+      if (scope === 'notes' && !chips.length) hint = '<span class="chip-hint">Readout deck added to the engagement.</span>';
+      $('.chips', c).innerHTML = chips.map(function (x) {
+        return '<button type="button" class="chip" data-chip="' + x.id + '"' + (ui.busy ? ' aria-disabled="true"' : '') + '>' + esc(x.label) + '</button>';
+      }).join('') + hint;
+      $$('[data-mode]', c).forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-mode') === state.mode)); });
+      $$('[data-route]', c).forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-route') === state.route)); });
+      var ab = $('.about', c);
+      if (ab) {
+        ab.innerHTML = state.selection
+          ? '<span class="about-chip active">About: ' + esc(aboutLabel(state.selection)) + '<button type="button" class="x" data-action="clear-sel" aria-label="Clear selection">' +
+            '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>'
+          : '<span class="about-chip">About: whole deck</span>';
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------------- panel */
+
+  function renderPtabs() {
+    var tabs = [['slides', 'Slides'], ['story', 'Storyline'], ['design', 'Design'], ['changes', 'Changes' + (state.log.length ? ' (' + state.log.length + ')' : '')]];
+    $('#ptabs').innerHTML = tabs.map(function (t) {
+      return '<button type="button" role="tab" data-ptab="' + t[0] + '" aria-selected="' + (ui.ptab === t[0]) + '">' + t[1] + '</button>';
+    }).join('');
+  }
+
+  function thumbsHtml() {
+    return '<div class="strip" role="listbox" aria-label="Slides">' + ALL.map(function (id) {
+      var mk = marker(id, state);
+      var flash = ui.flash && ui.flash.indexOf(id) >= 0;
+      var selSlide = state.selection && state.selection.slide === id;
+      return '<button type="button" role="option" class="thumb mk-' + mk + (id === ui.slide ? ' cur' : '') + (flash ? ' flash' : '') + '" data-slide="' + id + '" aria-selected="' + (id === ui.slide) + '" aria-label="Slide ' + slideNum(id) + (mk === 'decided' ? '' : ', ' + mk) + '">' +
+        '<span class="th-frame"><span class="th-slide">' + slideHtml(id, state) + '</span></span>' +
+        '<span class="th-meta"><span class="th-n">' + slideNum(id) + '</span>' + tagHtml(mk) + (selSlide ? '<span class="th-sel" aria-hidden="true"></span>' : '') + '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  function stageHtml(id, st, sel, big) {
+    var mk = marker(id, st);
+    return '<div class="stage mk-' + mk + '"><div class="stage-slide"' + (big ? ' data-stage="1" title="Click the header or the body to select it"' : '') + '>' + slideHtml(id, st) +
+      (sel ? '<div class="sel sel-' + sel + '" aria-hidden="true"></div>' : '') + '</div></div>';
+  }
+
+  function slidesTab() {
+    var id = ui.slide, mk = marker(id, state);
+    var hd = headerFor(id, state);
+    var sel = state.selection && state.selection.slide === id ? state.selection.part : null;
+    var part = state.selection && state.selection.slide === id ? state.selection.part : null;
+    var h = thumbsHtml();
+    h += '<div class="stage-top"><div class="stage-title"><span class="mono">Slide ' + slideNum(id) + ' of 8</span><span class="stage-head">' + esc(hd.header) + '</span></div>' +
+      '<div class="stage-tags">' + tagHtml(mk) + '<span class="dir-name">' + esc(dirOf(state.direction).name) + '</span></div></div>';
+    h += stageHtml(id, state, sel, true);
+    h += '<div class="pick" role="group" aria-label="Select part of slide ' + slideNum(id) + '"><span class="pick-l">Ask about</span>' +
+      [['slide', 'Whole slide'], ['header', 'Header'], ['body', 'Body']].map(function (p) {
+        return '<button type="button" class="pickbtn" data-pick="' + p[0] + '" aria-pressed="' + (part === p[0]) + '">' + p[1] + '</button>';
+      }).join('') + '</div>';
+    if (state.selection) {
+      h += '<div class="narrow-only gochat"><span>About: ' + esc(aboutLabel(state.selection)) + '</span><button type="button" class="btn" data-action="go-chat">Ask in chat</button></div>';
+    }
+    if (mk === 'stale') h += '<p class="stale-note">This slide was built on the earlier argument (cost). It has not been rebuilt, so it still shows the old content.</p>';
+    return h;
+  }
+
+  function storyTab() {
+    var hs = MS.headers(slideState(state));
+    return '<ol class="story">' + hs.map(function (x) {
+      var mk = marker(x.id, state);
+      return '<li class="story-i"><span class="story-n mono">' + x.n + '</span><div class="story-b"><div class="story-h">' + esc(x.header) + '</div>' +
+        '<div class="story-int">' + esc(x.intent) + '</div>' +
+        (mk === 'stale' ? '<div class="story-note">The slide itself still shows: ' + esc(headerFor(x.id, state).header) + '</div>' : '') +
+        '</div><div class="story-t">' + (tagHtml(mk) || '<span class="tag tag-ok">Decided</span>') + '</div></li>';
+    }).join('') + '</ol>';
+  }
+
+  function designTab() {
+    var d = dirOf(state.direction);
+    var h = '<div class="design"><div class="design-top"><h2>' + esc(d.name) + '</h2>' +
+      (state.designDecided ? '<span class="tag tag-ok">Decided</span>' : '<span class="tag tag-prov">Provisional</span>') + '</div>';
+    h += '<p class="status-line">' + (state.designDecided
+      ? 'You chose this direction. It is saved to your preferences for later decks.'
+      : 'Nobody decided this design. It is what the system produces by default. Ask for a real design in the chat.') + '</p>';
+    h += '<p class="concept">' + esc(d.concept) + '</p>';
+    h += '<h3 class="mini-h">Palette</h3><ul class="swatches">' + d.palette.map(function (p) {
+      return '<li><span class="sw" style="background:' + esc(p.hex) + '"></span><span class="sw-n">' + esc(p.name) + '</span><span class="sw-h mono">' + esc(p.hex) + '</span><span class="sw-r">' + esc(p.role) + '</span></li>';
+    }).join('') + '</ul>';
+    h += '<h3 class="mini-h">Type</h3><dl class="type"><dt>Display</dt><dd>' + esc(d.type.display) + '</dd><dt>Body</dt><dd>' + esc(d.type.body) + '</dd></dl>';
+    h += '<h3 class="mini-h">Rules</h3><ul class="rules">' + d.rules.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
+    return h;
+  }
+
+  function undoable(e) {
+    var i = state.log.indexOf(e);
+    return !e.undone && state.log.slice(i + 1).every(function (x) { return x.undone; });
+  }
+  function redoable(e) {
+    if (!e.undone || e.superseded) return false;
+    var i = state.log.indexOf(e);
+    return state.log.slice(0, i).every(function (x) { return !x.undone || x.superseded; });
+  }
+
+  function changesTab() {
+    if (!state.log.length) return '<div class="empty"><strong>No changes yet.</strong><p>Edits made in the chat appear here, newest first, each with an Undo.</p></div>';
+    return '<ol class="changes">' + state.log.slice().reverse().map(function (e) {
+      var undo = '';
+      if (e.undone) {
+        var ok = redoable(e);
+        undo = '<button type="button" class="btn" data-action="redo" data-eid="' + e.id + '"' + (ok ? '' : ' aria-disabled="true" title="' + (e.superseded ? 'Superseded by a later change' : 'Redo earlier changes first') + '"') + '>Redo</button>';
+      } else {
+        var ok2 = undoable(e);
+        undo = '<button type="button" class="btn" data-action="undo" data-eid="' + e.id + '"' + (ok2 ? '' : ' aria-disabled="true" title="Undo later changes first"') + '>Undo</button>';
+      }
+      return '<li class="chg' + (e.undone ? ' undone' : '') + '"><div class="chg-main"><div class="chg-what">' + esc(e.what) + (e.undone ? ' <span class="tag tag-plain">Undone</span>' : '') + '</div>' +
+        '<div class="chg-meta"><span>Instruction: “' + esc(e.instruction) + '”</span><span>Thread: ' + esc(e.thread) + '</span><span>Made by: ' + esc(e.layers) + '</span></div></div>' + undo + '</li>';
+    }).join('') + '</ol>';
+  }
+
+  function renderPanel() {
+    renderPtabs();
+    var body = $('#panel-body');
+    var prev = body.scrollTop;
+    var h = ui.ptab === 'slides' ? slidesTab() : ui.ptab === 'story' ? storyTab() : ui.ptab === 'design' ? designTab() : changesTab();
+    var strip = $('.strip', body);
+    var sx = strip ? strip.scrollLeft : 0;
+    body.innerHTML = h;
+    body.scrollTop = prev;
+    var ns = $('.strip', body);
+    if (ns) ns.scrollLeft = sx;
+    if (ui.ptab === 'slides' && !ui.stripSeen) { ui.stripSeen = true; }
+  }
+
+  function renderThread() {
+    renderChats();
+    renderComposers();
+    renderPanel();
+    renderDialogIfOpen();
+  }
+
+  /* ------------------------------------------------------------ changes */
+
+  function flash(ids) {
+    ui.flash = ids.slice();
+    var g = ui.gen;
+    setTimeout(function () {
+      if (g !== ui.gen) return;
+      ui.flash = null;
+      $$('.thumb.flash').forEach(function (e) { e.classList.remove('flash'); });
+    }, 1700);
+  }
+
+  function applyChange(spec, trace, list) {
+    var prev = {};
+    Object.keys(spec.patch).forEach(function (k) { prev[k] = clone(state[k]); });
+    state.log.forEach(function (e) { if (e.undone) e.superseded = true; });
+    var entry = {
+      id: ui.logId++, what: spec.what, instruction: spec.instruction, thread: THREAD,
+      layers: spec.layers || layerSummary(spec.rows), patch: clone(spec.patch), prev: prev,
+      affected: spec.affected.slice(), undone: false, superseded: false
+    };
+    state.log.push(entry);
+    Object.keys(spec.patch).forEach(function (k) { state[k] = clone(spec.patch[k]); });
+    flash(spec.affected);
+    pushMsg({ role: 'assistant', kind: 'change', text: spec.doneText, items: spec.items, rebuild: !!spec.rebuild, link: 'changes', trace: trace }, list || 'main');
+  }
+
+  function stepChange(spec, list) {
+    var trace = makeTrace(spec.rows, spec.foot);
+    spec.layers = layerSummary(trace.rows);
+    if (state.mode === 'propose') {
+      var after = withPatch(state, spec.patch);
+      var ids = spec.preview;
+      var slides = ids.map(function (id) {
+        return { n: slideNum(id), before: slideHtml(id, state, false), after: slideHtml(id, after, true) };
+      });
+      var more = spec.previewMore || (spec.affected.length > ids.length ? 'Plus ' + (spec.affected.length - ids.length) + ' more slides, changed the same way.' : '');
+      pushMsg({ role: 'assistant', kind: 'proposal', text: spec.proposeText, preview: { slides: slides, more: more }, change: spec, status: 'open', trace: trace }, 'main');
+    } else {
+      applyChange(spec, trace);
+    }
+  }
+
+  function applyProposal(m) {
+    if (m.status !== 'open') return;
+    m.status = 'applied';
+    if (m.change.artifact) { applyReadout(m.change, { plain: 'Applied from the proposal. No layers re-ran.' }); return; }
+    applyChange(m.change, { plain: 'Applied from the proposal as previewed. No layers re-ran.' });
+    state.step = Math.max(state.step, m.change.step || 0);
+    renderThread();
+  }
+
+  function setLog(e, undo) {
+    var keys = Object.keys(e.patch);
+    keys.forEach(function (k) { state[k] = clone(undo ? e.prev[k] : e.patch[k]); });
+    e.undone = undo;
+    flash(e.affected);
+    renderThread();
+  }
+
+  /* ---------------------------------------------------------- the script */
+
+  function specDirection(dirId) {
+    var d = dirOf(dirId);
+    return {
+      step: 2, what: 'Chose ' + d.name + ' as the design and recomposed all eight slides in it.',
+      instruction: 'Use this direction (' + d.name + ')', affected: ALL.slice(),
+      patch: { direction: dirId, designDecided: true }, preview: ['s1', 's4'],
+      rows: [
+        { layer: 'Direction', tier: 'lead', skip: true },
+        { layer: 'System', tier: 'senior', note: 'wrote the decided system', units: 1, secs: 6 },
+        { layer: 'Composition', tier: 'mid', note: '8 slides in parallel', units: 8, secs: 7 },
+        { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 8, secs: 2 }
+      ],
+      foot: 'The Lead was not needed. The direction was already chosen.',
+      proposeText: 'This would make ' + d.name + ' the decided design and recompose all eight slides in it. Slides 1 and 4 are shown below. Nothing has changed yet.',
+      doneText: 'Done. ' + d.name + ' is now the decided system. All eight slides were recomposed in it, and I noted the choice in your preferences for later decks.',
+      items: ['All eight slides recomposed in ' + d.name, 'Design status: provisional to decided', 'Saved to your preferences: ' + d.name]
+    };
+  }
+  function specHero() {
+    return {
+      step: 3, what: 'Slide 4 now leads with the number 38%. The before and after bars are a quiet footnote.',
+      instruction: 'Make the number the hero', affected: ['s4'], patch: { s4Hero: true }, preview: ['s4'],
+      rows: [
+        { layer: 'Direction', tier: 'lead', skip: true },
+        { layer: 'Composition', tier: 'mid', note: 'recomposed slide 4', units: 1, secs: 4 },
+        { layer: 'Placement', tier: 'low', note: 'placed the number and footnote', units: 1, secs: 1 }
+      ],
+      proposeText: 'Slide 4 would lead with 38% and the before and after bars would become a footnote. Nothing has changed yet.',
+      doneText: 'Done. Slide 4 now leads with 38%. The before and after bars moved to a footnote.',
+      items: ['Slide 4: the number 38% is the hero', 'Slide 4: bar comparison reduced to a footnote']
+    };
+  }
+  function specShort() {
+    return {
+      step: 4, what: 'Slide 6 header shortened to “Two quarters, three phases”.',
+      instruction: 'Shorten this title', affected: ['s6'], patch: { s6Short: true }, preview: ['s6'],
+      rows: [{ layer: 'Mechanics', tier: 'low', note: 'edited one header', units: 1, secs: 1 }],
+      foot: 'Routed straight to the lowest tier. The lead was not invoked.',
+      proposeText: 'The header on slide 6 would become “Two quarters, three phases”. Nothing has changed yet.',
+      doneText: 'Done. The header on slide 6 now reads “Two quarters, three phases”.',
+      items: ['Slide 6 header: Two quarters, three phases']
+    };
+  }
+  function specLead() {
+    return {
+      step: 6, what: 'Changed the argument to lead with latency. Slides 1, 2, 3 and 7 are now stale.',
+      instruction: 'Lead with latency, not cost', affected: ['s1', 's2', 's3', 's7'],
+      patch: { lead: 'latency', stale: ['s1', 's2', 's3', 's7'] }, preview: ['s1', 's2'], rebuild: true,
+      rows: [{ layer: 'Direction', tier: 'lead', note: 'rewrote the argument and four headers', units: 1, secs: 8 }],
+      proposeText: 'This would change the argument to lead with latency and mark slides 1, 2, 3 and 7 as stale, because they were built on the cost argument. Nothing would be rebuilt yet. Slides 1 and 2 are shown as they would read once rebuilt.',
+      doneText: 'The storyline now leads with latency. Four slides were built on the old argument, so I marked them stale: slides 1, 2, 3 and 7. Nothing was rebuilt.',
+      items: ['Storyline: headers on slides 1, 2, 3 and 7 now lead with latency', 'Slides 1, 2, 3 and 7 marked Stale, still showing the cost argument']
+    };
+  }
+  function specRebuild() {
+    return {
+      step: 6, what: 'Rebuilt slides 1, 2, 3 and 7 on the latency argument.',
+      instruction: 'Rebuild the 4 stale slides', affected: state.stale.slice(),
+      patch: { stale: [] }, preview: ['s1', 's2'],
+      rows: [
+        { layer: 'Direction', tier: 'lead', skip: true },
+        { layer: 'Composition', tier: 'mid', note: '4 slides in parallel', units: 4, secs: 6 },
+        { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 4, secs: 2 },
+        { layer: 'Review', tier: 'senior', note: 'read the four renders', units: 1, secs: 5 }
+      ],
+      proposeText: 'This would rebuild the four stale slides on the latency argument. Slides 1 and 2 are shown before and after. Nothing has changed yet.',
+      doneText: 'Rebuilt. Slides 1, 2, 3 and 7 now follow the latency argument and are no longer stale.',
+      items: ['Slides 1, 2, 3 and 7 rebuilt on the latency argument', 'Stale markers cleared']
+    };
+  }
+  function specReadout() {
+    return {
+      artifact: true, list: 'notes',
+      proposeText: 'This would create a five-slide readout deck from the notes and add it to the engagement. It would be provisional, because no design has been decided for it. Nothing has been created yet.',
+      doneText: 'Done. I made a five-slide readout deck from these notes and added it to the engagement. It is provisional: its design has not been decided.',
+      items: ['Scoping call readout (deck, 5 slides, provisional) added to Artifacts', 'Slides: summary, themes, decisions, key dates, next steps'],
+      preview: { list: ['Slide 1: What we heard', 'Slide 2: Themes', 'Slide 3: Decisions so far', 'Slide 4: Key dates', 'Slide 5: Next steps and open questions'] },
+      rows: [
+        { layer: 'Direction', tier: 'lead', note: 'chose the five points from the notes', units: 1, secs: 6 },
+        { layer: 'Composition', tier: 'mid', note: '5 slides in parallel', units: 5, secs: 5 },
+        { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 5, secs: 2 }
+      ]
+    };
+  }
+
+  function applyReadout(spec, trace) {
+    ui.readout = true;
+    ui.notesChipUsed = true;
+    pushMsg({ role: 'assistant', kind: 'change', text: spec.doneText, items: spec.items, link: 'home', trace: trace }, 'notes');
+    renderChats(); renderComposers(); renderHome();
+  }
+
+  function stepReadout() {
+    var spec = specReadout();
+    var trace = makeTrace(spec.rows);
+    if (state.mode === 'propose') {
+      pushMsg({ role: 'assistant', kind: 'proposal', text: spec.proposeText, preview: spec.preview, change: spec, status: 'open', trace: trace }, 'notes');
+    } else {
+      applyReadout(spec, trace);
+    }
+  }
+
+  var STEPS = {
+    s1: { label: 'The deck looks generic. Give it a real design.', run: function () {
+      ui.did1 = true; state.step = Math.max(state.step, 1);
+      var samples = {};
+      MS.directions.slice(1).forEach(function (d) { samples[d.id] = MS.renderSample(d.id); });
+      pushMsg({
+        role: 'assistant', kind: 'proposal', samples: samples, cards: true,
+        text: 'The default was never a decision. It is what you get when nobody chooses. Here are three directions drawn from the content of this deck. Pick one and I will recompose all eight slides in it.',
+        trace: makeTrace([
+          { layer: 'Direction', tier: 'lead', note: 'wrote three concepts', units: 1, secs: 9 },
+          { layer: 'System', tier: 'senior', note: 'three systems, in parallel', units: 3, secs: 7 },
+          { layer: 'Composition', tier: 'mid', note: 'nine sample slides, in parallel', units: 9, secs: 6 },
+          { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 9, secs: 2 },
+          { layer: 'Review', tier: 'senior', note: 'read the renders cold', units: 3, secs: 5 }
+        ])
+      });
+    } },
+    s3: { label: 'Make the number the hero', sel: { slide: 's4', part: 'slide' }, run: function () { state.step = Math.max(state.step, 3); stepChange(specHero()); } },
+    s4: { label: 'Shorten this title', sel: { slide: 's6', part: 'header' }, strict: true, run: function () { state.step = Math.max(state.step, 4); stepChange(specShort()); } },
+    s5: { label: 'Is slide 5 too dense?', sel: { slide: 's5', part: 'slide' }, run: function () {
+      ui.did5 = true; ui.followup5 = true; state.step = Math.max(state.step, 5);
+      pushMsg({
+        role: 'assistant', kind: 'talk',
+        text: 'Yes, a little. Slide 5 carries a diagram and four points, which is more than any other slide. I would cut it to the diagram and two points: the 21% figure and the one on cache freshness. The other two can go in the notes. Want me to do that?',
+        trace: makeTrace([{ layer: 'Review', tier: 'senior', note: 'read slide 5 against the others', units: 1, secs: 4 }])
+      });
+    } },
+    s6: { label: 'Lead with latency, not cost', run: function () { state.step = Math.max(state.step, 6); stepChange(specLead()); } },
+    s7: { label: 'Check the numbers against my sources', run: function () {
+      state.checked = true; state.step = Math.max(state.step, 7);
+      pushMsg({
+        role: 'assistant', kind: 'talk', check: true,
+        text: 'I checked the five figures that appear in the deck against your sources. Four are in your documents. One is not there in that exact form.',
+        after: 'Nothing is blocked. Tell me if you want the range instead.',
+        trace: makeTrace([
+          { layer: 'Mechanics', tier: 'low', note: 'extracted the figures', units: 5, secs: 2 },
+          { layer: 'Review', tier: 'senior', note: 'matched each to a source', units: 5, secs: 6 }
+        ])
+      });
+    } },
+    f5y: { label: 'Yes, cut it down', run: function () {
+      ui.followup5 = false;
+      pushMsg({ role: 'assistant', kind: 'talk', text: 'In the product this would recompose slide 5. Not scripted here.', trace: { plain: 'Nothing ran. This step is not scripted in the mock-up.' } });
+    } },
+    f5n: { label: 'Leave it', run: function () {
+      ui.followup5 = false;
+      pushMsg({ role: 'assistant', kind: 'talk', text: 'Understood. Slide 5 stays as it is. I will not raise it again unless you ask.', trace: { plain: 'Nothing ran. No layers were needed.' } });
+    } },
+    n1: { label: 'Turn this into a readout deck', list: 'notes', run: function () { stepReadout(); } }
+  };
+
+  function say(label, fn, list, about) {
+    if (ui.busy) return;
+    list = list || 'main';
+    pushMsg({ role: 'user', text: label, about: about || null }, list);
+    ui.busy = true; ui.busyList = list;
+    var g = ui.gen;
+    renderChats(); renderComposers(); renderDialogIfOpen();
+    setTimeout(function () {
+      if (g !== ui.gen) return;
+      ui.busy = false; ui.busyList = null;
+      fn();
+      renderThread();
+      if (list === 'notes') { renderChats(); renderComposers(); }
+    }, 520);
+  }
+
+  function runStep(id) {
+    var s = STEPS[id];
+    if (!s || ui.busy) return;
+    var about = null;
+    if (s.sel) {
+      var cur = state.selection;
+      if (!cur || cur.slide !== s.sel.slide || (s.sel.part !== 'slide' && cur.part !== s.sel.part)) state.selection = { slide: s.sel.slide, part: s.sel.part };
+      ui.slide = s.sel.slide;
+      about = aboutLabel(state.selection);
+    }
+    say(s.label, function () {
+      state.selection = null;
+      s.run();
+    }, s.list, about);
+    if (s.sel) { renderPanel(); }
+  }
+
+  /* ------------------------------------------------------------------ home */
+
+  function renderHome() {
+    $('#home-sources').innerHTML = SOURCES.map(function (s) {
+      return '<li class="row"><span class="ico" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3.5 1.5h5l3 3v8h-8z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></span>' +
+        '<span class="row-b"><span class="row-t">' + esc(s[0]) + '</span><span class="row-m">' + esc(s[1]) + '</span></span></li>';
+    }).join('');
+    var design = state.designDecided ? 'design decided: ' + dirOf(state.direction).name : 'design provisional';
+    var arts = [
+      { t: 'Serving the assistant for less', m: 'Deck · 8 slides · ' + design, href: '#thread', tags: [] },
+      { t: 'Scoping call notes', m: 'Notes · 7 sections', href: '#notes', tags: [] },
+      { t: 'Board evidence pack', m: 'Deck · 6 slides', href: '#strict', tags: ['<span class="tag tag-strict">Strict</span>'] }
+    ];
+    if (ui.readout) arts.push({ t: 'Scoping call readout', m: 'Deck · 5 slides · provisional', href: '', tags: ['<span class="tag tag-prov">Provisional</span>'], isNew: true });
+    $('#art-count').textContent = arts.length;
+    $('#home-artifacts').innerHTML = arts.map(function (a) {
+      var inner = '<span class="ico" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1.5" y="2.5" width="11" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 12.5h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>' +
+        '<span class="row-b"><span class="row-t">' + esc(a.t) + (a.isNew ? ' <span class="tag tag-ok">New</span>' : '') + '</span><span class="row-m">' + esc(a.m) + '</span></span>' + a.tags.join('');
+      return a.href ? '<li><a class="row link" href="' + a.href + '">' + inner + '</a></li>'
+        : '<li><button type="button" class="row link" data-action="toast" data-msg="Not scripted in this mock-up.">' + inner + '</button></li>';
+    }).join('');
+    $('#home-threads').innerHTML = [
+      ['Storyline and first draft', 'Yesterday · closed, read-only', '#history'],
+      ['Design and refinement', 'Today · open', '#thread'],
+      ['Scoping call notes', '14 July · notes', '#notes']
+    ].map(function (t) {
+      return '<li><a class="row link" href="' + t[2] + '"><span class="ico" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 12 3.5v5A1.5 1.5 0 0 1 10.5 10H6l-3 2.5V10A1.5 1.5 0 0 1 2 8.5z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>' +
+        '<span class="row-b"><span class="row-t">' + esc(t[0]) + '</span><span class="row-m">' + esc(t[1]) + '</span></span></a></li>';
+    }).join('');
+  }
+
+  /* ----------------------------------------------------------- notes view */
+
+  function renderNotes() {
+    $('#notes-body').innerHTML = NOTES.map(function (s) {
+      return '<section class="n-sec"><h2>' + esc(s.h) + '</h2><ul class="n-list">' + s.items.map(function (it, i) {
+        var id = 'q-' + s.h.replace(/\W+/g, '') + i;
+        return '<li class="n-item"><div class="n-line"><span class="n-text">' + esc(it[1]) + (it[3] ? ' <span class="tag tag-prov">' + esc(it[3]) + '</span>' : '') + '</span>' +
+          '<button type="button" class="time mono" aria-expanded="false" aria-controls="' + id + '">' + it[0] + '</button></div>' +
+          '<blockquote class="quote" id="' + id + '" hidden><span class="q-l mono">Transcript ' + it[0] + '</span>' + esc(it[2]) + '</blockquote></li>';
+      }).join('') + '</ul></section>';
+    }).join('');
+  }
+
+  function renderStrict() {
+    var dir = state.designDecided ? state.direction : 'a';
+    $('#strict-stage').innerHTML = '<div class="stage-slide">' + MS.render('s4', dir, { lead: 'cost', s4Hero: false, s6Short: false }) + '</div>';
+    $('#claims-list').innerHTML = CLAIMS.map(function (c, i) {
+      var cls = c.v === 'Supported' ? 'ok' : 'part';
+      return '<div class="claim"><div class="claim-top"><p class="claim-t">' + esc(c.t) + '</p><span class="verdict v-' + cls + '">' + c.v + '</span></div>' +
+        '<button type="button" class="linkbtn" aria-expanded="false" aria-controls="src-' + i + '" data-src="' + i + '">Show source</button>' +
+        '<div class="src" id="src-' + i + '" hidden><div class="src-doc">' + esc(c.doc) + ', ' + esc(c.page) + '</div><blockquote class="quote">' + esc(c.q) + '</blockquote></div></div>';
+    }).join('');
+  }
+
+  /* ------------------------------------------------------------- dialogs */
+
+  var lastFocus = null;
+  function dialogItems() {
+    var items = [];
+    if (!state.designDecided) items.push('The design is provisional. Nobody has chosen it yet.');
+    if (state.stale.length) items.push(state.stale.length + ' slides are stale and still show the earlier argument: ' + state.stale.map(slideNum).join(', ') + '.');
+    if (state.checked) items.push('One figure is not verified: 38% (slides 1 and 4). The quantisation paper reports a range of 35 to 41%.');
+    else items.push('Figures have not been checked against your sources. ' + (ui.busy ? 'Checking now.' : '<button type="button" class="linkbtn" data-action="check-now">Check now</button>'));
+    return items;
+  }
+  function renderDialogIfOpen() { if (!$('#dialog').hidden) $('#dlg-body').innerHTML = '<p>Before you export, note:</p><ul class="items">' + dialogItems().map(function (i) { return '<li>' + (i.indexOf('<button') >= 0 ? i : esc(i)) + '</li>'; }).join('') + '</ul><p class="muted">You can export anyway. Nothing is blocked.</p>'; }
+  function openDialog() {
+    lastFocus = document.activeElement;
+    $('#dialog').hidden = false;
+    renderDialogIfOpen();
+    $('#dlg-export').focus();
+  }
+  function closeDialog() {
+    $('#dialog').hidden = true;
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  var toastT;
+  function toast(msg) {
+    var t = $('#toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.hidden = true; }, 3200);
+  }
+
+  /* --------------------------------------------------------------- routing */
+
+  function route() {
+    var v = location.hash.replace(/^#/, '');
+    if (VIEWS.indexOf(v) < 0) v = 'home';
+    VIEWS.forEach(function (n) { $('#' + n).hidden = n !== v; });
+    if (v === 'home') renderHome();
+    if (v === 'thread') { ui.scroll.main = true; renderThread(); }
+    if (v === 'notes') { ui.scroll.notes = true; renderChats(); renderComposers(); }
+    if (v === 'strict') renderStrict();
+    if (v === 'history') {
+      var hist = $('#hist-msgs');
+      hist.innerHTML = HISTORY.map(function (m, i) { var c = clone(m); c.id = 'h' + i; return msgHtml(c); }).join('');
+    }
+    var focusId = { home: 'home-h', thread: 'thread-h', notes: 'notes-h', strict: 'strict-h', history: 'hist-h' }[v];
+    var f = document.getElementById(focusId);
+    if (f && ui.navigated) f.focus({ preventScroll: true });
+    ui.navigated = true;
+    var scroller = v === 'home' ? $('#home') : v === 'history' ? $('#history') : v === 'strict' ? $('#strict') : v === 'notes' ? $('#notes') : null;
+    if (scroller) scroller.scrollTop = 0;
+    document.body.setAttribute('data-view', v);
+  }
+
+  function setTab(t) {
+    $('#thread').setAttribute('data-tab', t);
+    $$('[data-ttab]').forEach(function (b) { b.setAttribute('aria-selected', String(b.getAttribute('data-ttab') === t)); });
+  }
+
+  /* ---------------------------------------------------------------- events */
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var el;
+
+    if ((el = t.closest('#sw-btn'))) {
+      var m = $('#sw-menu');
+      m.hidden = !m.hidden;
+      el.setAttribute('aria-expanded', String(!m.hidden));
+      return;
+    }
+    if (!t.closest('.switcher')) { $('#sw-menu').hidden = true; $('#sw-btn').setAttribute('aria-expanded', 'false'); }
+
+    if (t.closest('#restart')) {
+      reset();
+      buildComposers();
+      setTab('chat');
+      $('#dialog').hidden = true; $('#toast').hidden = true;
+      renderNotes(); renderStrict();
+      if (location.hash === '#home' || location.hash === '') route(); else location.hash = '#home';
+      return;
+    }
+
+    if ((el = t.closest('[data-ttab]'))) { setTab(el.getAttribute('data-ttab')); return; }
+    if ((el = t.closest('[data-ptab]'))) { ui.ptab = el.getAttribute('data-ptab'); renderPanel(); return; }
+
+    if ((el = t.closest('[data-chip]'))) {
+      if (el.getAttribute('aria-disabled') === 'true') return;
+      runStep(el.getAttribute('data-chip'));
+      return;
+    }
+    if ((el = t.closest('[data-mode]'))) { state.mode = el.getAttribute('data-mode'); renderComposers(); renderMsgsInto($('#msgs'), ui.msgs, 'main'); return; }
+    if ((el = t.closest('[data-route]'))) { state.route = el.getAttribute('data-route'); renderComposers(); return; }
+
+    if ((el = t.closest('.thumb'))) {
+      var id = el.getAttribute('data-slide');
+      ui.slide = id;
+      state.selection = { slide: id, part: 'slide' };
+      renderPanel(); renderComposers();
+      return;
+    }
+    if ((el = t.closest('[data-pick]'))) {
+      var part = el.getAttribute('data-pick');
+      var cur = state.selection;
+      state.selection = (cur && cur.slide === ui.slide && cur.part === part) ? null : { slide: ui.slide, part: part };
+      renderPanel(); renderComposers();
+      return;
+    }
+    if ((el = t.closest('[data-stage]'))) {
+      var r = el.getBoundingClientRect();
+      var y = (e.clientY - r.top) / r.height;
+      var p = y < 0.26 ? 'header' : 'body';
+      var c2 = state.selection;
+      state.selection = (c2 && c2.slide === ui.slide && c2.part === p) ? null : { slide: ui.slide, part: p };
+      renderPanel(); renderComposers();
+      return;
+    }
+
+    if ((el = t.closest('.time'))) {
+      var q = document.getElementById(el.getAttribute('aria-controls'));
+      q.hidden = !q.hidden;
+      el.setAttribute('aria-expanded', String(!q.hidden));
+      return;
+    }
+    if ((el = t.closest('[data-src]'))) {
+      var s = document.getElementById('src-' + el.getAttribute('data-src'));
+      s.hidden = !s.hidden;
+      el.setAttribute('aria-expanded', String(!s.hidden));
+      el.textContent = s.hidden ? 'Show source' : 'Hide source';
+      return;
+    }
+
+    if ((el = t.closest('[data-action]'))) {
+      var a = el.getAttribute('data-action');
+      if (el.getAttribute('aria-disabled') === 'true') return;
+      if (a === 'close-menu') { $('#sw-menu').hidden = true; $('#sw-btn').setAttribute('aria-expanded', 'false'); }
+      else if (a === 'clear-sel') { state.selection = null; renderPanel(); renderComposers(); }
+      else if (a === 'go-chat') setTab('chat');
+      else if (a === 'goto-changes') { ui.ptab = 'changes'; setTab('deck'); renderPanel(); }
+      else if (a === 'toast') toast(el.getAttribute('data-msg'));
+      else if (a === 'export') openDialog();
+      else if (a === 'close-dialog') closeDialog();
+      else if (a === 'do-export') { closeDialog(); toast('Exported (mock-up: no file is written)'); }
+      else if (a === 'check-now') runStep('s7');
+      else if (a === 'pick-dir') {
+        if (ui.busy || state.designDecided) return;
+        var dir = dirOf(el.getAttribute('data-dir'));
+        say('Use this direction: ' + dir.name, function () { stepChange(specDirection(dir.id)); });
+      }
+      else if (a === 'rebuild') {
+        if (!state.stale.length) return;
+        say('Rebuild the 4 stale slides', function () { stepChange(specRebuild()); });
+      }
+      else if (a === 'apply' || a === 'dismiss') {
+        var mid = +el.getAttribute('data-mid');
+        var msg = ui.msgs.concat(ui.notesMsgs).filter(function (x) { return x.id === mid; })[0];
+        if (!msg || msg.status !== 'open') return;
+        if (a === 'apply') applyProposal(msg);
+        else { msg.status = 'dismissed'; renderChats(); }
+        if (a === 'apply') { renderThread(); renderHome(); }
+      }
+      else if (a === 'undo' || a === 'redo') {
+        var eid = +el.getAttribute('data-eid');
+        var en = state.log.filter(function (x) { return x.id === eid; })[0];
+        if (!en) return;
+        if (a === 'undo' && undoable(en)) setLog(en, true);
+        if (a === 'redo' && redoable(en)) setLog(en, false);
+      }
+      return;
+    }
+
+    if (t.classList && t.classList.contains('scrim') && t.id === 'dialog') closeDialog();
+  });
+
+  document.addEventListener('submit', function (e) {
+    var f = e.target.closest('.cform');
+    if (!f) return;
+    e.preventDefault();
+    var inp = $('.cinput', f);
+    var v = inp.value.trim();
+    if (!v || ui.busy) return;
+    inp.value = '';
+    var scope = f.parentNode.getAttribute('data-scope') === 'notes' ? 'notes' : 'main';
+    say(v, function () {
+      pushMsg({ role: 'assistant', kind: 'talk', text: 'This is a scripted mock-up. Pick one of the suggested messages to continue.', trace: { plain: 'Nothing ran. Free text is not read in the mock-up.' } }, scope);
+    }, scope, scope === 'main' && state.selection ? aboutLabel(state.selection) : null);
+  });
+
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d.matches || !d.matches('details.route')) return;
+    var mid = +d.getAttribute('data-mid');
+    ui.msgs.concat(ui.notesMsgs).forEach(function (m) { if (m.id === mid) m.open = d.open; });
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    var dlg = $('#dialog');
+    if (e.key === 'Escape') {
+      if (!dlg.hidden) { closeDialog(); return; }
+      if (!$('#sw-menu').hidden) { $('#sw-menu').hidden = true; $('#sw-btn').setAttribute('aria-expanded', 'false'); $('#sw-btn').focus(); }
+    }
+    if (e.key === 'Tab' && !dlg.hidden) {
+      var f = $$('button, a[href], input', dlg).filter(function (x) { return !x.disabled && x.offsetParent !== null; });
+      if (!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  window.addEventListener('hashchange', route);
+
+  /* ------------------------------------------------------------------ boot */
+
+  (function boot() {
+    var st = document.createElement('style');
+    st.id = 'ms-css';
+    st.textContent = MS.css;
+    document.head.appendChild(st);
+    reset();
+    buildComposers();
+    renderNotes();
+    renderStrict();
+    renderHome();
+    route();
+  })();
+})();
+
+</script>
