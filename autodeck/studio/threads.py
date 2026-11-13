@@ -89,15 +89,17 @@ class ThreadStore:
             pydantic.ValidationError: as above (nothing written).
         """
         thread_id = self.next_thread_id()
-        record = ThreadRecord(
-            id=thread_id,
-            client=self.engagement.client,
-            project=self.engagement.project,
-            title=title,
-            created_at=now,
-            opening=opening,  # type: ignore[arg-type]
-            context_digest=text_digest(context_text),
-            model_id=model_id,
+        record = ThreadRecord.model_validate(
+            {
+                "id": thread_id,
+                "client": self.engagement.client,
+                "project": self.engagement.project,
+                "title": title,
+                "created_at": now,
+                "opening": opening,
+                "context_digest": text_digest(context_text),
+                "model_id": model_id,
+            }
         )
         paths = self.paths(thread_id)
         paths.ensure()
@@ -241,5 +243,7 @@ class ThreadStore:
         """`u` + the 1-based ordinal of the next turn, zero-padded to 4 digits: one more
         than the number of distinct `turn_id`s among the thread's `UserLine`s (`u0001` for
         an empty log)."""
-        turns = {line.turn_id for line in self.read_lines(thread_id) if isinstance(line, UserLine)}
+        turns = {
+            line.turn_id for line in self.read_lines(thread_id) if isinstance(line, UserLine)
+        }
         return f"u{len(turns) + 1:04d}"
