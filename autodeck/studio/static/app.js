@@ -109,7 +109,7 @@
     // The first readable string inside a (possibly clipped) JSON object, skipping the id.
     const re = /"(\w+)":\s*"((?:[^"\\]|\\.)*)("|$)/g;
     let m;
-    while ((m = re.exec(v))) if (m[1] !== "id") return m[2].replace(/\\"/g, '"').replace(/…$/, "").trim();
+    while ((m = re.exec(v))) if (m[1] !== "id") return m[2].replace(/\\"/g, '"').trim();
     return "";
   }
   function describeLine(line) {
