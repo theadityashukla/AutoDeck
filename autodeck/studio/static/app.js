@@ -277,7 +277,7 @@
       h("div", { class: "page-head" },
         h("div", null, h("a", { class: "back", href: "#/", text: "Engagements" }),
           h("h1", { id: "eng-h", text: en.title || en.client + " · " + en.project }),
-          h("p", { class: "lede", text: en.client + " · " + en.project })),
+          en.title ? h("p", { class: "lede", text: en.client + " · " + en.project }) : null),
         newBtn),
       h("div", { class: "cols" },
         col("Sources", sources, "No sources found."),
