@@ -163,8 +163,8 @@ button:disabled, textarea:disabled { cursor: not-allowed; }
 .crumb:hover { color: var(--text); }
 .topbar-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .model { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#main { flex: 1; min-height: 0; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
-.view { height: 100%; }
+#main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+.view { flex: 1; min-height: 0; }
 .scroll { overflow-y: auto; overflow-x: hidden; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 500; color: var(--text); text-decoration: none; box-shadow: var(--shadow-s); min-height: 30px; }

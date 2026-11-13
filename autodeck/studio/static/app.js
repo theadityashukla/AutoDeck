@@ -26,6 +26,11 @@
     return el;
   }
 
+  function add(el, ...kids) {
+    for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) el.append(k.nodeType ? k : document.createTextNode(String(k)));
+    return el;
+  }
+
   function clear(el) {
     while (el.firstChild) el.removeChild(el.firstChild);
     return el;
@@ -390,7 +395,7 @@
       E.input.style.height = Math.min(E.input.scrollHeight, 160) + "px";
     });
     const chat = h("section", { class: "chat", id: "chat-pane", "aria-label": "Conversation" },
-      h("div", { class: "chat-head" }, h("h1", { class: "chat-title", text: T.summary.title || "Thread" }), E.conn),
+      h("div", { class: "chat-head" }, h("h1", { class: "chat-title", text: T.summary.title || T.summary.preview || "New thread" }), E.conn),
       E.msgs,
       h("div", { class: "composer" }, E.form, E.hint));
     E.panelHead = h("div", { class: "panel-head" });
@@ -854,7 +859,7 @@
     }));
     const r = T.art.render;
     const note = r && !r.rendered && r.note ? h("p", { class: "quiet", text: r.note }) : null;
-    body.append(
+    add(body,
       strip,
       h("div", { class: "stage-top" },
         h("div", { class: "stage-title" }, h("span", { class: "stage-head", text: slideTitle(cur) }), h("span", { class: "mono", text: "Slide " + (idx + 1) + " of " + slides.length + " · " + cur.id })),
@@ -869,14 +874,14 @@
     const body = T.els.panelBody;
     const sec = (title, marker, ...kids) => h("section", { class: "sec" }, h("h2", { class: "sec-h" }, title, markerTag(marker)), kids);
     const b = d.brief;
-    body.append(sec("Brief", b && b.marker, b
+    add(body, sec("Brief", b && b.marker, b
       ? h("dl", { class: "kv" },
           h("dt", { text: "Audience" }), h("dd", { text: b.audience || "Not set" }),
           h("dt", { text: "Goal" }), h("dd", { text: b.goal || "Not set" }),
           b.notes ? h("dt", { text: "Notes" }) : null, b.notes ? h("dd", { text: b.notes }) : null)
       : h("p", { class: "muted", text: "No brief yet." })));
     const pts = (d.storyline && d.storyline.points) || [];
-    body.append(sec("Storyline", d.storyline && d.storyline.marker, pts.length
+    add(body, sec("Storyline", d.storyline && d.storyline.marker, pts.length
       ? h("ol", { class: "story" }, pts.map((p, i) => {
           const serving = (d.slides || []).map((s, j) => ({ s, j })).filter((x) => (x.s.serves || []).includes(p.id));
           return h("li", { class: "story-i" },
@@ -888,7 +893,7 @@
         }))
       : h("p", { class: "muted", text: "No storyline yet." })));
     const c = d.design_concept;
-    body.append(sec("Design concept", c && c.marker, c ? h("p", { class: "concept", text: c.text }) : h("p", { class: "muted", text: "No design concept yet." })));
+    add(body, sec("Design concept", c && c.marker, c ? h("p", { class: "concept", text: c.text }) : h("p", { class: "muted", text: "No design concept yet." })));
   }
 
   async function doRevert(T, action, btn) {
