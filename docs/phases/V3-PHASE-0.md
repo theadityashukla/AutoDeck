@@ -212,3 +212,39 @@ finds it slow.
    but if a pydantic upgrade changed the dump format, an apply's `NoChangeError` check
    (new dump against stored text) could see a difference where there is none. Pin pydantic
    or re-snapshot artifacts when upgrading.
+
+## Result (task 0.11, lead verification, 2026-11-13)
+
+Phase 0 meets its "done when".
+
+- **Studio tests:** 154 passed in the default selection; the 5 `render`-marked tests pass
+  with LibreOffice and the fonts installed. No skeleton body remains.
+- **End to end:** `scripts/studio_demo.py` creates an engagement over the real knowledge
+  folders, renders the four-slide fixture, applies an edit, lists it, and undoes it;
+  `current.json` is byte-identical to before.
+- **Rendered output:** all four fixture slides were viewed: title, hero number, native
+  chart with one emphasised bar, and a three-card slide. Nothing blank or clipped.
+- **v2 unchanged:** no file outside `autodeck/studio/` was edited under `autodeck/`. Full
+  default suite: 2286 passed, 1 failed, which is v2's 2132 plus the 154 studio tests and
+  the one known pre-existing font failure.
+- **Lint and types:** ruff check, ruff format and pyright clean on the studio code.
+
+### Preview speed
+
+Four slides at 150 dpi on the build container: PPTX build 0.06-0.07 s; rasterisation
+1.5-1.6 s. Rasterisation is one LibreOffice start plus the conversion, so it should grow
+slowly with slide count, but that has not been measured on a full deck. Three design
+directions of three slides each would cost one conversion each if rendered in parallel.
+
+### Carried to Phase 1
+
+- Undo of a change from the middle of the history (needs merge rules; decide with threads).
+- Diagrams in the base IR (v2's diagram nodes are typed claims).
+- Isolation cases raised by implementers and not yet tested: a workspace
+  `engagements/<client>` that is a symlink to another client's tree; a
+  `knowledge/projects/<project>` symlink into `clients/<other>`; listings that follow
+  symlinked directories. The same symlink gap may exist in v2's `ClientNamespace.guard`;
+  not verified.
+- No locking and no crash repair in the store (single writer assumed).
+- The studio depends on two private v2 names (`ir.store._diff`,
+  `render.renderer._BLANK_LAYOUT`).

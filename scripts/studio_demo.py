@@ -30,12 +30,24 @@ Expected output shape (numbers vary):
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+from autodeck.design.theme.tokens import DesignTokens  # noqa: E402
+from autodeck.studio import (  # noqa: E402
+    changelog,
+    edits,
+    engagement,
+    models,
+    render,
+    serialise,
+)
 
 FIXTURE = ROOT / "tests" / "studio" / "fixtures" / "base_deck.json"
 DEFAULT_TOKENS = ROOT / "config" / "tokens" / "dev.json"
@@ -62,7 +74,11 @@ class DemoResult:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """`--tokens PATH` (default `DEFAULT_TOKENS`), `--knowledge-root PATH` (default
     `DEFAULT_KNOWLEDGE_ROOT`), `--keep` (flag). Paths are returned as `Path`."""
-    raise NotImplementedError
+    parser = argparse.ArgumentParser(description="Phase 0 of AutoDeck v3, end to end.")
+    parser.add_argument("--tokens", type=Path, default=DEFAULT_TOKENS)
+    parser.add_argument("--knowledge-root", type=Path, default=DEFAULT_KNOWLEDGE_ROOT)
+    parser.add_argument("--keep", action="store_true")
+    return parser.parse_args(argv)
 
 
 def run_demo(*, tokens_path: Path, knowledge_root: Path, workspace_root: Path) -> DemoResult:
@@ -84,7 +100,47 @@ def run_demo(*, tokens_path: Path, knowledge_root: Path, workspace_root: Path) -
 
     Exceptions from any step propagate (`main` turns them into exit 1).
     """
-    raise NotImplementedError
+    deck = serialise.load_artifact(FIXTURE.read_text("utf-8"))
+    tokens = DesignTokens.load(tokens_path)
+
+    eng = engagement.create_engagement(
+        deck.client,
+        deck.project,
+        knowledge_root=knowledge_root,
+        workspace_root=workspace_root,
+    )
+    store = eng.create_artifact(deck)
+    lines = [
+        f"engagement: {eng.client} / {eng.project}",
+        f"artifact:   {deck.id} ({len(deck.slides)} slides)",
+    ]
+
+    report = render.render_artifact(store.load(), tokens=tokens, out_dir=store.paths.renders)
+    lines.extend(report.timing_lines())
+
+    before = store.paths.current.read_bytes()
+    edited = edits.set_block_text(
+        store.load(), slide_id=EDIT_SLIDE, block_id=EDIT_BLOCK, text=EDIT_TEXT
+    )
+    entry = store.apply(
+        edited,
+        instruction=EDIT_INSTRUCTION,
+        thread_id=THREAD_ID,
+        layer="composition",
+        model_id=models.HUMAN_MODEL_ID,
+    )
+    paths = ", ".join(item.path for item in entry.diff)
+    lines.append(f"edit:       {entry.id} {paths}")
+
+    lines.extend(f"log:        {line}" for line in changelog.listing(store.changelog()))
+
+    undone = store.undo()
+    exact = store.paths.current.read_bytes() == before
+    verdict = "yes" if exact else "no"
+    lines.append(
+        f"undo:       {undone.id} undone; current.json byte-identical to before: {verdict}"
+    )
+    return DemoResult(lines=lines, undo_exact=exact, workspace_root=workspace_root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,7 +148,26 @@ def main(argv: list[str] | None = None) -> int:
     `run_demo`, print each line, then print the workspace path if `--keep` or delete it.
     Return 0 if `undo_exact`, else 1; on an exception print `error: <exc>` to stderr and
     return 1 (the workspace is still deleted unless `--keep`)."""
-    raise NotImplementedError
+    args = parse_args(argv)
+    workspace = Path(tempfile.mkdtemp(prefix="studio-demo-"))
+    try:
+        try:
+            result = run_demo(
+                tokens_path=args.tokens,
+                knowledge_root=args.knowledge_root,
+                workspace_root=workspace,
+            )
+        except Exception as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        for line in result.lines:
+            print(line)
+        return 0 if result.undo_exact else 1
+    finally:
+        if args.keep:
+            print(f"workspace:  {workspace}")
+        else:
+            shutil.rmtree(workspace, ignore_errors=True)
 
 
 if __name__ == "__main__":
