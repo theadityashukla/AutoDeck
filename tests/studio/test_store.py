@@ -4,6 +4,7 @@ undo exact. Built on `ArtifactStore` directly (no engagement), so these tests de
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from autodeck.studio.errors import (
 from autodeck.studio.models import DeckArtifact
 from autodeck.studio.paths import workspace_paths
 from autodeck.studio.serialise import artifact_digest, dump_artifact, text_digest
-from autodeck.studio.store import ArtifactStore
+from autodeck.studio.store import ArtifactStore, artifact_lock
 from tests.studio.helpers import ARTIFACT_ID, CLIENT, OTHER_CLIENT, PROJECT, T1, T2, with_text
 
 
@@ -349,3 +350,145 @@ def test_current_digest_matches_the_log_head(
     store.create(base_deck)
     _apply_number(store, base_deck, "42%")
     assert text_digest(store.current_text()) == cl.head_digest(store.changelog())
+
+
+# -- concurrency: readers never see a half-applied change ---------------------------
+
+_JOIN_SECONDS = 60.0
+
+
+def _join_all(threads: list[threading.Thread]) -> None:
+    for thread in threads:
+        thread.join(timeout=_JOIN_SECONDS)
+    hung = [t.name for t in threads if t.is_alive()]
+    assert not hung, f"threads did not finish within {_JOIN_SECONDS}s: {hung}"
+
+
+def test_readers_never_see_a_half_applied_change(
+    workspace_root: Path, base_deck: DeckArtifact
+) -> None:
+    """One writer applies, undoes and redoes many changes while readers `load` in a tight
+    loop. Without the per-artifact lock a reader lands between the change-log write and
+    the `current.json` write and gets `ChangeLogIntegrityError`."""
+    store = _store(workspace_root)
+    store.create(base_deck)
+    changes = 40
+    valid = {dump_artifact(base_deck)} | {
+        dump_artifact(with_text(base_deck, "s2", "number", f"{i}%")) for i in range(changes)
+    }
+    stop = threading.Event()
+    failures: list[BaseException] = []
+    seen: list[int] = []
+
+    def writer() -> None:
+        try:
+            for i in range(changes):
+                _apply_number(store, base_deck, f"{i}%")
+                if i % 3 == 2:
+                    store.undo()
+                    store.redo()
+                    store.undo()
+                    store.redo()
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            stop.set()
+
+    def reader() -> None:
+        count = 0
+        try:
+            while not stop.is_set():
+                deck = store.load()
+                if dump_artifact(deck) not in valid:
+                    raise AssertionError("a reader saw a state that was never current")
+                count += 1
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            seen.append(count)
+
+    threads = [threading.Thread(target=writer, name="writer")] + [
+        threading.Thread(target=reader, name=f"reader-{n}") for n in range(3)
+    ]
+    for thread in threads:
+        thread.start()
+    _join_all(threads)
+
+    assert not failures, failures
+    assert all(count > 0 for count in seen)
+    assert store.load() == with_text(base_deck, "s2", "number", f"{changes - 1}%")
+
+
+def test_snapshot_readers_see_consistent_state_during_writes(
+    workspace_root: Path, base_deck: DeckArtifact
+) -> None:
+    """`snapshot` reads the log and then a version file; it must not fail while a writer
+    is mid-change."""
+    store = _store(workspace_root)
+    store.create(base_deck)
+    stop = threading.Event()
+    failures: list[BaseException] = []
+
+    def writer() -> None:
+        try:
+            for i in range(25):
+                _apply_number(store, base_deck, f"{i}%")
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            stop.set()
+
+    def reader() -> None:
+        try:
+            while not stop.is_set():
+                store.snapshot(None)
+                log = store.changelog()
+                if log.head is not None:
+                    store.snapshot(log.head)
+        except BaseException as exc:
+            failures.append(exc)
+
+    threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+    for thread in threads:
+        thread.start()
+    _join_all(threads)
+    assert not failures, failures
+
+
+def test_two_store_objects_on_one_artifact_share_a_lock(workspace_root: Path) -> None:
+    assert artifact_lock(_store(workspace_root).paths.root) is artifact_lock(
+        _store(workspace_root).paths.root
+    )
+    assert artifact_lock(_store(workspace_root).paths.root) is not artifact_lock(
+        _store(workspace_root, artifact_id="other-deck").paths.root
+    )
+
+
+def test_the_lock_is_reentrant_and_per_artifact(
+    workspace_root: Path, base_deck: DeckArtifact
+) -> None:
+    store = _store(workspace_root)
+    store.create(base_deck)
+    other = _store(workspace_root, artifact_id="other-deck")
+    other.create(base_deck.model_copy(update={"id": "other-deck"}))
+    results: dict[str, object] = {}
+
+    def read(name: str, target: ArtifactStore) -> None:
+        results[name] = target.load()
+
+    with artifact_lock(store.paths.root):
+        # Re-entrant: the holding thread may take the lock again through the store.
+        assert store.load() == base_deck
+        _apply_number(store, base_deck, "1%")
+        # Independent: another artifact's reader is not blocked by this lock...
+        free = threading.Thread(target=read, args=("other", other))
+        free.start()
+        free.join(timeout=_JOIN_SECONDS)
+        assert not free.is_alive() and "other" in results
+        # ...but a reader of this artifact on another thread waits for it.
+        blocked = threading.Thread(target=read, args=("same", store))
+        blocked.start()
+        blocked.join(timeout=0.3)
+        assert blocked.is_alive() and "same" not in results
+    blocked.join(timeout=_JOIN_SECONDS)
+    assert not blocked.is_alive() and "same" in results

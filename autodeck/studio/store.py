@@ -20,14 +20,34 @@ byte" true by construction rather than by careful diff arithmetic.
 leaves `current.json` disagreeing with the log's head, which `load` reports as
 `ChangeLogIntegrityError`; Phase 0 does not auto-repair.
 
-Single writer only: Phase 0 has no locking. Several threads on one artifact (plan §5.4) is
-Phase 4.
+**In-process isolation.** Every operation that touches more than one file (`create`,
+`load`, `snapshot`, `apply`, `undo`, `redo`) holds a per-artifact re-entrant lock for its
+whole duration, so within one process a reader never lands between the writes above and
+sees a head digest that disagrees with `current.json`: it gets the state before a change
+or the state after it. The lock is keyed on the artifact's resolved root path in a
+process-wide registry, so every `ArtifactStore` object for the same artifact (the server's
+request threads, the turn worker, the preview renderer) shares one lock, and different
+artifacts never contend. It is re-entrant, so `apply` may call `load`. Single-file reads
+(`current_text`, `changelog`) are not locked: `atomic_write_text` makes each file replace
+atomic. A caller that needs the deck *and* the log from the same instant must not pair
+`load()` with a separate `changelog()` call across a write; hold `artifact_lock(root)`
+itself around both.
+
+**What the lock does not cover.** It is in-process only. Another process writing the same
+artifact is not excluded, and a crash between steps (2) and (3) still leaves the disagreement
+described above. The single-process, single-writer assumption stands: Phase 0 does not
+serialise two *logical* writers (several threads on one artifact, plan §5.4, is Phase 4); the
+lock only makes each operation atomic with respect to the others.
 """
 
 from __future__ import annotations
 
+import functools
+import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Concatenate, ParamSpec, TypeVar
 
 from autodeck.knowledge.loader import ClientIsolationError
 from autodeck.studio import changelog as cl
@@ -49,6 +69,43 @@ def _read(path: Path, what: str) -> str:
         return ser.read_text(path)
     except FileNotFoundError as exc:
         raise ArtifactNotFoundError(f"{what} not found: {path}") from exc
+
+
+_LOCKS: dict[Path, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def artifact_lock(root: Path) -> threading.RLock:
+    """The process-wide re-entrant lock for the artifact whose directory is `root`.
+
+    Keyed on `root.resolve()`, so every path spelling and every `ArtifactStore` object for
+    one artifact gets the same lock and different artifacts get different ones. The
+    registry is guarded by its own lock; entries live for the process (one small lock per
+    artifact ever opened).
+    """
+    key = root.resolve()
+    with _LOCKS_GUARD:
+        lock = _LOCKS.get(key)
+        if lock is None:
+            lock = _LOCKS[key] = threading.RLock()
+        return lock
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _locked(
+    method: Callable[Concatenate[ArtifactStore, _P], _R],
+) -> Callable[Concatenate[ArtifactStore, _P], _R]:
+    """Run `method` holding the artifact's lock (see the module docstring)."""
+
+    @functools.wraps(method)
+    def wrapper(self: ArtifactStore, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with artifact_lock(self.paths.root):
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class ArtifactStore:
@@ -74,6 +131,7 @@ class ArtifactStore:
         """True when `current.json` exists (whether or not it is valid)."""
         return self.paths.current.is_file()
 
+    @_locked
     def create(self, deck: DeckArtifact) -> ChangeLog:
         """Create the artifact with `deck` as its initial state; return the empty log.
 
@@ -115,6 +173,7 @@ class ArtifactStore:
         """
         return ser.load_changelog(_read(self.paths.changelog, "change log"))
 
+    @_locked
     def load(self) -> DeckArtifact:
         """The current state, validated and checked.
 
@@ -136,6 +195,7 @@ class ArtifactStore:
         self._check_deck(deck)
         return deck
 
+    @_locked
     def snapshot(self, entry_id: str | None) -> DeckArtifact:
         """The state after `entry_id` (or the initial state for None), whether or not that
         entry is currently undone.
@@ -158,6 +218,7 @@ class ArtifactStore:
 
     # -- changing ----------------------------------------------------------
 
+    @_locked
     def apply(
         self,
         new_state: DeckArtifact,
@@ -221,6 +282,7 @@ class ArtifactStore:
         ser.atomic_write_text(self.paths.current, new_text)
         return entry
 
+    @_locked
     def undo(self) -> ChangeEntry:
         """Reverse the head entry; return it as now stored (`undone=True`).
 
@@ -253,6 +315,7 @@ class ArtifactStore:
         ser.atomic_write_text(self.paths.current, text)
         return entry
 
+    @_locked
     def redo(self) -> ChangeEntry:
         """Re-apply `changelog.redo_target(log)`; return it as now stored (`undone=False`).
 

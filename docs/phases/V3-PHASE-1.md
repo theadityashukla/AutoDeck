@@ -517,4 +517,54 @@ Hash routes, plain names: `#/` (engagements), `#/e/<client>/<project>` (engageme
 
 ## Result (task 1.16)
 
-To be written by the lead when the phase is verified.
+Verified by the lead on 2026-11-13, on the build container, with the scripted model.
+
+**What passes**
+
+- **Studio tests:** 342 in the default selection, and the 7 `render`-marked tests with
+  LibreOffice. No skeleton body remains. Ruff and pyright are clean on the studio code.
+- **v2 unchanged:** no v2 file was edited. Full default suite: 2474 passed, 1 failed (the
+  known `tests/test_design.py::test_a_missing_face_is_as_loud_as_a_missing_family`).
+- **Browser walk-through on the real server** (`--script two_threads.json`, fresh
+  workspace), driven with Playwright and viewed: create the engagement; thread one builds
+  three slides (Change, previews appear), offers two openings (Proposal with a rendered
+  candidate, dismissed), answers a question (Talk); thread two opens with a recap by
+  itself, changes slide 2, and undoes it; Changes tab undo and redo; Storyline tab; dark
+  theme; 390px width with no horizontal scroll. No console errors, no server errors.
+- **No transcript carried over:** the recap in thread two named the three slides, the
+  provisional storyline and the dismissed openings, all from state. `test_phase1_done.py`
+  pins that thread two's opening context equals `build_context` computed from disk and
+  contains none of thread one's replies or tool output.
+
+**Found and fixed during verification**
+
+- The Changes tab and Change messages led with the owner's instruction, so several changes
+  from one message were indistinguishable. They now lead with what changed.
+- Threads were all titled "New thread"; they now take their first owner message.
+- The thread view did not fill the window height.
+- A read of an artifact landing between the store's file writes raised
+  `ChangeLogIntegrityError` (a 500 in the interface). `ArtifactStore` operations now
+  exclude each other per artifact within the process; a test reproduces the race.
+
+**Not verified**
+
+- **No run against a real model.** The build container has no provider key. How well a
+  model drives the 19 tools is unknown, in particular writing a whole slide (text, blocks
+  and coordinates that pass layout QA) in one call, which the tools implementer expects
+  small models to fail often. This is step 6 of the checklist and needs the owner's
+  machine.
+
+**Carried forward**
+
+- A turn that fails before it starts (for example a corrupt thread log) is only printed on
+  the server; the interface is never told the turn ended.
+- `api.py` and `context.py` read the deck and its change log as two calls; a write between
+  them can pair a deck with a slightly newer log (an inconsistent view, not an error).
+- A failed preview for a deck state (LibreOffice missing) is stored and not retried until
+  the deck changes.
+- Proposal candidates that share a slide id with each other replace one another silently.
+- Error types `guarded` does not convert (for example v2's `KnowledgeError` during a source
+  read) end the turn instead of letting the model correct itself.
+- Project-tier knowledge and documents are shared across clients by design (D8); the
+  source tools cannot tell where a project document came from.
+- Everything on Phase 0's carried list except the store's lack of in-process locking.
