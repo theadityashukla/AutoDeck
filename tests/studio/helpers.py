@@ -35,6 +35,41 @@ def dev_tokens() -> DesignTokens:
     return DesignTokens.load(DEV_TOKENS)
 
 
+def with_text(deck: DeckArtifact, slide_id: str, block_id: str, text: str) -> DeckArtifact:
+    """`deck` with one block's text replaced, built without studio code (so store tests
+    do not depend on `edits`)."""
+    data = deck.model_dump()
+    for slide in data["slides"]:
+        if slide["id"] == slide_id:
+            for block in slide["blocks"]:
+                if block["id"] == block_id:
+                    block["text"] = text
+    return DeckArtifact.model_validate(data)
+
+
+def with_slide_changes(deck: DeckArtifact, slide_id: str, **changes: object) -> DeckArtifact:
+    """`deck` with top-level fields of one slide replaced (e.g. `layout=None`)."""
+    data = deck.model_dump()
+    for slide in data["slides"]:
+        if slide["id"] == slide_id:
+            slide.update(changes)
+    return DeckArtifact.model_validate(data)
+
+
+def overflowing(
+    deck: DeckArtifact, slide_id: str = "s4", block_id: str = "heading"
+) -> DeckArtifact:
+    """`deck` with one text element set to 240pt in its small frame: valid IR whose layout
+    fails v2's text-fit check."""
+    data = deck.model_dump()
+    for slide in data["slides"]:
+        if slide["id"] == slide_id:
+            for element in slide["layout"]["elements"]:
+                if element.get("block_id") == block_id:
+                    element["size_pt"] = 240
+    return DeckArtifact.model_validate(data)
+
+
 def make_knowledge_root(root: Path) -> Path:
     """A minimal two-client knowledge tree satisfying v2's KnowledgeLoader."""
     for client in (CLIENT, OTHER_CLIENT):

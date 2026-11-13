@@ -28,7 +28,10 @@ from tests.studio.helpers import CLIENT, PROJECT, T0
 def test_dump_format_matches_v2_convention(base_deck: DeckArtifact) -> None:
     text = dump_artifact(base_deck)
     assert text.endswith("}\n") and not text.endswith("\n\n")
-    assert text == json.dumps(base_deck.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
+    assert (
+        text
+        == json.dumps(base_deck.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
+    )
     assert dump_model(base_deck) == text
 
 

@@ -15,7 +15,9 @@ from __future__ import annotations
 from autodeck.studio.models import DeckArtifact, Marker
 
 
-def set_block_text(deck: DeckArtifact, *, slide_id: str, block_id: str, text: str) -> DeckArtifact:
+def set_block_text(
+    deck: DeckArtifact, *, slide_id: str, block_id: str, text: str
+) -> DeckArtifact:
     """The deck with the text of one text block replaced by `text` (verbatim, not stripped).
 
     Raises:

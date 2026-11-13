@@ -133,9 +133,13 @@ class ArtifactStore:
         `ChangeEntry` with `id=changelog.next_entry_id(log)`, `parent_id=log.head`,
         `diff=diff.diff_artifacts(before, new_state)`, the given instruction, thread, layer
         and model, `created_at = now or datetime.now(UTC)` (`now` must be timezone-aware;
-        a naive datetime fails `ChangeEntry` validation), and the before/after digests.
-        Then write the snapshot `versions/<id>.json`, the log via
-        `changelog.append_entry`, and `current.json`, in that order.
+        a naive datetime fails `ChangeEntry` validation),
+        `before_digest = text_digest(current_text())` (the stored bytes, which `load` has
+        just checked equal the head's digest) and `after_digest = artifact_digest(new_state)`.
+        Compute the new log with `changelog.append_entry` *before* writing anything (so an
+        invalid entry or log raises with the disk untouched). Then write the snapshot
+        `versions/<id>.json`, the new `changelog.json`, and `current.json`, in that order;
+        the snapshot and `current.json` hold identical bytes (`dump_artifact(new_state)`).
 
         A new change on top of undone entries leaves them in the log, undone and no longer
         redoable (`changelog` module docstring).

@@ -24,7 +24,9 @@ def test_identical_states_have_no_diff(base_deck: DeckArtifact) -> None:
 def test_a_text_edit_is_one_id_keyed_change(base_deck: DeckArtifact) -> None:
     after = _with_text(base_deck, "s2", "number", "42%")
     assert diff_artifacts(base_deck, after) == [
-        DiffItem(path="slides[s2].blocks[number].text", kind="changed", before="41%", after="42%")
+        DiffItem(
+            path="slides[s2].blocks[number].text", kind="changed", before="41%", after="42%"
+        )
     ]
 
 

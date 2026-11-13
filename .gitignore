@@ -75,3 +75,8 @@ fonts/*.otf
 # obligation actually applies.
 fonts/*-LICENSE.txt
 
+
+# --- v3 ---
+# Studio working state: engagements, artifacts, change logs, renders (v3 plan §4;
+# autodeck/studio/paths.py). Client-confidential and regenerable, never committed.
+/workspace/

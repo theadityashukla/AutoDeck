@@ -125,9 +125,13 @@ def create_engagement(
        overlaps `knowledge_root` (`paths.check_workspace_location`, `WorkspaceLocationError`).
     3. `KnowledgeLoader(knowledge_root).load_client(client)` and `.load_project(project)`:
        a missing folder or required file raises v2's `KnowledgeError`.
-    4. Bind `ClientNamespace(client=client, knowledge_root=knowledge_root)` and
-       `namespace.guard` the loaded client root (catches a symlinked client folder that
-       resolves into another client; `ClientIsolationError`).
+    4. Bind `ClientNamespace(client=client, knowledge_root=knowledge_root)` and refuse a
+       client folder that resolves somewhere other than its own name:
+       `namespace.own_root != namespace.clients_root / client` raises v2's
+       `ClientIsolationError` naming both paths. This catches
+       `knowledge/clients/<client>` being a symlink into another client's folder.
+       (`namespace.guard(client_root)` would *not* catch it: `own_root` is itself
+       resolved through the symlink, so the guard sees the folder as the client's own.)
     5. Refuse if `engagement.json` already exists (`EngagementExistsError`).
     6. `EngagementPaths.ensure()`, then write the `EngagementRecord` (`created_at = now or
        datetime.now(UTC)`; `now` must be timezone-aware) with `serialise.dump_model` via

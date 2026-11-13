@@ -305,7 +305,9 @@ class Slide(StudioModel):
         ),
     )
     blocks: list[Block] = Field(default_factory=list)
-    speaker_notes: str = Field(default="", description="Plain text; newlines separate paragraphs.")
+    speaker_notes: str = Field(
+        default="", description="Plain text; newlines separate paragraphs."
+    )
     layout: FreeLayout | None = None
     marker: Marker = DEFAULT_MARKER
     serves: list[str] = Field(
@@ -317,7 +319,9 @@ class Slide(StudioModel):
     def _block_ids_unique(self) -> Slide:
         duplicates = _duplicates([b.id for b in self.blocks])
         if duplicates:
-            raise ValueError(f"duplicate block ids on slide {self.id!r}: {', '.join(duplicates)}")
+            raise ValueError(
+                f"duplicate block ids on slide {self.id!r}: {', '.join(duplicates)}"
+            )
         duplicates = _duplicates(self.serves)
         if duplicates:
             raise ValueError(f"slide {self.id!r} serves {', '.join(duplicates)} more than once")
@@ -335,12 +339,16 @@ class Slide(StudioModel):
                 continue
             block = blocks.get(element.block_id)
             if block is None:
-                problems.append(f"element places {element.block_id!r}, which is not on this slide")
+                problems.append(
+                    f"element places {element.block_id!r}, which is not on this slide"
+                )
             elif isinstance(element, TextElement):
                 if block.kind != "text":
                     problems.append(f"block {block.id!r} is a {block.kind}, placed as text")
             elif _VISUAL_TYPE_FOR_KIND.get(block.kind) != element.type:
-                problems.append(f"block {block.id!r} is a {block.kind}, placed as {element.type}")
+                problems.append(
+                    f"block {block.id!r} is a {block.kind}, placed as {element.type}"
+                )
             elif element.emphasis:
                 categories = set(block.chart.categories) if block.chart is not None else set()
                 unknown = sorted(set(element.emphasis) - categories)
@@ -456,7 +464,9 @@ class ChangeEntry(StudioModel):
     layer: Layer
     model_id: str = Field(
         min_length=1,
-        description=f"The model that made it, as a free string; {HUMAN_MODEL_ID!r} for a hand edit.",
+        description=(
+            f"The model that made it, as a free string; {HUMAN_MODEL_ID!r} for a hand edit."
+        ),
     )
     created_at: AwareDatetime
     undone: bool = False
@@ -509,7 +519,8 @@ class ChangeLog(StudioModel):
                     f"entry {entry.id!r} names parent {entry.parent_id!r}, not an earlier entry"
                 )
             expected = (
-                self.initial_digest if entry.parent_id is None
+                self.initial_digest
+                if entry.parent_id is None
                 else seen[entry.parent_id].after_digest
             )
             if entry.before_digest != expected:

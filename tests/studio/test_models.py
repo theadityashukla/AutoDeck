@@ -23,7 +23,9 @@ from tests.studio.helpers import CLIENT, PROJECT, T0, load_fixture_deck
 A, B, C, D = ("a" * 64, "b" * 64, "c" * 64, "d" * 64)
 
 
-def _entry(entry_id: str, parent: str | None, before: str, after: str, **kw: Any) -> ChangeEntry:
+def _entry(
+    entry_id: str, parent: str | None, before: str, after: str, **kw: Any
+) -> ChangeEntry:
     return ChangeEntry(
         id=entry_id,
         parent_id=parent,
@@ -99,7 +101,9 @@ def test_text_block_needs_non_blank_text() -> None:
 
 
 def test_block_carries_exactly_its_own_payload() -> None:
-    chart = ChartData(chart_type="bar", categories=["a"], series=[{"name": "s", "values": [1]}])
+    chart = ChartData.model_validate(
+        {"chart_type": "bar", "categories": ["a"], "series": [{"name": "s", "values": [1]}]}
+    )
     with pytest.raises(ValidationError, match="exactly one payload"):
         Block(id="b", kind="text", text="x", chart=chart)
     with pytest.raises(ValidationError, match="needs a chart"):
@@ -108,7 +112,13 @@ def test_block_carries_exactly_its_own_payload() -> None:
 
 def test_chart_series_align_with_categories() -> None:
     with pytest.raises(ValidationError, match="one value per category"):
-        ChartData(chart_type="bar", categories=["a", "b"], series=[{"name": "s", "values": [1]}])
+        ChartData.model_validate(
+            {
+                "chart_type": "bar",
+                "categories": ["a", "b"],
+                "series": [{"name": "s", "values": [1]}],
+            }
+        )
 
 
 # -- slide layout ----------------------------------------------------------------
@@ -120,7 +130,9 @@ def _slide_data(slide_id: str = "s2") -> dict[str, Any]:
 
 def test_layout_must_place_every_block() -> None:
     data = _slide_data()
-    data["layout"]["elements"] = [e for e in data["layout"]["elements"] if e.get("block_id") != "meaning"]
+    data["layout"]["elements"] = [
+        e for e in data["layout"]["elements"] if e.get("block_id") != "meaning"
+    ]
     with pytest.raises(ValidationError, match="'meaning' is not placed"):
         Slide.model_validate(data)
 
@@ -197,20 +209,32 @@ def test_a_consistent_log_validates() -> None:
 def test_live_chain_and_undone_flags_must_agree() -> None:
     with pytest.raises(ValidationError, match="inconsistent"):
         ChangeLog(
-            artifact_id="d", initial_digest=A, head="c0001",
+            artifact_id="d",
+            initial_digest=A,
+            head="c0001",
             entries=[_entry("c0001", None, A, B), _entry("c0002", "c0001", B, C)],
         )
     with pytest.raises(ValidationError, match="inconsistent"):
         ChangeLog(
-            artifact_id="d", initial_digest=A, head="c0001",
+            artifact_id="d",
+            initial_digest=A,
+            head="c0001",
             entries=[_entry("c0001", None, A, B, undone=True)],
         )
 
 
 def test_parents_come_first_and_digests_chain() -> None:
     with pytest.raises(ValidationError, match="not an earlier entry"):
-        ChangeLog(artifact_id="d", initial_digest=A, head=None,
-                  entries=[_entry("c0001", "c0002", A, B, undone=True)])
+        ChangeLog(
+            artifact_id="d",
+            initial_digest=A,
+            head=None,
+            entries=[_entry("c0001", "c0002", A, B, undone=True)],
+        )
     with pytest.raises(ValidationError, match="did not produce"):
-        ChangeLog(artifact_id="d", initial_digest=A, head="c0002",
-                  entries=[_entry("c0001", None, A, B), _entry("c0002", "c0001", C, D)])
+        ChangeLog(
+            artifact_id="d",
+            initial_digest=A,
+            head="c0002",
+            entries=[_entry("c0001", None, A, B), _entry("c0002", "c0001", C, D)],
+        )

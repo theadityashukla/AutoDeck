@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.render.qa.libreoffice import DEFAULT_DPI
+from autodeck.render.qa import libreoffice
 from autodeck.studio.models import DeckArtifact
 
 PPTX_FILENAME = "deck.pptx"
@@ -62,7 +62,7 @@ class PreviewSet:
     """The `RenderError` message when `rendered` is False, else `""`."""
     seconds: float = 0.0
     """Wall time of the rasterisation (PPTX → PDF → PNGs), including the font check."""
-    dpi: int = DEFAULT_DPI
+    dpi: int = libreoffice.DEFAULT_DPI
 
 
 @dataclass(frozen=True)
@@ -124,15 +124,24 @@ def build_pptx(deck: DeckArtifact, *, tokens: DesignTokens, out_path: Path) -> B
 
 
 def render_previews(
-    pptx: Path, *, out_dir: Path, tokens: DesignTokens, dpi: int = DEFAULT_DPI
+    pptx: Path, *, out_dir: Path, tokens: DesignTokens, dpi: int = libreoffice.DEFAULT_DPI
 ) -> PreviewSet:
     """Rasterise `pptx` to one PNG per slide in `out_dir` with v2's
     `render.qa.libreoffice.render_pptx`, timing it.
 
-    Stale `<pptx stem>-*.png` files in `out_dir` are deleted first so the image list is
-    never mixed with an earlier render. `RenderError` (which includes
-    `FontSubstitutionRisk`: no honest image is possible) is caught and returned as
-    `rendered=False` with its message in `note`; `seconds` is still the time spent.
+    Call it as `libreoffice.render_pptx(pptx, out_dir, tokens, dpi=dpi)` through the module
+    attribute (not a `from ... import render_pptx` name), so tests can monkeypatch
+    `autodeck.render.qa.libreoffice.render_pptx` without LibreOffice installed.
+
+    `out_dir` is created if missing. Stale `<pptx stem>-*.png` files in `out_dir` are
+    deleted first so the image list is never mixed with an earlier render. On success,
+    `images` is `RenderResult.images` (sorted, one per slide), `rendered=True`, `note=""`.
+    `libreoffice.RenderError` (which includes `FontSubstitutionRisk`: no honest image is
+    possible) is caught and returned as `rendered=False`, `images=[]`, its `str()` in
+    `note`; `seconds` is still the time spent. Any other exception propagates.
+
+    Raises:
+        FileNotFoundError: `pptx` does not exist (checked before anything else).
     """
     raise NotImplementedError
 

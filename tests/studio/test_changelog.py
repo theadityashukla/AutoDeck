@@ -86,7 +86,9 @@ def test_a_new_change_after_undo_branches() -> None:
     log, _ = cl.mark_undone(log)  # undo B
     log = _apply(log, S3)  # C on top of A
     assert [(e.id, e.undone) for e in log.entries] == [
-        ("c0001", False), ("c0002", True), ("c0003", False)
+        ("c0001", False),
+        ("c0002", True),
+        ("c0003", False),
     ]
     assert cl.redo_target(log) is None  # B is no longer redoable
     log, _ = cl.mark_undone(log)  # undo C
@@ -100,5 +102,6 @@ def test_listing_format() -> None:
     log, _ = cl.mark_undone(log)
     assert cl.listing(log) == [
         "c0001 live composition m t1 2026-11-13T09:00:00+00:00 Retitle the deck.",
-        "c0002 undone composition m t1 2026-11-13T09:00:00+00:00 Shorten the slide two heading.",
+        "c0002 undone composition m t1 2026-11-13T09:00:00+00:00 "
+        "Shorten the slide two heading.",
     ]
