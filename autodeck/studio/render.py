@@ -23,12 +23,23 @@ caller chooses, e.g. `config/tokens/dev.json`, whose fonts can be installed loca
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pptx.dml.color import RGBColor
+from pptx.util import Emu, Pt
+
+from autodeck.design.charts import ChartConstructionError
+from autodeck.design.free_layout import render_free_layout
+from autodeck.design.icons.library import IconNotFoundError
+from autodeck.design.layout_kit import Canvas, LayoutOverflowError
+from autodeck.design.theme.master_builder import new_presentation, save_themed
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.render.qa import libreoffice
+from autodeck.render.renderer import _BLANK_LAYOUT, SLIDE_TAG_PREFIX
+from autodeck.studio import render_adapter
 from autodeck.studio.models import DeckArtifact
 
 PPTX_FILENAME = "deck.pptx"
@@ -81,7 +92,13 @@ class RenderReport:
 
         where `n = len(built.slide_ids)`.
         """
-        raise NotImplementedError
+        n = len(self.built.slide_ids)
+        previews = self.previews
+        if previews.rendered:
+            second = f"previews:   {previews.seconds:.2f}s for {len(previews.images)} images"
+        else:
+            second = f"previews:   not rendered ({previews.note})"
+        return [f"pptx build: {self.built.seconds:.2f}s for {n} slides", second]
 
 
 def write_notes(pptx_slide: Any, notes: str) -> None:
@@ -91,7 +108,9 @@ def write_notes(pptx_slide: Any, notes: str) -> None:
     set `pptx_slide.notes_slide.notes_text_frame.text = notes` (python-pptx turns each
     `\\n` into a paragraph).
     """
-    raise NotImplementedError
+    if not notes.strip():
+        return
+    pptx_slide.notes_slide.notes_text_frame.text = notes
 
 
 def draw_placeholder(presentation: Any, pptx_slide: Any, slide_id: str, reason: str) -> None:
@@ -99,7 +118,23 @@ def draw_placeholder(presentation: Any, pptx_slide: Any, slide_id: str, reason: 
     margin, reading `f"Slide {slide_id} could not be drawn"` (28pt, bold) and `reason`
     (16pt) as a second paragraph. Literal greys are acceptable here (the v2 draft
     placeholder does the same): a placeholder is not deck content."""
-    raise NotImplementedError
+    width, height = int(presentation.slide_width), int(presentation.slide_height)
+    margin = 600_000
+    box = pptx_slide.shapes.add_textbox(
+        Emu(margin), Emu(margin), Emu(width - 2 * margin), Emu(height - 2 * margin)
+    )
+    box.name = PLACEHOLDER_NAME
+    frame = box.text_frame
+    frame.word_wrap = True
+    heading = frame.paragraphs[0].add_run()
+    heading.text = f"Slide {slide_id} could not be drawn"
+    heading.font.size = Pt(28)
+    heading.font.bold = True
+    heading.font.color.rgb = RGBColor(0x22, 0x22, 0x22)
+    detail = frame.add_paragraph().add_run()
+    detail.text = reason
+    detail.font.size = Pt(16)
+    detail.font.color.rgb = RGBColor(0x60, 0x60, 0x60)
 
 
 def build_pptx(deck: DeckArtifact, *, tokens: DesignTokens, out_path: Path) -> BuiltDeck:
@@ -120,7 +155,38 @@ def build_pptx(deck: DeckArtifact, *, tokens: DesignTokens, out_path: Path) -> B
         FontNotFoundError: a declared font cannot be measured (v2's; not caught, because
             no honest layout check is possible without it).
     """
-    raise NotImplementedError
+    started = time.perf_counter()
+    presentation = new_presentation(tokens)
+    placeholders: dict[str, str] = {}
+    slide_ids: list[str] = []
+    for slide in deck.slides:
+        pptx_slide = presentation.slides.add_slide(presentation.slide_layouts[_BLANK_LAYOUT])
+        pptx_slide.name = f"{SLIDE_TAG_PREFIX}{slide.id}"
+        if slide.layout is None:
+            reason = "slide has no layout yet"
+            placeholders[slide.id] = reason
+            draw_placeholder(presentation, pptx_slide, slide.id, reason)
+        else:
+            try:
+                render_free_layout(
+                    pptx_slide, Canvas(tokens), render_adapter.to_render_slide(slide)
+                )
+            except (LayoutOverflowError, ChartConstructionError, IconNotFoundError) as exc:
+                for shape in list(pptx_slide.shapes):
+                    shape._element.getparent().remove(shape._element)
+                placeholders[slide.id] = str(exc)
+                draw_placeholder(presentation, pptx_slide, slide.id, str(exc))
+        write_notes(pptx_slide, slide.speaker_notes)
+        slide_ids.append(slide.id)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    save_themed(presentation, tokens, out_path)
+    return BuiltDeck(
+        path=out_path,
+        slide_ids=tuple(slide_ids),
+        placeholders=placeholders,
+        seconds=time.perf_counter() - started,
+    )
 
 
 def render_previews(
@@ -143,11 +209,39 @@ def render_previews(
     Raises:
         FileNotFoundError: `pptx` does not exist (checked before anything else).
     """
-    raise NotImplementedError
+    pptx = Path(pptx)
+    if not pptx.exists():
+        raise FileNotFoundError(pptx)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob(f"{pptx.stem}-*.png"):
+        stale.unlink()
+    started = time.perf_counter()
+    try:
+        result = libreoffice.render_pptx(pptx, out_dir, tokens, dpi=dpi)
+    except libreoffice.RenderError as exc:
+        return PreviewSet(
+            images=[],
+            rendered=False,
+            note=str(exc),
+            seconds=time.perf_counter() - started,
+            dpi=dpi,
+        )
+    return PreviewSet(
+        images=list(result.images),
+        rendered=True,
+        note="",
+        seconds=time.perf_counter() - started,
+        dpi=dpi,
+    )
 
 
 def render_artifact(deck: DeckArtifact, *, tokens: DesignTokens, out_dir: Path) -> RenderReport:
     """`build_pptx` to `out_dir / PPTX_FILENAME`, then `render_previews` into
     `out_dir / PREVIEWS_DIRNAME`. `out_dir` is created if missing. For an artifact in a
     store, pass `ArtifactPaths.renders`."""
-    raise NotImplementedError
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    built = build_pptx(deck, tokens=tokens, out_path=out_dir / PPTX_FILENAME)
+    previews = render_previews(built.path, out_dir=out_dir / PREVIEWS_DIRNAME, tokens=tokens)
+    return RenderReport(built=built, previews=previews)

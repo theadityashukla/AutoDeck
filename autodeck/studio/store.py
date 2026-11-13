@@ -26,10 +26,29 @@ Phase 4.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 
+from autodeck.knowledge.loader import ClientIsolationError
+from autodeck.studio import changelog as cl
+from autodeck.studio import diff as diffmod
+from autodeck.studio import serialise as ser
+from autodeck.studio.errors import (
+    ArtifactExistsError,
+    ArtifactMismatchError,
+    ArtifactNotFoundError,
+    ChangeLogIntegrityError,
+    NoChangeError,
+)
 from autodeck.studio.models import ChangeEntry, ChangeLog, DeckArtifact, Layer
 from autodeck.studio.paths import ArtifactPaths
+
+
+def _read(path: Path, what: str) -> str:
+    try:
+        return ser.read_text(path)
+    except FileNotFoundError as exc:
+        raise ArtifactNotFoundError(f"{what} not found: {path}") from exc
 
 
 class ArtifactStore:
@@ -53,7 +72,7 @@ class ArtifactStore:
 
     def exists(self) -> bool:
         """True when `current.json` exists (whether or not it is valid)."""
-        raise NotImplementedError
+        return self.paths.current.is_file()
 
     def create(self, deck: DeckArtifact) -> ChangeLog:
         """Create the artifact with `deck` as its initial state; return the empty log.
@@ -66,7 +85,16 @@ class ArtifactStore:
         snapshot and current files hold identical bytes (`dump_artifact(deck)`). No entry is
         recorded for creation: the initial state is the root, not a change.
         """
-        raise NotImplementedError
+        self._check_deck(deck)
+        if self.exists():
+            raise ArtifactExistsError(f"artifact {self.artifact_id!r} already exists")
+        text = ser.dump_artifact(deck)
+        log = cl.new_changelog(self.artifact_id, ser.text_digest(text))
+        self.paths.ensure()
+        ser.atomic_write_text(self.paths.initial_version, text)
+        ser.atomic_write_text(self.paths.changelog, ser.dump_model(log))
+        ser.atomic_write_text(self.paths.current, text)
+        return log
 
     # -- reading -----------------------------------------------------------
 
@@ -76,7 +104,7 @@ class ArtifactStore:
         Raises:
             ArtifactNotFoundError: the artifact does not exist.
         """
-        raise NotImplementedError
+        return _read(self.paths.current, "current state")
 
     def changelog(self) -> ChangeLog:
         """The validated change log.
@@ -85,7 +113,7 @@ class ArtifactStore:
             ArtifactNotFoundError: `changelog.json` is missing.
             pydantic.ValidationError: it is malformed or violates the log's invariants.
         """
-        raise NotImplementedError
+        return ser.load_changelog(_read(self.paths.changelog, "change log"))
 
     def load(self) -> DeckArtifact:
         """The current state, validated and checked.
@@ -98,7 +126,15 @@ class ArtifactStore:
                 copied in from another client's engagement).
             ArtifactMismatchError: the stored deck's `project` or `id` does not match.
         """
-        raise NotImplementedError
+        text = self.current_text()
+        log = self.changelog()
+        if ser.text_digest(text) != cl.head_digest(log):
+            raise ChangeLogIntegrityError(
+                f"{self.paths.current} does not match the change log's head digest"
+            )
+        deck = ser.load_artifact(text)
+        self._check_deck(deck)
+        return deck
 
     def snapshot(self, entry_id: str | None) -> DeckArtifact:
         """The state after `entry_id` (or the initial state for None), whether or not that
@@ -110,7 +146,15 @@ class ArtifactStore:
             ChangeLogIntegrityError: the snapshot's digest is not the entry's
                 `after_digest` (or the log's `initial_digest`).
         """
-        raise NotImplementedError
+        log = self.changelog()
+        if entry_id is None:
+            expected, path = log.initial_digest, self.paths.initial_version
+        else:
+            expected, path = log.entry(entry_id).after_digest, self.paths.version(entry_id)
+        text = _read(path, "snapshot")
+        if ser.text_digest(text) != expected:
+            raise ChangeLogIntegrityError(f"snapshot {path} does not match its recorded digest")
+        return ser.load_artifact(text)
 
     # -- changing ----------------------------------------------------------
 
@@ -150,7 +194,32 @@ class ArtifactStore:
             pydantic.ValidationError: the instruction is blank or multi-line, or another
                 entry field is invalid. Nothing is written in any error case.
         """
-        raise NotImplementedError
+        before = self.load()
+        self._check_deck(new_state)
+        current = self.current_text()
+        new_text = ser.dump_artifact(new_state)
+        if new_text == current:
+            raise NoChangeError("the new state is identical to the current state")
+        log = self.changelog()
+        entry = ChangeEntry(
+            id=cl.next_entry_id(log),
+            parent_id=log.head,
+            diff=diffmod.diff_artifacts(before, new_state),
+            instruction=instruction,
+            thread_id=thread_id,
+            layer=layer,
+            model_id=model_id,
+            created_at=now or datetime.now(UTC),
+            before_digest=ser.text_digest(current),
+            after_digest=ser.text_digest(new_text),
+        )
+        new_log = cl.append_entry(log, entry)
+        new_log_text = ser.dump_model(new_log)
+        snapshot_path = self.paths.version(entry.id)
+        ser.atomic_write_text(snapshot_path, new_text)
+        ser.atomic_write_text(self.paths.changelog, new_log_text)
+        ser.atomic_write_text(self.paths.current, new_text)
+        return entry
 
     def undo(self) -> ChangeEntry:
         """Reverse the head entry; return it as now stored (`undone=True`).
@@ -166,7 +235,23 @@ class ArtifactStore:
             NothingToUndoError: the artifact is at its initial state.
             ChangeLogIntegrityError: a digest check fails (nothing is written).
         """
-        raise NotImplementedError
+        log = self.changelog()
+        new_log, entry = cl.mark_undone(log)
+        self._check_current(log)
+        parent_path = (
+            self.paths.initial_version
+            if entry.parent_id is None
+            else self.paths.version(entry.parent_id)
+        )
+        text = _read(parent_path, "snapshot")
+        if ser.text_digest(text) != entry.before_digest:
+            raise ChangeLogIntegrityError(
+                f"snapshot {parent_path} does not match entry {entry.id}'s before digest"
+            )
+        new_log_text = ser.dump_model(new_log)
+        ser.atomic_write_text(self.paths.changelog, new_log_text)
+        ser.atomic_write_text(self.paths.current, text)
+        return entry
 
     def redo(self) -> ChangeEntry:
         """Re-apply `changelog.redo_target(log)`; return it as now stored (`undone=False`).
@@ -179,4 +264,35 @@ class ArtifactStore:
             NothingToRedoError: there is no redo target.
             ChangeLogIntegrityError: a digest check fails (nothing is written).
         """
-        raise NotImplementedError
+        log = self.changelog()
+        new_log, entry = cl.mark_redone(log)
+        self._check_current(log)
+        path = self.paths.version(entry.id)
+        text = _read(path, "snapshot")
+        if ser.text_digest(text) != entry.after_digest:
+            raise ChangeLogIntegrityError(
+                f"snapshot {path} does not match entry {entry.id}'s after digest"
+            )
+        new_log_text = ser.dump_model(new_log)
+        ser.atomic_write_text(self.paths.changelog, new_log_text)
+        ser.atomic_write_text(self.paths.current, text)
+        return entry
+
+    # -- helpers -----------------------------------------------------------
+
+    def _check_deck(self, deck: DeckArtifact) -> None:
+        if deck.client != self.client:
+            raise ClientIsolationError(
+                f"client {self.client!r} may not hold a deck of client {deck.client!r}"
+            )
+        if deck.project != self.project or deck.id != self.artifact_id:
+            raise ArtifactMismatchError(
+                f"deck {deck.client}/{deck.project}/{deck.id} does not belong to "
+                f"{self.client}/{self.project}/{self.artifact_id}"
+            )
+
+    def _check_current(self, log: ChangeLog) -> None:
+        if ser.text_digest(self.current_text()) != cl.head_digest(log):
+            raise ChangeLogIntegrityError(
+                f"{self.paths.current} does not match the change log's head digest"
+            )

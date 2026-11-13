@@ -20,12 +20,24 @@ not an isolation error. Only client data is isolated.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from autodeck.knowledge.context_assembler import ClientNamespace
+from autodeck.knowledge.loader import ClientIsolationError, KnowledgeLoader
+from autodeck.studio import serialise
+from autodeck.studio.errors import (
+    EngagementExistsError,
+    EngagementMismatchError,
+    EngagementNotFoundError,
+)
 from autodeck.studio.models import DeckArtifact, EngagementRecord
-from autodeck.studio.paths import EngagementPaths
+from autodeck.studio.paths import (
+    EngagementPaths,
+    check_segment,
+    check_workspace_location,
+    workspace_paths,
+)
 from autodeck.studio.store import ArtifactStore
 
 
@@ -68,7 +80,9 @@ class Engagement:
             ClientIsolationError: the path is under another client's knowledge folder or
                 another client's workspace engagements.
         """
-        raise NotImplementedError
+        self.namespace.guard(path)
+        self.paths.guard(path)
+        return path
 
     def read_knowledge_text(self, path: Path) -> str:
         """Read a text file through `guard` (UTF-8). Phase 0 has no other reader; Phase 1's
@@ -78,11 +92,11 @@ class Engagement:
             ClientIsolationError: as `guard`.
             FileNotFoundError: the file does not exist.
         """
-        raise NotImplementedError
+        return self.guard(path).read_text(encoding="utf-8")
 
     def artifact_ids(self) -> list[str]:
         """`self.paths.artifact_ids()`: the artifacts in this engagement, sorted."""
-        raise NotImplementedError
+        return self.paths.artifact_ids()
 
     def artifact_store(self, artifact_id: str) -> ArtifactStore:
         """An `ArtifactStore` for `artifact_id`, bound to this client and project. The
@@ -91,7 +105,9 @@ class Engagement:
         Raises:
             InvalidSegmentError: `artifact_id` is not a safe segment.
         """
-        raise NotImplementedError
+        artifact_paths = self.paths.artifact(artifact_id)
+        self.guard(artifact_paths.root)
+        return ArtifactStore(artifact_paths, client=self.client, project=self.project)
 
     def create_artifact(self, deck: DeckArtifact) -> ArtifactStore:
         """Create a new artifact from `deck` (its `id` names the directory) and return its
@@ -104,7 +120,29 @@ class Engagement:
             InvalidSegmentError: `deck.id` is not a safe segment (cannot happen for a valid
                 `DeckArtifact`, whose `id` is pattern-checked).
         """
-        raise NotImplementedError
+        store = self.artifact_store(deck.id)
+        store.create(deck)
+        return store
+
+
+def _validate(
+    client: str, project: str, knowledge_root: Path, workspace_root: Path | None
+) -> tuple[EngagementPaths, ClientNamespace]:
+    """Steps 1-4 shared by create and open."""
+    check_segment(client, label="client")
+    check_segment(project, label="project")
+    workspace = workspace_paths(workspace_root)
+    check_workspace_location(workspace.root, knowledge_root)
+    loader = KnowledgeLoader(knowledge_root)
+    loader.load_client(client)
+    loader.load_project(project)
+    namespace = ClientNamespace(client=client, knowledge_root=knowledge_root)
+    if namespace.own_root != namespace.clients_root / client:
+        raise ClientIsolationError(
+            f"client folder for {client!r} resolves to {namespace.own_root}, not "
+            f"{namespace.clients_root / client}: it points into another client's data"
+        )
+    return workspace.engagement(client, project), namespace
 
 
 def create_engagement(
@@ -137,7 +175,20 @@ def create_engagement(
        datetime.now(UTC)`; `now` must be timezone-aware) with `serialise.dump_model` via
        `serialise.atomic_write_text`.
     """
-    raise NotImplementedError
+    paths, namespace = _validate(client, project, knowledge_root, workspace_root)
+    if paths.record.exists():
+        raise EngagementExistsError(
+            f"engagement {client}/{project} already exists: {paths.record}"
+        )
+    record = EngagementRecord(
+        client=client,
+        project=project,
+        title=title,
+        created_at=now or datetime.now(UTC),
+    )
+    paths.ensure()
+    serialise.atomic_write_text(paths.record, serialise.dump_model(record))
+    return Engagement(record, paths, namespace)
 
 
 def open_engagement(
@@ -156,11 +207,28 @@ def open_engagement(
     Re-validation matters: a knowledge folder deleted since creation fails here loudly
     rather than leaving an engagement with no context.
     """
-    raise NotImplementedError
+    paths, namespace = _validate(client, project, knowledge_root, workspace_root)
+    try:
+        text = serialise.read_text(paths.record)
+    except FileNotFoundError:
+        raise EngagementNotFoundError(
+            f"no engagement for {client}/{project}: {paths.record} does not exist"
+        ) from None
+    record = serialise.load_engagement_record(text)
+    if record.client != client:
+        raise ClientIsolationError(
+            f"engagement record {paths.record} names client {record.client!r}, not {client!r}"
+        )
+    if record.project != project:
+        raise EngagementMismatchError(
+            f"engagement record {paths.record} names project {record.project!r}, "
+            f"not {project!r}"
+        )
+    return Engagement(record, paths, namespace)
 
 
 def list_engagements(workspace_root: Path | None = None) -> list[tuple[str, str]]:
     """Every `(client, project)` with a record under the workspace, sorted
     (`WorkspacePaths.engagement_keys`). Reads no record and touches no knowledge folder:
     a listing for a picker, not a validation."""
-    raise NotImplementedError
+    return workspace_paths(workspace_root).engagement_keys()
