@@ -91,6 +91,65 @@
   const engHash = (c, p) => "#/e/" + enc(c) + "/" + enc(p);
   const threadHash = (c, p, t) => engHash(c, p) + "/t/" + enc(t);
 
+  // A diff line from the API ("+ slides[s2] = {...}", "~ a.b: 'x' -> 'y'", "- path") in words.
+  function unquote(v) {
+    v = String(v).trim();
+    if (v.length > 1 && v[0] === "'" && v[v.length - 1] === "'") v = v.slice(1, -1);
+    return v;
+  }
+  function readablePath(path) {
+    return path
+      .replace(/slides\[(\w+)\]/g, "slide $1")
+      .replace(/\.points\[\w+\]/g, " point")
+      .replace(/\.blocks\[(\w+)\]/g, ", $1 block")
+      .replace(/\.(?=\w)/g, ", ")
+      .replace(/_/g, " ");
+  }
+  function objectGist(v) {
+    // The first readable string inside a (possibly clipped) JSON object, skipping the id.
+    const re = /"(\w+)":\s*"((?:[^"\\]|\\.)*)("|$)/g;
+    let m;
+    while ((m = re.exec(v))) if (m[1] !== "id") return m[2].replace(/\\"/g, '"').replace(/…$/, "").trim();
+    return "";
+  }
+  function describeLine(line) {
+    const m = /^([+~-])\s+(.*)$/s.exec(line || "");
+    if (!m) return String(line || "").trim();
+    const [, sign, rest] = m;
+    const idOf = (v) => { const x = /"id":\s*"(\w+)"/.exec(v); return x ? x[1] : null; };
+    if (sign === "+") {
+      const eq = rest.indexOf(" = ");
+      const path = eq < 0 ? rest : rest.slice(0, eq);
+      const val = eq < 0 ? "" : rest.slice(eq + 3);
+      const id = idOf(val);
+      const what = readablePath(path.replace(/\[\d+\]/, id ? "[" + id + "]" : "")).replace(/^(slide|storyline point)\s+(\w+)$/, "$1 $2");
+      const gist = objectGist(val);
+      return "Added " + what + (gist ? ": " + gist : "");
+    }
+    if (sign === "-") return "Removed " + readablePath(rest.split(" = ")[0]);
+    const colon = rest.indexOf(": ");
+    if (colon < 0) return "Changed " + readablePath(rest);
+    const path = readablePath(rest.slice(0, colon));
+    const arrow = rest.slice(colon + 2).split(" -> ");
+    if (arrow.length < 2) return "Changed " + path;
+    const from = unquote(arrow[0]);
+    const to = arrow.slice(1).join(" -> ").trim();
+    const toText = to.startsWith("{") ? objectGist(to) || "set" : unquote(to);
+    if (from === "null") return "Set " + path + (toText ? ": " + toText : "");
+    return "Changed " + path + ": " + from + " \u2192 " + toText;
+  }
+  // The headline for a change entry: what changed, first diff line, plus a count of the rest.
+  function changeHeadline(e) {
+    const lines = (e && e.lines) || [];
+    if (!lines.length) return (e && (e.instruction || e.id)) || "";
+    return describeLine(lines[0]) + (lines.length > 1 ? " (+" + (lines.length - 1) + " more)" : "");
+  }
+
+  function threadTitle(s) {
+    const t = ((s && s.title) || "").trim();
+    return t || (s && s.preview) || "New thread";
+  }
+
   function markerTag(marker) {
     if (marker === "provisional") return h("span", { class: "tag tag-prov", text: "Provisional" });
     if (marker === "stale") return h("span", { class: "tag tag-stale", text: "Stale" });
@@ -270,7 +329,7 @@
       h("span", { class: "row-t", text: a.title || a.id }),
       h("span", { class: "row-m", text: plural(a.slide_count, "slide") + (a.updated_at ? " · updated " + fmtTime(a.updated_at) : "") })))));
     const thr = threads.map((t) => h("li", null, h("a", { class: "row", href: threadHash(r.client, r.project, t.id) }, h("span", { class: "row-b" },
-      h("span", { class: "row-t", text: t.title || t.preview || "Untitled thread" }),
+      h("span", { class: "row-t", text: threadTitle(t) }),
       h("span", { class: "row-m", text: plural(t.turns, "turn") + (t.last_activity ? " · " + fmtTime(t.last_activity) : "") })))));
 
     clear(view).append(h("div", { class: "scroll" }, h("div", { class: "page-inner" },
@@ -341,7 +400,7 @@
       return;
     }
     app.thread = T;
-    document.title = (T.summary.title || "Thread") + " - AutoDeck";
+    document.title = threadTitle(T.summary) + " - AutoDeck";
     buildThreadDom(T, view);
     renderMessages(T);
     renderLive(T);
@@ -383,6 +442,7 @@
     E.liveBox = h("div", { class: "live", id: "live" });
     E.msgs = h("div", { class: "msgs", id: "msgs", tabindex: "0", role: "log", "aria-label": "Conversation" }, E.list, E.liveBox);
     E.input = h("textarea", { class: "cinput", id: "composer-input", rows: "1", "aria-label": "Message", placeholder: "Message the model" });
+    E.title = h("h1", { class: "chat-title", text: threadTitle(T.summary) });
     E.send = h("button", { class: "btn primary", type: "submit", text: "Send" });
     E.hint = h("p", { class: "hint", id: "composer-hint" });
     E.form = h("form", { class: "cform" }, E.input, E.send);
@@ -395,7 +455,7 @@
       E.input.style.height = Math.min(E.input.scrollHeight, 160) + "px";
     });
     const chat = h("section", { class: "chat", id: "chat-pane", "aria-label": "Conversation" },
-      h("div", { class: "chat-head" }, h("h1", { class: "chat-title", text: T.summary.title || T.summary.preview || "New thread" }), E.conn),
+      h("div", { class: "chat-head" }, E.title, E.conn),
       E.msgs,
       h("div", { class: "composer" }, E.form, E.hint));
     E.panelHead = h("div", { class: "panel-head" });
@@ -406,6 +466,12 @@
       h("div", { class: "thread-grid" }, chat, panel));
     clear(view).append(E.root);
     setTab(T, "chat");
+  }
+
+  function renderTitle(T) {
+    const t = threadTitle(T.summary);
+    T.els.title.textContent = t;
+    document.title = t + " - AutoDeck";
   }
 
   function setTab(T, tab) {
@@ -447,6 +513,10 @@
 
   function beginLive(T, turnId, origin, text, model) {
     T.running = turnId;
+    if (origin === "owner" && text && !T.summary.title && !T.summary.preview) {
+      T.summary.preview = text.replace(/\s+/g, " ").trim().slice(0, 80);
+      renderTitle(T);
+    }
     if (!T.live || T.live.turn_id !== turnId) {
       T.live = { turn_id: turnId, origin, text, model_id: model || null, texts: [], tools: [], changes: [] };
     } else {
@@ -488,7 +558,7 @@
     if (ids.length || undone.length || redone.length) {
       const byId = {};
       for (const e of (T.changes && T.changes.entries) || []) byId[e.id] = e;
-      const li = (id, verb) => h("li", { text: (verb ? verb + ": " : "") + ((byId[id] && byId[id].instruction) || id) });
+      const li = (id, verb) => h("li", { text: (verb ? verb + ": " : "") + (byId[id] ? changeHeadline(byId[id]) : id) });
       kids.push(h("ul", { class: "items" }, ids.map((i) => li(i, "")), undone.map((i) => li(i, "Undone")), redone.map((i) => li(i, "Redone"))));
       const link = h("button", { class: "linkbtn", type: "button", text: "View in Changes" });
       link.addEventListener("click", () => { T.panelTab = "changes"; renderPanel(T); setTab(T, "deck"); });
@@ -643,12 +713,14 @@
       T.messages = th.messages || [];
       T.running = th.running_turn || null;
       if (!T.running) T.live = null; else seedLive(T);
+      renderTitle(T);
       renderMessages(T); renderLive(T); renderComposer(T);
     } catch (e) { /* the next tick tries again */ }
   }
 
   function scheduleArtifactRefresh(T) {
     clearTimeout(T.refreshTimer);
+    if (T.running) return; // refreshed when the turn finishes; reading mid-turn can race the writes
     T.refreshTimer = setTimeout(async () => {
       await refreshEngagement(T);
       await refreshArtifact(T);
@@ -918,20 +990,33 @@
       return;
     }
     if (T.running) body.append(h("p", { class: "quiet", text: "Undo and redo wait until the running turn finishes." }));
-    body.append(h("ol", { class: "changes" }, entries.map((e) => {
+    const items = [];
+    let prev = null; // entries are newest first; a run shares one instruction and thread
+    for (const e of entries) {
+      if (!prev || prev.instruction !== e.instruction || prev.thread_id !== e.thread_id) {
+        items.push(h("li", { class: "chg-from", text: e.instruction || "(no instruction recorded)" }));
+      }
+      prev = e;
+      const what = changeHeadline(e);
       const acts = [];
-      if (e.can_undo) acts.push(h("button", { class: "btn small", type: "button", text: "Undo", disabled: !!T.running, "aria-label": "Undo: " + e.instruction, onclick: (ev) => doRevert(T, "undo", ev.currentTarget) }));
-      if (e.can_redo) acts.push(h("button", { class: "btn small", type: "button", text: "Redo", disabled: !!T.running, "aria-label": "Redo: " + e.instruction, onclick: (ev) => doRevert(T, "redo", ev.currentTarget) }));
-      const meta = [e.layer, e.model_id, e.thread_id ? "thread " + e.thread_id : null, fmtTime(e.created_at)].filter(Boolean).join(" · ");
-      return h("li", { class: "chg" + (e.live ? "" : " undone") + (e.is_head ? " head" : "") },
+      if (e.can_undo) acts.push(h("button", { class: "btn small", type: "button", text: "Undo", disabled: !!T.running, "aria-label": "Undo: " + what, onclick: (ev) => doRevert(T, "undo", ev.currentTarget) }));
+      if (e.can_redo) acts.push(h("button", { class: "btn small", type: "button", text: "Redo", disabled: !!T.running, "aria-label": "Redo: " + what, onclick: (ev) => doRevert(T, "redo", ev.currentTarget) }));
+      const meta = [e.layer, e.model_id, e.thread_id ? "thread " + e.thread_id : null, fmtTime(e.created_at)].filter(Boolean).join(" \u00b7 ");
+      const rest = (e.lines || []).slice(1);
+      items.push(h("li", { class: "chg" + (e.live ? "" : " undone") + (e.is_head ? " head" : "") },
         h("div", { class: "chg-main" },
-          h("span", { class: "chg-what" }, e.instruction || e.id, " ",
+          h("span", { class: "chg-what" }, describeLine((e.lines || [])[0]) || e.instruction || e.id, " ",
             !e.live ? h("span", { class: "tag tag-plain", text: "Undone" }) : null,
             e.is_head && e.live ? h("span", { class: "tag tag-ok", text: "Current" }) : null),
           h("span", { class: "chg-meta", text: meta }),
-          (e.lines || []).length ? h("details", { class: "lines" }, h("summary", { text: plural(e.lines.length, "line") + (e.truncated ? " (more not shown)" : "") }), h("pre", { text: e.lines.join("\n") })) : null),
-        acts.length ? h("div", { class: "acts" }, acts) : null);
-    })));
+          rest.length || e.truncated
+            ? h("details", { class: "lines" },
+                h("summary", { text: rest.length ? plural(rest.length, "more line") + (e.truncated ? " (more not shown)" : "") : "More not shown" }),
+                h("pre", { text: rest.join("\n") }))
+            : null),
+        acts.length ? h("div", { class: "acts" }, acts) : null));
+    }
+    body.append(h("ol", { class: "changes" }, items));
   }
 
   // ------------------------------------------------------------------ boot

@@ -214,9 +214,10 @@ a.row:hover { background: var(--surface-2); }
 .card-h { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
 
 /* thread */
-.thread { display: flex; flex-direction: column; overflow: hidden; }
+#view-thread:not([hidden]) { display: flex; flex-direction: column; }
+.thread { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .thread-tabs { display: none; }
-.thread-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 2fr) minmax(0, 3fr); gap: 14px; }
+.thread-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 2fr) minmax(0, 3fr); gap: 14px; grid-template-rows: minmax(0, 1fr); }
 .chat, .panel { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s); overflow: hidden; }
 .chat-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
 .chat-title { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -327,9 +328,12 @@ a.row:hover { background: var(--surface-2); }
 .story-s { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; }
 .concept { font-size: 15px; overflow-wrap: anywhere; }
 
-.changes { display: flex; flex-direction: column; gap: 8px; }
+.changes { display: flex; flex-direction: column; gap: 6px; }
 .chg { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
 .chg-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.chg-from { font-size: 12.5px; color: var(--text-3); padding: 8px 4px 0; overflow-wrap: anywhere; }
+.chg-from:first-child { padding-top: 0; }
+.chg-from::before { content: "Asked: "; }
 .chg-what { font-weight: 550; overflow-wrap: anywhere; }
 .chg-meta { font-size: 12.5px; color: var(--text-3); overflow-wrap: anywhere; }
 .chg.undone .chg-what { text-decoration: line-through; color: var(--text-3); }
