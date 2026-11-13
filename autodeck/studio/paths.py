@@ -31,6 +31,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from autodeck.knowledge.loader import ClientIsolationError
+from autodeck.studio.errors import InvalidSegmentError, WorkspaceLocationError
 from autodeck.studio.models import ENTRY_ID_PATTERN, SEGMENT_PATTERN
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -55,7 +57,7 @@ _ENTRY_ID = re.compile(ENTRY_ID_PATTERN)
 def default_workspace_root() -> Path:
     """`REPO_ROOT / "workspace"`. No environment variable overrides it: callers that want
     another root pass one explicitly (tests always do, with a temporary directory)."""
-    raise NotImplementedError
+    return REPO_ROOT / DEFAULT_WORKSPACE_DIRNAME
 
 
 def check_segment(name: str, *, label: str) -> str:
@@ -69,7 +71,12 @@ def check_segment(name: str, *, label: str) -> str:
         InvalidSegmentError: empty, starts with a dot, or contains anything outside
             `[A-Za-z0-9._-]` (so `/`, `\\`, spaces and `..` are all rejected).
     """
-    raise NotImplementedError
+    # fullmatch, not match: `$` in SEGMENT_PATTERN also matches before a trailing newline.
+    if not isinstance(name, str) or _SEGMENT.fullmatch(name) is None:
+        raise InvalidSegmentError(
+            f"invalid {label}: {name!r} (use letters, digits, '.', '_' or '-')"
+        )
+    return name
 
 
 def check_workspace_location(workspace_root: Path, knowledge_root: Path) -> None:
@@ -82,7 +89,10 @@ def check_workspace_location(workspace_root: Path, knowledge_root: Path) -> None
     Raises:
         WorkspaceLocationError: the two overlap; the message names both resolved paths.
     """
-    raise NotImplementedError
+    ws = workspace_root.resolve()
+    kn = knowledge_root.resolve()
+    if ws == kn or ws.is_relative_to(kn) or kn.is_relative_to(ws):
+        raise WorkspaceLocationError(f"workspace root {ws} overlaps the knowledge tree {kn}")
 
 
 @dataclass(frozen=True)
@@ -98,27 +108,27 @@ class ArtifactPaths:
     @property
     def current(self) -> Path:
         """`<root>/current.json`."""
-        raise NotImplementedError
+        return self.root / CURRENT_FILE
 
     @property
     def changelog(self) -> Path:
         """`<root>/changelog.json`."""
-        raise NotImplementedError
+        return self.root / CHANGELOG_FILE
 
     @property
     def versions(self) -> Path:
         """`<root>/versions`."""
-        raise NotImplementedError
+        return self.root / VERSIONS_DIR
 
     @property
     def initial_version(self) -> Path:
         """`<root>/versions/initial.json`."""
-        raise NotImplementedError
+        return self.versions / INITIAL_VERSION_FILE
 
     @property
     def renders(self) -> Path:
         """`<root>/renders`: derived output, never read back as state."""
-        raise NotImplementedError
+        return self.root / RENDERS_DIR
 
     def version(self, entry_id: str) -> Path:
         """`<root>/versions/<entry_id>.json`, the state after that entry.
@@ -127,11 +137,16 @@ class ArtifactPaths:
             InvalidSegmentError: `entry_id` does not match `models.ENTRY_ID_PATTERN`
                 (so `initial`, `../x` and `c1` are all rejected).
         """
-        raise NotImplementedError
+        if _ENTRY_ID.fullmatch(entry_id) is None:
+            raise InvalidSegmentError(
+                f"invalid entry id: {entry_id!r} (expected c0001, c0002, ...)"
+            )
+        return self.versions / f"{entry_id}.json"
 
     def ensure(self) -> ArtifactPaths:
         """Create `root` and `versions` (parents included; existing is fine). Returns self."""
-        raise NotImplementedError
+        self.versions.mkdir(parents=True, exist_ok=True)
+        return self
 
 
 @dataclass(frozen=True)
@@ -148,22 +163,22 @@ class EngagementPaths:
     @property
     def root(self) -> Path:
         """`<workspace_root>/engagements/<client>/<project>`."""
-        raise NotImplementedError
+        return self.workspace_root / ENGAGEMENTS_DIR / self.client / self.project
 
     @property
     def record(self) -> Path:
         """`<root>/engagement.json`."""
-        raise NotImplementedError
+        return self.root / ENGAGEMENT_FILE
 
     @property
     def artifacts(self) -> Path:
         """`<root>/artifacts`."""
-        raise NotImplementedError
+        return self.root / ARTIFACTS_DIR
 
     @property
     def threads(self) -> Path:
         """`<root>/threads` (unused until Phase 1)."""
-        raise NotImplementedError
+        return self.root / THREADS_DIR
 
     def artifact(self, artifact_id: str) -> ArtifactPaths:
         """`ArtifactPaths(<root>/artifacts/<artifact_id>)`.
@@ -171,7 +186,7 @@ class EngagementPaths:
         Raises:
             InvalidSegmentError: `artifact_id` is not a safe segment (`check_segment`).
         """
-        raise NotImplementedError
+        return ArtifactPaths(self.artifacts / check_segment(artifact_id, label="artifact id"))
 
     def artifact_ids(self) -> list[str]:
         """Names of the directories under `artifacts/`, sorted; `[]` if it does not exist.
@@ -179,7 +194,13 @@ class EngagementPaths:
         Only directories whose name is a valid segment are returned; stray files and
         hidden directories are ignored.
         """
-        raise NotImplementedError
+        try:
+            children = list(self.artifacts.iterdir())
+        except (FileNotFoundError, NotADirectoryError):
+            return []
+        return sorted(
+            c.name for c in children if _SEGMENT.fullmatch(c.name) is not None and c.is_dir()
+        )
 
     def foreign_client(self, path: Path) -> str | None:
         """The other client a path belongs to inside this workspace, or None.
@@ -192,7 +213,14 @@ class EngagementPaths:
         different *project* returns None: projects are not isolated from each other, only
         clients are (D8).
         """
-        raise NotImplementedError
+        engagements = (self.workspace_root / ENGAGEMENTS_DIR).resolve()
+        resolved = path.resolve()
+        if not resolved.is_relative_to(engagements):
+            return None
+        parts = resolved.relative_to(engagements).parts
+        if not parts or parts[0] == self.client:
+            return None
+        return parts[0]
 
     def guard(self, path: Path) -> Path:
         """Return `path` unchanged if `foreign_client(path)` is None.
@@ -201,12 +229,18 @@ class EngagementPaths:
             ClientIsolationError: (v2's, from `autodeck.knowledge.loader`) the path belongs
                 to another client's engagements; the message names both clients and the path.
         """
-        raise NotImplementedError
+        owner = self.foreign_client(path)
+        if owner is not None:
+            raise ClientIsolationError(
+                f"client {self.client!r} may not reach client {owner!r}'s engagements: {path}"
+            )
+        return path
 
     def ensure(self) -> EngagementPaths:
         """Create `root` and `artifacts` (parents included; existing is fine). Not `threads`.
         Returns self."""
-        raise NotImplementedError
+        self.artifacts.mkdir(parents=True, exist_ok=True)
+        return self
 
 
 @dataclass(frozen=True)
@@ -218,7 +252,7 @@ class WorkspacePaths:
     @property
     def engagements(self) -> Path:
         """`<root>/engagements`."""
-        raise NotImplementedError
+        return self.root / ENGAGEMENTS_DIR
 
     def engagement(self, client: str, project: str) -> EngagementPaths:
         """`EngagementPaths(self.root, client, project)` after `check_segment` on both.
@@ -226,7 +260,9 @@ class WorkspacePaths:
         Raises:
             InvalidSegmentError: either name is not a safe segment.
         """
-        raise NotImplementedError
+        check_segment(client, label="client")
+        check_segment(project, label="project")
+        return EngagementPaths(self.root, client, project)
 
     def engagement_keys(self) -> list[tuple[str, str]]:
         """Every `(client, project)` with an `engagement.json`, sorted.
@@ -235,10 +271,25 @@ class WorkspacePaths:
         record, and names that are not valid segments, are skipped. `[]` when the
         engagements directory does not exist.
         """
-        raise NotImplementedError
+        keys: list[tuple[str, str]] = []
+        try:
+            clients = list(self.engagements.iterdir())
+        except (FileNotFoundError, NotADirectoryError):
+            return []
+        for client_dir in clients:
+            if _SEGMENT.fullmatch(client_dir.name) is None or not client_dir.is_dir():
+                continue
+            for project_dir in client_dir.iterdir():
+                if _SEGMENT.fullmatch(project_dir.name) is None:
+                    continue
+                if (project_dir / ENGAGEMENT_FILE).is_file():
+                    keys.append((client_dir.name, project_dir.name))
+        return sorted(keys)
 
 
 def workspace_paths(workspace_root: Path | None = None) -> WorkspacePaths:
     """`WorkspacePaths` for `workspace_root`, or for `default_workspace_root()` when None.
     The path is used as given (not resolved) and nothing is created."""
-    raise NotImplementedError
+    return WorkspacePaths(
+        default_workspace_root() if workspace_root is None else workspace_root
+    )

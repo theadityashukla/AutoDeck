@@ -39,9 +39,10 @@ drawn either. Speaker notes are not mapped: they are plain text, written by
 
 from __future__ import annotations
 
-from autodeck.design.free_layout_qa import FreeLayoutFinding
+from autodeck.design.free_layout_qa import FreeLayoutFinding, check_free_layout
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir import models as v2
+from autodeck.studio.errors import MissingLayoutError
 from autodeck.studio.models import Block, DeckArtifact, Slide
 
 MISSING_LAYOUT = "missing_layout"
@@ -57,7 +58,29 @@ def to_render_block(block: Block) -> v2.Block:
     The v2 block's `id` and `slot` are both `block.id`. `source_note` is dropped: it is
     never drawn in Phase 0. Pure; returns a new object, `block` is not modified.
     """
-    raise NotImplementedError
+    if block.kind == "text":
+        return v2.Block(id=block.id, slot=block.id, kind="framing", text=block.text)
+    if block.kind == "chart":
+        c = block.chart
+        assert c is not None
+        spec = v2.ChartSpec.model_construct(
+            chart_type=c.chart_type,
+            title=c.title,
+            categories=list(c.categories),
+            series=list(c.series),
+            x_axis_label=c.x_axis_label,
+            y_axis_label=c.y_axis_label,
+            source_citations=[],
+        )
+        return v2.Block(id=block.id, slot=block.id, kind="chart", chart=spec)
+    if block.kind == "figure":
+        f = block.figure
+        assert f is not None
+        ref = v2.FigureRef.model_construct(
+            asset_id=f.asset_id, caption=f.caption, citation=None
+        )
+        return v2.Block(id=block.id, slot=block.id, kind="figure", figure=ref)
+    return v2.Block(id=block.id, slot=block.id, kind="icon", icon=block.icon)
 
 
 def to_render_slide(slide: Slide) -> v2.Slide:
@@ -72,7 +95,16 @@ def to_render_slide(slide: Slide) -> v2.Slide:
     Raises:
         MissingLayoutError: `slide.layout` is None.
     """
-    raise NotImplementedError
+    if slide.layout is None:
+        raise MissingLayoutError(f"slide {slide.id!r} has no layout yet")
+    return v2.Slide(
+        id=slide.id,
+        narrative_role=NARRATIVE_ROLE,
+        component=v2.FREE_LAYOUT_COMPONENT,
+        blocks=[to_render_block(b) for b in slide.blocks],
+        layout=slide.layout,
+        speaker_notes=[],
+    )
 
 
 def check_slide(slide: Slide, tokens: DesignTokens) -> list[FreeLayoutFinding]:
@@ -83,10 +115,17 @@ def check_slide(slide: Slide, tokens: DesignTokens) -> list[FreeLayoutFinding]:
     MISSING_LAYOUT, "slide has no layout yet")`, instead of raising, so a deck-wide check
     can report every problem at once.
     """
-    raise NotImplementedError
+    if slide.layout is None:
+        return [FreeLayoutFinding(slide.id, "", MISSING_LAYOUT, "slide has no layout yet")]
+    return check_free_layout(to_render_slide(slide), tokens)
 
 
 def check_deck(deck: DeckArtifact, tokens: DesignTokens) -> dict[str, list[FreeLayoutFinding]]:
     """`check_slide` for every slide; returns only slides with findings, keyed by slide id,
     in deck order. `{}` when every slide holds."""
-    raise NotImplementedError
+    report: dict[str, list[FreeLayoutFinding]] = {}
+    for slide in deck.slides:
+        findings = check_slide(slide, tokens)
+        if findings:
+            report[slide.id] = findings
+    return report
