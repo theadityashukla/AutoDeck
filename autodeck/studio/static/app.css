@@ -1,0 +1,144 @@
+/* AutoDeck studio. Every colour is a token; light values on :root, dark values in the two
+   dark blocks (taken from the accepted mock-up, mockups/v3/src/app.css). Task 1.16 adds
+   the component styles below the tokens and may add tokens, in all three blocks. */
+:root {
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --surface-2: #f6f8fb;
+  --surface-3: #eceff5;
+  --stage: #dfe4ec;
+  --line: #dde2ea;
+  --line-strong: #c3cad7;
+  --text: #19202e;
+  --text-2: #4f596d;
+  --text-3: #727c90;
+  --accent: #0a64d8;
+  --accent-text: #0a5bc4;
+  --on-accent: #ffffff;
+  --accent-soft: #e5effd;
+  --accent-wash: rgba(10, 100, 216, 0.1);
+  --accent-ring: rgba(10, 100, 216, 0.35);
+  --warn-text: #8a5700;
+  --warn-bg: #fcf0d4;
+  --warn-line: #d6a032;
+  --stale-text: #b23a0d;
+  --stale-bg: #fde9de;
+  --stale-line: #e08a63;
+  --t-lead: #0a64d8;
+  --t-lead-ink: #ffffff;
+  --t-senior: #75a8f0;
+  --t-senior-ink: #0a2750;
+  --t-mid: #b0cdf8;
+  --t-mid-ink: #0a2750;
+  --t-low: #dbe8fc;
+  --t-low-ink: #0a2750;
+  --seg-bg: #e6e9f0;
+  --frost: rgba(246, 248, 252, 0.78);
+  --scrim: rgba(24, 31, 46, 0.38);
+  --toast-bg: #1d2535;
+  --toast-ink: #f3f6fb;
+  --shadow-s: 0 1px 2px rgba(25, 32, 46, 0.08), 0 0 0 1px rgba(25, 32, 46, 0.04);
+  --shadow-m: 0 4px 14px rgba(25, 32, 46, 0.1), 0 1px 3px rgba(25, 32, 46, 0.08);
+  --shadow-slide: 0 10px 30px rgba(25, 32, 46, 0.22), 0 2px 6px rgba(25, 32, 46, 0.14);
+  --focus: #0a64d8;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e121a;
+    --surface: #171c27;
+    --surface-2: #1b212d;
+    --surface-3: #212837;
+    --stage: #0a0d13;
+    --line: #272f3f;
+    --line-strong: #394357;
+    --text: #e8ecf4;
+    --text-2: #a4aec1;
+    --text-3: #7c869b;
+    --accent: #2f7be5;
+    --accent-text: #6cb0ff;
+    --on-accent: #ffffff;
+    --accent-soft: #182a47;
+    --accent-wash: rgba(76, 154, 255, 0.14);
+    --accent-ring: rgba(76, 154, 255, 0.5);
+    --warn-text: #f0c26a;
+    --warn-bg: #31270f;
+    --warn-line: #8a6a24;
+    --stale-text: #ff9f74;
+    --stale-bg: #3a2119;
+    --stale-line: #a4573a;
+    --t-lead: #2f7be5;
+    --t-lead-ink: #ffffff;
+    --t-senior: #2b5fa8;
+    --t-senior-ink: #e5efff;
+    --t-mid: #234878;
+    --t-mid-ink: #d3e4ff;
+    --t-low: #1c3557;
+    --t-low-ink: #bdd4f5;
+    --seg-bg: #0f131c;
+    --frost: rgba(20, 25, 36, 0.78);
+    --scrim: rgba(3, 5, 10, 0.6);
+    --toast-bg: #e8ecf4;
+    --toast-ink: #141a26;
+    --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    --shadow-m: 0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-slide: 0 10px 34px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+    --focus: #6cb0ff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e121a;
+  --surface: #171c27;
+  --surface-2: #1b212d;
+  --surface-3: #212837;
+  --stage: #0a0d13;
+  --line: #272f3f;
+  --line-strong: #394357;
+  --text: #e8ecf4;
+  --text-2: #a4aec1;
+  --text-3: #7c869b;
+  --accent: #2f7be5;
+  --accent-text: #6cb0ff;
+  --on-accent: #ffffff;
+  --accent-soft: #182a47;
+  --accent-wash: rgba(76, 154, 255, 0.14);
+  --accent-ring: rgba(76, 154, 255, 0.5);
+  --warn-text: #f0c26a;
+  --warn-bg: #31270f;
+  --warn-line: #8a6a24;
+  --stale-text: #ff9f74;
+  --stale-bg: #3a2119;
+  --stale-line: #a4573a;
+  --t-lead: #2f7be5;
+  --t-lead-ink: #ffffff;
+  --t-senior: #2b5fa8;
+  --t-senior-ink: #e5efff;
+  --t-mid: #234878;
+  --t-mid-ink: #d3e4ff;
+  --t-low: #1c3557;
+  --t-low-ink: #bdd4f5;
+  --seg-bg: #0f131c;
+  --frost: rgba(20, 25, 36, 0.78);
+  --scrim: rgba(3, 5, 10, 0.6);
+  --toast-bg: #e8ecf4;
+  --toast-ink: #141a26;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-m: 0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-slide: 0 10px 34px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+  --focus: #6cb0ff;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+[hidden] { display: none !important; }

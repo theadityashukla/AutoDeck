@@ -77,3 +77,42 @@ class EditError(StudioError, LookupError):
 
 class MissingLayoutError(StudioError):
     """A slide with no `FreeLayout` was handed to a function that needs one."""
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: threads, proposals, sources, turns, configuration
+# ---------------------------------------------------------------------------
+
+
+class ThreadNotFoundError(StudioError):
+    """No `thread.json` for that thread id in this engagement."""
+
+
+class ThreadLogError(StudioError):
+    """A thread's files disagree with themselves: `messages.jsonl` has a line whose `seq`
+    is not its 1-based position, a line that is not a valid `ThreadLine`, or `context.md`
+    whose digest is not the record's `context_digest`. Raised instead of guessing."""
+
+
+class ProposalNotFoundError(StudioError):
+    """No `proposal.json` for that proposal id in this engagement."""
+
+
+class ProposalStateError(StudioError):
+    """A proposal was asked to change in a way its status does not allow: resolving one
+    that is no longer open, accepting an option it does not have, or applying an option
+    that was not the one chosen."""
+
+
+class SourceNotFoundError(StudioError, LookupError):
+    """A source id names nothing this engagement can read, or a page/offset is outside it."""
+
+
+class TurnInProgressError(StudioError):
+    """A turn (or an owner action that changes state) was started while another turn is
+    running in the same engagement. Phase 1 runs one turn at a time per engagement."""
+
+
+class StudioConfigError(StudioError):
+    """`config/studio.yaml` is missing or malformed, or names an unknown environment, role
+    or provider."""

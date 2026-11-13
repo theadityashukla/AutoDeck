@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoDeck</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <!-- Skeleton (task 1.16 fills it in). Contract: docs/phases/V3-PHASE-1.md,
+       "Front-end contract". No external resources, no inline script or style
+       (the CSP forbids both), no emoji. -->
+  <div class="wrap" id="app">
+    <header class="topbar">
+      <a class="brand" href="#/" aria-label="AutoDeck, engagements">AutoDeck</a>
+      <span class="crumb" id="crumb"></span>
+      <span class="model" id="model-id"></span>
+    </header>
+    <main id="main">
+      <section id="view-home" class="view" hidden aria-labelledby="home-h"></section>
+      <section id="view-engagement" class="view" hidden></section>
+      <section id="view-thread" class="view" hidden></section>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </div>
+</body>
+</html>

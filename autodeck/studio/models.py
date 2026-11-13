@@ -63,6 +63,18 @@ ENTRY_ID_PATTERN = r"^c[0-9]{4,}$"
 DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 """A lower-case SHA-256 hex digest (`serialise.artifact_digest`)."""
 
+THREAD_ID_PATTERN = r"^t[0-9]{4,}$"
+"""Thread ids (Phase 1): `t0001`, `t0002`, ... per engagement, in creation order."""
+
+TURN_ID_PATTERN = r"^u[0-9]{4,}$"
+"""Turn ids (Phase 1): `u0001`, `u0002`, ... per thread, in order."""
+
+PROPOSAL_ID_PATTERN = r"^p[0-9]{4,}$"
+"""Proposal ids (Phase 1): `p0001`, `p0002`, ... per engagement, in creation order."""
+
+RENDER_DIGEST_PATTERN = r"^[0-9a-f]{12}$"
+"""The first 12 hex characters of an artifact digest: names one render directory."""
+
 Marker = Literal["decided", "provisional", "stale"]
 """Plan §4. `decided`: the owner chose or accepted it. `provisional`: the system filled it
 in so work could continue. `stale`: something upstream changed after it was made."""
@@ -79,6 +91,11 @@ BlockKind = Literal["text", "chart", "figure", "icon"]
 
 ArtifactKind = Literal["deck"]
 """Phase 0 has one artifact type. Notes (plan §10) arrive in Phase 5."""
+
+OptionId = Literal["A", "B", "C", "D"]
+"""Phase 1: the id of one option of a proposal, assigned in order. At most four options."""
+
+OPTION_IDS: tuple[OptionId, ...] = ("A", "B", "C", "D")
 
 DiffKind = Literal["added", "removed", "changed"]
 """The same three kinds `autodeck.ir.store.Change` uses."""

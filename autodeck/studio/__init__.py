@@ -18,4 +18,20 @@ Modules:
 * `edits`: a few pure deck edits.
 * `render_adapter`: base slide → v2 creative slide, and layout QA.
 * `render`: PPTX build, PNG previews, timing.
+
+Phase 1, the conversation core (docs/phases/V3-PHASE-1.md):
+
+* `conversation`: thread, log-line, proposal, render-manifest and turn-event contracts.
+* `tool_args`: the lead's tool vocabulary, one argument model per tool.
+* `bindings`: `config/studio.yaml`, role -> provider and model, through v2's providers.
+* `scripted`: the scripted stand-in model (tests, and the server without a key).
+* `prompt`: the lead's system prompt (`prompts/studio/lead.md`) and allowed skills.
+* `threads`, `proposals`: threads and proposals on disk.
+* `views`: compact text for the model, JSON for the interface.
+* `context`: a thread's opening context, built from state only.
+* `sources`: knowledge files and ingested documents, behind the guard.
+* `tools`: the lead's tools over v2's ToolBox; `loop`: one turn.
+* `events`, `previews`: streaming and background renders.
+* `session`: the studio (threads, turns, owner actions); `api`, `server`, `__main__`: the
+  local interface, `python -m autodeck.studio`.
 """

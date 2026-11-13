@@ -12,8 +12,14 @@ git-ignored (`/workspace/` at the repo root by default):
       changelog.json                ChangeLog
       versions/initial.json         the state the artifact was created with
       versions/<entry-id>.json      the state after each change-log entry
-      renders/                      derived: PPTX and previews; safe to delete
-    threads/                        Phase 1
+      renders/<digest12>/           derived: one render per deck state; safe to delete
+    threads/<thread-id>/            Phase 1
+      thread.json                   ThreadRecord
+      context.md                    the opening context the thread was given
+      messages.jsonl                ThreadLine records, append-only, one per line
+    proposals/<proposal-id>/        Phase 1
+      proposal.json                 ProposalRecord
+      renders/<option-id>/          derived: candidate-slide previews
 ```
 
 The client name is a path segment directly under `engagements/`, so "does this path belong
@@ -33,7 +39,14 @@ from pathlib import Path
 
 from autodeck.knowledge.loader import ClientIsolationError
 from autodeck.studio.errors import InvalidSegmentError, WorkspaceLocationError
-from autodeck.studio.models import ENTRY_ID_PATTERN, SEGMENT_PATTERN
+from autodeck.studio.models import (
+    ENTRY_ID_PATTERN,
+    OPTION_IDS,
+    PROPOSAL_ID_PATTERN,
+    RENDER_DIGEST_PATTERN,
+    SEGMENT_PATTERN,
+    THREAD_ID_PATTERN,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 """The repository root (the directory holding `pyproject.toml`)."""
@@ -49,9 +62,32 @@ ENGAGEMENT_FILE = "engagement.json"
 CURRENT_FILE = "current.json"
 CHANGELOG_FILE = "changelog.json"
 INITIAL_VERSION_FILE = "initial.json"
+PROPOSALS_DIR = "proposals"
+THREAD_FILE = "thread.json"
+MESSAGES_FILE = "messages.jsonl"
+CONTEXT_FILE = "context.md"
+PROPOSAL_FILE = "proposal.json"
 
 _SEGMENT = re.compile(SEGMENT_PATTERN)
 _ENTRY_ID = re.compile(ENTRY_ID_PATTERN)
+_THREAD_ID = re.compile(THREAD_ID_PATTERN)
+_PROPOSAL_ID = re.compile(PROPOSAL_ID_PATTERN)
+_RENDER_DIGEST = re.compile(RENDER_DIGEST_PATTERN)
+
+
+def _check(pattern: re.Pattern[str], value: str, label: str, example: str) -> str:
+    if not isinstance(value, str) or pattern.fullmatch(value) is None:
+        raise InvalidSegmentError(f"invalid {label}: {value!r} (expected {example})")
+    return value
+
+
+def _matching_dirs(directory: Path, pattern: re.Pattern[str]) -> list[str]:
+    """Names of the subdirectories of `directory` matching `pattern`, sorted; [] if none."""
+    try:
+        children = list(directory.iterdir())
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    return sorted(c.name for c in children if pattern.fullmatch(c.name) and c.is_dir())
 
 
 def default_workspace_root() -> Path:
@@ -130,6 +166,15 @@ class ArtifactPaths:
         """`<root>/renders`: derived output, never read back as state."""
         return self.root / RENDERS_DIR
 
+    def render_dir(self, digest12: str) -> Path:
+        """`<root>/renders/<digest12>`: the render of one deck state (Phase 1).
+
+        Raises:
+            InvalidSegmentError: `digest12` is not 12 lower-case hex characters.
+        """
+        _check(_RENDER_DIGEST, digest12, "render digest", "12 lower-case hex characters")
+        return self.renders / digest12
+
     def version(self, entry_id: str) -> Path:
         """`<root>/versions/<entry_id>.json`, the state after that entry.
 
@@ -146,6 +191,74 @@ class ArtifactPaths:
     def ensure(self) -> ArtifactPaths:
         """Create `root` and `versions` (parents included; existing is fine). Returns self."""
         self.versions.mkdir(parents=True, exist_ok=True)
+        return self
+
+
+@dataclass(frozen=True)
+class ThreadPaths:
+    """Paths of one thread (Phase 1). `root` is `<engagement>/threads/<thread-id>`."""
+
+    root: Path
+
+    @property
+    def thread_id(self) -> str:
+        return self.root.name
+
+    @property
+    def record(self) -> Path:
+        """`<root>/thread.json`."""
+        return self.root / THREAD_FILE
+
+    @property
+    def messages(self) -> Path:
+        """`<root>/messages.jsonl`: the thread's own log, for display and for this thread's
+        model context only. No other thread ever reads it."""
+        return self.root / MESSAGES_FILE
+
+    @property
+    def context(self) -> Path:
+        """`<root>/context.md`: the opening context built from state when the thread began."""
+        return self.root / CONTEXT_FILE
+
+    def ensure(self) -> ThreadPaths:
+        """Create `root` (parents included; existing is fine). Returns self."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        return self
+
+
+@dataclass(frozen=True)
+class ProposalPaths:
+    """Paths of one proposal (Phase 1). `root` is `<engagement>/proposals/<proposal-id>`."""
+
+    root: Path
+
+    @property
+    def proposal_id(self) -> str:
+        return self.root.name
+
+    @property
+    def record(self) -> Path:
+        """`<root>/proposal.json`."""
+        return self.root / PROPOSAL_FILE
+
+    @property
+    def renders(self) -> Path:
+        """`<root>/renders`: derived previews of the candidate slides."""
+        return self.root / RENDERS_DIR
+
+    def option_renders(self, option_id: str) -> Path:
+        """`<root>/renders/<option_id>`.
+
+        Raises:
+            InvalidSegmentError: `option_id` is not one of `models.OPTION_IDS`.
+        """
+        if option_id not in OPTION_IDS:
+            raise InvalidSegmentError(f"invalid option id: {option_id!r} (expected A to D)")
+        return self.renders / option_id
+
+    def ensure(self) -> ProposalPaths:
+        """Create `root` (parents included; existing is fine). Returns self."""
+        self.root.mkdir(parents=True, exist_ok=True)
         return self
 
 
@@ -177,8 +290,39 @@ class EngagementPaths:
 
     @property
     def threads(self) -> Path:
-        """`<root>/threads` (unused until Phase 1)."""
+        """`<root>/threads`."""
         return self.root / THREADS_DIR
+
+    @property
+    def proposals(self) -> Path:
+        """`<root>/proposals`."""
+        return self.root / PROPOSALS_DIR
+
+    def thread(self, thread_id: str) -> ThreadPaths:
+        """`ThreadPaths(<root>/threads/<thread_id>)`.
+
+        Raises:
+            InvalidSegmentError: `thread_id` does not match `models.THREAD_ID_PATTERN`.
+        """
+        _check(_THREAD_ID, thread_id, "thread id", "t0001, t0002, ...")
+        return ThreadPaths(self.threads / thread_id)
+
+    def thread_ids(self) -> list[str]:
+        """Directories under `threads/` whose name is a thread id, sorted; [] if none."""
+        return _matching_dirs(self.threads, _THREAD_ID)
+
+    def proposal(self, proposal_id: str) -> ProposalPaths:
+        """`ProposalPaths(<root>/proposals/<proposal_id>)`.
+
+        Raises:
+            InvalidSegmentError: `proposal_id` does not match `models.PROPOSAL_ID_PATTERN`.
+        """
+        _check(_PROPOSAL_ID, proposal_id, "proposal id", "p0001, p0002, ...")
+        return ProposalPaths(self.proposals / proposal_id)
+
+    def proposal_ids(self) -> list[str]:
+        """Directories under `proposals/` whose name is a proposal id, sorted; [] if none."""
+        return _matching_dirs(self.proposals, _PROPOSAL_ID)
 
     def artifact(self, artifact_id: str) -> ArtifactPaths:
         """`ArtifactPaths(<root>/artifacts/<artifact_id>)`.
