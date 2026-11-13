@@ -21,16 +21,27 @@ space and strips the ends; `clip(s, n)` returns `s` when `len(s) <= n`, else
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
+from autodeck.studio import changelog, diff
 from autodeck.studio.conversation import (
+    MAX_DIFF_LINES,
+    AssistantLine,
+    NoteLine,
     ProposalRecord,
     RenderManifest,
     ThreadLine,
     ThreadRecord,
+    ToolLine,
+    TurnEndLine,
+    UserLine,
 )
 from autodeck.studio.models import (
+    Block,
     ChangeEntry,
     ChangeLog,
     DeckArtifact,
@@ -45,15 +56,35 @@ PREVIEW_CHARS = 80
 """`thread_summary.preview` clips the first owner message to this many characters."""
 
 
+def _iso(moment: datetime) -> str:
+    return moment.isoformat(timespec="seconds")
+
+
 def flat(text: str) -> str:
     """Every run of whitespace collapsed to one space; ends stripped."""
-    raise NotImplementedError
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def clip(text: str, limit: int) -> str:
     """`text` if it has at most `limit` characters, else its first `limit - 1` characters
     followed by `…` (U+2026). `limit` is at least 1."""
-    raise NotImplementedError
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _block_summary(block: Block, max_text: int) -> str:
+    if block.kind == "text":
+        return json.dumps(clip(flat(block.text or ""), max_text), ensure_ascii=False)
+    if block.kind == "chart" and block.chart is not None:
+        k = len(block.chart.categories)
+        return (
+            f"chart: {block.chart.chart_type}, {k} {'category' if k == 1 else 'categories'}, "
+            f"{len(block.chart.series)} series"
+        )
+    if block.kind == "figure" and block.figure is not None:
+        return f"figure: {block.figure.asset_id}"
+    if block.kind == "icon" and block.icon is not None:
+        return f"icon: {block.icon.concept}"
+    return block.kind
 
 
 def deck_outline(deck: DeckArtifact, *, max_text: int = MAX_BLOCK_TEXT) -> str:
@@ -81,7 +112,49 @@ def deck_outline(deck: DeckArtifact, *, max_text: int = MAX_BLOCK_TEXT) -> str:
     `series` is the same word in both numbers); a figure, `figure: <asset_id>`; an icon,
     `icon: <concept>`.
     """
-    raise NotImplementedError
+    n = len(deck.slides)
+    title = flat(deck.title) or "(untitled)"
+    noun = "slide" if n == 1 else "slides"
+    lines = [f"Deck `{deck.id}`: {title} ({n} {noun})"]
+    brief = deck.brief
+    if brief is None:
+        lines.append("Brief: none")
+    else:
+        lines.append(
+            f"Brief [{brief.marker}]: audience: {flat(brief.audience) or '-'}"
+            f" | goal: {flat(brief.goal) or '-'} | notes: {flat(brief.notes) or '-'}"
+        )
+    story = deck.storyline
+    if not story.points:
+        lines.append(f"Storyline [{story.marker}]: none")
+    else:
+        lines.append(f"Storyline [{story.marker}]:")
+        lines.extend(f"  {point.id}. {flat(point.text)}" for point in story.points)
+    concept = deck.design_concept
+    if concept is None:
+        lines.append("Design concept: none")
+    else:
+        lines.append(f"Design concept [{concept.marker}]: {flat(concept.text)}")
+    system = deck.design_system
+    if system is None:
+        lines.append("Design system: none")
+    else:
+        lines.append(f"Design system [{system.marker}]: {system.id} v{system.version}")
+    if not deck.slides:
+        lines.append("Slides: none")
+    else:
+        lines.append("Slides:")
+        for i, slide in enumerate(deck.slides, start=1):
+            serves = ", ".join(slide.serves) or "-"
+            placed = "placed" if slide.layout is not None else "no layout"
+            intent = flat(slide.intent or "") or "-"
+            lines.append(
+                f"  {i}. {slide.id} [{slide.marker}] serves {serves} | {placed}"
+                f" | intent: {intent}"
+            )
+            summaries = " / ".join(_block_summary(b, max_text) for b in slide.blocks)
+            lines.append(f"     {summaries or '(no blocks)'}")
+    return "\n".join(lines)
 
 
 def slide_detail(deck: DeckArtifact, slide_id: str) -> str:
@@ -92,13 +165,20 @@ def slide_detail(deck: DeckArtifact, slide_id: str) -> str:
     Raises:
         KeyError: no such slide (from `DeckArtifact.slide`).
     """
-    raise NotImplementedError
+    slide = deck.slide(slide_id)
+    index = deck.slide_ids().index(slide_id) + 1
+    dump = json.dumps(slide.model_dump(mode="json"), indent=2, ensure_ascii=False)
+    return f"Slide {slide_id} ({index} of {len(deck.slides)}) in deck {deck.id}\n\n{dump}"
 
 
 def change_line(entry: ChangeEntry) -> str:
     """One entry on one line, exactly:
     `<id> <live|undone> | <layer> | <model_id> | <thread_id> | <flat(instruction)>`."""
-    raise NotImplementedError
+    state = "undone" if entry.undone else "live"
+    return (
+        f"{entry.id} {state} | {entry.layer} | {entry.model_id} | {entry.thread_id}"
+        f" | {flat(entry.instruction)}"
+    )
 
 
 def change_view(entry: ChangeEntry, log: ChangeLog) -> dict[str, Any]:
@@ -109,14 +189,37 @@ def change_view(entry: ChangeEntry, log: ChangeLog) -> dict[str, Any]:
     `conversation.MAX_DIFF_LINES` of `diff.describe(entry.diff)`, "truncated": whether
     more existed, "is_head": entry.id == log.head, "can_undo": entry is
     `changelog.undo_target(log)`, "can_redo": entry is `changelog.redo_target(log)`}`."""
-    raise NotImplementedError
+    described = diff.describe(entry.diff)
+    undo = changelog.undo_target(log)
+    redo = changelog.redo_target(log)
+    return {
+        "id": entry.id,
+        "parent_id": entry.parent_id,
+        "live": not entry.undone,
+        "layer": entry.layer,
+        "model_id": entry.model_id,
+        "thread_id": entry.thread_id,
+        "instruction": entry.instruction,
+        "created_at": _iso(entry.created_at),
+        "lines": described[:MAX_DIFF_LINES],
+        "truncated": len(described) > MAX_DIFF_LINES,
+        "is_head": entry.id == log.head,
+        "can_undo": undo is not None and undo.id == entry.id,
+        "can_redo": redo is not None and redo.id == entry.id,
+    }
 
 
 def changes_view(log: ChangeLog) -> dict[str, Any]:
     """The whole log for the Changes tab: `{"artifact_id", "head", "can_undo",
     "can_redo", "entries": [change_view(e, log) for e in entries, newest first]}`
     (newest first = reverse append order)."""
-    raise NotImplementedError
+    return {
+        "artifact_id": log.artifact_id,
+        "head": log.head,
+        "can_undo": changelog.undo_target(log) is not None,
+        "can_redo": changelog.redo_target(log) is not None,
+        "entries": [change_view(e, log) for e in reversed(log.entries)],
+    }
 
 
 def render_view(manifest: RenderManifest | None, *, base: str) -> dict[str, Any] | None:
@@ -126,13 +229,35 @@ def render_view(manifest: RenderManifest | None, *, base: str) -> dict[str, Any]
     `images` is `[f"{base}/{manifest.digest}/{n}.png" for n in 1..len(images)]` when
     rendered, else `[]`. `base` is the artifact's renders URL prefix, e.g.
     `/api/engagements/<c>/<p>/artifacts/<a>/renders`, with no trailing slash."""
-    raise NotImplementedError
+    if manifest is None:
+        return None
+    images = (
+        [f"{base}/{manifest.digest}/{n}.png" for n in range(1, len(manifest.images) + 1)]
+        if manifest.rendered
+        else []
+    )
+    return {
+        "digest": manifest.digest,
+        "rendered": manifest.rendered,
+        "note": manifest.note,
+        "placeholders": dict(manifest.placeholders),
+        "slide_ids": list(manifest.slide_ids),
+        "images": images,
+    }
 
 
 def artifact_summary(deck: DeckArtifact, log: ChangeLog) -> dict[str, Any]:
     """`{"id", "kind", "title", "slide_count", "head", "entries": len(log.entries),
     "updated_at": the last entry's created_at (ISO, seconds) or None}`."""
-    raise NotImplementedError
+    return {
+        "id": deck.id,
+        "kind": deck.kind,
+        "title": deck.title,
+        "slide_count": len(deck.slides),
+        "head": log.head,
+        "entries": len(log.entries),
+        "updated_at": _iso(log.entries[-1].created_at) if log.entries else None,
+    }
 
 
 def artifact_view(
@@ -141,12 +266,23 @@ def artifact_view(
     """The artifact panel's data: `artifact_summary(deck, log)` plus
     `{"deck": deck.model_dump(mode="json"), "can_undo", "can_redo",
     "render": render_view(manifest, base=base)}`."""
-    raise NotImplementedError
+    return {
+        **artifact_summary(deck, log),
+        "deck": deck.model_dump(mode="json"),
+        "can_undo": changelog.undo_target(log) is not None,
+        "can_redo": changelog.redo_target(log) is not None,
+        "render": render_view(manifest, base=base),
+    }
 
 
 def engagement_view(record: EngagementRecord) -> dict[str, Any]:
     """`{"client", "project", "title", "created_at"}` (ISO, seconds)."""
-    raise NotImplementedError
+    return {
+        "client": record.client,
+        "project": record.project,
+        "title": record.title,
+        "created_at": _iso(record.created_at),
+    }
 
 
 def thread_summary(record: ThreadRecord, lines: Sequence[ThreadLine]) -> dict[str, Any]:
@@ -156,7 +292,22 @@ def thread_summary(record: ThreadRecord, lines: Sequence[ThreadLine]) -> dict[st
     "last_activity": the last line's created_at, or the record's when there is no line,
     "preview": clip(flat(first owner UserLine's text), PREVIEW_CHARS) or ""}`.
     Times are ISO 8601 with seconds."""
-    raise NotImplementedError
+    preview = ""
+    for line in lines:
+        if isinstance(line, UserLine) and line.origin == "owner":
+            preview = clip(flat(line.text), PREVIEW_CHARS)
+            break
+    last = lines[-1].created_at if lines else record.created_at
+    return {
+        "id": record.id,
+        "title": record.title,
+        "created_at": _iso(record.created_at),
+        "opening": record.opening,
+        "model_id": record.model_id,
+        "turns": sum(1 for line in lines if isinstance(line, TurnEndLine)),
+        "last_activity": _iso(last),
+        "preview": preview,
+    }
 
 
 def messages_view(lines: Sequence[ThreadLine]) -> list[dict[str, Any]]:
@@ -176,7 +327,75 @@ def messages_view(lines: Sequence[ThreadLine]) -> list[dict[str, Any]]:
 
     Times are ISO 8601 with seconds.
     """
-    raise NotImplementedError
+    items: list[dict[str, Any]] = []
+    turns: dict[str, dict[str, Any]] = {}
+    for line in lines:
+        if isinstance(line, UserLine):
+            if line.origin in ("owner", "choice"):
+                items.append(
+                    {
+                        "type": "user",
+                        "turn_id": line.turn_id,
+                        "origin": line.origin,
+                        "text": line.text,
+                        "created_at": _iso(line.created_at),
+                    }
+                )
+        elif isinstance(line, NoteLine):
+            items.append(
+                {
+                    "type": "note",
+                    "note": line.note,
+                    "ref": line.ref,
+                    "text": line.text,
+                    "created_at": _iso(line.created_at),
+                }
+            )
+        else:
+            item = turns.get(line.turn_id)
+            if item is None:
+                item = {
+                    "type": "assistant",
+                    "turn_id": line.turn_id,
+                    "texts": [],
+                    "tools": [],
+                    "model_id": None,
+                    "kind": None,
+                    "stop_reason": None,
+                    "error": "",
+                    "change_ids": [],
+                    "undone_ids": [],
+                    "redone_ids": [],
+                    "created_artifacts": [],
+                    "proposal_ids": [],
+                    "created_at": _iso(line.created_at),
+                }
+                turns[line.turn_id] = item
+                items.append(item)
+            if isinstance(line, AssistantLine):
+                if line.text.strip():
+                    item["texts"].append(line.text)
+                if item["model_id"] is None:
+                    item["model_id"] = line.model_id
+            elif isinstance(line, ToolLine):
+                item["tools"].append(
+                    {"name": line.tool_name, "summary": line.summary, "error": line.error}
+                )
+            else:
+                if item["model_id"] is None:
+                    item["model_id"] = line.model_id
+                item["kind"] = line.turn_kind
+                item["stop_reason"] = line.stop_reason
+                item["error"] = line.error
+                item["change_ids"] = list(line.change_ids)
+                item["undone_ids"] = list(line.undone_ids)
+                item["redone_ids"] = list(line.redone_ids)
+                item["created_artifacts"] = list(line.created_artifacts)
+                item["proposal_ids"] = list(line.proposal_ids)
+    for item in turns.values():
+        if item["model_id"] is None:
+            item["model_id"] = ""
+    return items
 
 
 def proposal_view(
@@ -187,4 +406,27 @@ def proposal_view(
     "text", "slide_ids": candidate slide ids in order, "insert_at", "previews":
     (previews or {}).get(option id, [])}]}`. `previews` maps an option id to its image
     URLs (built by the API)."""
-    raise NotImplementedError
+    chosen_previews = previews or {}
+    return {
+        "id": record.id,
+        "thread_id": record.thread_id,
+        "turn_id": record.turn_id,
+        "artifact_id": record.artifact_id,
+        "summary": record.summary,
+        "status": record.status,
+        "chosen": record.chosen,
+        "resolved_by": record.resolved_by,
+        "resolved_at": _iso(record.resolved_at) if record.resolved_at else None,
+        "created_at": _iso(record.created_at),
+        "options": [
+            {
+                "id": o.id,
+                "label": o.label,
+                "text": o.text,
+                "slide_ids": [s.id for s in o.slides],
+                "insert_at": o.insert_at,
+                "previews": list(chosen_previews.get(o.id, [])),
+            }
+            for o in record.options
+        ],
+    }

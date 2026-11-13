@@ -12,8 +12,11 @@ These functions do not record anything; pass the result to `ArtifactStore.apply`
 
 from __future__ import annotations
 
+import re
+
 from autodeck.studio.errors import EditError
-from autodeck.studio.models import DeckArtifact, Marker, Slide
+from autodeck.studio.models import Brief, DeckArtifact, Marker, Slide
+from autodeck.studio.tool_args import MARK_TARGET_PATTERN
 
 
 def _slide_index(deck: DeckArtifact, slide_id: str) -> int:
@@ -115,7 +118,22 @@ def set_brief(
     Raises:
         EditError: every one of title, audience, goal and notes is None.
     """
-    raise NotImplementedError
+    if title is None and audience is None and goal is None and notes is None:
+        raise EditError("set_brief needs at least one of title, audience, goal or notes")
+    data = deck.model_dump()
+    if title is not None:
+        data["title"] = title
+    if audience is not None or goal is not None or notes is not None:
+        brief = (deck.brief or Brief()).model_dump()
+        if audience is not None:
+            brief["audience"] = audience
+        if goal is not None:
+            brief["goal"] = goal
+        if notes is not None:
+            brief["notes"] = notes
+        brief["marker"] = marker
+        data["brief"] = brief
+    return DeckArtifact.model_validate(data)
 
 
 def set_storyline(
@@ -139,7 +157,41 @@ def set_storyline(
         EditError: two points have the same given id, or a given id is blank.
         pydantic.ValidationError: a point's text is empty.
     """
-    raise NotImplementedError
+    given = [pid for pid, _ in points if pid is not None]
+    for pid in given:
+        if not pid.strip():
+            raise EditError("a storyline point id may not be blank")
+    duplicates = sorted({pid for pid in given if given.count(pid) > 1})
+    if duplicates:
+        raise EditError(f"duplicate storyline point ids: {', '.join(duplicates)}")
+
+    numbers = [
+        int(m.group(1))
+        for pid in [*(p.id for p in deck.storyline.points), *given]
+        if (m := re.fullmatch(rf"{STORYLINE_ID_PREFIX}([0-9]+)", pid)) is not None
+    ]
+    next_number = max(numbers, default=0) + 1
+
+    new_points: list[dict[str, str]] = []
+    for pid, text in points:
+        if pid is None:
+            pid = f"{STORYLINE_ID_PREFIX}{next_number}"
+            next_number += 1
+        new_points.append({"id": pid, "text": text})
+    kept_ids = {p["id"] for p in new_points}
+
+    data = deck.model_dump()
+    data["storyline"] = {"points": new_points, "marker": marker}
+    dropped: list[tuple[str, str]] = []
+    for slide in data["slides"]:
+        survivors: list[str] = []
+        for point_id in slide["serves"]:
+            if point_id in kept_ids:
+                survivors.append(point_id)
+            else:
+                dropped.append((slide["id"], point_id))
+        slide["serves"] = survivors
+    return DeckArtifact.model_validate(data), dropped
 
 
 def set_design_concept(
@@ -151,7 +203,9 @@ def set_design_concept(
     Raises:
         pydantic.ValidationError: `text` is empty.
     """
-    raise NotImplementedError
+    data = deck.model_dump()
+    data["design_concept"] = {"text": text, "marker": marker}
+    return DeckArtifact.model_validate(data)
 
 
 def upsert_slide(
@@ -169,7 +223,23 @@ def upsert_slide(
         pydantic.ValidationError: the resulting deck is invalid, e.g. the slide serves a
             storyline point the deck does not have.
     """
-    raise NotImplementedError
+    existing = next((i for i, s in enumerate(deck.slides) if s.id == slide.id), None)
+    count = len(deck.slides)
+    top = count if existing is not None else count + 1
+    if position is not None and not 1 <= position <= top:
+        raise EditError(f"position {position} is outside 1 .. {top} for deck {deck.id!r}")
+
+    slides = [s.model_dump() for s in deck.slides]
+    if existing is not None:
+        del slides[existing]
+        insert_index = existing if position is None else position - 1
+    else:
+        insert_index = count if position is None else position - 1
+    slides.insert(insert_index, slide.model_dump())
+
+    data = deck.model_dump()
+    data["slides"] = slides
+    return DeckArtifact.model_validate(data), existing is None, insert_index + 1
 
 
 def remove_slide(deck: DeckArtifact, *, slide_id: str) -> DeckArtifact:
@@ -178,7 +248,10 @@ def remove_slide(deck: DeckArtifact, *, slide_id: str) -> DeckArtifact:
     Raises:
         EditError: no slide `slide_id`.
     """
-    raise NotImplementedError
+    slide_index = _slide_index(deck, slide_id)
+    data = deck.model_dump()
+    del data["slides"][slide_index]
+    return DeckArtifact.model_validate(data)
 
 
 def set_part_marker(deck: DeckArtifact, *, target: str, marker: Marker) -> DeckArtifact:
@@ -190,7 +263,25 @@ def set_part_marker(deck: DeckArtifact, *, target: str, marker: Marker) -> DeckA
         EditError: `brief` or `design_concept` when that part is None ("there is no brief
             yet"), no such slide, or a target outside the four forms.
     """
-    raise NotImplementedError
+    if not re.fullmatch(MARK_TARGET_PATTERN, target):
+        raise EditError(
+            f"target {target!r} is not brief, storyline, design_concept or slide:<slide id>"
+        )
+    if target.startswith("slide:"):
+        return set_slide_marker(deck, slide_id=target[len("slide:") :], marker=marker)
+
+    data = deck.model_dump()
+    if target == "brief":
+        if deck.brief is None:
+            raise EditError("there is no brief yet")
+        data["brief"]["marker"] = marker
+    elif target == "design_concept":
+        if deck.design_concept is None:
+            raise EditError("there is no design concept yet")
+        data["design_concept"]["marker"] = marker
+    else:
+        data["storyline"]["marker"] = marker
+    return DeckArtifact.model_validate(data)
 
 
 def apply_candidate_slides(
@@ -208,4 +299,28 @@ def apply_candidate_slides(
         EditError: `slides` is empty, or `insert_at` is out of range.
         pydantic.ValidationError: the result is invalid (e.g. an unknown storyline point).
     """
-    raise NotImplementedError
+    if not slides:
+        raise EditError("there are no candidate slides to apply")
+    current = deck.model_dump()["slides"]
+    existing_ids = {s["id"] for s in current}
+    new_slides: list[dict[str, object]] = []
+    for candidate in slides:
+        if candidate.id in existing_ids:
+            index = next(i for i, s in enumerate(current) if s["id"] == candidate.id)
+            current[index] = candidate.model_dump()
+        else:
+            new_slides.append(candidate.model_dump())
+
+    if insert_at is None:
+        current.extend(new_slides)
+    else:
+        if not 1 <= insert_at <= len(deck.slides) + 1:
+            raise EditError(
+                f"insert_at {insert_at} is outside 1 .. {len(deck.slides) + 1} "
+                f"for deck {deck.id!r}"
+            )
+        current[insert_at - 1 : insert_at - 1] = new_slides
+
+    data = deck.model_dump()
+    data["slides"] = current
+    return DeckArtifact.model_validate(data)

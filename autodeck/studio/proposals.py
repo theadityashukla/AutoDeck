@@ -18,8 +18,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from autodeck.knowledge.loader import ClientIsolationError
+from autodeck.studio import serialise
 from autodeck.studio.conversation import ProposalOption, ProposalRecord, ResolvedBy
 from autodeck.studio.engagement import Engagement
+from autodeck.studio.errors import ProposalNotFoundError, ProposalStateError, StudioError
 from autodeck.studio.models import OptionId
 from autodeck.studio.paths import ProposalPaths
 
@@ -38,12 +41,18 @@ class ProposalStore:
             InvalidSegmentError: not a proposal id (`p0001`, ...).
             ClientIsolationError: the directory resolves into another client's engagements.
         """
-        raise NotImplementedError
+        paths = self.engagement.paths.proposal(proposal_id)
+        self.engagement.guard(paths.root)
+        return paths
 
     def next_id(self) -> str:
         """`p` + 4-digit ordinal: `p0001` when there is none, else one more than the highest
         existing id's number (`engagement.paths.proposal_ids()`)."""
-        raise NotImplementedError
+        existing = self.engagement.paths.proposal_ids()
+        if not existing:
+            return "p0001"
+        highest = max(int(proposal_id[1:]) for proposal_id in existing)
+        return f"p{highest + 1:04d}"
 
     def create(
         self,
@@ -66,7 +75,19 @@ class ProposalStore:
                 a multi-line summary, candidate slides with no `artifact_id`); nothing
                 written.
         """
-        raise NotImplementedError
+        proposal_id = self.next_id()
+        record = ProposalRecord(
+            id=proposal_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            artifact_id=artifact_id,
+            summary=summary,
+            options=options,
+            created_at=now,
+        )
+        paths = self.paths(proposal_id).ensure()
+        serialise.atomic_write_text(paths.record, serialise.dump_model(record))
+        return record
 
     def load(self, proposal_id: str) -> ProposalRecord:
         """The validated record.
@@ -76,12 +97,21 @@ class ProposalStore:
             InvalidSegmentError, ClientIsolationError: as `paths`.
             pydantic.ValidationError: malformed.
         """
-        raise NotImplementedError
+        paths = self.paths(proposal_id)
+        if not paths.record.is_file():
+            raise ProposalNotFoundError(f"no proposal {proposal_id!r} in this engagement")
+        return ProposalRecord.model_validate_json(serialise.read_text(paths.record))
 
     def list(self) -> list[ProposalRecord]:
         """Every proposal, sorted by id. A directory whose record is missing, invalid or
         refused by `load` for any reason (isolation included) is skipped."""
-        raise NotImplementedError
+        records: list[ProposalRecord] = []
+        for proposal_id in self.engagement.paths.proposal_ids():
+            try:
+                records.append(self.load(proposal_id))
+            except (StudioError, ClientIsolationError, ValueError, OSError):
+                continue
+        return records
 
     def resolve(
         self,
@@ -106,4 +136,31 @@ class ProposalStore:
                 option the proposal does not have, or is given for a dismissal, or missing
                 for an acceptance. Nothing is written.
         """
-        raise NotImplementedError
+        old = self.load(proposal_id)
+        if old.status != "open":
+            detail = f" (option {old.chosen})" if old.status == "accepted" else ""
+            raise ProposalStateError(
+                f"proposal {proposal_id} is already {old.status}{detail}; it cannot be resolved"
+            )
+        if status not in ("accepted", "dismissed"):
+            raise ProposalStateError(f"proposal {proposal_id}: unknown status {status!r}")
+        if status == "accepted":
+            if chosen is None:
+                raise ProposalStateError(f"proposal {proposal_id}: accepting needs an option")
+            if chosen not in [option.id for option in old.options]:
+                raise ProposalStateError(
+                    f"proposal {proposal_id} has no option {chosen!r} to accept"
+                )
+        elif chosen is not None:
+            raise ProposalStateError(f"proposal {proposal_id}: dismissing chooses no option")
+        new = ProposalRecord.model_validate(
+            {
+                **old.model_dump(),
+                "status": status,
+                "chosen": chosen,
+                "resolved_by": by,
+                "resolved_at": now,
+            }
+        )
+        serialise.atomic_write_text(self.paths(proposal_id).record, serialise.dump_model(new))
+        return new

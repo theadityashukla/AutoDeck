@@ -18,14 +18,18 @@ stand-in (`scripted.ScriptedModel`), which the server can also be started with.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pydantic import Field, model_validator
+import yaml
+from pydantic import Field, ValidationError, model_validator
 
-from autodeck.providers.base import AssistantTurn, Message, ToolSpec
-from autodeck.providers.registry import PROVIDERS
+from autodeck.providers.base import AssistantTurn, Message, ProviderConfig, ToolSpec
+from autodeck.providers.cache import ResponseCache
+from autodeck.providers.registry import PROVIDERS, api_key_env
+from autodeck.studio.errors import StudioConfigError
 from autodeck.studio.models import StudioModel
 from autodeck.studio.paths import REPO_ROOT
 
@@ -111,7 +115,18 @@ def load_studio_config(path: Path = DEFAULT_STUDIO_CONFIG) -> StudioConfig:
             is not a mapping, or fails `StudioConfig` validation (message includes the
             pydantic error text). Never a bare `ValidationError`.
     """
-    raise NotImplementedError
+    if not path.is_file():
+        raise StudioConfigError(f"studio config not found: {path}")
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise StudioConfigError(f"{path}: not readable as YAML: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise StudioConfigError(f"{path}: must be a mapping at the top level")
+    try:
+        return StudioConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise StudioConfigError(f"{path}: invalid studio config: {exc}") from exc
 
 
 def resolve_binding(
@@ -124,12 +139,16 @@ def resolve_binding(
     Raises:
         StudioConfigError: unknown environment (the message lists the known ones, sorted).
     """
-    raise NotImplementedError
+    name = config.default_env if env is None else env
+    if name not in config.environments:
+        known = ", ".join(sorted(config.environments))
+        raise StudioConfigError(f"unknown environment {name!r}. Known environments: {known}")
+    return name, getattr(config.environments[name], role)
 
 
 def tokens_path(config: StudioConfig) -> Path:
     """`REPO_ROOT / config.tokens`. Not checked for existence here."""
-    raise NotImplementedError
+    return REPO_ROOT / config.tokens
 
 
 def bind_model(
@@ -151,4 +170,14 @@ def bind_model(
         ProviderAuthError: (v2's) the provider's API key is not set; raised by the
             provider's constructor, not caught here, so the caller can say which variable.
     """
-    raise NotImplementedError
+    env_name, binding = resolve_binding(config, env=env, role=role)
+    cache = ResponseCache(cache_dir) if cache_dir is not None else None
+    provider_class = PROVIDERS[binding.provider]
+    provider = provider_class(
+        ProviderConfig(
+            model=binding.model,
+            api_key=os.environ.get(api_key_env(binding.provider), ""),
+            cache=cache,
+        )
+    )
+    return BoundModel(role=role, model_id=binding.model_id, model=provider, env=env_name)

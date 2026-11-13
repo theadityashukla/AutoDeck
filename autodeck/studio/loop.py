@@ -27,10 +27,30 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from autodeck.agents.session import compact
 from autodeck.agents.tools.registry import ToolBox, ToolResult
 from autodeck.providers.base import Message, ToolCall
+from autodeck.studio import diff
 from autodeck.studio.bindings import BoundModel
-from autodeck.studio.conversation import StopReason, ThreadLine, TurnEvent
+from autodeck.studio.conversation import (
+    MAX_DIFF_LINES,
+    ArtifactCreated,
+    AssistantLine,
+    AssistantText,
+    ChangeRecorded,
+    ChangeReverted,
+    NoteLine,
+    ProposalCreated,
+    StopReason,
+    ThreadLine,
+    ToolCalled,
+    ToolFinished,
+    ToolLine,
+    TurnEvent,
+    UserLine,
+)
+from autodeck.studio.models import ChangeEntry
+from autodeck.studio.prompt import CONTEXT_SEPARATOR
 from autodeck.studio.tools import TurnLedger
 
 STALL_NUDGE = "You returned neither a reply nor a tool call. Reply to the owner in words."
@@ -110,7 +130,44 @@ def build_model_messages(lines: Sequence[ThreadLine]) -> tuple[list[Message], di
     message that has no `tool` message yet gets one with content `INTERRUPTED_RESULT`
     (summary `"<name>: interrupted"`), in call order. Pure.
     """
-    raise NotImplementedError
+    messages: list[Message] = []
+    summaries: dict[str, str] = {}
+    pending: list[ToolCall] = []
+
+    def flush() -> None:
+        for call in pending:
+            messages.append(Message("tool", INTERRUPTED_RESULT, tool_call_id=call.id))
+            summaries[call.id] = f"{call.name}: interrupted"
+        pending.clear()
+
+    def add_user(text: str) -> None:
+        if messages and messages[-1].role == "user":
+            last = messages[-1]
+            messages[-1] = Message("user", last.content + CONTEXT_SEPARATOR + text)
+        else:
+            messages.append(Message("user", text))
+
+    for line in lines:
+        if isinstance(line, ToolLine):
+            pending[:] = [c for c in pending if c.id != line.tool_call_id]
+            messages.append(Message("tool", line.text, tool_call_id=line.tool_call_id))
+            summaries[line.tool_call_id] = line.summary
+            continue
+        flush()
+        if isinstance(line, UserLine):
+            add_user(line.text)
+        elif isinstance(line, NoteLine):
+            add_user(f"{NOTE_PREFIX}{line.text}{NOTE_SUFFIX}")
+        elif isinstance(line, AssistantLine):
+            if not line.text.strip() and not line.tool_calls:
+                continue
+            calls = [
+                ToolCall(id=c.id, name=c.name, arguments=c.arguments) for c in line.tool_calls
+            ]
+            messages.append(Message("assistant", line.text, list(calls)))
+            pending.extend(calls)
+    flush()
+    return messages, summaries
 
 
 def run_steps(
@@ -157,4 +214,124 @@ def run_steps(
 
     Exceptions from the model or a tool propagate (after whatever was already reported).
     """
-    raise NotImplementedError
+    steps = 0
+    input_tokens = 0
+    output_tokens = 0
+    final_text = ""
+    nudged = False
+
+    def outcome(reason: StopReason) -> LoopOutcome:
+        return LoopOutcome(reason, steps, input_tokens, output_tokens, final_text)
+
+    while True:
+        if steps >= limits.max_steps:
+            return outcome("step_cap")
+        if input_tokens >= limits.max_input_tokens:
+            return outcome("token_cap")
+        turn = model.model.converse(
+            compact(messages, summaries, limits.keep_recent_results),
+            toolbox.specs,
+            system=system,
+        )
+        steps += 1
+        input_tokens += turn.usage.input_tokens
+        output_tokens += turn.usage.output_tokens
+        messages.append(Message("assistant", turn.text, list(turn.tool_calls)))
+        sink.assistant(
+            step=steps,
+            text=turn.text,
+            tool_calls=list(turn.tool_calls),
+            input_tokens=turn.usage.input_tokens,
+            output_tokens=turn.usage.output_tokens,
+        )
+        if turn.text.strip():
+            sink.event(
+                AssistantText(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    step=steps,
+                    text=turn.text,
+                    model_id=model.model_id,
+                )
+            )
+            final_text = turn.text
+        if not turn.tool_calls:
+            if turn.text.strip():
+                return outcome("replied")
+            if nudged:
+                return outcome("stalled")
+            nudged = True
+            messages.append(Message("user", STALL_NUDGE))
+            continue
+        nudged = False
+        for call in turn.tool_calls:
+            sink.event(
+                ToolCalled(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    step=steps,
+                    call_id=call.id,
+                    name=call.name,
+                )
+            )
+            mark = ledger.mark()
+            result = toolbox.dispatch(call)
+            summaries[call.id] = result.summary
+            messages.append(Message("tool", result.text, tool_call_id=call.id))
+            sink.tool(step=steps, call=call, result=result)
+            sink.event(
+                ToolFinished(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    step=steps,
+                    call_id=call.id,
+                    name=call.name,
+                    summary=result.summary,
+                    error=result.error,
+                )
+            )
+            for kind, artifact_id, item in ledger.since(mark):
+                event = _ledger_event(kind, artifact_id, item, thread_id, turn_id)
+                if event is not None:
+                    sink.event(event)
+
+
+def _ledger_event(
+    kind: str, artifact_id: str, item: object, thread_id: str, turn_id: str
+) -> TurnEvent | None:
+    if kind == "change":
+        assert isinstance(item, ChangeEntry)
+        described = diff.describe(item.diff)
+        return ChangeRecorded(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            artifact_id=artifact_id,
+            entry_id=item.id,
+            instruction=item.instruction,
+            layer=item.layer,
+            model_id=item.model_id,
+            lines=described[:MAX_DIFF_LINES],
+            truncated=len(described) > MAX_DIFF_LINES,
+        )
+    if kind in ("undo", "redo"):
+        assert isinstance(item, ChangeEntry)
+        return ChangeReverted(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            artifact_id=artifact_id,
+            entry_id=item.id,
+            action="undo" if kind == "undo" else "redo",
+            by="model",
+        )
+    if kind == "created":
+        return ArtifactCreated(thread_id=thread_id, turn_id=turn_id, artifact_id=artifact_id)
+    if kind == "proposal":
+        return ProposalCreated(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            proposal_id=item.id,  # type: ignore[attr-defined]
+            artifact_id=item.artifact_id,  # type: ignore[attr-defined]
+            summary=item.summary,  # type: ignore[attr-defined]
+            option_ids=[o.id for o in item.options],  # type: ignore[attr-defined]
+        )
+    return None
