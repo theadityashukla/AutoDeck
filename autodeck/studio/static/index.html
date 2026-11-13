@@ -3,19 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>AutoDeck</title>
   <link rel="stylesheet" href="/app.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <!-- Skeleton (task 1.16 fills it in). Contract: docs/phases/V3-PHASE-1.md,
-       "Front-end contract". No external resources, no inline script or style
-       (the CSP forbids both), no emoji. -->
   <div class="wrap" id="app">
     <header class="topbar">
-      <a class="brand" href="#/" aria-label="AutoDeck, engagements">AutoDeck</a>
-      <span class="crumb" id="crumb"></span>
-      <span class="model" id="model-id"></span>
+      <a class="brand" href="#/" aria-label="AutoDeck, engagements">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><rect x="2" y="3" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 15.5h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        AutoDeck
+      </a>
+      <a class="crumb" id="crumb" href="#/" hidden></a>
+      <span class="topbar-end">
+        <span class="tag tag-plain" id="scripted-tag" hidden>Scripted</span>
+        <span class="model mono" id="model-id"></span>
+      </span>
     </header>
     <main id="main">
       <section id="view-home" class="view" hidden aria-labelledby="home-h"></section>
@@ -24,5 +28,6 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
+  <noscript>AutoDeck needs JavaScript.</noscript>
 </body>
 </html>
