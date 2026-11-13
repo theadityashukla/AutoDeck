@@ -12,7 +12,15 @@ These functions do not record anything; pass the result to `ArtifactStore.apply`
 
 from __future__ import annotations
 
+from autodeck.studio.errors import EditError
 from autodeck.studio.models import DeckArtifact, Marker
+
+
+def _slide_index(deck: DeckArtifact, slide_id: str) -> int:
+    for index, slide in enumerate(deck.slides):
+        if slide.id == slide_id:
+            return index
+    raise EditError(f"deck {deck.id!r} has no slide {slide_id!r}")
 
 
 def set_block_text(
@@ -25,7 +33,22 @@ def set_block_text(
             not `text` (the message names the kind).
         pydantic.ValidationError: `text` is empty or whitespace (a text block's own rule).
     """
-    raise NotImplementedError
+    slide_index = _slide_index(deck, slide_id)
+    slide = deck.slides[slide_index]
+    block_index = next(
+        (i for i, block in enumerate(slide.blocks) if block.id == block_id), None
+    )
+    if block_index is None:
+        raise EditError(f"slide {slide_id!r} has no block {block_id!r}")
+    block = slide.blocks[block_index]
+    if block.kind != "text":
+        raise EditError(
+            f"block {block_id!r} on slide {slide_id!r} is a {block.kind}, not a text block; "
+            "only a text block holds text"
+        )
+    data = deck.model_dump()
+    data["slides"][slide_index]["blocks"][block_index]["text"] = text
+    return DeckArtifact.model_validate(data)
 
 
 def set_slide_marker(deck: DeckArtifact, *, slide_id: str, marker: Marker) -> DeckArtifact:
@@ -36,7 +59,10 @@ def set_slide_marker(deck: DeckArtifact, *, slide_id: str, marker: Marker) -> De
     Raises:
         EditError: no slide `slide_id`.
     """
-    raise NotImplementedError
+    slide_index = _slide_index(deck, slide_id)
+    data = deck.model_dump()
+    data["slides"][slide_index]["marker"] = marker
+    return DeckArtifact.model_validate(data)
 
 
 def move_slide(deck: DeckArtifact, *, slide_id: str, to_index: int) -> DeckArtifact:
@@ -47,4 +73,13 @@ def move_slide(deck: DeckArtifact, *, slide_id: str, to_index: int) -> DeckArtif
         EditError: no slide `slide_id`, or `to_index` outside 0 .. len(slides) - 1
             (negative indices are not accepted).
     """
-    raise NotImplementedError
+    slide_index = _slide_index(deck, slide_id)
+    if not 0 <= to_index <= len(deck.slides) - 1:
+        raise EditError(
+            f"to_index {to_index} is outside 0 .. {len(deck.slides) - 1} for deck {deck.id!r}"
+        )
+    data = deck.model_dump()
+    slides = data["slides"]
+    moved = slides.pop(slide_index)
+    slides.insert(to_index, moved)
+    return DeckArtifact.model_validate(data)

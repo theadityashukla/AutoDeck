@@ -16,6 +16,7 @@ A diff here is for display and thread context. Undo never replays it.
 
 from __future__ import annotations
 
+from autodeck.ir.store import Change, _diff
 from autodeck.studio.models import DeckArtifact, DiffItem
 
 
@@ -27,7 +28,8 @@ def diff_artifacts(before: DeckArtifact, after: DeckArtifact) -> list[DiffItem]:
     the same `path`, `kind`, `before` and `after`, preserving order. Identical states give
     `[]`. Pure; neither argument is modified.
     """
-    raise NotImplementedError
+    changes = _diff(before.model_dump(mode="json"), after.model_dump(mode="json"), "")
+    return [DiffItem(path=c.path, kind=c.kind, before=c.before, after=c.after) for c in changes]
 
 
 def describe(diff: list[DiffItem]) -> list[str]:
@@ -42,4 +44,4 @@ def describe(diff: list[DiffItem]) -> list[str]:
     `autodeck.ir.store.Change` from each item and call `str()` on it, so the format has one
     definition.
     """
-    raise NotImplementedError
+    return [str(Change(path=d.path, kind=d.kind, before=d.before, after=d.after)) for d in diff]

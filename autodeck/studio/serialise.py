@@ -14,6 +14,10 @@ Invariant every implementer and test relies on: for any valid model `m`,
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import uuid
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -25,12 +29,12 @@ ENCODING = "utf-8"
 
 def dump_model(model: BaseModel) -> str:
     """The canonical text of any studio model (see module docstring). Pure."""
-    raise NotImplementedError
+    return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
 
 
 def dump_artifact(deck: DeckArtifact) -> str:
     """`dump_model(deck)`. Named separately because it is what digests and snapshots use."""
-    raise NotImplementedError
+    return dump_model(deck)
 
 
 def load_artifact(text: str) -> DeckArtifact:
@@ -39,7 +43,7 @@ def load_artifact(text: str) -> DeckArtifact:
     Raises:
         pydantic.ValidationError: the text is not JSON or not a valid `DeckArtifact`.
     """
-    raise NotImplementedError
+    return DeckArtifact.model_validate_json(text)
 
 
 def load_changelog(text: str) -> ChangeLog:
@@ -48,7 +52,7 @@ def load_changelog(text: str) -> ChangeLog:
     Raises:
         pydantic.ValidationError: not JSON, or not a valid, self-consistent `ChangeLog`.
     """
-    raise NotImplementedError
+    return ChangeLog.model_validate_json(text)
 
 
 def load_engagement_record(text: str) -> EngagementRecord:
@@ -57,17 +61,17 @@ def load_engagement_record(text: str) -> EngagementRecord:
     Raises:
         pydantic.ValidationError: not JSON or not a valid `EngagementRecord`.
     """
-    raise NotImplementedError
+    return EngagementRecord.model_validate_json(text)
 
 
 def text_digest(text: str) -> str:
     """Lower-case SHA-256 hex of `text` encoded as UTF-8. Pure."""
-    raise NotImplementedError
+    return hashlib.sha256(text.encode(ENCODING)).hexdigest()
 
 
 def artifact_digest(deck: DeckArtifact) -> str:
     """`text_digest(dump_artifact(deck))`: the identity of a deck state."""
-    raise NotImplementedError
+    return text_digest(dump_artifact(deck))
 
 
 def atomic_write_text(path: Path, text: str) -> Path:
@@ -79,7 +83,20 @@ def atomic_write_text(path: Path, text: str) -> Path:
     failure the temporary file is removed and `path` is left as it was. Writing must use
     `newline=""` (or bytes) so the bytes on disk equal `text.encode("utf-8")` on every OS.
     """
-    raise NotImplementedError
+    data = text.encode(ENCODING)
+    # Exclusive create ("xb") so an existing file is never clobbered by accident; the name
+    # is unique per call. Default permissions apply (no 0600 from mkstemp).
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp.open("xb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return path
 
 
 def read_text(path: Path) -> str:
@@ -89,4 +106,5 @@ def read_text(path: Path) -> str:
     Raises:
         FileNotFoundError: `path` does not exist.
     """
-    raise NotImplementedError
+    with path.open(encoding=ENCODING, newline="") as handle:
+        return handle.read()
