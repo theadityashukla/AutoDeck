@@ -217,11 +217,13 @@ def _change_block(log: ChangeLog, recent_changes: int) -> str:
 
 
 PROPOSAL_TERMS = (
-    "Statuses: accepted means the owner picked one option and it was applied; the options "
-    "they did not pick were not chosen, which is not a dismissal. Dismissed means the owner "
-    "turned down every option and nothing was applied. Open means not yet decided."
+    "Statuses:\n"
+    "- accepted: the owner picked one option and it was applied.\n"
+    "  The options they did not pick were not chosen; that is not a dismissal.\n"
+    "- dismissed: the owner turned down every option; nothing was applied.\n"
+    "- open: not yet decided."
 )
-"""The line under `# Proposals` that fixes what the three statuses mean."""
+"""The lines under `# Proposals` that fix what the three statuses mean."""
 
 
 def _proposal_block(group: list[ProposalRecord]) -> str:

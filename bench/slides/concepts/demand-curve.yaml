@@ -1,0 +1,34 @@
+id: demand-curve
+name: Demand curve
+concept: >
+  The assistant's traffic over a day is what the bill follows, so a line is the motif: each
+  slide is built along one horizontal or rising line on a night-blue ground, with figures and
+  labels hanging off it in calm, open space, and peach marking the one thing to look at.
+rules:
+  - "The slide background is night (dk1). Each slide has one dominant line, a thin accent1 or dk2 line shape running most of the slide's width (or a line chart drawn in accent1), and content is placed along it: above it, below it, or at points on it."
+  - "Peach (accent1) marks exactly one thing per slide: the figure that matters, a point on the line, or the emphasised chart category. Everything else stays in cool greys and blues (lt1, dk2, accent2)."
+  - "Headers are lt1, left-aligned, set no larger than they need to be; figures are large and light. At least a third of the slide stays empty."
+  - "The old state in a comparison is accent2 (before blue); the new state is accent1."
+  - "No boxes around text and no full panels: at most a small marker (a small ellipse) on the line, or a faint lt2 band."
+palette:
+  dk1: "#0F1D30"
+  lt1: "#EAF0F7"
+  dk2: "#A8B8CF"
+  lt2: "#1A2E4A"
+  accent1: "#F2A57E"
+  accent2: "#7FA6D8"
+  accent3: "#2B4466"
+  accent4: "#C9D6E6"
+  accent5: "#24395A"
+  accent6: "#50678A"
+roles:
+  dk1: "night: use it as the slide background. Not a text colour except on accent1 or accent4."
+  lt1: "paper: headers and large figures. Safe for text on dk1, lt2 and accent5."
+  dk2: "mist, a light colour despite its slot name: body text, labels, small print; charts draw their labels in it. Safe for text on dk1, lt2 and accent5."
+  lt2: "dusk: a faint band or panel on the night ground. Text on it in lt1, dk2 or accent1."
+  accent1: "curve peach: the line and the one figure that matters. Safe for text on dk1, lt2 and accent5."
+  accent2: "before blue: the old state in a comparison. Safe for text on dk1, lt2 and accent5."
+  accent3: "faint rule: gridlines, ticks and quiet guide lines. Never text."
+  accent4: "pale blue-grey: a second series or a quiet marker. Text on it in dk1."
+  accent5: "deep dusk: a slightly stronger panel than lt2. Text on it in lt1, dk2 or accent1."
+  accent6: "slate: charts draw non-emphasised categories in it. Not for text."

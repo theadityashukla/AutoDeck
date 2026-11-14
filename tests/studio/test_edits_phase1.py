@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from autodeck.studio.conversation import CandidateSlide
 from autodeck.studio.edits import (
     apply_candidate_slides,
     remove_slide,
@@ -144,16 +145,67 @@ def test_set_part_marker(base_deck: DeckArtifact) -> None:
         set_part_marker(base_deck, target="everything", marker="decided")
 
 
+def _cand(
+    slide: Slide, *, replaces: str | None = None, insert_at: int | None = None
+) -> CandidateSlide:
+    return CandidateSlide(slide=slide, replaces=replaces, insert_at=insert_at)
+
+
+def test_apply_candidate_slides_replaces_in_place_and_keeps_the_replaced_id(
+    base_deck: DeckArtifact,
+) -> None:
+    before = dump_artifact(base_deck)
+    first = base_deck.slides[0]
+    new_opening = _slide(base_deck, "s2", "s1b", [])
+    out, lines = apply_candidate_slides(base_deck, [_cand(new_opening, replaces="s1")])
+    assert dump_artifact(base_deck) == before
+    # Same count, new content first, the replaced slide's id kept, its links inherited.
+    assert len(out.slides) == len(base_deck.slides)
+    assert out.slide_ids() == base_deck.slide_ids()
+    assert out.slides[0].intent == base_deck.slide("s2").intent != first.intent
+    assert out.slides[0].serves == first.serves
+    assert lines == [
+        f"Replaced slide 1 (id s1 kept) with the new slide: {base_deck.slide('s2').intent[:60]}"
+    ]
+
+
+def test_a_replacement_that_names_links_keeps_its_own(base_deck: DeckArtifact) -> None:
+    new_opening = _slide(base_deck, "s2", "s1b", ["p2"])
+    out, _ = apply_candidate_slides(base_deck, [_cand(new_opening, replaces="s1")])
+    assert out.slides[0].serves == ["p2"]
+
+
 def test_apply_candidate_slides_replaces_then_inserts(base_deck: DeckArtifact) -> None:
-    replacement = _slide(base_deck, "s2", "s1", ["p1"])
+    replacement = _slide(base_deck, "s2", "r1", ["p1"])
     new_a = _slide(base_deck, "s2", "n1", ["p2"])
     new_b = _slide(base_deck, "s3", "n2", ["p2"])
-    out = apply_candidate_slides(base_deck, [new_a, replacement, new_b], insert_at=2)
+    out, lines = apply_candidate_slides(
+        base_deck,
+        [
+            _cand(new_a, insert_at=2),
+            _cand(replacement, replaces="s1"),
+            _cand(new_b, insert_at=3),
+        ],
+    )
     assert out.slide_ids() == ["s1", "n1", "n2", "s2", "s3", "s4"]
     assert out.slide("s1").intent == base_deck.slide("s2").intent
-    appended = apply_candidate_slides(base_deck, [new_a])
-    assert appended.slide_ids() == ["s1", "s2", "s3", "s4", "n1"]
-    with pytest.raises(EditError):
+    assert [line.split(" ")[0] for line in lines] == ["Inserted", "Replaced", "Inserted"]
+    assert lines[0].endswith("as slide 2") and lines[2].endswith("as slide 3")
+
+
+def test_apply_candidate_slides_refusals(base_deck: DeckArtifact) -> None:
+    new_a = _slide(base_deck, "s2", "n1", ["p2"])
+    with pytest.raises(EditError, match="no candidate"):
         apply_candidate_slides(base_deck, [])
-    with pytest.raises(EditError):
-        apply_candidate_slides(base_deck, [new_a], insert_at=6)
+    with pytest.raises(EditError, match="outside 1"):
+        apply_candidate_slides(base_deck, [_cand(new_a, insert_at=6)])
+    # The slide to replace is gone: the message says the deck changed.
+    with pytest.raises(EditError, match=r"no longer in deck.*changed after"):
+        apply_candidate_slides(base_deck, [_cand(new_a, replaces="gone")])
+    # An insertion may not reuse an id the deck has (it used to replace silently).
+    clash = _slide(base_deck, "s2", "s3", ["p2"])
+    with pytest.raises(EditError, match="already has a slide with that id"):
+        apply_candidate_slides(base_deck, [_cand(clash, insert_at=1)])
+    # A candidate with no placement (an old record) is refused.
+    with pytest.raises(EditError, match="does not say"):
+        apply_candidate_slides(base_deck, [_cand(new_a)])

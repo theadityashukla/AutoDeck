@@ -333,3 +333,34 @@ def test_error_mapping() -> None:
     assert to_api_error(TurnInProgressError("x")).status == 409
     internal = to_api_error(ZeroDivisionError("boom"))
     assert internal.code == "internal" and internal.message == "ZeroDivisionError: boom"
+
+
+def test_an_old_proposal_record_does_not_break_the_engagement_home(
+    tmp_path: Path, knowledge_root: Path
+) -> None:
+    """A proposal written before replace-or-insert (`slides` and `insert_at` on the option)
+    still loads: the home lists it and says what applying it does was not recorded."""
+    import json
+
+    from autodeck.studio.proposals import ProposalStore
+
+    app, studio = _app(tmp_path, knowledge_root, PROPOSE_STEPS)
+    _engagement(app)
+    _ok(app.handle("POST", f"{E}/threads", {}), 201)
+    _ok(app.handle("POST", f"{E}/threads/t0001/messages", {"text": "Start"}), 202)
+    _wait(studio)
+    engagement = studio.engagement(CLIENT, PROJECT)
+    record_path = ProposalStore(engagement).paths("p0001").record
+    data = json.loads(record_path.read_text(encoding="utf-8"))
+    slide = {"id": "s9", "intent": "Old candidate"}
+    for option in data["options"]:
+        option.pop("candidates", None)
+        option.pop("legacy", None)
+        option["slides"] = [slide]
+        option["insert_at"] = 2
+    data["artifact_id"] = "deck"
+    record_path.write_text(json.dumps(data), encoding="utf-8")
+    home = _ok(app.handle("GET", E, None))
+    options = home["proposals"][0]["options"]
+    assert [o["slide_ids"] for o in options] == [["s9"], ["s9"]]
+    assert "was not recorded" in options[0]["applies"]

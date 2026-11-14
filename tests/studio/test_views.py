@@ -283,16 +283,61 @@ def test_proposal_view(base_deck: DeckArtifact) -> None:
                     "id": "A",
                     "label": "Number",
                     "text": "x",
-                    "slides": [base_deck.slides[1].model_dump()],
-                    "insert_at": 1,
+                    "candidates": [
+                        {"slide": base_deck.slides[1].model_dump(), "replaces": "s1"}
+                    ],
                 },
                 {"id": "B", "label": "Question", "text": "y"},
+                {
+                    "id": "C",
+                    "label": "Extra",
+                    "text": "z",
+                    "candidates": [
+                        {
+                            "slide": {**base_deck.slides[1].model_dump(), "id": "x"},
+                            "insert_at": 3,
+                        }
+                    ],
+                },
             ],
             "created_at": T1,
         }
     )
     view = proposal_view(record, previews={"A": ["/img/1.png"]})
     assert view["status"] == "open" and view["chosen"] is None and view["resolved_at"] is None
-    assert view["options"][0]["slide_ids"] == ["s2"] and view["options"][0]["insert_at"] == 1
+    assert view["options"][0]["slide_ids"] == ["s2"]
+    assert view["options"][0]["placements"] == [
+        {"slide_id": "s2", "replaces": "s1", "insert_at": None}
+    ]
+    assert view["options"][0]["applies"] == "Replaces slide s1"  # no deck: the id
+    with_deck = proposal_view(record, deck=base_deck)
+    assert with_deck["options"][0]["applies"] == "Replaces slide 1"
+    assert with_deck["options"][1]["applies"] == ""
+    assert with_deck["options"][2]["applies"] == "Inserts a slide at position 3"
+    assert with_deck["options"][2]["placements"][0]["insert_at"] == 3
+    gone = base_deck.model_copy(update={"slides": base_deck.slides[1:]})
+    assert proposal_view(record, deck=gone)["options"][0]["applies"] == "Replaces slide s1"
+    old = ProposalRecord.model_validate(
+        {
+            **record.model_dump(exclude={"options"}),
+            "options": [
+                {
+                    "id": "A",
+                    "label": "Old",
+                    "text": "x",
+                    "slides": [base_deck.slides[1].model_dump()],
+                }
+            ],
+        }
+    )
+    assert "was not recorded" in proposal_view(old)["options"][0]["applies"]
     assert view["options"][0]["previews"] == ["/img/1.png"]
     assert view["options"][1]["previews"] == []
+
+
+def test_slide_order_is_one_compact_line(base_deck: DeckArtifact) -> None:
+    from autodeck.studio.views import slide_order
+
+    line = slide_order(base_deck)
+    assert line.startswith("1. s1 ") and "; 2. s2 " in line and "\n" not in line
+    assert slide_order(base_deck.model_copy(update={"slides": []})) == "(no slides)"

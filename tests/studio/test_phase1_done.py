@@ -110,7 +110,7 @@ def test_two_threads_pick_up_from_state_with_no_transcript(tmp_path: Path) -> No
         "- c0005 live | composition | scripted/two-threads | t0001 | ",
         "- c0001 live | direction | scripted/two-threads | t0001 | ",
         "## Dismissed",
-        f"- p0001 ({DECK}, thread t0001): Two other ways to open the deck",
+        f"- p0001 ({DECK}, thread t0001) [dismissed]: Two other ways to open the deck",
         "  - A. Lead with the number: ",
     ):
         assert needle in context, needle

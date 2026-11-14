@@ -1,0 +1,25 @@
+id: s5-caching
+title: Caching repeated context removes a fifth of the compute
+intent: >
+  Most of every request is the same each time (the instructions and the catalogue), so
+  computing that part once an hour and reusing it cuts net compute by 21% without changing a
+  single answer.
+content:
+  points:
+    - "68% of every request repeats: the same instructions and catalogue"
+    - "That shared part is computed once an hour, then reused"
+    - "Net compute falls 21% after misses and refreshes"
+    - "Answers are unchanged; the cache resets when prices change"
+  figures:
+    - {value: "21%", label: "less compute"}
+    - {value: "68%", label: "of each request is repeated"}
+  chart:
+    kind: bar
+    categories: ["Instructions", "Catalogue", "Chat", "Ask"]
+    series:
+      - {name: "Share of a 2,400-token request (%)", values: [18, 50, 22, 10]}
+    emphasis: ["Instructions", "Catalogue"]
+notes: >
+  Deliberately the densest slide in the deck: a small chart of what is inside one request
+  (the emphasised parts are the cached ones) plus four short points. It must still have a
+  clear reading order and one focal point.

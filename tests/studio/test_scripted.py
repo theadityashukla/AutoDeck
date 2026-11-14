@@ -92,7 +92,9 @@ def test_the_prepared_scripts_slides_pass_layout_qa() -> None:
             if call.name == "write_slide":
                 slides.append(call.arguments["slide"])
             if call.name == "propose":
-                slides += [s for o in call.arguments["options"] for s in o.get("slides", [])]
+                slides += [
+                    c["slide"] for o in call.arguments["options"] for c in o.get("slides", [])
+                ]
     assert len(slides) == 4
     for data in slides:
         assert check_slide(Slide.model_validate(data), dev_tokens()) == []

@@ -123,7 +123,7 @@ def _inputs() -> ContextInputs:
                         "id": "A",
                         "label": "Number",
                         "text": "Open on the number.",
-                        "slides": [candidate],
+                        "candidates": [{"slide": candidate, "replaces": "s1"}],
                     },
                     {"id": "B", "label": "Question", "text": "Open on\nthe question."},
                 ],
@@ -216,20 +216,27 @@ Slides:
 
 # Proposals
 
+Statuses:
+- accepted: the owner picked one option and it was applied.
+  The options they did not pick were not chosen; that is not a dismissal.
+- dismissed: the owner turned down every option; nothing was applied.
+- open: not yet decided.
+
 ## Dismissed
 
-- p0001 (deck, thread t0001): Two openings
+- p0001 (deck, thread t0001) [dismissed]: Two openings
   - A. Number: Open on the number. (1 candidate slide)
   - B. Question: Open on the question.
 
 ## Accepted
 
-- p0002 (no artifact, thread t0001): Tone
-  - chose B. Plain
+- p0002 (no artifact, thread t0001) [accepted: option B]: Tone
+  - chosen: B. Plain
+  - not chosen: A. Bold
 
 ## Open
 
-- p0003 (deck, thread t0002): Close
+- p0003 (deck, thread t0002) [open]: Close
   - A. Ask: End on the ask.
 
 # Provisional, stale and open
@@ -332,3 +339,11 @@ def test_the_context_module_never_reads_threads() -> None:
     source = inspect.getsource(context_module)
     for forbidden in ("ThreadStore", "read_lines", "messages.jsonl", "studio.threads"):
         assert forbidden not in source.split('"""', 2)[2], forbidden
+
+
+def test_an_accepted_proposal_is_never_worded_as_dismissed() -> None:
+    context = render_context(_inputs())
+    accepted = context.split("## Accepted\n\n")[1].split("\n\n## ")[0]
+    assert "[accepted: option B]" in accepted and "chosen: B. Plain" in accepted
+    assert "not chosen: A. Bold" in accepted and "dismissed" not in accepted
+    assert "that is not a dismissal" in context

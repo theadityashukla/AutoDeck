@@ -61,3 +61,20 @@ def test_choice_text_and_recap_request() -> None:
     )
     assert choice_text("p0003", "A", "Keep it.") == "I pick option A of p0003: Keep it."
     assert "recap" in RECAP_REQUEST and "change nothing" in RECAP_REQUEST
+
+
+def test_the_recap_and_the_prompt_use_the_contexts_proposal_terms() -> None:
+    from autodeck.studio.context import PROPOSAL_TERMS
+
+    assert "accepted" in RECAP_REQUEST and "dismissed" in RECAP_REQUEST
+    assert "which option was chosen" in RECAP_REQUEST
+    text = " ".join(LEAD_PROMPT_PATH.read_text(encoding="utf-8").split())
+    for phrase in (
+        "Never call an accepted proposal dismissed",
+        "the other options were not chosen, which is not a dismissal",
+        "`replaces`",
+        "`insert_at`",
+        "A slide has only these fields",
+    ):
+        assert phrase in text, phrase
+    assert "- accepted: the owner picked one option and it was applied." in PROPOSAL_TERMS

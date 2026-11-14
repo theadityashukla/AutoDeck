@@ -366,8 +366,9 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
       say replace-or-insert (`ProposeArgs` refuses a candidate that gives neither or both),
       be applicable to the deck as it is now (`edits.apply_candidate_slides`: a replaced
       slide must exist, an inserted id must be new, a position must be in range; a
-      `ValidationError` is refused), and pass `render_adapter.check_slide` (findings are refused, listed as in
-      `qa_text`). Then `ctx.proposals.create(thread_id, turn_id, artifact_id (None when
+      `ValidationError` is refused), and pass `render_adapter.check_slide` (findings are
+      refused, listed as in `qa_text`). Then `ctx.proposals.create(thread_id, turn_id,
+      artifact_id (None when
       no option has slides and no artifact_id was given and the engagement has no deck;
       otherwise the resolved deck's id), summary, options, now)` and
       `ledger.record_proposal`. Nothing in the deck changes. Text `Recorded proposal

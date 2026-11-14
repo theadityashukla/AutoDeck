@@ -409,103 +409,106 @@
                 "text": "Open on the 41% result, with the ask as a quiet line beside it. Replaces slide 1.",
                 "slides": [
                   {
-                    "id": "s1",
-                    "intent": "Open on the result itself: one large number, the ask as a quiet line beside it.",
-                    "blocks": [
-                      {
-                        "id": "heading",
-                        "kind": "text",
-                        "text": "The optimised stack cut serving cost by 41% in the pilot"
-                      },
-                      {
-                        "id": "number",
-                        "kind": "text",
-                        "text": "41%",
-                        "source_note": {
-                          "doc_id": "northwind-pilot-notes",
-                          "page": 2,
-                          "note": "Illustrative fixture value."
-                        }
-                      },
-                      {
-                        "id": "meaning",
-                        "kind": "text",
-                        "text": "We propose moving all assistant traffic this quarter."
-                      }
-                    ],
-                    "speaker_notes": "Open on the number, then the ask.",
-                    "layout": {
-                      "background": "lt1",
-                      "elements": [
+                    "slide": {
+                      "id": "s1",
+                      "intent": "Open on the result itself: one large number, the ask as a quiet line beside it.",
+                      "blocks": [
                         {
-                          "type": "shape",
-                          "shape": "rect",
-                          "frame": {
-                            "x": 0,
-                            "y": 0,
-                            "w": 45,
-                            "h": 100
-                          },
-                          "fill": "accent1",
-                          "tint": 0.85
+                          "id": "heading",
+                          "kind": "text",
+                          "text": "The optimised stack cut serving cost by 41% in the pilot"
                         },
                         {
-                          "type": "text",
-                          "block_id": "heading",
-                          "frame": {
-                            "x": 6,
-                            "y": 10,
-                            "w": 35,
-                            "h": 30
-                          },
-                          "role": "title",
-                          "color": "dk1"
+                          "id": "number",
+                          "kind": "text",
+                          "text": "41%",
+                          "source_note": {
+                            "doc_id": "northwind-pilot-notes",
+                            "page": 2,
+                            "note": "Illustrative fixture value."
+                          }
                         },
                         {
-                          "type": "text",
-                          "block_id": "number",
-                          "frame": {
-                            "x": 52,
-                            "y": 22,
-                            "w": 42,
-                            "h": 34
-                          },
-                          "role": "display",
-                          "size_pt": 96,
-                          "color": "accent1",
-                          "anchor": "middle"
-                        },
-                        {
-                          "type": "shape",
-                          "shape": "line",
-                          "frame": {
-                            "x": 52,
-                            "y": 60,
-                            "w": 20,
-                            "h": 0.5
-                          },
-                          "line": "accent3",
-                          "line_pt": 3
-                        },
-                        {
-                          "type": "text",
-                          "block_id": "meaning",
-                          "frame": {
-                            "x": 52,
-                            "y": 64,
-                            "w": 42,
-                            "h": 16
-                          },
-                          "role": "body",
-                          "color": "dk2"
+                          "id": "meaning",
+                          "kind": "text",
+                          "text": "We propose moving all assistant traffic this quarter."
                         }
                       ],
-                      "rationale": "The number carries the slide; the panel holds the claim in words."
+                      "speaker_notes": "Open on the number, then the ask.",
+                      "layout": {
+                        "background": "lt1",
+                        "elements": [
+                          {
+                            "type": "shape",
+                            "shape": "rect",
+                            "frame": {
+                              "x": 0,
+                              "y": 0,
+                              "w": 45,
+                              "h": 100
+                            },
+                            "fill": "accent1",
+                            "tint": 0.85
+                          },
+                          {
+                            "type": "text",
+                            "block_id": "heading",
+                            "frame": {
+                              "x": 6,
+                              "y": 10,
+                              "w": 35,
+                              "h": 30
+                            },
+                            "role": "title",
+                            "color": "dk1"
+                          },
+                          {
+                            "type": "text",
+                            "block_id": "number",
+                            "frame": {
+                              "x": 52,
+                              "y": 22,
+                              "w": 42,
+                              "h": 34
+                            },
+                            "role": "display",
+                            "size_pt": 96,
+                            "color": "accent1",
+                            "anchor": "middle"
+                          },
+                          {
+                            "type": "shape",
+                            "shape": "line",
+                            "frame": {
+                              "x": 52,
+                              "y": 60,
+                              "w": 20,
+                              "h": 0.5
+                            },
+                            "line": "accent3",
+                            "line_pt": 3
+                          },
+                          {
+                            "type": "text",
+                            "block_id": "meaning",
+                            "frame": {
+                              "x": 52,
+                              "y": 64,
+                              "w": 42,
+                              "h": 16
+                            },
+                            "role": "body",
+                            "color": "dk2"
+                          }
+                        ],
+                        "rationale": "The number carries the slide; the panel holds the claim in words."
+                      },
+                      "marker": "provisional",
+                      "serves": [
+                        "p1"
+                      ]
                     },
-                    "marker": "provisional",
-                    "serves": [
-                      "p1"
-                    ]
+                    "replaces": "s1"
                   }
                 ]
               },

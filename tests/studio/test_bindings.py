@@ -34,9 +34,12 @@ def _v2_bindings() -> dict[str, set[tuple[str, str]]]:
 def test_the_shipped_config_loads_and_reuses_v2_model_ids() -> None:
     config = load_studio_config()
     v2 = _v2_bindings()
-    assert set(config.environments) == set(v2)
+    # `dev-openai` is the studio's own binding (first live run); v2 has no such environment.
+    assert set(config.environments) == set(v2) | {"dev-openai"}
     assert config.default_env == "dev-mistral"
     for env, bindings in config.environments.items():
+        if env == "dev-openai":
+            continue
         for role in STUDIO_ROLES:
             binding = getattr(bindings, role)
             assert (binding.provider, binding.model) in v2[env], (env, role)
@@ -53,7 +56,7 @@ def test_resolve_binding_defaults_and_unknown_env() -> None:
     assert env == "dev-mistral" and binding.model_id == "mistral/ministral-14b-2512"
     env, binding = resolve_binding(config, env="prod")
     assert env == "prod" and binding.provider == "claude"
-    with pytest.raises(StudioConfigError, match="dev-mistral, prod, sit"):
+    with pytest.raises(StudioConfigError, match="dev-mistral, dev-openai, prod, sit"):
         resolve_binding(config, env="staging")
 
 

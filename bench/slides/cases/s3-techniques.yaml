@@ -1,0 +1,17 @@
+id: s3-techniques
+title: Three techniques account for most of the saving
+intent: >
+  The saving comes from three specific, understandable techniques, and the reader should see
+  at a glance what each one does and what it is worth, with quantisation as the largest.
+content:
+  points:
+    - "Quantisation: smaller numbers inside the model, same answers"
+    - "Context caching: reuse the part every request repeats"
+    - "Request batching: answer shoppers in groups at peak"
+  figures:
+    - {value: "−38%", label: "serving cost, from quantisation"}
+    - {value: "−21%", label: "compute, from context caching"}
+    - {value: "2.3×", label: "peak capacity, from request batching"}
+notes: >
+  Three parallel items, each a name, one line on what it does, and its figure. They are not
+  equal: quantisation carries the largest saving and is the subject of the next slide.

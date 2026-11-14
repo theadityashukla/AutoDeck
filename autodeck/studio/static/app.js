@@ -633,6 +633,7 @@
           chosen ? h("span", { class: "tag tag-ok", text: "Chosen" }) : null),
         h("p", { class: "opt-text", text: o.text }),
       ];
+      if (o.applies) kids.push(h("p", { class: "opt-applies quiet", text: o.applies + "." }));
       const n = (o.slide_ids || []).length;
       if (n) {
         const pv = o.previews || [];

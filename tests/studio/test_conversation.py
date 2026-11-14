@@ -251,16 +251,54 @@ def test_resolution_fields_follow_the_status() -> None:
 
 def test_candidate_slides_need_an_artifact_and_unique_ids() -> None:
     slide = load_fixture_deck().slides[1].model_dump(mode="json")
-    options = [{"id": "A", "label": "Number", "text": "x", "slides": [slide]}]
+    candidate = {"slide": slide, "replaces": "s1"}
+    options = [{"id": "A", "label": "Number", "text": "x", "candidates": [candidate]}]
     ProposalRecord.model_validate(_proposal(options=options))
     with pytest.raises(ValidationError, match="artifact_id"):
         ProposalRecord.model_validate(_proposal(options=options, artifact_id=None))
     with pytest.raises(ValidationError, match="repeat"):
         ProposalOption.model_validate(
-            {"id": "A", "label": "x", "text": "x", "slides": [slide, slide]}
+            {"id": "A", "label": "x", "text": "x", "candidates": [candidate, candidate]}
         )
-    with pytest.raises(ValidationError, match="insert_at"):
-        ProposalOption.model_validate({"id": "A", "label": "x", "text": "x", "insert_at": 2})
+
+
+def test_every_candidate_replaces_or_inserts_exactly_one() -> None:
+    slide = load_fixture_deck().slides[1].model_dump(mode="json")
+
+    def option(*candidates: dict[str, object]) -> dict[str, object]:
+        return {"id": "A", "label": "x", "text": "x", "candidates": list(candidates)}
+
+    ProposalOption.model_validate(option({"slide": slide, "insert_at": 2}))
+    for bad in ({"slide": slide}, {"slide": slide, "replaces": "s1", "insert_at": 2}):
+        with pytest.raises(ValidationError, match="replace a slide or be inserted"):
+            ProposalOption.model_validate(option(bad))
+    other = {**slide, "id": "other"}
+    with pytest.raises(ValidationError, match="same slide"):
+        ProposalOption.model_validate(
+            option({"slide": slide, "replaces": "s1"}, {"slide": other, "replaces": "s1"})
+        )
+
+
+def test_an_old_option_loads_marked_legacy() -> None:
+    """Before replace-or-insert an option held `slides` and `insert_at`; such a record must
+    still load (the engagement home lists it), flagged so it cannot be applied."""
+    slide = load_fixture_deck().slides[1].model_dump(mode="json")
+    old = {"id": "A", "label": "Number", "text": "x", "slides": [slide], "insert_at": 2}
+    option = ProposalOption.model_validate(old)
+    assert option.legacy and [s.id for s in option.slides] == [slide["id"]]
+    assert option.candidates[0].replaces is None and option.candidates[0].insert_at is None
+    record = ProposalRecord.model_validate(_proposal(options=[old]))
+    assert record.options[0].legacy
+    # And it survives being resolved (the record is rebuilt from its own dump).
+    resolved = ProposalRecord.model_validate(
+        {
+            **record.model_dump(),
+            "status": "dismissed",
+            "resolved_by": "owner",
+            "resolved_at": T1,
+        }
+    )
+    assert resolved.options[0].legacy
 
 
 def test_labels_and_summaries_are_one_line() -> None:

@@ -299,7 +299,8 @@ def apply_candidate_slides(
     must be new to the deck. Candidates with neither placement (an old record) are refused.
 
     Returns `(new deck, lines)`, one past-tense line per candidate in the given order, for
-    example `Replaced slide 1 (id s1 kept) with the new slide: <intent>` / `Inserted new slide 's2b': <intent> as slide 3`.
+    example `Replaced slide 1 (id s1 kept) with the new slide: <intent>` or
+    `Inserted new slide 's2b': <intent> as slide 3`.
 
     Raises:
         EditError: no candidates; a candidate without a placement; a replaced slide that is
@@ -335,7 +336,8 @@ def apply_candidate_slides(
             new["serves"] = list(slides[index]["serves"])
         slides[index] = new
         lines[c.slide.id] = (
-            f"Replaced slide {index + 1} (id {c.replaces} kept) with the new slide{_intent(c.slide)}"
+            f"Replaced slide {index + 1} (id {c.replaces} kept) with the new slide"
+            f"{_intent(c.slide)}"
         )
     for c in candidates:
         if c.insert_at is None:
@@ -347,7 +349,8 @@ def apply_candidate_slides(
             )
         if not 1 <= c.insert_at <= len(slides) + 1:
             raise EditError(
-                f"insert_at {c.insert_at} is outside 1 .. {len(slides) + 1} for deck {deck.id!r}"
+                f"insert_at {c.insert_at} is outside 1 .. {len(slides) + 1} "
+                f"for deck {deck.id!r}"
             )
         slides.insert(c.insert_at - 1, c.slide.model_dump())
         lines[c.slide.id] = (

@@ -99,7 +99,9 @@ specified to the byte (`test_context.py` has a golden copy): the engagement and 
 knowledge, memory, each deck's compact outline (`views.deck_outline`, the same text the
 `view_deck` tool returns), the last 15 change-log entries newest first with up to three
 diff lines each (undone entries included: that is what was rejected), proposals grouped
-Dismissed / Accepted / Open, and the provisional, stale and open items. `claims.md` and
+Dismissed / Accepted / Open (with a line that defines the three statuses, each proposal tagged
+`[dismissed]`, `[open]` or `[accepted: option B]`, and an accepted one listing the options
+*not chosen*, so "accepted" cannot be read as "dismissed"), and the provisional, stale and open items. `claims.md` and
 other knowledge files are not inlined; they are sources the lead reads with tools.
 
 **What "no transcript" means, exactly.** A change-log entry records "the instruction that
@@ -117,14 +119,15 @@ first message is the context and the owner's words. The interface hides the cont
 recap lines.
 
 **Proposals are a small record on disk.** `<engagement>/proposals/<id>/proposal.json`:
-what is being decided, the options (label, text, optional candidate slides and where new
-ones go), and a status set once (`accepted` with the option, or `dismissed`), with who
+what is being decided, the options (label, text, optional candidate slides, each saying
+whether it replaces a slide or is inserted at a position), and a status set once (`accepted` with the option, or `dismissed`), with who
 resolved it (`owner` by button, `chat` when the model applied an option the owner chose in
 words) and when. That is the smallest record that lets the next thread know what was
 rejected. Candidate slides must have a layout and pass the layout check before a proposal
 is recorded, so the owner never sees a placeholder as an option. Picking an option with the
 button resolves it and sends `I pick option B of p0003: <label>.` into the conversation;
-the model then applies it (`apply_option` copies the candidate slides in as one change).
+the model then applies it (`apply_option` does what each candidate said, as one change, and
+reports it).
 Dismissing records it and leaves a note for the model's next turn.
 
 **Owner actions between turns become notes.** A dismissal, or an undo/redo from the
@@ -155,7 +158,26 @@ script's id). The loop takes a `BoundModel` (role, model id, model), and the ses
 `Studio.lead` at the start of each turn, so Phase 2 routes a call by passing a different
 binding, not by rewriting the loop.
 
-**The tool vocabulary (19 tools).** Read the deck (`view_deck`, `view_slide`), read
+****A candidate says what applying it does.** In `propose`, every candidate slide gives exactly
+one of `replaces` (the id of an existing slide) or `insert_at` (a 1-based position); the
+record stores it, so `apply_option` applies what was proposed and nothing is inferred.
+Validated when recorded, against the deck as it is then: a replaced slide must exist, an
+inserted slide's id must be new to the deck (an insertion never replaces silently), the
+position must be in range. *Replacement keeps the replaced slide's id*: the candidate takes
+that slide's place and id, so slide ids (the overlay's `slide_id:block_id` keys, the change
+log, `serves`) stay stable, and when the candidate's `serves` is empty it inherits the
+replaced slide's, so links to storyline points are not silently dropped (links the candidate
+names itself win). Applying: replacements first, then insertions in the option's order, each
+at its position in the deck as it then stands. If the slide to replace is gone by apply time
+the call is refused with a message naming it and suggesting `write_slide` or a new
+proposal; the proposal stays open. The result states the outcome in words (`Replaced slide
+1 (id s1 kept) with the new slide: ...` / `Inserted new slide 'x': ... as slide 2`) and
+`Slide order now: 1. s1 <intent>; 2. ...`. *Old records* (an option with `slides` and
+`insert_at`) load with `legacy: true` on the option, display with "Old proposal: what applying
+it does was not recorded", and are refused by `apply_option` (use the editing tools or
+propose again); no migration.
+
+**The tool vocabulary (19 tools).**** Read the deck (`view_deck`, `view_slide`), read
 sources (`list_sources`, `read_source`, `search_sources`), edit (`create_deck`, `set_brief`,
 `set_storyline`, `set_design_concept`, `write_slide`, `set_block_text`, `remove_slide`,
 `move_slide`, `set_marker`), propose (`propose`, `apply_option`), undo (`undo`, `redo`),
@@ -299,7 +321,10 @@ Everything the front end (task 1.15) needs. The server's code is not required re
     created_at}`.
 - **ProposalView** `{id, thread_id, turn_id, artifact_id, summary, status: "open" |
   "accepted" | "dismissed", chosen, resolved_by, resolved_at, created_at, options: [{id:
-  "A".."D", label, text, slide_ids, insert_at, previews: [image url]}]}`.
+  "A".."D", label, text, slide_ids, placements: [{slide_id, replaces: slide id | null,
+  insert_at: int | null}], applies: str, previews: [image url]}]}`. `applies` says what
+  applying the option does ("Replaces slide 1", "Inserts a slide at position 3", several
+  joined by "; "; "" for an option with no candidates).
 - **SourceView** `{id, kind: "knowledge" | "document", title, detail}`.
 
 ### Routes
@@ -391,7 +416,8 @@ Hash routes, plain names: `#/` (engagements), `#/e/<client>/<project>` (engageme
   - *Proposals:* a Proposal message shows its options as cards: label, text, the candidate
     slide previews (placeholders until `proposal_previews_ready`), "Use this" (pick) and,
     once per proposal, "Dismiss". After it is resolved, the cards show which option was
-    chosen, or "Dismissed", and the buttons go.
+    chosen, or "Dismissed", and the buttons go. An option with candidates shows `applies`
+    as one quiet line ("Replaces slide 1.") under its text.
   - *Composer:* a textarea; Enter sends, Shift+Enter adds a line; disabled while a turn
     runs in this engagement (and a 409 shows a toast). The context and recap request are
     never shown.
@@ -595,3 +621,20 @@ the HTTP API by a Sonnet agent; the lead viewed the rendered deck.
 To fix first: make a candidate that replaces a slide apply as a replacement and have
 `apply_option` report the resulting slide order; make the recap quote proposal status
 exactly; name the allowed fields in `write_slide`'s description.
+
+### Fixes after the first real-model run
+
+- **Replace or insert (defect 1).** Cause: a candidate carried only an id, and `apply_option`
+  decided from the id alone, so a new id meant "append". Fixed as described under "A
+  candidate says what applying it does"; `apply_option` reports what was replaced or inserted
+  and the resulting order, so the model cannot misreport it.
+- **"Dismissed" for an accepted proposal.** Cause: the context said only `chose B` under
+  `## Accepted`, and nothing defined the words. It now defines them, tags each proposal, and
+  lists the options not chosen; the recap request and `lead.md` tell the model to use those
+  terms.
+- **Invented `rationale`.** No studio file mentions it. The cause is the skills (written for
+  v2): `storyline.md` tells the model to say why it chose in "the draft's `notes`" and to give
+  every slide a `narrative_role`; `lead.md` redirected those, but nothing said which fields a
+  slide has. `write_slide`'s description and `lead.md` now list them (`id`, `intent`, `blocks`,
+  `speaker_notes`, `layout`, `marker`, `serves`); validation is unchanged (unknown fields are
+  still refused).
