@@ -32,6 +32,7 @@ from autodeck.studio.conversation import (
     MAX_DIFF_LINES,
     AssistantLine,
     NoteLine,
+    ProposalOption,
     ProposalRecord,
     RenderManifest,
     ThreadLine,
@@ -155,6 +156,19 @@ def deck_outline(deck: DeckArtifact, *, max_text: int = MAX_BLOCK_TEXT) -> str:
             summaries = " / ".join(_block_summary(b, max_text) for b in slide.blocks)
             lines.append(f"     {summaries or '(no blocks)'}")
     return "\n".join(lines)
+
+
+def slide_order(deck: DeckArtifact, *, max_intent: int = 50) -> str:
+    """The slide order in one compact line: `1. <id> <intent clipped>; 2. ...`, `(no slides)`
+    when there are none. The intent is flattened and clipped to `max_intent` characters;
+    a slide without one shows only its id."""
+    if not deck.slides:
+        return "(no slides)"
+    parts = []
+    for i, slide in enumerate(deck.slides, start=1):
+        intent = f" {clip(flat(slide.intent), max_intent)}" if slide.intent else ""
+        parts.append(f"{i}. {slide.id}{intent}")
+    return "; ".join(parts)
 
 
 def slide_detail(deck: DeckArtifact, slide_id: str) -> str:
@@ -398,14 +412,38 @@ def messages_view(lines: Sequence[ThreadLine]) -> list[dict[str, Any]]:
     return items
 
 
+def _option_effect(option: ProposalOption, deck: DeckArtifact | None) -> str:
+    """What applying the option does, for the owner: `Replaces slide 1`, `Inserts a slide
+    at position 3`, several joined by `; `, `Old proposal: what applying it does was not
+    recorded` for a legacy option, "" without candidates. A replaced slide's number comes
+    from `deck` (the deck now); without the deck, or when the slide is gone, its id."""
+    if option.legacy:
+        return "Old proposal: what applying it does was not recorded"
+    ids = [s.id for s in deck.slides] if deck is not None else []
+    parts: list[str] = []
+    for c in option.candidates:
+        if c.replaces is not None:
+            where = str(ids.index(c.replaces) + 1) if c.replaces in ids else c.replaces
+            parts.append(f"Replaces slide {where}")
+        else:
+            parts.append(f"Inserts a slide at position {c.insert_at}")
+    return "; ".join(parts)
+
+
 def proposal_view(
-    record: ProposalRecord, *, previews: dict[OptionId, list[str]] | None = None
+    record: ProposalRecord,
+    *,
+    previews: dict[OptionId, list[str]] | None = None,
+    deck: DeckArtifact | None = None,
 ) -> dict[str, Any]:
     """`{"id", "thread_id", "turn_id", "artifact_id", "summary", "status", "chosen",
     "resolved_by", "resolved_at" (ISO or None), "created_at", "options": [{"id", "label",
-    "text", "slide_ids": candidate slide ids in order, "insert_at", "previews":
-    (previews or {}).get(option id, [])}]}`. `previews` maps an option id to its image
-    URLs (built by the API)."""
+    "text", "slide_ids": candidate slide ids in order, "placements": [{"slide_id",
+    "replaces": slide id or None, "insert_at": position or None}] one per candidate,
+    "applies": what applying it does in words (`_option_effect`; "" without candidates),
+    "previews": (previews or {}).get(option id, [])}]}`. `previews` maps an option id to
+    its image URLs (built by the API); `deck` is the proposal's deck now, if it can be
+    read, and gives the number of a replaced slide."""
     chosen_previews = previews or {}
     return {
         "id": record.id,
@@ -424,7 +462,11 @@ def proposal_view(
                 "label": o.label,
                 "text": o.text,
                 "slide_ids": [s.id for s in o.slides],
-                "insert_at": o.insert_at,
+                "placements": [
+                    {"slide_id": c.slide.id, "replaces": c.replaces, "insert_at": c.insert_at}
+                    for c in o.candidates
+                ],
+                "applies": _option_effect(o, deck),
                 "previews": list(chosen_previews.get(o.id, [])),
             }
             for o in record.options

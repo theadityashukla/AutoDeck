@@ -216,14 +216,26 @@ def _change_block(log: ChangeLog, recent_changes: int) -> str:
     return "\n".join(lines)
 
 
+PROPOSAL_TERMS = (
+    "Statuses: accepted means the owner picked one option and it was applied; the options "
+    "they did not pick were not chosen, which is not a dismissal. Dismissed means the owner "
+    "turned down every option and nothing was applied. Open means not yet decided."
+)
+"""The line under `# Proposals` that fixes what the three statuses mean."""
+
+
 def _proposal_block(group: list[ProposalRecord]) -> str:
     lines: list[str] = []
     for p in group:
         where = p.artifact_id if p.artifact_id is not None else "no artifact"
-        lines.append(f"- {p.id} ({where}, thread {p.thread_id}): {p.summary}")
+        status = f"accepted: option {p.chosen}" if p.status == "accepted" else p.status
+        lines.append(f"- {p.id} ({where}, thread {p.thread_id}) [{status}]: {p.summary}")
         if p.status == "accepted":
             chosen = next(o for o in p.options if o.id == p.chosen)
-            lines.append(f"  - chose {chosen.id}. {chosen.label}")
+            lines.append(f"  - chosen: {chosen.id}. {chosen.label}")
+            others = [f"{o.id}. {o.label}" for o in p.options if o.id != chosen.id]
+            if others:
+                lines.append(f"  - not chosen: {'; '.join(others)}")
             continue
         for o in p.options:
             line = f"  - {o.id}. {o.label}: {flat(o.text)}"
@@ -287,8 +299,8 @@ def render_context(inputs: ContextInputs, *, recent_changes: int = RECENT_CHANGE
 
     # Proposals
 
-    <"None." when there is no proposal; otherwise, for each non-empty group in the order
-     Dismissed, Accepted, Open:>
+    <"None." when there is no proposal; otherwise `PROPOSAL_TERMS`, then for each
+     non-empty group in the order Dismissed, Accepted, Open:>
 
     ## <Dismissed | Accepted | Open>
 
@@ -311,10 +323,13 @@ def render_context(inputs: ContextInputs, *, recent_changes: int = RECENT_CHANGE
     `- (<k> earlier changes not shown)`. `None.` when the log is empty.
 
     A **proposal block** has, per proposal in the group (id order), a first line
-    `- <id> (<artifact id, or "no artifact">, thread <thread id>): <summary>`, then:
+    `- <id> (<artifact id, or "no artifact">, thread <thread id>) [<status>]: <summary>`
+    where `<status>` is `dismissed`, `open` or `accepted: option <X>`, then:
     Dismissed and Open list every option as `  - <option id>. <label>: <flat(text)>`
-    with ` (<k> candidate slide|slides)` appended when it has slides; Accepted adds the
-    one line `  - chose <option id>. <label>`. Lines are separated by a newline only.
+    with ` (<k> candidate slide|slides)` appended when it has slides; Accepted has the
+    line `  - chosen: <option id>. <label>` and, when there were other options, the line
+    `  - not chosen: <id>. <label>; <id>. <label>` (they were passed over, not dismissed).
+    Lines are separated by a newline only.
     """
     blocks: list[str] = ["# Engagement"]
     header = f"Client: {inputs.client} · Project: {inputs.project}"
@@ -362,6 +377,8 @@ def render_context(inputs: ContextInputs, *, recent_changes: int = RECENT_CHANGE
     blocks.append("# Proposals")
     if not inputs.proposals:
         blocks.append("None.")
+    else:
+        blocks.append(PROPOSAL_TERMS)
     for status, heading in (
         ("dismissed", "Dismissed"),
         ("accepted", "Accepted"),

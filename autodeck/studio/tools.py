@@ -50,7 +50,7 @@ from autodeck.design.theme.tokens import DesignTokens
 from autodeck.knowledge.loader import ClientIsolationError
 from autodeck.studio import diff as diffmod
 from autodeck.studio import edits, prompt, render_adapter, tool_args, views
-from autodeck.studio.conversation import ProposalOption, ProposalRecord
+from autodeck.studio.conversation import CandidateSlide, ProposalOption, ProposalRecord
 from autodeck.studio.engagement import Engagement
 from autodeck.studio.errors import (
     ArtifactExistsError,
@@ -363,8 +363,10 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
     * `propose` (`ProposeArgs`): options get ids `A`, `B`, ... in order. When any option
       has slides, the deck (`resolve_artifact`) must exist and every candidate must:
       have a layout ("candidate slide <id> has no layout; candidates are shown rendered"),
-      make a valid deck with `edits.apply_candidate_slides` (a `ValidationError` is
-      refused), and pass `render_adapter.check_slide` (findings are refused, listed as in
+      say replace-or-insert (`ProposeArgs` refuses a candidate that gives neither or both),
+      be applicable to the deck as it is now (`edits.apply_candidate_slides`: a replaced
+      slide must exist, an inserted id must be new, a position must be in range; a
+      `ValidationError` is refused), and pass `render_adapter.check_slide` (findings are refused, listed as in
       `qa_text`). Then `ctx.proposals.create(thread_id, turn_id, artifact_id (None when
       no option has slides and no artifact_id was given and the engagement has no deck;
       otherwise the resolved deck's id), summary, options, now)` and
@@ -374,10 +376,17 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
     * `apply_option` (`ApplyOptionArgs`): load the proposal. Dismissed: refused ("the
       owner dismissed <id>"). Accepted with another option: refused ("the owner chose
       <X> of <id>"). Option without slides: refused ("option <X> of <id> has no candidate
-      slides; make the change with the editing tools"). Open: resolve it accepted with
-      `by="chat"` first. Then `edits.apply_candidate_slides(deck, option.slides,
-      insert_at=option.insert_at)` on the proposal's artifact and `apply_edit`. Summary
-      `applied option <X> of <id>`.
+      slides; make the change with the editing tools"). A legacy option (an old record
+      with no recorded replace-or-insert, `ProposalOption.legacy`) is refused with a
+      message to use the editing tools or propose again. Then
+      `edits.apply_candidate_slides(deck, option.candidates)` on the proposal's artifact;
+      if the deck no longer fits (a replaced slide is gone) it is refused with a message
+      the model can act on and the proposal stays open. Only then, if open, the proposal
+      is resolved accepted with `by="chat"`, and `apply_edit` records the change. Text:
+      `change_text` (the diff lines), then one sentence per candidate (`Replaced slide 1
+      (id s1 kept) with the new slide: <intent>` / `Inserted new slide 's2': <intent> as
+      slide 3`), then `Slide order now: 1. <id> <intent>; 2. ...` (`views.slide_order`).
+      Summary `applied option <X> of <id>`.
     * `undo` / `redo`: `store.undo()` / `store.redo()`, `ledger.record_undo/redo`. Text
       `Undid <id> (<instruction>). The deck is back to the state before it.` / `Redid
       <id> (<instruction>).`; summary `undid <id>: <clip(instruction, 60)>` /
@@ -539,8 +548,12 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
                     id=OPTION_IDS[index],
                     label=option.label,
                     text=option.text,
-                    slides=option.slides,
-                    insert_at=option.insert_at,
+                    candidates=[
+                        CandidateSlide(
+                            slide=c.slide, replaces=c.replaces, insert_at=c.insert_at
+                        )
+                        for c in option.slides
+                    ],
                 )
             )
         for option in options:
@@ -553,7 +566,7 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
                         f"candidate slide {candidate.id} has no layout; "
                         "candidates are shown rendered"
                     )
-            edits.apply_candidate_slides(deck, option.slides, insert_at=option.insert_at)
+            edits.apply_candidate_slides(deck, option.candidates)
             for candidate in option.slides:
                 findings = render_adapter.check_slide(candidate, ctx.tokens)
                 if findings:
@@ -591,10 +604,14 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
                 f"option {a.option_id} of {record.id} has no candidate slides; "
                 "make the change with the editing tools"
             )
+        if option.legacy:
+            raise ProposalStateError(
+                f"option {a.option_id} of {record.id} was recorded before proposals said "
+                "whether a candidate replaces a slide or is inserted, so it cannot be applied; "
+                "make the change with the editing tools, or propose again"
+            )
         store = resolve_artifact(ctx, record.artifact_id)
-        new = edits.apply_candidate_slides(
-            store.load(), option.slides, insert_at=option.insert_at
-        )
+        new, done = edits.apply_candidate_slides(store.load(), option.candidates)
         # Validated first, so a refused application leaves the proposal open.
         if record.status == "open":
             ctx.proposals.resolve(
@@ -605,9 +622,10 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
                 now=ctx.clock(),
             )
         entry = apply_edit(ctx, store, new, "apply_option")
-        return ToolResult(
-            change_text(store, entry), f"applied option {a.option_id} of {record.id}"
+        text = "\n".join(
+            [change_text(store, entry), *done, f"Slide order now: {views.slide_order(new)}"]
         )
+        return ToolResult(text, f"applied option {a.option_id} of {record.id}")
 
     def undo(a: tool_args.UndoArgs) -> ToolResult:
         store = resolve_artifact(ctx, a.artifact_id)
@@ -692,7 +710,9 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
             "write_slide",
             tool_args.WriteSlideArgs,
             write_slide,
-            "Write one whole slide (blocks and layout); returns the layout check.",
+            "Write one whole slide; returns the layout check. A slide has only these fields: "
+            "id, intent, blocks, speaker_notes, layout, marker, serves. Any other field "
+            "(such as rationale) is refused.",
         ),
         (
             "set_block_text",
@@ -722,13 +742,17 @@ def build_toolbox(ctx: ToolContext) -> ToolBox:
             "propose",
             tool_args.ProposeArgs,
             propose,
-            "Offer the owner options without changing the deck.",
+            "Offer the owner options without changing the deck. Every candidate slide in an "
+            "option must say whether it replaces an existing slide (replaces: its id) or is "
+            "inserted at a position (insert_at).",
         ),
         (
             "apply_option",
             tool_args.ApplyOptionArgs,
             apply_option,
-            "Apply the option the owner chose.",
+            "Apply the option the owner chose: each candidate replaces the slide it named or "
+            "is inserted where it said. The result states what was replaced or inserted and "
+            "the resulting slide order; report that, not what you expected.",
         ),
         ("undo", tool_args.UndoArgs, undo, "Undo the most recent live change."),
         ("redo", tool_args.RedoArgs, redo, "Redo the most recently undone change."),

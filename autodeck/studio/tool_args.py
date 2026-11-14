@@ -33,6 +33,12 @@ MARKER_HELP = (
     "so the work could continue."
 )
 
+SLIDE_FIELDS_HELP = (
+    "The whole slide. Its only fields are: id, intent, blocks, speaker_notes, layout, marker "
+    "and serves. There is no field for a rationale or any other commentary: say why in your "
+    "reply, or put what the slide must do in intent."
+)
+
 MARK_TARGET_PATTERN = r"^(brief|storyline|design_concept|slide:[^\s]+)$"
 """`set_marker` targets: a deck-level part, or `slide:<slide id>`."""
 
@@ -146,7 +152,7 @@ class SetDesignConceptArgs(DeckToolArgs):
 class WriteSlideArgs(DeckToolArgs):
     """`write_slide`: one whole slide. An id already in the deck replaces that slide."""
 
-    slide: Slide = Field(description="The whole slide: intent, blocks, notes and layout.")
+    slide: Slide = Field(description=SLIDE_FIELDS_HELP)
     position: int | None = Field(
         default=None,
         ge=1,
@@ -190,26 +196,55 @@ class SetMarkerArgs(DeckToolArgs):
 # -- proposing ----------------------------------------------------------------------------
 
 
+class CandidateSlideInput(ToolArgs):
+    """One candidate slide and what applying it does. Give exactly one of `replaces` and
+    `insert_at`."""
+
+    slide: Slide = Field(
+        description="The whole candidate slide. Rendered for the owner, not in the deck "
+        "until the option is applied."
+    )
+    replaces: str | None = Field(
+        default=None,
+        min_length=1,
+        description="The id of an existing slide this candidate replaces. When applied it "
+        "takes that slide's place and keeps that slide's id (and its storyline links, if "
+        "the candidate names none). Must exist in the deck now.",
+    )
+    insert_at: int | None = Field(
+        default=None,
+        ge=1,
+        description="Instead of replaces: the 1-based position the candidate is inserted "
+        "at, as a new slide whose id is not yet in the deck.",
+    )
+
+    @model_validator(mode="after")
+    def _replace_or_insert(self) -> CandidateSlideInput:
+        if (self.replaces is None) == (self.insert_at is None):
+            raise ValueError(
+                "say what applying this candidate does: give exactly one of `replaces` "
+                "(the id of the slide it replaces) or `insert_at` (the position it is "
+                "inserted at)"
+            )
+        return self
+
+
 class ProposeOptionInput(ToolArgs):
     label: str = Field(
         min_length=1, max_length=MAX_LABEL_CHARS, description="A few words naming the option."
     )
     text: str = Field(min_length=1, description="What the option is, in two or three lines.")
-    slides: list[Slide] = Field(
+    slides: list[CandidateSlideInput] = Field(
         default_factory=list,
-        description="Candidate slides to show it. Rendered for the owner, not added to the "
-        "deck until the option is applied. An id already in the deck would replace it.",
-    )
-    insert_at: int | None = Field(
-        default=None,
-        ge=1,
-        description="1-based place for new candidate slides; omit for the end.",
+        description="Candidate slides to show it. Each must say whether it replaces an "
+        "existing slide (`replaces`) or is inserted at a position (`insert_at`).",
     )
 
 
 class ProposeArgs(DeckToolArgs):
     """`propose`: offer the owner two to four options without changing the deck. One option
-    is allowed for a single described change with a preview."""
+    is allowed for a single described change with a preview. Every candidate slide says
+    whether it replaces an existing slide or is inserted at a position."""
 
     summary: str = Field(
         min_length=1,
@@ -220,8 +255,9 @@ class ProposeArgs(DeckToolArgs):
 
 
 class ApplyOptionArgs(ToolArgs):
-    """`apply_option`: put an option's candidate slides into the deck, once the owner has
-    chosen it."""
+    """`apply_option`: do what the chosen option's candidate slides were proposed to do
+    (replace the named slides, insert at the stated positions), once the owner has chosen
+    it."""
 
     proposal_id: str = Field(pattern=PROPOSAL_ID_PATTERN)
     option_id: OptionId

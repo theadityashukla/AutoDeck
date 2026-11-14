@@ -554,7 +554,13 @@ class StudioApp:
                     f"{base}/{option.id}/previews/{n}.png"
                     for n in range(1, len(manifest.images) + 1)
                 ]
-        return views.proposal_view(record, previews=previews)
+        deck = None
+        if record.artifact_id is not None and any(o.slides for o in record.options):
+            try:
+                deck = engagement.artifact_store(record.artifact_id).load()
+            except (StudioError, OSError, ValueError):
+                deck = None
+        return views.proposal_view(record, previews=previews, deck=deck)
 
     def _proposal(
         self, engagement: Engagement, proposal_id: str, _body: dict[str, Any]

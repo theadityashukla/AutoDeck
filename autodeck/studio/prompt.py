@@ -32,7 +32,9 @@ ALLOWED_SKILLS: tuple[str, ...] = ("storyline", "slide-design", "writing-style")
 
 RECAP_REQUEST = (
     "This is a returning thread. Before anything else, give the owner a short recap built "
-    "only from the context above, as your instructions describe, and change nothing."
+    "only from the context above, as your instructions describe, and change nothing. "
+    "Report each proposal's status in the context's own terms: accepted (say which option "
+    "was chosen), dismissed, or open."
 )
 """The user text of a returning thread's opening turn (`UserLine.origin == "recap"`)."""
 

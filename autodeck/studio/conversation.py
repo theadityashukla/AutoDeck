@@ -297,30 +297,79 @@ THREAD_LINE: TypeAdapter[ThreadLine] = TypeAdapter(ThreadLine)
 # ---------------------------------------------------------------------------
 
 
+class CandidateSlide(StudioModel):
+    """One candidate slide of an option and what applying the option does with it.
+
+    Exactly one of `replaces` and `insert_at` is set (the option's `legacy` flag aside):
+
+    * `replaces`: the id of an existing deck slide. Applying puts the candidate in that
+      slide's place in the order and gives it **that slide's id** (so slide ids, and
+      everything keyed on them, stay stable; the candidate's own id is only its name while
+      it is a candidate). If the candidate's `serves` is empty it inherits the replaced
+      slide's `serves`, so links to storyline points are not silently dropped.
+    * `insert_at`: a new slide, inserted so it ends at this 1-based position of the deck as
+      it stands when this candidate is applied (replacements first, then insertions in the
+      option's order). Its id must not already be in the deck.
+    """
+
+    slide: Slide
+    replaces: str | None = Field(default=None, min_length=1)
+    insert_at: int | None = Field(default=None, ge=1)
+
+
 class ProposalOption(StudioModel):
     """One option of a proposal: a label, a description, and optionally candidate slides.
 
     Candidate slides are complete base `Slide`s, rendered for preview and never committed
-    until the option is applied (`apply_option`). Applying replaces the deck's slide with
-    the same id, or inserts a slide whose id is new: all new slides go, in the option's
-    order, before 1-based position `insert_at` (None: at the end).
+    until the option is applied (`apply_option`); each says whether it replaces a slide or is
+    inserted (`CandidateSlide`). `slides` is the bare list, for previews and views.
+
+    **Old records.** Before the replace-or-insert rule, an option held `slides` and one
+    `insert_at`. Such a record still loads: its candidates are kept with neither placement
+    and the option is marked `legacy`. It displays and appears in the context as before, but
+    `apply_option` refuses it (the intent was never recorded, which is the defect this
+    replaced), telling the model to make the change with the editing tools or propose again.
     """
 
     id: OptionId
     label: str
     text: str = Field(min_length=1)
-    slides: list[Slide] = Field(default_factory=list)
-    insert_at: int | None = Field(default=None, ge=1)
+    candidates: list[CandidateSlide] = Field(default_factory=list)
+    legacy: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_old_record(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "slides" in data and "candidates" not in data:
+            data = dict(data)
+            old = data.pop("slides") or []
+            data.pop("insert_at", None)
+            data["candidates"] = [{"slide": slide} for slide in old]
+            data["legacy"] = True
+        return data
 
     @model_validator(mode="after")
     def _label_and_slides(self) -> ProposalOption:
         _one_line(self.label, what="an option label", limit=MAX_LABEL_CHARS)
-        ids = [s.id for s in self.slides]
+        ids = [c.slide.id for c in self.candidates]
         if len(set(ids)) != len(ids):
             raise ValueError(f"option {self.id}: candidate slide ids repeat")
-        if self.insert_at is not None and not self.slides:
-            raise ValueError(f"option {self.id}: insert_at without candidate slides")
+        if not self.legacy:
+            for c in self.candidates:
+                if (c.replaces is None) == (c.insert_at is None):
+                    raise ValueError(
+                        f"option {self.id}: candidate {c.slide.id} must either replace a "
+                        "slide or be inserted at a position, not both and not neither"
+                    )
+            replaced = [c.replaces for c in self.candidates if c.replaces is not None]
+            if len(set(replaced)) != len(replaced):
+                raise ValueError(f"option {self.id}: two candidates replace the same slide")
         return self
+
+    @property
+    def slides(self) -> list[Slide]:
+        """The candidate slides, in order."""
+        return [c.slide for c in self.candidates]
 
 
 class ProposalRecord(StudioModel):

@@ -13,7 +13,9 @@ These functions do not record anything; pass the result to `ArtifactStore.apply`
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
+from autodeck.studio.conversation import CandidateSlide
 from autodeck.studio.errors import EditError
 from autodeck.studio.models import Brief, DeckArtifact, Marker, Slide
 from autodeck.studio.tool_args import MARK_TARGET_PATTERN
@@ -285,42 +287,77 @@ def set_part_marker(deck: DeckArtifact, *, target: str, marker: Marker) -> DeckA
 
 
 def apply_candidate_slides(
-    deck: DeckArtifact, slides: list[Slide], *, insert_at: int | None = None
-) -> DeckArtifact:
-    """The deck with a proposal option's candidate slides applied.
+    deck: DeckArtifact, candidates: Sequence[CandidateSlide]
+) -> tuple[DeckArtifact, list[str]]:
+    """The deck with a proposal option's candidate slides applied, and what was done.
 
-    First every candidate whose id is already in the deck replaces that slide in place.
-    Then the remaining (new) candidates, in their given order, are inserted as one run so
-    that the first of them ends at 1-based position `insert_at` of the result, or appended
-    when `insert_at` is None. `insert_at` may be 1 .. (number of slides after the
-    replacements) + 1.
+    Each candidate says what applying it does (`CandidateSlide`). First every replacement:
+    the candidate takes the place of the slide it `replaces` and gets **that slide's id**
+    (ids stay stable); if its `serves` is empty it inherits the replaced slide's `serves`,
+    so storyline links are not dropped. Then each insertion, in the given order, so that it
+    ends at its `insert_at` (1 .. current length + 1) of the deck as it then stands; its id
+    must be new to the deck. Candidates with neither placement (an old record) are refused.
+
+    Returns `(new deck, lines)`, one past-tense line per candidate in the given order, for
+    example `Replaced slide 1 (id s1 kept) with the new slide: <intent>` / `Inserted new slide 's2b': <intent> as slide 3`.
 
     Raises:
-        EditError: `slides` is empty, or `insert_at` is out of range.
+        EditError: no candidates; a candidate without a placement; a replaced slide that is
+            not in the deck (the message says the deck changed since the proposal); an
+            inserted id that is already in the deck; `insert_at` out of range.
         pydantic.ValidationError: the result is invalid (e.g. an unknown storyline point).
     """
-    if not slides:
+    if not candidates:
         raise EditError("there are no candidate slides to apply")
-    current = deck.model_dump()["slides"]
-    existing_ids = {s["id"] for s in current}
-    new_slides: list[dict[str, object]] = []
-    for candidate in slides:
-        if candidate.id in existing_ids:
-            index = next(i for i, s in enumerate(current) if s["id"] == candidate.id)
-            current[index] = candidate.model_dump()
-        else:
-            new_slides.append(candidate.model_dump())
+    slides = deck.model_dump()["slides"]
+    ids = {s["id"] for s in slides}
+    lines: dict[str, str] = {}
 
-    if insert_at is None:
-        current.extend(new_slides)
-    else:
-        if not 1 <= insert_at <= len(deck.slides) + 1:
+    for c in candidates:
+        if c.replaces is None and c.insert_at is None:
             raise EditError(
-                f"insert_at {insert_at} is outside 1 .. {len(deck.slides) + 1} "
-                f"for deck {deck.id!r}"
+                f"candidate {c.slide.id} does not say whether it replaces a slide or is "
+                "inserted"
             )
-        current[insert_at - 1 : insert_at - 1] = new_slides
+    for c in candidates:
+        if c.replaces is None:
+            continue
+        index = next((i for i, s in enumerate(slides) if s["id"] == c.replaces), None)
+        if index is None:
+            raise EditError(
+                f"the proposal replaces slide {c.replaces!r}, which is no longer in deck "
+                f"{deck.id!r} (the deck changed after it was proposed); make the change with "
+                "write_slide, or propose again"
+            )
+        new = c.slide.model_dump()
+        new["id"] = c.replaces
+        if not new["serves"]:
+            new["serves"] = list(slides[index]["serves"])
+        slides[index] = new
+        lines[c.slide.id] = (
+            f"Replaced slide {index + 1} (id {c.replaces} kept) with the new slide{_intent(c.slide)}"
+        )
+    for c in candidates:
+        if c.insert_at is None:
+            continue
+        if c.slide.id in ids or any(s["id"] == c.slide.id for s in slides):
+            raise EditError(
+                f"candidate {c.slide.id!r} is to be inserted but the deck already has a slide "
+                "with that id; it should replace it, or take a new id"
+            )
+        if not 1 <= c.insert_at <= len(slides) + 1:
+            raise EditError(
+                f"insert_at {c.insert_at} is outside 1 .. {len(slides) + 1} for deck {deck.id!r}"
+            )
+        slides.insert(c.insert_at - 1, c.slide.model_dump())
+        lines[c.slide.id] = (
+            f"Inserted new slide {c.slide.id!r}{_intent(c.slide)} as slide {c.insert_at}"
+        )
 
     data = deck.model_dump()
-    data["slides"] = current
-    return DeckArtifact.model_validate(data)
+    data["slides"] = slides
+    return DeckArtifact.model_validate(data), [lines[c.slide.id] for c in candidates]
+
+
+def _intent(slide: Slide) -> str:
+    return f": {slide.intent[:60]}" if slide.intent else ""
