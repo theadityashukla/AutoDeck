@@ -53,12 +53,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from autodeck.design.fonts import FontNotFoundError
 from autodeck.design.theme.tokens import DesignTokens, Palette
 from autodeck.ir import models as v2
+from autodeck.ir.schema import export_schema
 from autodeck.providers.base import (
     AssistantTurn,
     BaseProvider,
     ImageInput,
     Message,
     ProviderConfig,
+    ProviderResponseError,
     ToolCall,
     ToolSpec,
     Usage,
@@ -227,9 +229,13 @@ def load_prices(path: Path) -> dict[str, Price]:
     prices: dict[str, Price] = {}
     for name, entry in models.items():
         try:
-            prices[str(name)] = Price(input=float(entry["input"]), output=float(entry["output"]))
+            prices[str(name)] = Price(
+                input=float(entry["input"]), output=float(entry["output"])
+            )
         except (KeyError, TypeError, ValueError) as exc:
-            raise BenchInputError(f"{path}: {name}: needs numeric `input` and `output`") from exc
+            raise BenchInputError(
+                f"{path}: {name}: needs numeric `input` and `output`"
+            ) from exc
     return prices
 
 
@@ -356,7 +362,8 @@ def vocabulary_text() -> str:
     for name, annotation in _VALUE_SETS.items():
         sets.append(f"  {name}: " + ", ".join(str(a) for a in get_args(annotation)))
     notes = [
-        "Layout elements (FreeLayout.elements) are `text`, `chart`, `figure`, `icon` or `shape`.",
+        "Layout elements (FreeLayout.elements) are `text`, `chart`, `figure`, `icon` "
+        "or `shape`.",
         "A `text` element places a text block, a `chart`/`figure`/`icon` element places the "
         "block of that kind, a `shape` places a block-less panel, band, rule or marker. "
         "Every block is placed exactly once. A `diagram` element is not available.",
@@ -392,7 +399,8 @@ def master_text(tokens: DesignTokens) -> str:
             f"{role} {getattr(typo, role):g}pt"
             for role in ("display", "title", "heading", "body", "caption")
         )
-        + f", label (caption size, capitals, letter-spaced). Minimum text size {typo.minimum:g}pt; "
+        + ", label (caption size, capitals, letter-spaced). "
+        + f"Minimum text size {typo.minimum:g}pt; "
         "`size_pt` overrides a role's size.",
         "Source band: none. This slide draws no source line, so the whole safe area is yours.",
     ]
@@ -541,8 +549,164 @@ class _BenchOpenAIMixin:
         return url, headers, body
 
 
+#: Models that reject function tools together with reasoning on Chat Completions
+#: ("Function tools with reasoning_effort are not supported ... use /v1/responses"). They are
+#: called through the Responses endpoint so they can be run with reasoning on.
+RESPONSES_MODEL_PREFIXES = ("gpt-5.6",)
+REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh")
+
+
+def uses_responses(spec: str, api: str = "auto") -> bool:
+    if api == "responses":
+        return True
+    if api == "chat":
+        return False
+    return spec.partition(":")[2].startswith(RESPONSES_MODEL_PREFIXES)
+
+
+def effective_reasoning(spec: str, reasoning: str, api: str = "auto") -> str:
+    """What the trial record says about reasoning: the requested level where it is sent
+    (Responses path), else "default" (Chat Completions models run at their own default)."""
+    return reasoning if uses_responses(spec, api) else "default"
+
+
+class _BenchResponsesMixin:
+    """OpenAI `/v1/responses` with function tools, reasoning and image input.
+
+    Presents the same `converse` interface as the Chat Completions adapter. Stateless
+    (`store: false`): every call resends the whole conversation as input items. Reasoning
+    items are not carried between calls.
+    """
+
+    reasoning_effort: str = "medium"
+
+    @property
+    def _responses_url(self) -> str:
+        return f"{typing.cast(OpenAICompatProvider, self).base_url.rstrip('/')}/responses"
+
+    def build_converse_request(
+        self,
+        *,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        system: str | None,
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        provider = typing.cast(OpenAICompatProvider, self)
+        items: list[dict[str, Any]] = []
+        for m in messages:
+            if m.role == "tool":
+                items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": m.tool_call_id,
+                        "output": m.content,
+                    }
+                )
+            elif m.role == "assistant":
+                if m.content:
+                    items.append({"role": "assistant", "content": m.content})
+                for c in m.tool_calls:
+                    items.append(
+                        {
+                            "type": "function_call",
+                            "call_id": c.id,
+                            "name": c.name,
+                            "arguments": json.dumps(c.arguments, ensure_ascii=False),
+                        }
+                    )
+            else:
+                images = getattr(m, "images", ())
+                if images:
+                    parts: list[dict[str, Any]] = [{"type": "input_text", "text": m.content}]
+                    parts += [
+                        {
+                            "type": "input_image",
+                            "image_url": provider._image_part(image)["image_url"]["url"],
+                        }
+                        for image in images
+                    ]
+                    items.append({"role": "user", "content": parts})
+                else:
+                    items.append({"role": "user", "content": m.content})
+        body: dict[str, Any] = {
+            "model": provider.config.model,
+            "input": items,
+            "max_output_tokens": provider.config.max_output_tokens,
+            "reasoning": {"effort": self.reasoning_effort},
+            "store": False,
+        }
+        if system:
+            body["instructions"] = system
+        if tools:
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": export_schema(t.args_model, "strict"),
+                    "strict": False,
+                }
+                for t in tools
+            ]
+            body["tool_choice"] = "auto"
+        return self._responses_url, provider._headers(), body
+
+    def parse_converse_response(self, payload: dict[str, Any]) -> AssistantTurn:
+        error = payload.get("error")
+        if error or payload.get("status") == "failed":
+            raise ProviderResponseError(
+                f"responses API error: {error or payload.get('status')}"
+            )
+        text_parts: list[str] = []
+        calls: list[ToolCall] = []
+        for item in payload.get("output") or []:
+            kind = item.get("type")
+            if kind == "message":
+                for part in item.get("content") or []:
+                    if part.get("type") == "output_text":
+                        text_parts.append(part.get("text", ""))
+                    elif part.get("type") == "refusal":
+                        text_parts.append(f"[refusal] {part.get('refusal', '')}")
+            elif kind == "function_call":
+                raw_args = item.get("arguments")
+                try:
+                    parsed = json.loads(raw_args) if raw_args else {}
+                except (TypeError, ValueError):
+                    parsed = None
+                calls.append(
+                    ToolCall(
+                        id=str(item.get("call_id") or item.get("id") or ""),
+                        name=item.get("name", ""),
+                        arguments=parsed
+                        if isinstance(parsed, dict)
+                        else {"__invalid__": raw_args},
+                    )
+                )
+        if payload.get("status") == "incomplete" and not calls:
+            reason = (payload.get("incomplete_details") or {}).get("reason", "unknown")
+            text_parts.append(f"[response incomplete: {reason}]")
+        usage = payload.get("usage") or {}
+        out_details = usage.get("output_tokens_details") or {}
+        in_details = usage.get("input_tokens_details") or {}
+        return AssistantTurn(
+            text="".join(text_parts),
+            tool_calls=calls,
+            usage=BenchUsage(
+                input_tokens=int(usage.get("input_tokens", 0)),
+                output_tokens=int(usage.get("output_tokens", 0)),
+                reasoning_tokens=int(out_details.get("reasoning_tokens", 0) or 0),
+                cached_tokens=int(in_details.get("cached_tokens", 0) or 0),
+            ),
+        )
+
+
 def make_provider(
-    spec: str, *, max_output_tokens: int, api_key: str | None = None
+    spec: str,
+    *,
+    max_output_tokens: int,
+    api_key: str | None = None,
+    reasoning: str = "medium",
+    api: str = "auto",
 ) -> BaseProvider:
     """A provider for `provider:model`, with image support, no cache and a long timeout.
 
@@ -563,9 +727,11 @@ def make_provider(
             f"provider {provider_name!r} is not OpenAI-compatible; the bench can send images "
             "only through that wire format"
         )
-    bench_cls = type(f"Bench{cls.__name__}", (_BenchOpenAIMixin, cls), {})
+    responses = uses_responses(spec, api)
+    mixin = _BenchResponsesMixin if responses else _BenchOpenAIMixin
+    bench_cls = type(f"Bench{cls.__name__}", (mixin, cls), {})
     key = api_key if api_key is not None else os.environ.get(api_key_env(provider_name), "")
-    return bench_cls(
+    provider = bench_cls(
         ProviderConfig(
             model=model,
             api_key=key,
@@ -574,6 +740,9 @@ def make_provider(
             cache=None,
         )
     )
+    if responses:
+        typing.cast(Any, provider).reasoning_effort = reasoning
+    return provider
 
 
 class ConverseModel(typing.Protocol):
@@ -582,7 +751,10 @@ class ConverseModel(typing.Protocol):
     ) -> AssistantTurn: ...
 
 
-_KEY_PATTERNS = [re.compile(r"sk-[A-Za-z0-9_\-]{8,}"), re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{8,}")]
+_KEY_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9_\-]{8,}"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{8,}"),
+]
 
 
 def scrub(text: str) -> str:
@@ -647,7 +819,8 @@ def _wrap_deck(slide: Slide) -> DeckArtifact:
 def qa_findings(slide: Slide, tokens: DesignTokens) -> list[Finding]:
     """Layout QA, plus a dry build of the PPTX so a slide the renderer would replace with a
     placeholder (an unknown icon, a chart that cannot be built) is a finding, not a clean
-    slide. Never raises for model content; a missing font does raise (nothing is honest then)."""
+    slide. Never raises for model content; a missing font does raise (nothing is
+    honest then)."""
     try:
         found = check_slide(slide, tokens)
         if found:
@@ -670,15 +843,46 @@ def qa_findings(slide: Slide, tokens: DesignTokens) -> list[Finding]:
 
 _RENDER_LOCK = threading.Lock()
 
+_SYS_CLR = re.compile(r'<a:(dk1|lt1)><a:sysClr [^>]*?lastClr="([0-9A-Fa-f]{6})"[^>]*?/></a:\1>')
 
-def render_slide(
-    slide: Slide, tokens: DesignTokens, *, pptx_path: Path, png_path: Path
-) -> str:
+
+def patch_theme_colours(pptx_path: Path) -> None:
+    """Make `dk1`/`lt1` plain `srgbClr` in the PPTX theme, in place.
+
+    v2's master builder writes those two slots as `sysClr` (a documented, unfixed gap, see
+    `master_builder._colour_value`) and LibreOffice then draws the system black and white
+    whatever the token says. A concept that changes `dk1` or `lt1` (a dark background, say)
+    would therefore render wrongly while the layout QA, which reads the tokens, judges it
+    right. The bench patches its own copy of the file, not v2.
+    """
+    import zipfile
+
+    theme_name = "ppt/theme/theme1.xml"
+    with zipfile.ZipFile(pptx_path) as zin:
+        items = [(info, zin.read(info.filename)) for info in zin.infolist()]
+    patched = False
+    for index, (info, data) in enumerate(items):
+        if info.filename == theme_name:
+            text = data.decode("utf-8")
+            new = _SYS_CLR.sub(r'<a:\1><a:srgbClr val="\2"/></a:\1>', text)
+            patched = new != text
+            items[index] = (info, new.encode("utf-8"))
+    if not patched:
+        return
+    tmp = pptx_path.with_suffix(".tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info, data in items:
+            zout.writestr(info, data)
+    os.replace(tmp, pptx_path)
+
+
+def render_slide(slide: Slide, tokens: DesignTokens, *, pptx_path: Path, png_path: Path) -> str:
     """Build the PPTX and rasterise it to `png_path`. Returns "" or why it failed."""
     with _RENDER_LOCK:
         built = build_pptx(_wrap_deck(slide), tokens=tokens, out_path=pptx_path)
         if built.placeholders:
             return "; ".join(built.placeholders.values())
+        patch_theme_colours(built.path)
         with tempfile.TemporaryDirectory() as scratch:
             previews = render_previews(
                 built.path, out_dir=Path(scratch), tokens=tokens, dpi=PREVIEW_DPI
@@ -780,6 +984,7 @@ class TrialContext:
     out: Path
     qa: Callable[[Slide, DesignTokens], list[Finding]] = qa_findings
     render: Callable[..., str] = render_slide
+    reasoning: str = "default"
 
 
 class Trial:
@@ -866,7 +1071,8 @@ class Trial:
         if findings:
             result = (
                 "The slide is valid but fails the layout checks. Fix these and call "
-                f"write_slide again with the whole corrected slide:\n{format_findings(findings)}"
+                "write_slide again with the whole corrected slide:\n"
+                f"{format_findings(findings)}"
             )
             return slide, findings, "qa_findings", result
         return slide, [], "clean", ACCEPTED_TEXT
@@ -898,7 +1104,9 @@ class Trial:
         return self._write(time.perf_counter() - started)
 
     def _design(self) -> None:
-        self.messages.append(Message(role="user", content=build_user_text(self.spec.case, self.spec.concept)))
+        self.messages.append(
+            Message(role="user", content=build_user_text(self.spec.case, self.spec.concept))
+        )
         nudged = False
         wrote = False
         for n in range(1, self.ctx.attempts + 1):
@@ -918,7 +1126,7 @@ class Trial:
                     self.messages.append(Message(role="user", content=NUDGE_TEXT))
                 continue
             wrote = True
-            slide, findings, outcome, result = self._evaluate(writes[0])
+            _, findings, outcome, result = self._evaluate(writes[0])
             attempt["outcome"] = outcome
             if findings:
                 attempt["findings"] = findings
@@ -1013,7 +1221,10 @@ class Trial:
         )
         (self.dir / "transcript.json").write_text(
             json.dumps(
-                {"system": self.ctx.system, "messages": _serialise_messages(self.messages, image_names)},
+                {
+                    "system": self.ctx.system,
+                    "messages": _serialise_messages(self.messages, image_names),
+                },
                 indent=2,
                 ensure_ascii=False,
             ),
@@ -1042,6 +1253,7 @@ class Trial:
             "seconds": round(seconds, 2),
             "cost_usd": round(cost, 6),
             "priced": priced,
+            "reasoning": self.ctx.reasoning,
             "revision": self.revision,
             "rendered": self.rendered,
             "render_note": self.render_note,
@@ -1080,6 +1292,7 @@ def skipped_record(spec: TrialSpec, out: Path, reason: str) -> dict[str, Any]:
         "seconds": 0.0,
         "cost_usd": 0.0,
         "priced": True,
+        "reasoning": "",
         "revision": {"state": "n/a"},
         "rendered": False,
         "render_note": "",
@@ -1100,11 +1313,35 @@ RUN_STATUSES = ("clean", "unclean", "failed", "budget_stopped")
 COUNT_KINDS = ("text", "shape", "chart", "icon", "figure")
 
 CSV_COLUMNS = [
-    "row_type", "model", "case", "concept", "feedback", "repeat", "status", "clean",
-    "attempts", "model_calls", "input_tokens", "output_tokens", "reasoning_tokens",
-    "seconds", "cost_usd", "revision", "n_text", "n_shape", "n_chart", "n_icon", "n_figure",
-    "trials", "clean_rate", "mean_attempts", "mean_attempts_to_clean", "findings", "error",
-]  # fmt: skip
+    "row_type",
+    "model",
+    "case",
+    "concept",
+    "feedback",
+    "repeat",
+    "status",
+    "clean",
+    "attempts",
+    "model_calls",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "seconds",
+    "cost_usd",
+    "reasoning",
+    "revision",
+    "n_text",
+    "n_shape",
+    "n_chart",
+    "n_icon",
+    "n_figure",
+    "trials",
+    "clean_rate",
+    "mean_attempts",
+    "mean_attempts_to_clean",
+    "findings",
+    "error",
+]
 
 
 def _mean(values: Sequence[float]) -> float | None:
@@ -1133,18 +1370,20 @@ def aggregate(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
             for kind in COUNT_KINDS
         },
         "revised": sum(r["revision"].get("state") == "revised" for r in ran),
+        "reasoning": sorted({r.get("reasoning", "") for r in ran}),
     }
     return result
 
 
-def summarise(
-    records: Sequence[dict[str, Any]], *, models: Sequence[str]
-) -> dict[str, Any]:
+def summarise(records: Sequence[dict[str, Any]], *, models: Sequence[str]) -> dict[str, Any]:
     by_model = {m: [r for r in records if r["model"] == m] for m in models}
     groups: dict[str, Any] = {}
     for m, recs in by_model.items():
         keys = sorted({(r["concept"], r["feedback"]) for r in recs})
-        groups[m] = {f"{c}/{f}": aggregate([r for r in recs if (r["concept"], r["feedback"]) == (c, f)]) for c, f in keys}
+        groups[m] = {
+            f"{c}/{f}": aggregate([r for r in recs if (r["concept"], r["feedback"]) == (c, f)])
+            for c, f in keys
+        }
     return {
         "models": {m: aggregate(recs) for m, recs in by_model.items()},
         "groups": groups,
@@ -1152,7 +1391,11 @@ def summarise(
 
 
 def write_summary(
-    out: Path, records: Sequence[dict[str, Any]], *, models: Sequence[str], extra: dict[str, Any]
+    out: Path,
+    records: Sequence[dict[str, Any]],
+    *,
+    models: Sequence[str],
+    extra: dict[str, Any],
 ) -> dict[str, Any]:
     summary = summarise(records, models=models)
     summary.update(extra)
@@ -1182,6 +1425,7 @@ def write_summary(
                     "reasoning_tokens": r["reasoning_tokens"],
                     "seconds": r["seconds"],
                     "cost_usd": r["cost_usd"],
+                    "reasoning": r.get("reasoning", ""),
                     "revision": r["revision"].get("state", ""),
                     **{f"n_{k}": counts.get(k, 0) for k in COUNT_KINDS},
                     "findings": " | ".join(
@@ -1204,6 +1448,7 @@ def write_summary(
                     "output_tokens": agg["output_tokens"],
                     "reasoning_tokens": agg["reasoning_tokens"],
                     "cost_usd": agg["cost_usd"],
+                    "reasoning": "/".join(agg["reasoning"]),
                     **{f"n_{k}": agg["mean_element_counts"][k] for k in COUNT_KINDS},
                 }
             )
@@ -1280,7 +1525,9 @@ def _cell_text(r: dict[str, Any]) -> tuple[str, str]:
         tags = "  no revision (DONE)"
     cost = f"${r['cost_usd']:.4f}" + ("" if r["priced"] else " (unpriced)")
     headline = f"{state}  attempts {r['attempts_used']}  {cost}{tags}"
-    detail = f"{r['input_tokens']:,} in / {r['output_tokens']:,} out tokens  {r['seconds']:.0f}s"
+    detail = (
+        f"{r['input_tokens']:,} in / {r['output_tokens']:,} out tokens  {r['seconds']:.0f}s"
+    )
     return headline, detail
 
 
@@ -1324,7 +1571,9 @@ def write_sheet(out: Path, model: str, records: Sequence[dict[str, Any]]) -> Pat
         x = ROW_LABEL_W + ci * (CELL_W + CELL_PAD) + CELL_PAD
         label = f"{concept} / {feedback}" + (f" / r{repeat}" if many else "")
         draw.text((x, TITLE_H + 10), label, font=f_bold, fill=(20, 20, 20))
-    index = {(r["case"], r["concept"], r["feedback"], r["repeat"] if many else 0): r for r in recs}
+    index = {
+        (r["case"], r["concept"], r["feedback"], r["repeat"] if many else 0): r for r in recs
+    }
     for ri, case in enumerate(cases):
         y = TITLE_H + COL_HEAD_H + ri * cell_h
         for i, line in enumerate(_wrap(draw, case, f_bold, ROW_LABEL_W - 2 * CELL_PAD)[:6]):
@@ -1347,7 +1596,9 @@ def _draw_cell(
 
     f_bold, f_text, f_small = fonts
     colour = _STATUS_COLOURS.get(r["status"], (100, 100, 100))
-    draw.rectangle([x, y, x + CELL_W, y + HEAD_H + IMG_H], fill=(255, 255, 255), outline=colour, width=3)
+    draw.rectangle(
+        [x, y, x + CELL_W, y + HEAD_H + IMG_H], fill=(255, 255, 255), outline=colour, width=3
+    )
     draw.rectangle([x, y, x + CELL_W, y + 6], fill=colour)
     label = f"{r['case']} | {r['concept']} | {r['feedback']}"
     draw.text((x + 8, y + 10), label[:70], font=f_bold, fill=(20, 20, 20))
@@ -1391,6 +1642,8 @@ class RunConfig:
     workers: int = 1
     skip_existing: bool = False
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+    reasoning: str = "medium"
+    api: str = "auto"
     bench_dir: Path = BENCH_DIR
     prices_path: Path = field(default_factory=lambda: BENCH_DIR / "prices.yaml")
     tokens_path: Path = DEFAULT_TOKENS_PATH
@@ -1445,10 +1698,14 @@ def write_dry_run(
     }
 
 
-def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | None = None,
-        qa: Callable[[Slide, DesignTokens], list[Finding]] | None = None,
-        render: Callable[..., str] | None = None,
-        log: Callable[[str], None] = print) -> dict[str, Any]:  # fmt: skip
+def run(
+    cfg: RunConfig,
+    *,
+    provider_factory: Callable[[str], ConverseModel] | None = None,
+    qa: Callable[[Slide, DesignTokens], list[Finding]] | None = None,
+    render: Callable[..., str] | None = None,
+    log: Callable[[str], None] = print,
+) -> dict[str, Any]:
     """Run every trial; returns the summary (or the dry-run listing).
 
     `provider_factory`, `qa` and `render` exist so tests can use a fake model and skip
@@ -1459,13 +1716,16 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
     for model in cfg.models:
         if model not in prices:
             log(f"WARNING: {model} is unpriced; the budget guard cannot count its spend.")
+    if cfg.reasoning not in REASONING_LEVELS:
+        raise BenchInputError(f"--reasoning must be one of {', '.join(REASONING_LEVELS)}")
     if any(f not in ("qa", "visual") for f in cfg.feedback):
         raise BenchInputError("--feedback must be qa or visual")
     cfg.out.mkdir(parents=True, exist_ok=True)
 
     tokens_by_concept = {c.id: tokens_for_concept(c, cfg.tokens_path) for c in cfg.concepts}
     systems = {
-        c.id: build_system_prompt(cfg.bench_dir, tokens_by_concept[c.id], c) for c in cfg.concepts
+        c.id: build_system_prompt(cfg.bench_dir, tokens_by_concept[c.id], c)
+        for c in cfg.concepts
     }
     specs = expand_trials(cfg)
 
@@ -1473,12 +1733,21 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
     for model in cfg.models:
         if cfg.dry_run:
             providers[model] = make_provider(
-                model, max_output_tokens=cfg.max_output_tokens, api_key="dry-run"
+                model,
+                max_output_tokens=cfg.max_output_tokens,
+                api_key="dry-run",
+                reasoning=cfg.reasoning,
+                api=cfg.api,
             )
         elif provider_factory is not None:
             providers[model] = provider_factory(model)
         else:
-            providers[model] = make_provider(model, max_output_tokens=cfg.max_output_tokens)
+            providers[model] = make_provider(
+                model,
+                max_output_tokens=cfg.max_output_tokens,
+                reasoning=cfg.reasoning,
+                api=cfg.api,
+            )
 
     if cfg.dry_run:
         listing = [
@@ -1518,12 +1787,17 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
                 continue
         pending.append(spec)
     if len(records):
-        log(f"skip-existing: reused {len(records)} finished trials (${ledger.spent:.4f} counted)")
+        log(
+            f"skip-existing: reused {len(records)} finished trials "
+            f"(${ledger.spent:.4f} counted)"
+        )
 
     def work(spec: TrialSpec) -> None:
         nonlocal done
         if ledger.exhausted():
-            record = skipped_record(spec, cfg.out, "budget guard: estimated spend reached the budget")
+            record = skipped_record(
+                spec, cfg.out, "budget guard: estimated spend reached the budget"
+            )
         else:
             ctx = TrialContext(
                 model_name=spec.model,
@@ -1536,6 +1810,7 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
                 out=cfg.out,
                 qa=qa or qa_findings,
                 render=render or render_slide,
+                reasoning=effective_reasoning(spec.model, cfg.reasoning, cfg.api),
             )
             record = Trial(ctx, spec).run()
         with records_lock:
@@ -1568,13 +1843,25 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
         "budget_usd": cfg.budget,
         "estimated_spend_usd": round(ledger.spent, 6),
         "guard_tripped": bool(skipped or stopped or revisions_skipped),
-        "trials_not_started": [f"{r['model']} {r['case']} {r['concept']} {r['feedback']} r{r['repeat']}" for r in skipped],
-        "trials_stopped_mid_trial": [f"{r['model']} {r['case']} {r['concept']} {r['feedback']} r{r['repeat']}" for r in stopped],
-        "revisions_skipped": [f"{r['model']} {r['case']} {r['concept']} r{r['repeat']}" for r in revisions_skipped],
-    }  # fmt: skip
+        "trials_not_started": [
+            f"{r['model']} {r['case']} {r['concept']} {r['feedback']} r{r['repeat']}"
+            for r in skipped
+        ],
+        "trials_stopped_mid_trial": [
+            f"{r['model']} {r['case']} {r['concept']} {r['feedback']} r{r['repeat']}"
+            for r in stopped
+        ],
+        "revisions_skipped": [
+            f"{r['model']} {r['case']} {r['concept']} r{r['repeat']}" for r in revisions_skipped
+        ],
+    }
     extra = {
         "budget": budget_report,
-        "prices": {m: {"input": p.input, "output": p.output} for m, p in prices.items() if m in cfg.models},
+        "prices": {
+            m: {"input": p.input, "output": p.output}
+            for m, p in prices.items()
+            if m in cfg.models
+        },
         "prices_note": "assumed, deliberately high; not confirmed prices",
         "config": {
             "models": cfg.models,
@@ -1584,9 +1871,17 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
             "attempts": cfg.attempts,
             "repeat": cfg.repeat,
             "workers": cfg.workers,
+            "reasoning_requested": cfg.reasoning,
+            "reasoning_by_model": {
+                m: effective_reasoning(m, cfg.reasoning, cfg.api) for m in cfg.models
+            },
+            "endpoint_by_model": {
+                m: "responses" if uses_responses(m, cfg.api) else "chat.completions"
+                for m in cfg.models
+            },
         },
         "wall_seconds": round(time.time() - started, 1),
-    }  # fmt: skip
+    }
     summary = write_summary(cfg.out, records, models=cfg.models, extra=extra)
     for model in cfg.models:
         sheet = write_sheet(cfg.out, model, records)
@@ -1609,22 +1904,48 @@ def run(cfg: RunConfig, *, provider_factory: Callable[[str], ConverseModel] | No
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Slide bench harness (see SPEC.md).")
-    p.add_argument("--env-model", action="append", dest="models", required=True,
-                   help="provider:model; repeat for several models")  # fmt: skip
+    p.add_argument(
+        "--env-model",
+        action="append",
+        dest="models",
+        required=True,
+        help="provider:model; repeat for several models",
+    )
     p.add_argument("--cases", default="all", help="all, or comma-separated case ids")
     p.add_argument("--concepts", default="none", help="comma-separated concept ids")
-    p.add_argument("--feedback", default="qa",
-                   help="qa, visual, or qa,visual (visual also shows the model its render once)")  # fmt: skip
+    p.add_argument(
+        "--feedback",
+        default="qa",
+        help="qa, visual, or qa,visual (visual also shows the model its render once)",
+    )
     p.add_argument("--attempts", type=int, default=4, help="model calls per slide (default 4)")
     p.add_argument("--budget", type=float, default=5.00, help="US dollars of estimated spend")
-    p.add_argument("--out", required=True, type=Path, help="output directory (outside the repo)")
+    p.add_argument(
+        "--out", required=True, type=Path, help="output directory (outside the repo)"
+    )
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--dry-run", action="store_true", help="write requests, call no model")
     p.add_argument("--allow-unpriced", action="store_true")
     p.add_argument("--workers", type=int, default=1, help="trials in parallel (default 1)")
-    p.add_argument("--skip-existing", action="store_true",
-                   help="reuse finished trials already in --out (they count against the budget)")  # fmt: skip
+    p.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="reuse finished trials already in --out (they count against the budget)",
+    )
     p.add_argument("--max-output-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
+    p.add_argument(
+        "--reasoning",
+        default="medium",
+        choices=REASONING_LEVELS,
+        help="reasoning effort, sent to models called through the Responses "
+        "endpoint (gpt-5.6-*); other models run at their own default",
+    )
+    p.add_argument(
+        "--api",
+        default="auto",
+        choices=["auto", "chat", "responses"],
+        help="auto: Responses for gpt-5.6-*, Chat Completions otherwise",
+    )
     p.add_argument("--bench-dir", type=Path, default=BENCH_DIR, help=argparse.SUPPRESS)
     return p
 
@@ -1632,7 +1953,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.attempts < 1 or args.repeat < 1 or args.workers < 1 or args.budget <= 0:
-        print("error: --attempts, --repeat, --workers and --budget must be positive", file=sys.stderr)
+        print(
+            "error: --attempts, --repeat, --workers and --budget must be positive",
+            file=sys.stderr,
+        )
         return 2
     try:
         cfg = RunConfig(
@@ -1649,6 +1973,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             workers=args.workers,
             skip_existing=args.skip_existing,
             max_output_tokens=args.max_output_tokens,
+            reasoning=args.reasoning,
+            api=args.api,
             bench_dir=args.bench_dir,
             prices_path=args.bench_dir / "prices.yaml"
             if (args.bench_dir / "prices.yaml").is_file()

@@ -21,9 +21,9 @@ palette:
   accent3: "#9AA796"
   accent4: "#6E7C8C"
   accent5: "#E6EBE3"
-  accent6: "#A3ABA3"
+  accent6: "#8C958C"
 roles:
-  dk1: "print: headers, line items and figures. Safe for text on lt1, lt2, accent2 and accent5."
+  dk1: "print: headlines, line items and figures. Safe for text on lt1, lt2, accent2 and accent5."
   lt1: "the receipt paper, a panel on the counter. Not a text colour here."
   dk2: "faded print: secondary lines, small print, rules; charts draw their labels in it. Safe for text on lt1, lt2, accent2 and accent5."
   lt2: "the counter: use it as the slide background."
