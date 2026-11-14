@@ -568,3 +568,30 @@ Verified by the lead on 2026-11-13, on the build container, with the scripted mo
 - Project-tier knowledge and documents are shared across clients by design (D8); the
   source tools cannot tell where a project document came from.
 - Everything on Phase 0's carried list except the store's lack of in-process locking.
+
+### First real-model run (2026-11-14)
+
+One session on `dev-openai` (`gpt-5.4-mini`, added to `config/studio.yaml`), driven over
+the HTTP API by a Sonnet agent; the lead viewed the rendered deck.
+
+- **Cost:** 9 turns, 25 model calls, 400k input and 4.8k output tokens. About $1.27 at a
+  deliberately high assumed price ($3 / $15 per million); the real price was not confirmed.
+  Every call resends about 12k tokens of opening context and tool definitions.
+- **The loop and tools work on a real model.** Every turn ended normally and was
+  classified correctly. The adapter and all tool schemas were accepted unchanged. The
+  model loaded the three skills and read sources unprompted.
+- **Writing slides was not the obstacle expected.** Four `write_slide` calls: one refused
+  for an invented `rationale` field, corrected on the next call; no layout QA findings.
+- **The slides are generic.** Each is a title, a rule and two paragraphs on white, with
+  the lower half empty: no numbers, charts, shapes or use of the free layout. The model
+  passes QA by staying inside a safe text-only pattern. This is the problem Phases 2 and 3
+  exist to solve; Phase 1 has no design layer.
+- **Defect: `apply_option` appended the chosen opening as a fourth slide** instead of
+  replacing slide 1 (the candidate carried a new id and no position), and the model then
+  told the owner slide 1 had been replaced. It was corrected only when pointed out.
+- **The second thread's recap came from state and was mostly right**, including the
+  duplicate opening, but called the accepted proposal "dismissed".
+
+To fix first: make a candidate that replaces a slide apply as a replacement and have
+`apply_option` report the resulting slide order; make the recap quote proposal status
+exactly; name the allowed fields in `write_slide`'s description.
