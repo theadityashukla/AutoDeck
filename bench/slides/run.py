@@ -1613,8 +1613,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="provider:model; repeat for several models")  # fmt: skip
     p.add_argument("--cases", default="all", help="all, or comma-separated case ids")
     p.add_argument("--concepts", default="none", help="comma-separated concept ids")
-    p.add_argument("--feedback", default="qa", choices=["qa", "visual"],
-                   help="qa: QA findings only; visual: also show the model its render once")  # fmt: skip
+    p.add_argument("--feedback", default="qa",
+                   help="qa, visual, or qa,visual (visual also shows the model its render once)")  # fmt: skip
     p.add_argument("--attempts", type=int, default=4, help="model calls per slide (default 4)")
     p.add_argument("--budget", type=float, default=5.00, help="US dollars of estimated spend")
     p.add_argument("--out", required=True, type=Path, help="output directory (outside the repo)")
@@ -1639,7 +1639,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             models=list(dict.fromkeys(args.models)),
             cases=resolve_cases(args.cases, args.bench_dir),
             concepts=resolve_concepts(args.concepts, args.bench_dir),
-            feedback=[args.feedback],
+            feedback=_csv(args.feedback),
             attempts=args.attempts,
             budget=args.budget,
             out=args.out,
