@@ -31,6 +31,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, Field, TypeAdapter, model_validator
 
+from autodeck.studio.design import DesignDraft
 from autodeck.studio.models import (
     DIGEST_PATTERN,
     ENTRY_ID_PATTERN,
@@ -46,6 +47,7 @@ from autodeck.studio.models import (
     Slide,
     StudioModel,
 )
+from autodeck.studio.usage import RouteRecord, TurnUsage
 
 # ---------------------------------------------------------------------------
 # Vocabularies
@@ -55,11 +57,19 @@ TurnKind = Literal["talk", "proposal", "change"]
 """Plan §5.2. `talk`: nothing changed. `proposal`: options offered, nothing changed.
 `change`: an artifact was edited (the turn lists the entries)."""
 
-StopReason = Literal["replied", "step_cap", "token_cap", "stalled", "error"]
+StopReason = Literal["replied", "step_cap", "token_cap", "stalled", "error", "handed_off"]
 """Why a turn ended. `replied`: the model answered in text with no tool call (the normal
 end of a turn, not a stall). `step_cap` / `token_cap`: a limit stopped it. `stalled`: the
 model returned neither text nor a tool call twice in a row. `error`: an exception (a
-provider failure, or a bug in a tool) ended it; `error` carries the message."""
+provider failure, or a bug in a tool) ended it; `error` carries the message.
+`handed_off` (Phase 2-3) ends only the mechanic's part of a turn, when it hands the turn to
+the lead (`hand_to_lead`); the lead then runs, and the turn's own stop reason is the
+lead's. A `TurnEndLine` / `TurnFinished` never carries `handed_off`."""
+
+LineRole = Literal["lead", "mechanic"]
+"""Phase 2-3: which conversational role wrote an assistant or tool line. The designer,
+system layer and router write no thread lines (their work is recorded on the turn's usage
+and, for the designer, on the change log)."""
 
 UserOrigin = Literal["owner", "choice", "context", "recap"]
 """Where a user-role line came from. `owner`: typed by the owner. `choice`: generated when
@@ -133,6 +143,14 @@ class _TurnTotals(StudioModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     error: str = Field(default="", description="Non-empty exactly when stop_reason is error.")
+    route: RouteRecord | None = Field(
+        default=None, description="Phase 2-3: how the turn was routed (None on older lines)."
+    )
+    usage: TurnUsage | None = Field(
+        default=None,
+        description="Phase 2-3: the layers that ran, their models, calls, tokens and "
+        "estimated cost (None on older lines).",
+    )
 
     @model_validator(mode="after")
     def _kind_matches_what_happened(self) -> _TurnTotals:
@@ -147,6 +165,8 @@ class _TurnTotals(StudioModel):
             raise ValueError(
                 f"turn {self.turn_id}: kind {self.turn_kind!r}, but it was {expected!r}"
             )
+        if self.stop_reason == "handed_off":
+            raise ValueError(f"turn {self.turn_id}: handed_off is not a turn's stop reason")
         if (self.stop_reason == "error") != bool(self.error.strip()):
             raise ValueError(f"turn {self.turn_id}: error text is set exactly when it errored")
         for entry_id in [*self.change_ids, *self.undone_ids, *self.redone_ids]:
@@ -228,7 +248,8 @@ class AssistantLine(_Line):
 
     kind: Literal["assistant"] = "assistant"
     turn_id: str = Field(pattern=TURN_ID_PATTERN)
-    step: int = Field(ge=1, description="1-based model call within the turn.")
+    role: LineRole = Field(default="lead", description="Phase 2-3: who made this call.")
+    step: int = Field(ge=1, description="1-based model call within the turn (per role).")
     text: str = ""
     tool_calls: list[ToolCallRecord] = Field(default_factory=list)
     model_id: str = Field(min_length=1)
@@ -242,6 +263,7 @@ class ToolLine(_Line):
 
     kind: Literal["tool"] = "tool"
     turn_id: str = Field(pattern=TURN_ID_PATTERN)
+    role: LineRole = Field(default="lead", description="Phase 2-3: whose tool call this was.")
     step: int = Field(ge=1)
     tool_call_id: str = Field(min_length=1)
     tool_name: str = Field(min_length=1)
@@ -336,6 +358,13 @@ class ProposalOption(StudioModel):
     text: str = Field(min_length=1)
     candidates: list[CandidateSlide] = Field(default_factory=list)
     legacy: bool = False
+    design: DesignDraft | None = Field(
+        default=None,
+        description="Phase 2-3: a design direction made concrete (`propose_design`). Its "
+        "candidates are sample slides composed in it; each `replaces` the slide it samples. "
+        "Applying the option adopts the design (`apply_design`); the samples are previews, "
+        "never committed.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -364,6 +393,13 @@ class ProposalOption(StudioModel):
             replaced = [c.replaces for c in self.candidates if c.replaces is not None]
             if len(set(replaced)) != len(replaced):
                 raise ValueError(f"option {self.id}: two candidates replace the same slide")
+        if self.design is not None:
+            if not self.candidates:
+                raise ValueError(f"option {self.id}: a design option shows sample slides")
+            if any(c.replaces is None for c in self.candidates):
+                raise ValueError(
+                    f"option {self.id}: each sample slide names the slide it samples (replaces)"
+                )
         return self
 
     @property
@@ -568,6 +604,24 @@ class ProposalResolved(_Event):
     by: ResolvedBy
 
 
+class SlideComposed(_Event):
+    """Phase 2-3: the designer finished one slide of a `compose_slides` call (samples made
+    for `propose_design` are not streamed one by one). Sent once per slide, after its
+    change-log entry's `change_recorded`, in deck order. `clean` False means the slide
+    failed to compose (the failure is recorded on the slide; the previous designed form is
+    kept)."""
+
+    type: Literal["slide_composed"] = "slide_composed"
+    turn_id: str = Field(pattern=TURN_ID_PATTERN)
+    artifact_id: str = Field(pattern=SEGMENT_PATTERN)
+    slide_id: str = Field(min_length=1)
+    clean: bool
+    attempts: int = Field(ge=0)
+    findings: list[str] = Field(default_factory=list)
+    model_id: str = Field(min_length=1)
+    seconds: float = Field(default=0.0, ge=0)
+
+
 class TurnFinished(_Event, _TurnTotals):
     """Last event of every turn, including one that errored (`stop_reason="error"`). Its
     fields are exactly the `TurnEndLine`'s, minus `seq` and `created_at`."""
@@ -611,6 +665,7 @@ TurnEvent = Annotated[
     | ArtifactCreated
     | ProposalCreated
     | ProposalResolved
+    | SlideComposed
     | TurnFinished
     | PreviewsReady
     | ProposalPreviewsReady,

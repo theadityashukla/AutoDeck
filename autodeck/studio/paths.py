@@ -67,6 +67,8 @@ THREAD_FILE = "thread.json"
 MESSAGES_FILE = "messages.jsonl"
 CONTEXT_FILE = "context.md"
 PROPOSAL_FILE = "proposal.json"
+DESIGN_SYSTEMS_DIR = "design_systems"
+"""Phase 2-3: `<engagement>/design_systems/<system id>/v0001.json`, one file per version."""
 
 _SEGMENT = re.compile(SEGMENT_PATTERN)
 _ENTRY_ID = re.compile(ENTRY_ID_PATTERN)
@@ -323,6 +325,26 @@ class EngagementPaths:
     def proposal_ids(self) -> list[str]:
         """Directories under `proposals/` whose name is a proposal id, sorted; [] if none."""
         return _matching_dirs(self.proposals, _PROPOSAL_ID)
+
+    @property
+    def design_systems(self) -> Path:
+        """Phase 2-3: `<root>/design_systems`."""
+        return self.root / DESIGN_SYSTEMS_DIR
+
+    def design_system_dir(self, system_id: str) -> Path:
+        """Phase 2-3: `<root>/design_systems/<system_id>`.
+
+        Raises:
+            InvalidSegmentError: `system_id` is not a safe segment (`check_segment`).
+        """
+        return self.design_systems / check_segment(system_id, label="design system id")
+
+    def design_system_version(self, system_id: str, version: int) -> Path:
+        """Phase 2-3: `<root>/design_systems/<system_id>/v<version, 4 digits>.json`
+        (`v0001.json`). Raises `InvalidSegmentError` for a bad id or a version below 1."""
+        if version < 1:
+            raise InvalidSegmentError(f"design system version {version} is below 1")
+        return self.design_system_dir(system_id) / f"v{version:04d}.json"
 
     def artifact(self, artifact_id: str) -> ArtifactPaths:
         """`ArtifactPaths(<root>/artifacts/<artifact_id>)`.

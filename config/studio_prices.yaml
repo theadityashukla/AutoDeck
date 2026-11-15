@@ -1,0 +1,24 @@
+# Assumed prices for the studio's per-turn cost estimates (docs/phases/V3-PHASE-2-3.md),
+# US dollars per million tokens, keyed by the studio's model id ("<provider>/<model>").
+#
+# THESE ARE ASSUMPTIONS, NOT CONFIRMED PRICES. The values are copied from the slide bench's
+# deliberately high assumptions (bench/slides/prices.yaml), so an estimate errs on the side
+# of looking expensive. Every cost the studio shows says it is an estimate from this file.
+# A model missing here is shown as unpriced. Replace with the real price list before
+# reading any number as an invoice.
+#
+# Reasoning tokens are part of the output count the API reports; image inputs are billed
+# as input tokens. One input and one output rate cover everything.
+models:
+  "openai/gpt-5.4-mini":
+    input: 3
+    output: 15
+  "openai/gpt-5.6-luna":
+    input: 5
+    output: 25
+  "openai/gpt-5.6-terra":
+    input: 12
+    output: 60
+  "openai/gpt-5.6-sol":
+    input: 25
+    output: 125

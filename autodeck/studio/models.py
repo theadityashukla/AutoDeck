@@ -34,9 +34,20 @@ serialisations of one deck state are byte-identical, which is what exact undo co
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from autodeck.ir.models import (
     ChartKind,
@@ -192,13 +203,220 @@ class DesignConcept(StudioModel):
     marker: Marker = DEFAULT_MARKER
 
 
+COLOR_SLOTS: tuple[str, ...] = (
+    "dk1",
+    "lt1",
+    "dk2",
+    "lt2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+)
+"""The ten theme colour slots a layout may name (v2's `ColorToken`), in theme order."""
+
+_HEX = re.compile(r"^[0-9A-F]{6}$")
+
+
+class DesignPalette(StudioModel):
+    """Phase 2-3: one hex colour per theme slot, the concrete palette of a design system.
+
+    Hex is stored upper-case without `#`; a leading `#` and lower case are accepted on input
+    (models write `"#0B2A22"`). Every slot is required: a design system states its whole
+    palette, so a deck rendered in it never mixes in a default colour by accident. The two
+    hyperlink slots of v2's `Palette` are not part of a design system; they keep the base
+    tokens' values (`design.design_tokens`).
+    """
+
+    dk1: str
+    lt1: str
+    dk2: str
+    lt2: str
+    accent1: str
+    accent2: str
+    accent3: str
+    accent4: str
+    accent5: str
+    accent6: str
+
+    @field_validator(*COLOR_SLOTS, mode="before")
+    @classmethod
+    def _normalise_hex(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            text = value.strip().lstrip("#").upper()
+            if not _HEX.fullmatch(text):
+                raise ValueError(f"{value!r} is not a six-digit hex colour such as #0B2A22")
+            return text
+        return value
+
+    def hex(self, slot: str) -> str:
+        """The slot's hex (upper case, no `#`). Raises KeyError for an unknown slot."""
+        if slot not in COLOR_SLOTS:
+            raise KeyError(f"unknown colour slot {slot!r}; slots are {', '.join(COLOR_SLOTS)}")
+        return str(getattr(self, slot))
+
+
 class DesignSystemRef(StudioModel):
-    """A pointer to a design system artifact (plan §7.2, L2). The system itself is Phase 3;
-    Phase 0 renders with `DesignTokens` passed explicitly and only carries this reference."""
+    """A pointer to one version of a design system artifact (plan §7.2, L2).
+
+    Phase 2-3 adds `palette`: a copy of that version's palette, taken when the reference is
+    set (`design.DesignSystem.ref`). Versions are immutable, so the copy cannot drift from
+    the artifact, and it makes the deck self-contained for rendering and layout QA: the
+    tokens of a deck are a pure function of the deck and the base tokens
+    (`design.deck_tokens`), which is what lets the preview service render any deck state
+    (including undone ones) without reading the design-system store. `palette` is None only
+    on records written before Phase 2-3; such a deck renders in the base palette.
+
+    A deck with no reference (`DeckArtifact.design_system is None`) is in the provisional
+    default system, `DEFAULT_SYSTEM_ID` version `DEFAULT_SYSTEM_VERSION`.
+    """
 
     id: str = Field(pattern=SEGMENT_PATTERN)
     version: int = Field(ge=1)
     marker: Marker = DEFAULT_MARKER
+    palette: DesignPalette | None = None
+
+
+DEFAULT_SYSTEM_ID = "default"
+"""The id of the provisional default design system every engagement starts with: the base
+tokens' palette and no stated concept (`design.default_design_system`). It is never written
+to disk; a deck with `design_system is None` is in it."""
+
+DEFAULT_SYSTEM_VERSION = 1
+
+
+# ---------------------------------------------------------------------------
+# Slide briefs and composition (Phase 2-3)
+# ---------------------------------------------------------------------------
+
+MAX_HEADER_CHARS = 160
+"""A slide header is one line of at most this many characters."""
+
+MAX_FAILURE_FINDINGS = 12
+"""`CompositionFailure.findings` keeps at most this many lines."""
+
+
+class BriefFigure(StudioModel):
+    """One key number of a brief and what it counts, e.g. `38%` / `lower serving cost`."""
+
+    value: str = Field(min_length=1, description="The number as it should read, e.g. '38%'.")
+    label: str = Field(default="", description="What the number is, in a few words.")
+
+
+class BriefSeries(StudioModel):
+    name: str = Field(min_length=1, description="The series name with its unit: 'Cost ($k)'.")
+    values: list[float] = Field(min_length=1)
+
+
+class BriefChart(StudioModel):
+    """Data for one chart, in the bench's case shape. The designer draws it; the lead only
+    supplies the numbers. `emphasis` names categories to highlight, copied exactly."""
+
+    kind: Literal["bar", "column", "line"]
+    categories: list[str] = Field(min_length=1)
+    series: list[BriefSeries] = Field(min_length=1)
+    emphasis: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _aligned(self) -> BriefChart:
+        width = len(self.categories)
+        bad = [s.name for s in self.series if len(s.values) != width]
+        if bad:
+            raise ValueError(
+                f"series {', '.join(bad)} do not have one value per category ({width} expected)"
+            )
+        unknown = sorted(set(self.emphasis) - set(self.categories))
+        if unknown:
+            raise ValueError(f"emphasis names categories not in the chart: {unknown}")
+        if len(set(self.categories)) != width:
+            raise ValueError("chart categories repeat")
+        return self
+
+
+class BriefContent(StudioModel):
+    """Everything the designer may put on the slide besides the header: short text points,
+    key figures, optional chart data. Already written; the designer does not add facts."""
+
+    points: list[str] = Field(default_factory=list, description="Short text items, in order.")
+    figures: list[BriefFigure] = Field(default_factory=list)
+    chart: BriefChart | None = None
+
+    @model_validator(mode="after")
+    def _points_not_blank(self) -> BriefContent:
+        if any(not p.strip() for p in self.points):
+            raise ValueError("a brief point may not be blank")
+        return self
+
+
+class SlideBrief(StudioModel):
+    """The contract between direction and composition (Phase 2-3, plan §6.2).
+
+    Written by the lead (L1) in words: the slide's talking header, what the audience must
+    conclude (`intent`), and the content, already written. The designer (L3/L4) turns a
+    brief plus the deck's design system into the slide's blocks and free layout; the lead
+    never writes those. `notes` are hints about what matters (what is the hero, what is
+    quieter evidence); they are not drawn and are not speaker notes.
+
+    `header` is one non-blank line; the designed slide must carry it word for word (line
+    breaks aside), which the designer's conformance check enforces.
+    """
+
+    header: str = Field(min_length=1, max_length=MAX_HEADER_CHARS)
+    intent: str = Field(min_length=1)
+    content: BriefContent = Field(default_factory=BriefContent)
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def _header_one_line(self) -> SlideBrief:
+        if not self.header.strip() or "\n" in self.header or "\r" in self.header:
+            raise ValueError("a slide header is one non-blank line")
+        if not self.intent.strip():
+            raise ValueError("a slide brief states its intent")
+        return self
+
+
+def brief_digest(brief: SlideBrief) -> str:
+    """The fingerprint of a brief: SHA-256 hex of
+    `json.dumps(brief.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
+    ensure_ascii=False)` encoded as UTF-8. Two briefs with equal fields have equal digests;
+    any change to any field (a reworded point, a changed figure) changes it."""
+    text = json.dumps(
+        brief.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class ComposedFrom(StudioModel):
+    """What a slide's designed form (its blocks and layout) was composed from (plan §8.3):
+    the fingerprint of the brief and the design system version, and the model that composed
+    it. Set by the designer's result handler (`edits.apply_composition`), never by the lead.
+    """
+
+    brief_digest: str = Field(pattern=DIGEST_PATTERN)
+    system_id: str = Field(pattern=SEGMENT_PATTERN)
+    system_version: int = Field(ge=1)
+    model_id: str = Field(min_length=1)
+
+
+class CompositionFailure(StudioModel):
+    """The designer could not make this slide clean for this brief and system. The previous
+    designed form, if any, is kept; this record says what failed, so the lead and the owner
+    can see it. Cleared by the next clean composition."""
+
+    brief_digest: str = Field(pattern=DIGEST_PATTERN)
+    system_id: str = Field(pattern=SEGMENT_PATTERN)
+    system_version: int = Field(ge=1)
+    model_id: str = Field(min_length=1)
+    attempts: int = Field(ge=1)
+    findings: list[str] = Field(default_factory=list, max_length=MAX_FAILURE_FINDINGS)
+
+    @model_validator(mode="after")
+    def _findings_one_line(self) -> CompositionFailure:
+        if any("\n" in f or not f.strip() for f in self.findings):
+            raise ValueError("each composition finding is one non-blank line")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +549,28 @@ class Slide(StudioModel):
         default_factory=list,
         description="Ids of the storyline points this slide serves; checked by DeckArtifact.",
     )
+    brief: SlideBrief | None = Field(
+        default=None,
+        description="Phase 2-3: the slide's brief (header, intent, content), by the lead.",
+    )
+    composed: ComposedFrom | None = Field(
+        default=None, description="Phase 2-3: what the designed form was composed from."
+    )
+    compose_failure: CompositionFailure | None = Field(
+        default=None, description="Phase 2-3: the last composition that failed, if any."
+    )
+
+    @model_validator(mode="after")
+    def _brief_and_composition_agree(self) -> Slide:
+        if self.brief is not None and self.intent != self.brief.intent:
+            raise ValueError(
+                f"slide {self.id!r}: intent must equal the brief's intent when a brief is set"
+            )
+        if self.composed is not None and (self.brief is None or self.layout is None):
+            raise ValueError(f"slide {self.id!r}: a composed slide has a brief and a layout")
+        if self.compose_failure is not None and self.brief is None:
+            raise ValueError(f"slide {self.id!r}: a composition failure needs a brief")
+        return self
 
     @model_validator(mode="after")
     def _block_ids_unique(self) -> Slide:
@@ -567,3 +807,77 @@ class ChangeLog(StudioModel):
             if entry.id == entry_id:
                 return entry
         raise KeyError(f"change log of {self.artifact_id!r} has no entry {entry_id!r}")
+
+
+# ---------------------------------------------------------------------------
+# Staleness (Phase 2-3, plan §8.3, P7)
+# ---------------------------------------------------------------------------
+
+CompositionState = Literal["unbriefed", "undesigned", "fresh", "stale", "failed"]
+"""Where a slide stands against its brief and the deck's design system.
+
+* `unbriefed`: no brief (a slide made before Phase 2-3, or by hand). Never stale.
+* `undesigned`: a brief, and no designed form composed from any brief yet.
+* `fresh`: its designed form was composed from the current brief and the current system.
+* `stale`: it was composed, but the brief or the system has changed since.
+* `failed`: the last composition for the current brief and system failed (the previous
+  designed form, if any, is still what renders).
+"""
+
+STALE_BRIEF = "brief changed"
+STALE_SYSTEM = "design system changed"
+
+
+@dataclass(frozen=True)
+class CompositionStatus:
+    state: CompositionState
+    reasons: tuple[str, ...] = ()
+    """For `stale` only: `STALE_BRIEF` and/or `STALE_SYSTEM`, in that order."""
+
+
+def effective_system(deck: DeckArtifact) -> tuple[str, int]:
+    """`(id, version)` of the design system the deck is in: its reference, or the default
+    system `(DEFAULT_SYSTEM_ID, DEFAULT_SYSTEM_VERSION)` when it has none."""
+    ref = deck.design_system
+    if ref is None:
+        return DEFAULT_SYSTEM_ID, DEFAULT_SYSTEM_VERSION
+    return ref.id, ref.version
+
+
+def composition_status(slide: Slide, system: tuple[str, int]) -> CompositionStatus:
+    """The staleness rule, computed from fingerprints only (pure; never triggers anything).
+
+    In order: no brief → `unbriefed`. A `compose_failure` whose brief digest equals the
+    current brief's and whose system equals `system` → `failed` (a failure recorded for an
+    older brief or system is ignored). No `composed` → `undesigned`. Otherwise compare
+    `composed` with the current brief digest and `system`: equal → `fresh`; else `stale`
+    with the reasons that apply (`STALE_BRIEF` first, then `STALE_SYSTEM`).
+    """
+    if slide.brief is None:
+        return CompositionStatus("unbriefed")
+    digest = brief_digest(slide.brief)
+    failure = slide.compose_failure
+    if (
+        failure is not None
+        and failure.brief_digest == digest
+        and (failure.system_id, failure.system_version) == system
+    ):
+        return CompositionStatus("failed")
+    composed = slide.composed
+    if composed is None:
+        return CompositionStatus("undesigned")
+    reasons: list[str] = []
+    if composed.brief_digest != digest:
+        reasons.append(STALE_BRIEF)
+    if (composed.system_id, composed.system_version) != system:
+        reasons.append(STALE_SYSTEM)
+    if not reasons:
+        return CompositionStatus("fresh")
+    return CompositionStatus("stale", tuple(reasons))
+
+
+def deck_composition(deck: DeckArtifact) -> dict[str, CompositionStatus]:
+    """`composition_status` of every slide against `effective_system(deck)`, keyed by slide
+    id in deck order."""
+    system = effective_system(deck)
+    return {slide.id: composition_status(slide, system) for slide in deck.slides}

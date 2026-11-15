@@ -17,7 +17,16 @@ from collections.abc import Sequence
 
 from autodeck.studio.conversation import CandidateSlide
 from autodeck.studio.errors import EditError
-from autodeck.studio.models import Brief, DeckArtifact, Marker, Slide
+from autodeck.studio.models import (
+    Brief,
+    ComposedFrom,
+    CompositionFailure,
+    DeckArtifact,
+    DesignSystemRef,
+    Marker,
+    Slide,
+    SlideBrief,
+)
 from autodeck.studio.tool_args import MARK_TARGET_PATTERN
 
 
@@ -364,3 +373,117 @@ def apply_candidate_slides(
 
 def _intent(slide: Slide) -> str:
     return f": {slide.intent[:60]}" if slide.intent else ""
+
+
+# ---------------------------------------------------------------------------
+# Phase 2-3: briefs, composition results, the design-system reference, small text edits.
+# Same rules: a new, fully validated deck; the input never mutated; ids never changed;
+# nothing recorded. "Flat" text below means `views.flat`: every whitespace run collapsed to
+# one space and the ends stripped (import it inside the function to avoid a cycle, or
+# repeat the one-line regex).
+# ---------------------------------------------------------------------------
+
+
+def set_slide_brief(
+    deck: DeckArtifact,
+    slide_id: str,
+    brief: SlideBrief,
+    *,
+    position: int | None = None,
+    serves: list[str] | None = None,
+) -> tuple[DeckArtifact, bool, int]:
+    """The deck with slide `slide_id`'s brief set, whether the slide is new, and its 1-based
+    position.
+
+    New slide: `Slide(id=slide_id, intent=brief.intent, brief=brief, serves=serves or [])`
+    (no blocks, no layout, marker `provisional`), inserted at `position` (1 .. n + 1) or
+    appended. Existing slide: its `brief` replaced and `intent` set to `brief.intent`;
+    `serves` replaced when given; blocks, layout, `composed`, `compose_failure`,
+    `speaker_notes` and `marker` kept (so a designed slide becomes stale by fingerprint,
+    never rebuilt here); moved to `position` (1 .. n) when given, else left in place.
+
+    Raises:
+        EditError: `position` out of range (the message gives the range).
+        pydantic.ValidationError: e.g. `serves` names an unknown storyline point.
+    """
+    raise NotImplementedError
+
+
+def apply_composition(
+    deck: DeckArtifact, slide_id: str, designed: Slide, composed: ComposedFrom
+) -> DeckArtifact:
+    """The deck with a clean composition applied to one slide.
+
+    The slide keeps its id, `intent`, `brief`, `serves`, `marker` and `speaker_notes`;
+    takes `designed.blocks` and `designed.layout`; `composed` becomes `composed`;
+    `compose_failure` becomes None.
+
+    Raises:
+        EditError: no slide `slide_id`; the slide has no brief; or its brief's digest is not
+            `composed.brief_digest` (message: "the brief of slide <id> changed while it was
+            being composed; compose it again").
+        pydantic.ValidationError: the result is invalid.
+    """
+    raise NotImplementedError
+
+
+def record_compose_failure(
+    deck: DeckArtifact, slide_id: str, failure: CompositionFailure
+) -> DeckArtifact:
+    """The deck with `failure` recorded on one slide; everything else on the slide (the
+    previous designed form included) is kept.
+
+    Raises:
+        EditError: no slide `slide_id`, or it has no brief.
+    """
+    raise NotImplementedError
+
+
+def set_design_system(deck: DeckArtifact, ref: DesignSystemRef) -> DeckArtifact:
+    """The deck with `design_system` set to `ref`. Slides are not touched: designed slides
+    become stale by fingerprint (`models.composition_status`)."""
+    raise NotImplementedError
+
+
+def swap_slides(deck: DeckArtifact, first: str, second: str) -> DeckArtifact:
+    """The deck with two slides' positions exchanged; every other slide keeps its place.
+
+    Raises:
+        EditError: either id is not in the deck, or both are the same.
+    """
+    raise NotImplementedError
+
+
+def retitle_slide(deck: DeckArtifact, slide_id: str, header: str) -> DeckArtifact:
+    """The deck with a slide's header changed in its brief and, where the designed slide
+    shows it, on the slide, without recomposing.
+
+    Let `old` be the slide's current `brief.header`. The brief's header becomes `header`
+    (stripped). Then, if a text block's flat text equals flat(`old`), the first such block's
+    text becomes `header` (stripped). If the slide was `fresh` before the edit
+    (`models.composition_status` against `models.effective_system(deck)`) and such a block
+    was found, `composed.brief_digest` is updated to the new brief's digest, so it stays
+    fresh. Otherwise `composed` is left as it was (the slide reads `stale` with "brief
+    changed", or stays `undesigned`).
+
+    Raises:
+        EditError: no slide `slide_id`; the slide has no brief ("slide <id> has no brief;
+            use set_block_text"); the header is blank or more than one line.
+        NoChangeError: is not raised here; an unchanged deck is the store's to refuse.
+    """
+    raise NotImplementedError
+
+
+def set_designed_text(
+    deck: DeckArtifact, slide_id: str, block_id: str, text: str
+) -> DeckArtifact:
+    """`set_block_text`, keeping the brief in step: a small direct text change to a slide.
+
+    First as `set_block_text` (same errors). Then, when the slide has a brief: if the
+    block's old flat text equals flat(`brief.header`), the header becomes flat(`text`);
+    else if it equals flat(a point) of `brief.content.points`, the first such point becomes
+    flat(`text`); else the brief is unchanged. If the brief changed and the slide was
+    `fresh` before the edit, `composed.brief_digest` is updated to the new digest (still
+    fresh). A slide without a brief is changed exactly as `set_block_text` changes it.
+    """
+    raise NotImplementedError

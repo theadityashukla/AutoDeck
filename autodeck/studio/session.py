@@ -14,8 +14,18 @@ the previews and the event bus, and owns two rules:
   `UserLine` (origin `context`) before the turn's own line, so the model's first message
   is the context followed by the request (`loop.build_model_messages` merges them).
 
-The order of side effects in a turn is fixed (see `run_turn`) so the event stream and the
-thread log always agree.
+The order of side effects in a turn is fixed (see `_run_turn_locked`) so the event stream
+and the thread log always agree.
+
+**Phase 2-3: layers and routing.** The studio holds one binding per role
+(`bindings.StudioBindings`). Before a turn the router decides who answers
+(`routing.decide_route`): a small local edit goes to the mechanic, which has only the tools
+for such edits and can hand the turn to the lead; everything else goes to the lead. The
+owner can pin a turn to the lead (`route="lead"`). Every model call of a turn goes through a
+`usage.MeteredModel`, so the turn records which layers ran, with which model, how many
+calls and tokens, and an estimated cost from the studio's price file (`usage.TurnUsage`, on
+the `TurnEndLine` and the `TurnFinished`). The design tools reach the designer and the
+system layer through the same metered bindings (`tools.ToolContext.bindings`).
 """
 
 from __future__ import annotations
@@ -23,29 +33,25 @@ from __future__ import annotations
 import sys
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from autodeck.agents.tools.registry import ToolResult
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.providers.base import ToolCall
 from autodeck.studio import context as context_module
-from autodeck.studio import loop, prompt, tools
-from autodeck.studio.bindings import BoundModel
+from autodeck.studio import prompt
+from autodeck.studio.bindings import BoundModel, StudioBindings
 from autodeck.studio.conversation import (
     MAX_SUMMARY_CHARS,
     ProposalRecord,
     ProposalResolved,
     ThreadRecord,
     ToolCallRecord,
-    TurnEndLine,
     TurnEvent,
     TurnFinished,
-    TurnStarted,
     UserOrigin,
-    classify_turn,
 )
 from autodeck.studio.conversation import ChangeReverted as ChangeRevertedEvent
 from autodeck.studio.engagement import (
@@ -59,8 +65,8 @@ from autodeck.studio.loop import LoopLimits
 from autodeck.studio.models import ChangeEntry
 from autodeck.studio.previews import PreviewService
 from autodeck.studio.proposals import ProposalStore
-from autodeck.studio.sources import SourceLibrary
 from autodeck.studio.threads import ThreadStore
+from autodeck.studio.usage import Prices, RouteRequest
 from autodeck.studio.views import clip
 
 
@@ -73,7 +79,17 @@ class StudioSettings:
     owner_memory_path: Path
     """The owner memory file (v2's default is `~/.autodeck/memory/owner.md`)."""
     tokens: DesignTokens
+    """The base tokens (fonts, sizes, spacing, the default palette); each deck renders and is
+    checked in `design.deck_tokens(deck, tokens)`."""
     limits: LoopLimits = field(default_factory=LoopLimits)
+    prices: Prices = field(default_factory=Prices)
+    """Phase 2-3: assumed prices for the per-turn cost estimate (`usage.load_prices`).
+    Empty: every layer is unpriced."""
+    mechanic_limits: LoopLimits = field(default_factory=lambda: LoopLimits(max_steps=6))
+    """Phase 2-3: the mechanic's caps (a small edit needs few calls)."""
+    designer_attempts: int = 4
+    designer_parallel: int = 4
+    system_attempts: int = 3
 
 
 class _TurnRecorder:
@@ -154,35 +170,61 @@ class Studio:
     """One per server process (or per test)."""
 
     settings: StudioSettings
-    lead: BoundModel
+    bindings: StudioBindings
     bus: EventBus
     previews: PreviewService
     clock: Callable[[], datetime]
     system: str
+    """The lead's system prompt."""
+    mechanic_system: str
+    router_system: str
 
     def __init__(
         self,
         settings: StudioSettings,
         *,
-        lead: BoundModel,
+        lead: BoundModel | None = None,
+        bindings: StudioBindings | None = None,
         bus: EventBus,
         previews: PreviewService,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        """Stores its arguments as `self.settings`, `self.lead`, `self.bus`, `self.previews`
-        and `self.clock` (`clock` defaults to `datetime.now(UTC)`), reads the system prompt
-        once into `self.system` (`prompt.system_prompt()`), and creates the lock table.
-        Touches no workspace file. `self.lead` is read at the start of every turn, so a
-        test (or Phase 2's routing) may replace it between turns."""
+        """Stores its arguments as `self.settings`, `self.bindings`, `self.bus`,
+        `self.previews` and `self.clock` (`clock` defaults to `datetime.now(UTC)`), reads
+        the system prompts once (`self.system` = `prompt.system_prompt()`,
+        `self.mechanic_system` and `self.router_system` = `prompt.role_prompt(...)`), and
+        creates the lock table. Touches no workspace file.
+
+        Give exactly one of `bindings` (Phase 2-3) and `lead` (Phase 1 form: one model for
+        every role, `StudioBindings.single(lead)`); neither or both is a `ValueError`.
+        `self.bindings` is read at the start of every turn, so a test may replace it (or
+        `self.lead`) between turns."""
+        if (lead is None) == (bindings is None):
+            raise ValueError("give exactly one of lead and bindings")
+        self.use_router_model = bindings is not None
+        """False in the Phase 1 form (`lead=`): one model plays every role, so routing is by
+        rule only and falls back to the lead (the router is never asked; asking would
+        consume the lead's script)."""
         self.settings = settings
-        self.lead = lead
+        self.bindings = bindings if bindings is not None else StudioBindings.single(lead)  # type: ignore[arg-type]
         self.bus = bus
         self.previews = previews
         self.clock = clock or (lambda: datetime.now(UTC))
         self.system = prompt.system_prompt()
+        self.mechanic_system = prompt.role_prompt(prompt.MECHANIC_PROMPT_PATH)
+        self.router_system = prompt.role_prompt(prompt.ROUTER_PROMPT_PATH)
         self._table_lock = threading.Lock()
         self._locks: dict[tuple[str, str], threading.Lock] = {}
         self._running: dict[tuple[str, str], str] = {}
+
+    @property
+    def lead(self) -> BoundModel:
+        """The lead's binding (`self.bindings.lead`)."""
+        return self.bindings.lead
+
+    @lead.setter
+    def lead(self, value: BoundModel) -> None:
+        self.bindings = replace(self.bindings, lead=value)
 
     # -- engagements ----------------------------------------------------------------
 
@@ -240,20 +282,34 @@ class Studio:
     # -- turns ------------------------------------------------------------------------
 
     def run_turn(
-        self, engagement: Engagement, thread_id: str, *, text: str, origin: UserOrigin = "owner"
+        self,
+        engagement: Engagement,
+        thread_id: str,
+        *,
+        text: str,
+        origin: UserOrigin = "owner",
+        route: RouteRequest = "auto",
     ) -> TurnFinished:
         """Run one turn synchronously: take the engagement lock without blocking
         (`TurnInProgressError`), `_run_turn_locked`, release. See `begin_turn` for the
-        server's asynchronous form."""
+        server's asynchronous form. `route` is the owner's per-message override."""
         key = self._key(engagement)
         self._acquire(key)
         try:
-            return self._run_turn_locked(engagement, thread_id, text=text, origin=origin)
+            return self._run_turn_locked(
+                engagement, thread_id, text=text, origin=origin, route=route
+            )
         finally:
             self._release(key)
 
     def begin_turn(
-        self, engagement: Engagement, thread_id: str, *, text: str, origin: UserOrigin = "owner"
+        self,
+        engagement: Engagement,
+        thread_id: str,
+        *,
+        text: str,
+        origin: UserOrigin = "owner",
+        route: RouteRequest = "auto",
     ) -> str:
         """Start a turn on a daemon thread and return its turn id at once.
 
@@ -264,7 +320,9 @@ class Studio:
         key = self._key(engagement)
         self._acquire(key)
         try:
-            return self._start_worker(engagement, thread_id, text=text, origin=origin)
+            return self._start_worker(
+                engagement, thread_id, text=text, origin=origin, route=route
+            )
         except BaseException:
             self._release(key)
             raise
@@ -288,159 +346,58 @@ class Studio:
             return self._running.get(self._key(engagement))
 
     def _run_turn_locked(
-        self, engagement: Engagement, thread_id: str, *, text: str, origin: UserOrigin
+        self,
+        engagement: Engagement,
+        thread_id: str,
+        *,
+        text: str,
+        origin: UserOrigin,
+        route: RouteRequest = "auto",
     ) -> TurnFinished:
-        """The turn itself; the caller holds the engagement lock. Side effects in order:
+        """The turn itself; the caller holds the engagement lock. Phase 1's body (see
+        `git show fc32d21:autodeck/studio/session.py`) is the starting point; Phase 2-3 adds
+        routing, the mechanic and the usage record. Side effects in order:
 
-        1. `store = ThreadStore(engagement)`; `store.load(thread_id)`; `lines =
-           store.read_lines(thread_id)`; `turn_id = store.next_turn_id(thread_id)`;
-           `instruction = tools.instruction_line(text)` (for `recap` origin:
-           `"Opening recap"`).
-        2. If `lines` is empty, append `UserLine(origin="context", text=
-           store.context_text(thread_id), turn_id)`.
-        3. Append `UserLine(origin, text, turn_id)`.
-        4. Publish `TurnStarted(thread_id, turn_id, origin, text if origin in ("owner",
-           "choice") else "", model_id)`.
-        5. `messages, summaries = loop.build_model_messages(store.read_lines(thread_id))`;
-           build a `TurnLedger`, `ToolContext` (with a `SourceLibrary(engagement,
-           corpus_root=...)` and `ProposalStore(engagement)`) and `tools.build_toolbox`.
-        6. `loop.run_steps(self.lead, system=..., messages, summaries, toolbox, ledger,
-           sink, thread_id, turn_id, limits)` where the sink appends `AssistantLine` /
-           `ToolLine` (with `model_id`) and publishes events on the thread's channel.
-           Any exception: `stop_reason="error"`, `error=f"{type(exc).__name__}: {exc}"`,
-           steps/tokens as counted by the sink so far.
-        7. Classify (`conversation.classify_turn` over the ledger) and append the
-           `TurnEndLine`; publish the matching `TurnFinished`.
-        8. For each `ledger.touched_artifacts()`: `previews.request_artifact(...,
-           thread_id, turn_id)`; for each proposal created: `previews.request_proposal`.
-        9. Return the `TurnFinished`.
+        1. As Phase 1: `store = ThreadStore(engagement)`; `store.load(thread_id)`; `lines =
+           store.read_lines(thread_id)`; `turn_id = store.next_turn_id(thread_id)`; mark the
+           turn running; `instruction = tools.instruction_line(text)` (`"Opening recap"`
+           for a recap). `bindings = self.bindings` (read once), `meter = UsageMeter()`, and
+           metered copies of every binding (`usage.metered`).
+        2. If `lines` is empty, append the `context` `UserLine`; then append the turn's
+           `UserLine(origin, text)`.
+        3. Route: `decision = routing.decide_route(text, origin=origin, request=route,
+           router=<metered router, or None when not self.use_router_model>,
+           outline=<views.deck_outline of each deck, joined by a blank line, "" when none>,
+           system=self.router_system)`.
+        4. Publish `TurnStarted(..., model_id=<the mechanic's model id when routed to the
+           mechanic, else the lead's>)`.
+        5. If routed to the mechanic: build a `TurnLedger` and a `ToolContext(role=
+           "mechanic", model_id=<mechanic model id>, bindings=<metered>, ...)`, the toolbox
+           `tools.build_toolbox(ctx)` (the mechanic's names), and run `loop.run_steps(
+           <metered mechanic>, system=self.mechanic_system, messages=mechanic.
+           mechanic_messages(engagement, text), summaries={}, ..., limits=self.settings.
+           mechanic_limits, stop_when=lambda: ledger.handoff is not None)` with a sink that
+           writes `AssistantLine` / `ToolLine` with `role="mechanic"`. If it returns
+           `handed_off`, set `decision.handed_off = True` (a copy) and continue to step 6
+           with the **same** ledger (its changes count for the turn); otherwise the turn's
+           outcome is the mechanic's and step 6 is skipped.
+        6. The lead (routed there, or handed off): as Phase 1's steps 5-6, with
+           `loop.build_model_messages(store.read_lines(thread_id), role="lead")`, a
+           `ToolContext(role="lead", model_id=<lead model id>, bindings=<metered>,
+           designer_attempts/parallel and system_attempts from settings, ...)`, the metered
+           lead, `self.system`, and `self.settings.limits`. The lead's lines carry
+           `role="lead"`.
+        7. Any exception in 3-6 (routing itself never raises): `stop_reason="error"`,
+           `error=f"{type(exc).__name__}: {exc}"`, steps and tokens as counted so far.
+        8. Totals as Phase 1 (`classify_turn` over the ledger), with `model_id` = the lead's
+           when the lead ran, else the mechanic's; `steps`, `input_tokens`, `output_tokens`
+           summed over the conversational roles that ran (mechanic and lead); `route=
+           decision`; `usage=meter.snapshot(self.settings.prices)`. Append the `TurnEndLine`
+           and publish the matching `TurnFinished`.
+        9. As Phase 1: previews for `ledger.touched_artifacts()`, then for each proposal.
+           Return the `TurnFinished`.
         """
-        key = self._key(engagement)
-        store = ThreadStore(engagement)
-        store.load(thread_id)
-        lines = store.read_lines(thread_id)
-        turn_id = store.next_turn_id(thread_id)
-        with self._table_lock:
-            self._running[key] = f"{thread_id}/{turn_id}"
-        instruction = "Opening recap" if origin == "recap" else tools.instruction_line(text)
-        lead = self.lead  # read once: a later phase may route a turn elsewhere
-        channel = channel_key(engagement.client, engagement.project, thread_id)
-
-        if not lines:
-            store.append(
-                thread_id,
-                {
-                    "kind": "user",
-                    "turn_id": turn_id,
-                    "origin": "context",
-                    "text": store.context_text(thread_id),
-                },
-                now=self.clock(),
-            )
-        store.append(
-            thread_id,
-            {"kind": "user", "turn_id": turn_id, "origin": origin, "text": text},
-            now=self.clock(),
-        )
-        self.bus.publish(
-            channel,
-            TurnStarted(
-                thread_id=thread_id,
-                turn_id=turn_id,
-                origin=origin,
-                text=text if origin in ("owner", "choice") else "",
-                model_id=lead.model_id,
-            ),
-        )
-
-        ledger = tools.TurnLedger()
-        counted: dict[str, int] = {"steps": 0, "input": 0, "output": 0}
-        stop_reason: Any = "replied"
-        error = ""
-
-        try:
-            messages, summaries = loop.build_model_messages(store.read_lines(thread_id))
-            tool_ctx = tools.ToolContext(
-                engagement=engagement,
-                thread_id=thread_id,
-                turn_id=turn_id,
-                instruction=instruction,
-                model_id=lead.model_id,
-                tokens=self.settings.tokens,
-                sources=SourceLibrary(engagement, corpus_root=self.settings.corpus_root),
-                proposals=ProposalStore(engagement),
-                ledger=ledger,
-                clock=self.clock,
-            )
-            toolbox = tools.build_toolbox(tool_ctx)
-            outcome = loop.run_steps(
-                lead,
-                system=self.system,
-                messages=messages,
-                summaries=summaries,
-                toolbox=toolbox,
-                ledger=ledger,
-                sink=_TurnRecorder(
-                    self, store, thread_id, turn_id, lead.model_id, channel, counted
-                ),
-                thread_id=thread_id,
-                turn_id=turn_id,
-                limits=self.settings.limits,
-            )
-            stop_reason = outcome.stop_reason
-            counted["steps"] = outcome.steps
-            counted["input"] = outcome.input_tokens
-            counted["output"] = outcome.output_tokens
-        except Exception as exc:
-            stop_reason = "error"
-            error = f"{type(exc).__name__}: {exc}"
-
-        change_ids = [entry.id for _, entry in ledger.changes]
-        undone_ids = [entry.id for _, entry in ledger.undone]
-        redone_ids = [entry.id for _, entry in ledger.redone]
-        proposal_ids = [proposal.id for proposal in ledger.proposals]
-        totals: dict[str, Any] = {
-            "turn_id": turn_id,
-            "turn_kind": classify_turn(
-                change_ids=change_ids,
-                undone_ids=undone_ids,
-                redone_ids=redone_ids,
-                created_artifacts=list(ledger.created),
-                proposal_ids=proposal_ids,
-            ),
-            "stop_reason": stop_reason,
-            "model_id": lead.model_id,
-            "steps": counted["steps"],
-            "change_ids": change_ids,
-            "undone_ids": undone_ids,
-            "redone_ids": redone_ids,
-            "created_artifacts": list(ledger.created),
-            "proposal_ids": proposal_ids,
-            "input_tokens": counted["input"],
-            "output_tokens": counted["output"],
-            "error": error,
-        }
-        finished = TurnFinished(thread_id=thread_id, **totals)
-        end = TurnEndLine.model_validate(
-            {**totals, "kind": "turn_end", "seq": 1, "created_at": self.clock()}
-        )
-        store.append(
-            thread_id,
-            {
-                "kind": "turn_end",
-                **end.model_dump(mode="json", exclude={"kind", "seq", "created_at"}),
-            },
-            now=end.created_at,
-        )
-        self.bus.publish(channel, finished)
-
-        for artifact_id in ledger.touched_artifacts():
-            self.previews.request_artifact(
-                engagement, artifact_id, thread_id=thread_id, turn_id=turn_id
-            )
-        for proposal in ledger.proposals:
-            self.previews.request_proposal(engagement, proposal, thread_id=thread_id)
-        return finished
+        raise NotImplementedError
 
     # -- owner actions between turns ----------------------------------------------------
 
@@ -600,7 +557,13 @@ class Studio:
         )
 
     def _start_worker(
-        self, engagement: Engagement, thread_id: str, *, text: str, origin: UserOrigin
+        self,
+        engagement: Engagement,
+        thread_id: str,
+        *,
+        text: str,
+        origin: UserOrigin,
+        route: RouteRequest = "auto",
     ) -> str:
         """With the lock held: check the thread, compute the turn id and run the turn on a
         daemon thread that releases the lock when it ends. On an exception here the caller
@@ -614,7 +577,9 @@ class Studio:
 
         def work() -> None:
             try:
-                self._run_turn_locked(engagement, thread_id, text=text, origin=origin)
+                self._run_turn_locked(
+                    engagement, thread_id, text=text, origin=origin, route=route
+                )
             except BaseException as exc:  # the lock must be released whatever happens
                 print(
                     f"studio: turn {thread_id}/{turn_id} failed: {type(exc).__name__}: {exc}",

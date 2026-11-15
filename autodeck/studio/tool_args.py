@@ -9,22 +9,34 @@ written for the model: short, imperative, and in the product's terms. Every deck
 an optional `artifact_id`; omitted, it means the engagement's only deck
 (`tools.resolve_artifact`).
 
-Phase 1 is one model writing every layer (no routing yet), so `write_slide` takes the
-whole slide, blocks and free layout together. Phase 2 splits it (plan §6.2) without
-changing the IR.
+Phase 1 was one model writing every layer, so `write_slide` took the whole slide. Phase 2-3
+splits it (plan §6.2): the lead writes a slide's brief (`SetSlideBriefArgs`) and asks the
+designer to compose it (`ComposeSlidesArgs`); only the designer's own tool
+(`DesignedSlideInput`) carries blocks and a layout. `WriteSlideArgs` and
+`SetDesignConceptArgs` remain defined for old thread logs and the bench, but no toolbox
+offers them any more. The system layer's tool (`SetPaletteArgs`), the mechanic's handoff
+(`HandToLeadArgs`) and the router's answer (`RouteArgs`) are here too.
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from autodeck.ir.models import ColorToken, FreeLayout
 from autodeck.studio.conversation import MAX_LABEL_CHARS, MAX_SUMMARY_CHARS
+from autodeck.studio.design import DesignDirection, TextPair
 from autodeck.studio.models import (
+    MAX_HEADER_CHARS,
     PROPOSAL_ID_PATTERN,
     SEGMENT_PATTERN,
+    Block,
+    DesignPalette,
     Marker,
     OptionId,
     Slide,
+    SlideBrief,
 )
 
 ARTIFACT_ID_HELP = "The deck's id. Omit it when the engagement has one deck."
@@ -278,3 +290,225 @@ class LoadSkillArgs(ToolArgs):
     """`load_skill`: read one deck-craft skill."""
 
     name: str = Field(min_length=1, description="A skill name from the list in your prompt.")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2-3: briefs, composition, design, small edits, handoff, routing
+# ---------------------------------------------------------------------------
+
+SLIDE_ID_HELP = (
+    "A short slide id: lower-case letters, digits and hyphens, e.g. 's1' or 'the-ask'. An id "
+    "already in the deck updates that slide."
+)
+SLIDE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
+
+
+class SetSlideBriefArgs(DeckToolArgs):
+    """`set_slide_brief`: create a slide from a brief, or update a slide's brief. Words only:
+    the designer decides what the slide looks like (call compose_slides)."""
+
+    slide_id: str = Field(pattern=SLIDE_ID_PATTERN, max_length=40, description=SLIDE_ID_HELP)
+    brief: SlideBrief = Field(
+        description="header: the talking headline, one line, shown word for word. intent: "
+        "what the audience must conclude. content: points (short lines), figures (value and "
+        "label), optional chart (kind bar|column|line, categories, series, emphasis). notes: "
+        "what matters most, for the designer; not shown."
+    )
+    position: int | None = Field(
+        default=None,
+        ge=1,
+        description="1-based place in the deck. Omit to keep an existing slide where it is, "
+        "or to add a new one at the end.",
+    )
+    serves: list[str] | None = Field(
+        default=None, description="Storyline point ids this slide serves. Omit to keep."
+    )
+
+
+class ComposeSlidesArgs(DeckToolArgs):
+    """`compose_slides`: ask the designer to design or redesign slides from their briefs in
+    the deck's design system."""
+
+    slide_ids: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=30,
+        description="Slides to design or redesign. Omit for every slide that is stale or "
+        "not designed yet.",
+    )
+
+
+class ProposeDesignArgs(DeckToolArgs):
+    """`propose_design`: offer two or three design directions, each rendered on real slides
+    of this deck, without changing anything."""
+
+    summary: str = Field(
+        min_length=1, max_length=MAX_SUMMARY_CHARS, description="What is being decided."
+    )
+    directions: list[DesignDirection] = Field(
+        min_length=2,
+        max_length=3,
+        description="Two or three clearly different directions: name, concept, 3-5 rules. "
+        "Words only; the system layer picks the colours.",
+    )
+    sample_slide_ids: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=3,
+        description="Up to three slides (with briefs) to render each direction on. Omit for "
+        "the first three slides that have briefs.",
+    )
+
+
+class ApplyDesignArgs(DeckToolArgs):
+    """`apply_design`: adopt a design as the deck's decided design system. Give either a
+    proposal and option the owner chose, or a direction described in words."""
+
+    proposal_id: str | None = Field(default=None, pattern=PROPOSAL_ID_PATTERN)
+    option_id: OptionId | None = None
+    direction: DesignDirection | None = Field(
+        default=None, description="Instead of a proposal option: a direction in words."
+    )
+
+    @model_validator(mode="after")
+    def _one_form(self) -> ApplyDesignArgs:
+        by_option = self.proposal_id is not None and self.option_id is not None
+        partial = (self.proposal_id is None) != (self.option_id is None)
+        if partial or by_option == (self.direction is not None):
+            raise ValueError(
+                "give either proposal_id and option_id together, or a direction, not both"
+            )
+        return self
+
+
+class RetitleSlideArgs(DeckToolArgs):
+    """`retitle_slide`: give a slide a new header, keeping its design."""
+
+    slide_id: str = Field(min_length=1)
+    header: str = Field(min_length=1, max_length=MAX_HEADER_CHARS, description="One line.")
+
+    @model_validator(mode="after")
+    def _one_line(self) -> RetitleSlideArgs:
+        if "\n" in self.header or not self.header.strip():
+            raise ValueError("a header is one non-blank line")
+        return self
+
+
+class SwapSlidesArgs(DeckToolArgs):
+    """`swap_slides`: exchange the positions of two slides."""
+
+    first: str = Field(min_length=1, description="A slide id.")
+    second: str = Field(min_length=1, description="Another slide id.")
+
+    @model_validator(mode="after")
+    def _distinct(self) -> SwapSlidesArgs:
+        if self.first == self.second:
+            raise ValueError("name two different slides")
+        return self
+
+
+class HandToLeadArgs(ToolArgs):
+    """`hand_to_lead`: this request is bigger than a small edit; give the turn to the lead."""
+
+    reason: str = Field(
+        min_length=1, max_length=MAX_SUMMARY_CHARS, description="Why, in one line."
+    )
+
+
+class CandidateBriefInput(ToolArgs):
+    """One candidate slide of a `propose` option, as a brief: the designer composes it
+    before the proposal is recorded, so the owner sees it rendered. Give exactly one of
+    `replaces` and `insert_at`."""
+
+    slide_id: str = Field(pattern=SLIDE_ID_PATTERN, max_length=40, description=SLIDE_ID_HELP)
+    brief: SlideBrief
+    replaces: str | None = Field(
+        default=None, min_length=1, description="The id of the existing slide it replaces."
+    )
+    insert_at: int | None = Field(
+        default=None, ge=1, description="Instead: the 1-based position it is inserted at."
+    )
+
+    @model_validator(mode="after")
+    def _replace_or_insert(self) -> CandidateBriefInput:
+        if (self.replaces is None) == (self.insert_at is None):
+            raise ValueError("give exactly one of `replaces` or `insert_at`")
+        return self
+
+
+class ProposeBriefOptionInput(ToolArgs):
+    label: str = Field(
+        min_length=1, max_length=MAX_LABEL_CHARS, description="A few words naming the option."
+    )
+    text: str = Field(min_length=1, description="What the option is, in two or three lines.")
+    slides: list[CandidateBriefInput] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Candidate slides as briefs; the designer renders each before the "
+        "owner sees the proposal.",
+    )
+
+
+class ProposeBriefsArgs(DeckToolArgs):
+    """`propose` (Phase 2-3): offer the owner options without changing the deck. Candidate
+    slides are briefs the designer composes; the lead never writes a layout."""
+
+    summary: str = Field(
+        min_length=1, max_length=MAX_SUMMARY_CHARS, description="What is being decided."
+    )
+    options: list[ProposeBriefOptionInput] = Field(min_length=1, max_length=4)
+
+
+# -- the designer's tool ------------------------------------------------------------------
+
+
+class DesignedSlideInput(ToolArgs):
+    """The slide the designer returns: its blocks (the words, chart or icons) and a free
+    layout placing every block once, plus any shapes. `intent` and `speaker_notes` are
+    accepted and ignored (the brief owns the intent; notes are not the designer's)."""
+
+    id: str = Field(min_length=1, description="The slide id from the brief.")
+    blocks: list[Block] = Field(min_length=1)
+    layout: FreeLayout
+    intent: str | None = Field(default=None, description="Ignored.")
+    speaker_notes: str = Field(default="", description="Ignored; leave empty.")
+
+
+class DesignerWriteArgs(ToolArgs):
+    """`write_slide` (the designer's only tool): the whole designed slide."""
+
+    slide: DesignedSlideInput
+
+
+# -- the system layer's tool --------------------------------------------------------------
+
+
+class SetPaletteArgs(ToolArgs):
+    """`set_palette` (the system layer's only tool): the direction made concrete."""
+
+    palette: DesignPalette = Field(
+        description="One hex colour per slot: dk1, lt1, dk2, lt2, accent1..accent6."
+    )
+    roles: dict[ColorToken, str] = Field(
+        description="What each of the ten slots is for, in words, including which grounds "
+        "it is safe as text on."
+    )
+    background: ColorToken = Field(description="The slot every slide's background uses.")
+    text_pairs: list[TextPair] = Field(
+        min_length=1,
+        description="Every text colour the roles allow, on every ground they allow it on. "
+        "Each is checked for contrast; large_only pairs need 3:1 and are for 24pt and above.",
+    )
+
+
+# -- the router's tool --------------------------------------------------------------------
+
+
+class RouteArgs(ToolArgs):
+    """`route` (the router's only tool): where the owner's message goes."""
+
+    to: Literal["lead", "mechanic"] = Field(
+        description="mechanic only for a small local edit; lead for anything else or when "
+        "unsure."
+    )
+    reason: str = Field(default="", max_length=MAX_SUMMARY_CHARS)

@@ -19,7 +19,7 @@ stand-in (`scripted.ScriptedModel`), which the server can also be started with.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -29,15 +29,32 @@ from pydantic import Field, ValidationError, model_validator
 from autodeck.providers.base import AssistantTurn, Message, ProviderConfig, ToolSpec
 from autodeck.providers.cache import ResponseCache
 from autodeck.providers.registry import PROVIDERS, api_key_env
+from autodeck.studio import responses
 from autodeck.studio.errors import StudioConfigError
 from autodeck.studio.models import StudioModel
 from autodeck.studio.paths import REPO_ROOT
 
 DEFAULT_STUDIO_CONFIG = REPO_ROOT / "config" / "studio.yaml"
 
-StudioRole = Literal["lead"]
-STUDIO_ROLES: tuple[StudioRole, ...] = ("lead",)
-"""Phase 1: one role. Every environment must bind every role."""
+StudioRole = Literal["lead", "system", "designer", "mechanic", "router", "reviewer"]
+"""Phase 2-3: one role per layer (plan §6.1). `lead` = Direction, `system` = System (a
+concept into a palette and roles), `designer` = Composition (and Placement, in this phase),
+`mechanic` = Mechanics (small edits), `router` = deciding where a message goes. `reviewer`
+is reserved and unused in this phase."""
+
+STUDIO_ROLES: tuple[StudioRole, ...] = ("lead", "system", "designer", "mechanic", "router")
+"""The roles every environment must bind."""
+
+RESERVED_ROLES: tuple[StudioRole, ...] = ("reviewer",)
+"""Roles an environment may bind but nothing calls yet."""
+
+ReasoningEffort = Literal["none", "low", "medium", "high", "xhigh"]
+"""Sent as `reasoning.effort` on the Responses endpoint (`responses.py`)."""
+
+ApiChoice = Literal["auto", "chat", "responses"]
+"""Which OpenAI endpoint a binding uses. `auto`: Responses for model ids starting with one
+of `responses.RESPONSES_MODEL_PREFIXES` on the `openai` provider, Chat Completions (v2's
+provider) otherwise. Ignored for other providers, which always use v2's provider."""
 
 
 class ConverseModel(Protocol):
@@ -53,6 +70,13 @@ class RoleBinding(StudioModel):
 
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
+    reasoning: ReasoningEffort | None = Field(
+        default=None, description="Reasoning effort; only sent on the Responses endpoint."
+    )
+    max_output_tokens: int | None = Field(
+        default=None, ge=256, description="Output-token cap per call; None keeps the default."
+    )
+    api: ApiChoice = "auto"
 
     @model_validator(mode="after")
     def _known_provider(self) -> RoleBinding:
@@ -70,9 +94,15 @@ class RoleBinding(StudioModel):
 
 
 class StudioEnvironment(StudioModel):
-    """One environment's bindings. Phase 1: `lead` only."""
+    """One environment's bindings: every role in `STUDIO_ROLES`, and optionally the
+    reserved `reviewer`."""
 
     lead: RoleBinding
+    system: RoleBinding
+    designer: RoleBinding
+    mechanic: RoleBinding
+    router: RoleBinding
+    reviewer: RoleBinding | None = None
 
 
 class StudioConfig(StudioModel):
@@ -107,6 +137,31 @@ class BoundModel:
     """The environment it was bound in; `"scripted"` for the scripted stand-in."""
 
 
+@dataclass(frozen=True)
+class StudioBindings:
+    """Every role's `BoundModel` for one studio (Phase 2-3). The session reads these at the
+    start of every turn, so a test may replace one between turns."""
+
+    lead: BoundModel
+    system: BoundModel
+    designer: BoundModel
+    mechanic: BoundModel
+    router: BoundModel
+
+    def for_role(self, role: str) -> BoundModel:
+        """The binding of `role`. Raises KeyError for `reviewer` or an unknown role."""
+        if role not in STUDIO_ROLES:
+            raise KeyError(f"no binding for role {role!r}")
+        return getattr(self, role)
+
+    @classmethod
+    def single(cls, bound: BoundModel) -> StudioBindings:
+        """Every role filled by one model (Phase 1 behaviour, and environments with one
+        model): `replace(bound, role=<role>)` for each role, so each records its own role
+        and the same model id."""
+        return cls(**{role: replace(bound, role=role) for role in STUDIO_ROLES})
+
+
 def load_studio_config(path: Path = DEFAULT_STUDIO_CONFIG) -> StudioConfig:
     """Read and validate `config/studio.yaml` (YAML, parsed with `yaml.safe_load`).
 
@@ -131,10 +186,11 @@ def load_studio_config(path: Path = DEFAULT_STUDIO_CONFIG) -> StudioConfig:
 
 def resolve_binding(
     config: StudioConfig, *, env: str | None = None, role: StudioRole = "lead"
-) -> tuple[str, RoleBinding]:
+) -> tuple[str, RoleBinding | None]:
     """The environment name used and the binding for `role` in it.
 
-    `env=None` means `config.default_env`.
+    `env=None` means `config.default_env`. The binding is None only for a reserved role
+    the environment does not bind.
 
     Raises:
         StudioConfigError: unknown environment (the message lists the known ones, sorted).
@@ -171,13 +227,41 @@ def bind_model(
             provider's constructor, not caught here, so the caller can say which variable.
     """
     env_name, binding = resolve_binding(config, env=env, role=role)
+    if binding is None:
+        raise StudioConfigError(f"environment {env_name!r} does not bind the role {role!r}")
     cache = ResponseCache(cache_dir) if cache_dir is not None else None
+    api_key = os.environ.get(api_key_env(binding.provider), "")
+    if binding.provider in responses.RESPONSES_PROVIDERS and responses.uses_responses(binding):
+        model: ConverseModel = responses.make_responses_model(
+            binding, api_key=api_key, cache=cache
+        )
+        return BoundModel(role=role, model_id=binding.model_id, model=model, env=env_name)
     provider_class = PROVIDERS[binding.provider]
+    config_kwargs: dict[str, object] = {}
+    if binding.max_output_tokens is not None:
+        config_kwargs["max_output_tokens"] = binding.max_output_tokens
     provider = provider_class(
         ProviderConfig(
             model=binding.model,
-            api_key=os.environ.get(api_key_env(binding.provider), ""),
+            api_key=api_key,
             cache=cache,
+            **config_kwargs,  # type: ignore[arg-type]
         )
     )
     return BoundModel(role=role, model_id=binding.model_id, model=provider, env=env_name)
+
+
+def bind_all(
+    config: StudioConfig, *, env: str | None = None, cache_dir: Path | None = None
+) -> StudioBindings:
+    """`bind_model` for every role in `STUDIO_ROLES`, in that order, as `StudioBindings`.
+
+    Raises:
+        StudioConfigError, ProviderAuthError: as `bind_model`, for the first role that fails.
+    """
+    return StudioBindings(
+        **{
+            role: bind_model(config, env=env, role=role, cache_dir=cache_dir)
+            for role in STUDIO_ROLES
+        }
+    )

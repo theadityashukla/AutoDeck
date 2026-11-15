@@ -24,11 +24,23 @@ from pathlib import Path
 from autodeck.agents.skills import load_skill
 from autodeck.studio.paths import REPO_ROOT
 
-LEAD_PROMPT_PATH = REPO_ROOT / "prompts" / "studio" / "lead.md"
+PROMPTS_DIR = REPO_ROOT / "prompts" / "studio"
+LEAD_PROMPT_PATH = PROMPTS_DIR / "lead.md"
+DESIGNER_PROMPT_PATH = PROMPTS_DIR / "designer.md"
+"""Phase 2-3: the designer's system prompt template (placeholders filled by
+`designer_prompt.designer_system_prompt`); adapted from `bench/slides/prompts/slide.md`."""
+SYSTEM_PROMPT_PATH = PROMPTS_DIR / "system.md"
+"""Phase 2-3: the system layer's prompt (a direction into a palette and roles)."""
+MECHANIC_PROMPT_PATH = PROMPTS_DIR / "mechanic.md"
+ROUTER_PROMPT_PATH = PROMPTS_DIR / "router.md"
 SKILLS_DIR = REPO_ROOT / "prompts" / "skills"
 
-ALLOWED_SKILLS: tuple[str, ...] = ("storyline", "slide-design", "writing-style")
-"""The skills `load_skill` may load in the base, in the order the index lists them."""
+ALLOWED_SKILLS: tuple[str, ...] = ("storyline", "writing-style")
+"""The skills `load_skill` may load in the base, in the order the index lists them.
+
+Phase 2-3 drops `slide-design`: it teaches designing a slide with a free layout, which is
+now the designer's work, never the lead's (the lead must not write layouts). The designer's
+own prompt carries the composition craft the slide bench proved."""
 
 RECAP_REQUEST = (
     "This is a returning thread. Before anything else, give the owner a short recap built "
@@ -73,3 +85,10 @@ def system_prompt(
     newline. The same text for every thread and turn, so providers can cache it."""
     body = prompt_path.read_text(encoding="utf-8").rstrip()
     return f"{body}\n\n## Skills you can load\n\n{skill_index(skills_dir)}\n"
+
+
+def role_prompt(path: Path) -> str:
+    """A role's prompt file as its system prompt: the file stripped of trailing whitespace,
+    ending with one newline. Used for the system layer, the mechanic and the router (the
+    designer's template is filled by `designer_prompt`)."""
+    return path.read_text(encoding="utf-8").rstrip() + "\n"

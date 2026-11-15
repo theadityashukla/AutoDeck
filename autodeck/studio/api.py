@@ -40,6 +40,12 @@ Routes (`E` = `/api/engagements/<client>/<project>`):
 | GET | `E/proposals/<p>/options/<o>/previews/<n>.png` | 200 image/png |
 | POST | `E/proposals/<p>/pick` | 202 |
 | POST | `E/proposals/<p>/dismiss` | 200 |
+
+**Phase 2-3 additions** (docs/phases/V3-PHASE-2-3.md, "Front-end contract"): `GET /api/health`
+also returns `bindings` (role → model id); `GET E/artifacts/<a>` also returns `composition`
+and `design_system` (`views.artifact_view` with the deck's design system); `POST
+E/threads/<t>/messages` accepts an optional `route` (`"auto"` or `"lead"`); assistant
+messages carry `roles`, `route` and `usage`; proposal options carry `design`.
 """
 
 from __future__ import annotations
@@ -358,6 +364,10 @@ class StudioApp:
                 "model_id": self.studio.lead.model_id,
                 "env": self.env,
                 "scripted": self.scripted,
+                "bindings": {
+                    role: self.studio.bindings.for_role(role).model_id
+                    for role in ("lead", "system", "designer", "mechanic", "router")
+                },
             },
         )
 
@@ -442,7 +452,16 @@ class StudioApp:
         log = store.changelog()
         manifest = self.studio.previews.current(store)
         base = f"{self._base(engagement)}/artifacts/{quote(artifact_id, safe='')}/renders"
-        return Response(200, views.artifact_view(deck, log, manifest, base=base))
+        system = self.system_for(engagement, deck)
+        return Response(200, views.artifact_view(deck, log, manifest, base=base, system=system))
+
+    def system_for(self, engagement: Engagement, deck: Any) -> Any:
+        """Phase 2-3: the design system the deck is in, for the Design tab:
+        `design.DesignSystemStore(engagement, base=self.studio.settings.tokens).for_deck(
+        deck)`. A dangling reference (`DesignSystemNotFoundError`) or an unreadable version
+        file (`ValueError`, `OSError`) returns None rather than failing the artifact view;
+        `ClientIsolationError` propagates (403)."""
+        raise NotImplementedError
 
     def _changes(
         self, engagement: Engagement, artifact_id: str, _body: dict[str, Any]
@@ -532,14 +551,20 @@ class StudioApp:
     def _message(
         self, engagement: Engagement, thread_id: str, body: dict[str, Any]
     ) -> Response:
-        text = self._fields(body, required=("text",))["text"]
+        fields = self._fields(body, required=("text",), optional=("route",))
+        text = fields["text"]
+        route = fields.get("route", "auto")
+        if route not in ("auto", "lead"):
+            raise ApiError("bad_request", "Field 'route' must be 'auto' or 'lead'.")
         if not text.strip():
             raise ApiError("bad_request", "Field 'text' must not be blank.")
         if len(text) > MAX_MESSAGE_CHARS:
             raise ApiError(
                 "bad_request", f"Field 'text' is longer than {MAX_MESSAGE_CHARS} characters."
             )
-        turn_id = self.studio.begin_turn(engagement, thread_id, text=text)
+        turn_id = self.studio.begin_turn(
+            engagement, thread_id, text=text, route="lead" if route == "lead" else "auto"
+        )
         return Response(202, {"turn_id": turn_id})
 
     def _proposal_view(self, engagement: Engagement, record: Any) -> dict[str, Any]:

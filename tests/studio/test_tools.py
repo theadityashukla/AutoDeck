@@ -1,5 +1,9 @@
 """The lead's tools through v2's ToolBox: edits recorded with layer, model and instruction;
-refusals as error results; isolation never leaks."""
+refusals as error results; isolation never leaks.
+
+Phase 2-3 retired the Phase 1 tests of `write_slide`, `set_design_concept` and `propose` /
+`apply_option` with whole candidate slides (the lead no longer writes layouts); their
+replacements are in `test_tools_phase23.py`."""
 
 from __future__ import annotations
 
@@ -11,8 +15,6 @@ import pytest
 
 from autodeck.agents.tools.registry import ToolBox, ToolResult
 from autodeck.providers.base import ToolCall
-from autodeck.studio import tool_args
-from autodeck.studio.conversation import ProposalOption
 from autodeck.studio.engagement import Engagement, create_engagement
 from autodeck.studio.models import DeckArtifact
 from autodeck.studio.proposals import ProposalStore
@@ -134,48 +136,15 @@ def test_edits_record_instruction_thread_layer_and_model(
         "set_storyline", points=[{"text": "One"}, {"text": "Two"}], marker="provisional"
     )
     assert story.summary == "set the storyline (2 points)"
-    concept = harness.call("set_design_concept", text="Quiet and editorial.")
-    assert concept.summary == "set the design concept"
     entries = [e for _, e in harness.ledger.changes]
-    assert [e.id for e in entries] == ["c0001", "c0002", "c0003"]
+    assert [e.id for e in entries] == ["c0001", "c0002"]
     assert {(e.instruction, e.thread_id, e.model_id) for e in entries} == {
         ("Build the deck", "t0001", "scripted/test")
     }
-    assert [e.layer for e in entries] == ["direction"] * 3
+    assert [e.layer for e in entries] == ["direction"] * 2
     assert brief.text.startswith(f"Recorded change c0001 on {ARTIFACT_ID}:")
     log = harness.engagement.artifact_store(ARTIFACT_ID).changelog()
-    assert [e.id for e in log.entries] == ["c0001", "c0002", "c0003"]
-
-
-@needs_fonts
-def test_write_slide_reports_the_layout_check(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    result = harness.call("write_slide", slide=_slide(base_deck, "s2", id="s9"), position=1)
-    assert not result.error
-    assert result.summary == "wrote slide s9 (new, position 1): layout passed"
-    assert "Layout check passed." in result.text
-    assert harness.ledger.changes[-1][1].layer == "composition"
-    crowded = _slide(base_deck, "s4")
-    for element in crowded["layout"]["elements"]:
-        if element.get("block_id") == "heading":
-            element["size_pt"] = 240
-    result = harness.call("write_slide", slide=crowded)
-    assert not result.error and "layout finding" in result.summary
-    assert "replaced, position 5" in result.summary
-    assert "Layout check found:" in result.text
-
-
-def test_write_slide_without_layout(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    data = _slide(base_deck, "s2", id="s9", layout=None)
-    result = harness.call("write_slide", slide=data)
-    assert result.summary == "wrote slide s9 (new, position 5): no layout yet"
+    assert [e.id for e in log.entries] == ["c0001", "c0002"]
 
 
 def test_refusals_come_back_as_errors(
@@ -189,10 +158,6 @@ def test_refusals_come_back_as_errors(
     assert missing.error and "s9" in missing.text
     same = harness.call("set_block_text", slide_id="s2", block_id="number", text="41%")
     assert same.error and same.text == f"ERROR: {NO_CHANGE_REFUSAL}"
-    unknown_point = harness.call(
-        "write_slide", slide=_slide(base_deck, "s2", id="s9", serves=["p9"])
-    )
-    assert unknown_point.error and "p9" in unknown_point.text
     bad_args = harness.call("move_slide", slide_id="s1")
     assert bad_args.error and bad_args.summary == "move_slide: invalid arguments"
     assert harness.ledger.changes == []
@@ -218,7 +183,7 @@ def test_undo_and_redo(harness_args: tuple[Path, Path, Path], base_deck: DeckArt
     harness = _harness(harness_args)
     _with_fixture(harness, base_deck)
     before = harness.engagement.artifact_store(ARTIFACT_ID).current_text()
-    harness.call("set_block_text", slide_id="s2", block_id="number", text="38%")
+    harness.call("move_slide", slide_id="s4", position=1)
     undo = harness.call("undo")
     assert not undo.error and undo.summary == "undid c0001: Build the deck"
     assert harness.engagement.artifact_store(ARTIFACT_ID).current_text() == before
@@ -229,232 +194,6 @@ def test_undo_and_redo(harness_args: tuple[Path, Path, Path], base_deck: DeckArt
     harness.call("undo")
     nothing = harness.call("undo")
     assert nothing.error
-
-
-@needs_fonts
-def test_propose_records_options_without_changing_the_deck(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    before = harness.engagement.artifact_store(ARTIFACT_ID).current_text()
-    candidate = _slide(base_deck, "s2", id="s1b", serves=["p1"])
-    result = harness.call(
-        "propose",
-        summary="Two openings",
-        options=[
-            {
-                "label": "Number",
-                "text": "Open on 41%.",
-                "slides": [{"slide": candidate, "replaces": "s1"}],
-            },
-            {"label": "Question", "text": "Open on the question."},
-        ],
-    )
-    assert not result.error and result.summary == "proposed p0001: 2 options"
-    assert harness.engagement.artifact_store(ARTIFACT_ID).current_text() == before
-    record = ProposalStore(harness.engagement).load("p0001")
-    assert record.artifact_id == ARTIFACT_ID and [o.id for o in record.options] == ["A", "B"]
-    assert record.thread_id == "t0001" and record.turn_id == "u0001"
-    assert [p.id for p in harness.ledger.proposals] == ["p0001"]
-    assert harness.ledger.changes == []
-    # What applying it does is on the record.
-    assert [(c.slide.id, c.replaces, c.insert_at) for c in record.options[0].candidates] == [
-        ("s1b", "s1", None)
-    ]
-
-
-def test_propose_requires_replace_or_insert_for_every_candidate(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    candidate = _slide(base_deck, "s2", id="s1b", serves=["p1"])
-
-    def propose(slide: dict[str, Any]) -> ToolResult:
-        return harness.call(
-            "propose",
-            summary="Opening",
-            options=[{"label": "N", "text": "x", "slides": [slide]}],
-        )
-
-    for bad in (
-        {"slide": candidate},
-        {"slide": candidate, "replaces": "s1", "insert_at": 1},
-        candidate,  # the old shape: a bare slide
-    ):
-        result = propose(bad)
-        assert result.error, bad
-    assert "replaces" in propose({"slide": candidate}).text
-    # Checked against the deck as it is now.
-    gone = propose({"slide": candidate, "replaces": "nope"})
-    assert gone.error and "no longer in deck" in gone.text
-    far = propose({"slide": candidate, "insert_at": 9})
-    assert far.error and "outside 1" in far.text
-    taken = propose({"slide": _slide(base_deck, "s2", id="s3"), "insert_at": 1})
-    assert taken.error and "already has a slide" in taken.text
-    assert harness.engagement.paths.proposal_ids() == []
-    ok = propose({"slide": candidate, "insert_at": 2})
-    assert not ok.error
-
-
-def test_propose_refuses_unplaced_candidates(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    result = harness.call(
-        "propose",
-        summary="One opening",
-        options=[{"label": "N", "text": "x", "slides": [_slide(base_deck, "s2", layout=None)]}],
-    )
-    assert result.error and "layout" in result.text
-    assert harness.engagement.paths.proposal_ids() == []
-
-
-@needs_fonts
-def test_apply_option(harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    candidate = _slide(base_deck, "s2", id="s1b", serves=["p1"])
-    options = [
-        {"label": "Number", "text": "x", "slides": [{"slide": candidate, "replaces": "s1"}]},
-        {"label": "Question", "text": "y"},
-    ]
-    harness.call("propose", summary="Openings", options=options)
-    text_only = harness.call("apply_option", proposal_id="p0001", option_id="B")
-    assert text_only.error and "no candidate slides" in text_only.text
-    applied = harness.call("apply_option", proposal_id="p0001", option_id="A")
-    assert not applied.error and applied.summary == "applied option A of p0001"
-    record = ProposalStore(harness.engagement).load("p0001")
-    assert (record.status, record.chosen, record.resolved_by) == ("accepted", "A", "chat")
-    assert harness.deck().slide("s1").intent == base_deck.slide("s2").intent
-    assert harness.ledger.changes[-1][1].layer == "composition"
-    harness.call("propose", summary="Again", options=options)
-    ProposalStore(harness.engagement).resolve(
-        "p0002", status="dismissed", chosen=None, by="owner", now=T0
-    )
-    dismissed = harness.call("apply_option", proposal_id="p0002", option_id="A")
-    assert dismissed.error and "dismissed" in dismissed.text
-
-
-@needs_fonts
-def test_an_option_meant_to_replace_the_opening_replaces_it(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    """The first real-model run: three alternative openings, each one candidate with a new
-    id; picking one added a fourth slide and the model said slide 1 was replaced."""
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    before = harness.deck()
-    candidate = _slide(base_deck, "s2", id="s1b", serves=[])
-    harness.call(
-        "propose",
-        summary="Alternative openings",
-        options=[
-            {"label": "B", "text": "x", "slides": [{"slide": candidate, "replaces": "s1"}]},
-            {"label": "C", "text": "y"},
-        ],
-    )
-    applied = harness.call("apply_option", proposal_id="p0001", option_id="A")
-    assert not applied.error
-    after = harness.deck()
-    assert len(after.slides) == len(before.slides)
-    assert after.slides[0].intent == candidate["intent"] != before.slides[0].intent
-    assert after.slide_ids() == before.slide_ids()  # the replaced slide's id is kept
-    assert after.slides[0].serves == before.slides[0].serves  # its storyline links too
-    assert after.slides[1:] == before.slides[1:]
-    # The result says what happened, in words the model can repeat.
-    assert "Replaced slide 1 (id s1 kept) with the new slide" in applied.text
-    assert "Slide order now: 1. s1 " in applied.text and "; 2. s2 " in applied.text
-
-
-@needs_fonts
-def test_apply_option_inserts_at_the_stated_position(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    candidate = _slide(base_deck, "s2", id="extra", serves=["p1"])
-    harness.call(
-        "propose",
-        summary="Add a slide",
-        options=[{"label": "A", "text": "x", "slides": [{"slide": candidate, "insert_at": 2}]}],
-    )
-    applied = harness.call("apply_option", proposal_id="p0001", option_id="A")
-    assert not applied.error
-    assert harness.deck().slide_ids() == ["s1", "extra", "s2", "s3", "s4"]
-    assert "Inserted new slide 'extra'" in applied.text and "as slide 2" in applied.text
-    assert "Slide order now: 1. s1 " in applied.text and "; 2. extra " in applied.text
-
-
-@needs_fonts
-def test_apply_option_refuses_when_the_deck_no_longer_fits_and_stays_open(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    candidate = _slide(base_deck, "s2", id="s1b", serves=[])
-    harness.call(
-        "propose",
-        summary="Openings",
-        options=[
-            {"label": "B", "text": "x", "slides": [{"slide": candidate, "replaces": "s1"}]}
-        ],
-    )
-    assert not harness.call("remove_slide", slide_id="s1").error
-    deck_before = harness.deck()
-    refused = harness.call("apply_option", proposal_id="p0001", option_id="A")
-    assert refused.error and "no longer in deck" in refused.text
-    assert "write_slide" in refused.text and "propose again" in refused.text
-    assert harness.deck() == deck_before
-    assert ProposalStore(harness.engagement).load("p0001").status == "open"
-
-
-@needs_fonts
-def test_apply_option_refuses_an_old_record_that_never_said_replace_or_insert(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    store = ProposalStore(harness.engagement)
-    store.create(
-        thread_id="t0001",
-        turn_id="u0001",
-        artifact_id=ARTIFACT_ID,
-        summary="Old",
-        options=[
-            ProposalOption.model_validate(
-                {
-                    "id": "A",
-                    "label": "Old",
-                    "text": "x",
-                    "slides": [_slide(base_deck, "s2", id="s1b")],
-                }
-            )
-        ],
-        now=T0,
-    )
-    refused = harness.call("apply_option", proposal_id="p0001", option_id="A")
-    assert refused.error and "editing tools" in refused.text
-    assert store.load("p0001").status == "open"
-
-
-def test_write_slide_names_its_fields_and_still_refuses_unknown_ones(
-    harness_args: tuple[Path, Path, Path], base_deck: DeckArtifact
-) -> None:
-    harness = _harness(harness_args)
-    _with_fixture(harness, base_deck)
-    description = next(s for s in harness.box.specs if s.name == "write_slide").description
-    for field in ("id", "intent", "blocks", "speaker_notes", "layout", "marker", "serves"):
-        assert field in description
-    schema = tool_args.WriteSlideArgs.model_json_schema()
-    assert all(f in schema["$defs"]["Slide"]["properties"] for f in ("intent", "serves"))
-    assert "rationale" in tool_args.SLIDE_FIELDS_HELP  # said plainly: there is none
-    result = harness.call(
-        "write_slide", slide={**_slide(base_deck, "s1"), "rationale": "because"}
-    )
-    assert result.error and "rationale" in result.text
 
 
 def test_sources_tools(harness_args: tuple[Path, Path, Path]) -> None:

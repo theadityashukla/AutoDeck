@@ -29,11 +29,12 @@ from pathlib import Path
 from autodeck.knowledge.context_assembler import assemble_context
 from autodeck.knowledge.memory import MemoryScope, MemoryStore
 from autodeck.studio.conversation import ProposalRecord
+from autodeck.studio.design import DesignSystem
 from autodeck.studio.diff import describe
 from autodeck.studio.engagement import Engagement
-from autodeck.studio.models import ChangeLog, DeckArtifact
+from autodeck.studio.models import ChangeLog, DeckArtifact, Slide
 from autodeck.studio.proposals import ProposalStore
-from autodeck.studio.views import change_line, deck_outline, flat
+from autodeck.studio.views import change_line, deck_outline, design_system_text, flat
 
 RECENT_CHANGES = 15
 """How many change-log entries per artifact the context lists (newest first)."""
@@ -61,6 +62,9 @@ class ArtifactState:
 
     deck: DeckArtifact
     log: ChangeLog
+    system: DesignSystem | None = None
+    """Phase 2-3: the stored design-system version the deck refers to, or None when the deck
+    has no reference (it is in the provisional default system)."""
 
 
 @dataclass(frozen=True)
@@ -90,7 +94,9 @@ def gather_inputs(engagement: Engagement, *, owner_memory_path: Path) -> Context
       take `sections` as `((name, tuple(items)), ...)` in the doc's section order. Nothing
       is written (no `add`, no audit line);
     * artifacts: for each id in `engagement.artifact_ids()`, `store = engagement.
-      artifact_store(id)`, `ArtifactState(store.load(), store.changelog())`;
+      artifact_store(id)`, `ArtifactState(store.load(), store.changelog(), system)` where
+      `system` is `load_deck_system(engagement, deck)` when the deck has a design-system
+      reference, else None (Phase 2-3);
     * proposals: `ProposalStore(engagement).list()`;
     * title: `engagement.record.title`.
 
@@ -121,7 +127,9 @@ def gather_inputs(engagement: Engagement, *, owner_memory_path: Path) -> Context
     artifacts: list[ArtifactState] = []
     for artifact_id in engagement.artifact_ids():
         store = engagement.artifact_store(artifact_id)
-        artifacts.append(ArtifactState(store.load(), store.changelog()))
+        deck = store.load()
+        system = load_deck_system(engagement, deck) if deck.design_system is not None else None
+        artifacts.append(ArtifactState(deck, store.changelog(), system))
     return ContextInputs(
         client=engagement.client,
         project=engagement.project,
@@ -132,6 +140,34 @@ def gather_inputs(engagement: Engagement, *, owner_memory_path: Path) -> Context
         artifacts=tuple(artifacts),
         proposals=tuple(ProposalStore(engagement).list()),
     )
+
+
+def load_deck_system(engagement: Engagement, deck: DeckArtifact) -> DesignSystem:
+    """Phase 2-3: the stored design-system version `deck.design_system` names:
+    `design.DesignSystemStore(engagement).load(ref.id, ref.version)` (no base tokens: a
+    reference always names a stored version). Its errors propagate
+    (`DesignSystemNotFoundError` for a dangling reference: a context that cannot be built
+    honestly is not built)."""
+    raise NotImplementedError
+
+
+def slide_composition_item(
+    artifact_id: str, index: int, slide: Slide, deck: DeckArtifact
+) -> str | None:
+    """Phase 2-3: the open item for a slide that has a brief, or None when it is designed
+    and fresh. By `models.composition_status(slide, models.effective_system(deck))`:
+    undesigned → `"<a>: slide <i> (<id>) is not designed yet"`; stale → `"<a>: slide <i>
+    (<id>) is stale: <reasons joined by "; ">"`; failed → `"<a>: slide <i> (<id>) failed to
+    compose: <views.clip(first finding, 120), or "no findings">"`; fresh → None."""
+    raise NotImplementedError
+
+
+def design_system_item(artifact_id: str, deck: DeckArtifact) -> str | None:
+    """Phase 2-3: the deck-level design item, listed only for a deck with at least one
+    slide that has a brief (decks made before Phase 2-3 are unchanged): no reference →
+    `"<a>: the design system is the provisional default (no concept decided)"`; a reference
+    whose marker is not `decided` → `"<a>: the design system is <marker>"`; else None."""
+    raise NotImplementedError
 
 
 def is_returning(inputs: ContextInputs) -> bool:
@@ -149,9 +185,12 @@ def open_items(inputs: ContextInputs) -> list[str]:
     * `"<a>: no storyline yet"` when it has no points, else `"<a>: the storyline is <m>"`
       when its marker is not `decided`;
     * `"<a>: no design concept yet"`, or `"<a>: the design concept is <m>"` likewise;
+    * Phase 2-3: `design_system_item(a, deck)` when not None (only for decks with a
+      briefed slide);
     * `"<a>: no slides yet"` when there are none; otherwise for each slide i (1-based):
-      `"<a>: slide <i> (<id>) is <m>"` when its marker is not `decided`, then
-      `"<a>: slide <i> (<id>) has no layout yet"` when its layout is None;
+      `"<a>: slide <i> (<id>) is <m>"` when its marker is not `decided`, then, for a slide
+      with a brief, `slide_composition_item(...)` when not None, and for a slide without
+      one `"<a>: slide <i> (<id>) has no layout yet"` when its layout is None;
     * for each storyline point (in order) that no slide serves:
       `"<a>: storyline point <point id> is not served by any slide"`.
 
@@ -173,12 +212,20 @@ def open_items(inputs: ContextInputs) -> list[str]:
             items.append(f"{a}: no design concept yet")
         elif deck.design_concept.marker != "decided":
             items.append(f"{a}: the design concept is {deck.design_concept.marker}")
+        if any(slide.brief is not None for slide in deck.slides):
+            design_item = design_system_item(a, deck)
+            if design_item is not None:
+                items.append(design_item)
         if not deck.slides:
             items.append(f"{a}: no slides yet")
         for i, slide in enumerate(deck.slides, start=1):
             if slide.marker != "decided":
                 items.append(f"{a}: slide {i} ({slide.id}) is {slide.marker}")
-            if slide.layout is None:
+            if slide.brief is not None:
+                composition = slide_composition_item(a, i, slide, deck)
+                if composition is not None:
+                    items.append(composition)
+            elif slide.layout is None:
                 items.append(f"{a}: slide {i} ({slide.id}) has no layout yet")
         served = {point for slide in deck.slides for point in slide.serves}
         for point in deck.storyline.points:
@@ -299,6 +346,10 @@ def render_context(inputs: ContextInputs, *, recent_changes: int = RECENT_CHANGE
 
     <change block>
 
+    ### Design system                                (Phase 2-3: only when the artifact
+                                                      state has a stored system)
+    <views.design_system_text(system)>
+
     # Proposals
 
     <"None." when there is no proposal; otherwise `PROPOSAL_TERMS`, then for each
@@ -375,6 +426,8 @@ def render_context(inputs: ContextInputs, *, recent_changes: int = RECENT_CHANGE
                 _change_block(state.log, recent_changes),
             ]
         )
+        if state.system is not None:
+            blocks.extend(["### Design system", design_system_text(state.system)])
 
     blocks.append("# Proposals")
     if not inputs.proposals:

@@ -8,12 +8,17 @@ v2's `cli.py` is not touched; the studio has its own entry point.
 
 * `--script PATH` (or the `AUTODECK_STUDIO_SCRIPT` environment variable, when `--script` is
   not given) runs the scripted stand-in model instead of a provider: no API key needed.
-  Example: `--script tests/studio/fixtures/scripts/two_threads.json`.
-* Otherwise the lead is bound from `config/studio.yaml` for `--env` (default: its
-  `default_env`), with a response cache under `<workspace>/llm_cache/`. A missing API key
+  Example: `--script tests/studio/fixtures/scripts/design_flow.json`. Every role is played
+  by the script (`scripted.scripted_bindings`).
+* Otherwise every role is bound from `config/studio.yaml` for `--env` (default: its
+  `default_env`) with `bindings.bind_all`, with a response cache under
+  `<workspace>/llm_cache/`. A missing API key
   is reported as one line naming the variable, exit status 2.
 * `--no-render` uses a renderer that never calls LibreOffice (every render is
-  `rendered=False`, "previews disabled"), for machines without it.
+  `rendered=False`, "previews disabled"), for machines without it. Otherwise previews are
+  rendered in each deck's design system (`design_render.render_with_design(tokens)`).
+* Phase 2-3: `--prices FILE` names the assumed price file (default
+  `config/studio_prices.yaml`, `usage.load_prices`).
 
 Defaults: workspace `paths.default_workspace_root()`, knowledge `<repo>/knowledge`, corpus
 `<repo>/corpus`, owner memory v2's `memory.DEFAULT_OWNER_PATH`, port 8765. The server binds
@@ -24,24 +29,17 @@ then serves until interrupted (Ctrl-C exits 0 after `Studio.shutdown()`).
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from autodeck.design.theme.tokens import DesignTokens
-from autodeck.knowledge.memory import DEFAULT_OWNER_PATH
 from autodeck.providers.base import ProviderAuthError
-from autodeck.studio import bindings, server
+from autodeck.studio import server
 from autodeck.studio.api import StudioApp
 from autodeck.studio.conversation import RenderManifest
 from autodeck.studio.errors import StudioConfigError
-from autodeck.studio.events import EventBus
 from autodeck.studio.models import DeckArtifact
-from autodeck.studio.paths import REPO_ROOT, default_workspace_root
-from autodeck.studio.previews import PreviewService, render_with_libreoffice
-from autodeck.studio.scripted import SCRIPT_ENV_VAR, ScriptedModel, scripted_binding
-from autodeck.studio.session import Studio, StudioSettings
+from autodeck.studio.session import Studio
 
 DEFAULT_PORT = 8765
 
@@ -60,6 +58,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--owner-memory", type=Path, default=None)
     parser.add_argument("--no-render", action="store_true", help="never call LibreOffice")
+    parser.add_argument("--prices", type=Path, default=None, help="assumed price file")
     return parser.parse_args(argv)
 
 
@@ -70,34 +69,18 @@ def _no_render(deck: DeckArtifact, out_dir: Path, digest: str) -> RenderManifest
 
 
 def build(args: argparse.Namespace) -> tuple[StudioApp, Studio]:
-    """Construct, without serving: tokens (`bindings.tokens_path(config)` →
-    `DesignTokens.load`), the lead (`scripted.ScriptedModel.from_file` +
-    `scripted_binding`, or `bindings.bind_model`), `EventBus()`, `PreviewService(bus=...,
-    renderer=render_with_libreoffice(tokens) or the no-render renderer)`, `Studio`, and
-    `StudioApp(studio, env=lead.env, scripted=...)`. Returns `(app, studio)`."""
-    config = bindings.load_studio_config()
-    tokens = DesignTokens.load(bindings.tokens_path(config))
-    workspace: Path = args.workspace or default_workspace_root()
-    script: Path | None = args.script
-    if script is None and os.environ.get(SCRIPT_ENV_VAR):
-        script = Path(os.environ[SCRIPT_ENV_VAR])
-    if script is not None:
-        lead = scripted_binding(ScriptedModel.from_file(script))
-    else:
-        lead = bindings.bind_model(config, env=args.env, cache_dir=workspace / "llm_cache")
-    bus = EventBus()
-    previews = PreviewService(
-        bus=bus, renderer=_no_render if args.no_render else render_with_libreoffice(tokens)
-    )
-    settings = StudioSettings(
-        knowledge_root=args.knowledge or REPO_ROOT / "knowledge",
-        workspace_root=workspace,
-        corpus_root=args.corpus or REPO_ROOT / "corpus",
-        owner_memory_path=args.owner_memory or DEFAULT_OWNER_PATH,
-        tokens=tokens,
-    )
-    studio = Studio(settings, lead=lead, bus=bus, previews=previews)
-    return StudioApp(studio, env=lead.env, scripted=script is not None), studio
+    """Construct, without serving (Phase 2-3):
+
+    tokens (`bindings.tokens_path(config)` → `DesignTokens.load`); the bindings
+    (`scripted.scripted_bindings(ScriptedModel.from_file(script))` with a script, else
+    `bindings.bind_all(config, env=args.env, cache_dir=workspace / "llm_cache")`);
+    `EventBus()`; `PreviewService(bus=..., renderer=_no_render if args.no_render else
+    design_render.render_with_design(tokens))`; `StudioSettings(..., tokens=tokens,
+    prices=usage.load_prices(args.prices or usage.DEFAULT_PRICES_PATH))`;
+    `Studio(settings, bindings=..., bus=..., previews=...)`; and `StudioApp(studio,
+    env=<the lead binding's env>, scripted=<a script was used>)`. Returns `(app, studio)`.
+    """
+    raise NotImplementedError
 
 
 def main(argv: Sequence[str] | None = None) -> int:

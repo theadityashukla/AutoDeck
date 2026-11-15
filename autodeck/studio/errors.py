@@ -116,3 +116,24 @@ class TurnInProgressError(StudioError):
 class StudioConfigError(StudioError):
     """`config/studio.yaml` is missing or malformed, or names an unknown environment, role
     or provider."""
+
+
+# ---------------------------------------------------------------------------
+# Phase 2-3: design systems, composition, routing
+# ---------------------------------------------------------------------------
+
+
+class DesignSystemNotFoundError(StudioError, LookupError):
+    """No stored version of that design system in this engagement (the default system,
+    `models.DEFAULT_SYSTEM_ID` version 1, is never missing: it is not stored)."""
+
+
+class PaletteRefusedError(StudioError):
+    """A palette failed the contrast rules. The message lists every measured ratio that
+    failed (`design.findings_text`), so the system layer can correct it."""
+
+
+class CompositionError(StudioError):
+    """A composition request cannot be carried out as asked: a named slide has no brief,
+    a sample slide is unknown, or no direction produced a usable design. Converted to a
+    tool error by `tools.guarded`, so the lead can correct the call."""

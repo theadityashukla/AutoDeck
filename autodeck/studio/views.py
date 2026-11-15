@@ -41,6 +41,7 @@ from autodeck.studio.conversation import (
     TurnEndLine,
     UserLine,
 )
+from autodeck.studio.design import DesignDraft, DesignSystem
 from autodeck.studio.models import (
     Block,
     ChangeEntry,
@@ -48,6 +49,9 @@ from autodeck.studio.models import (
     DeckArtifact,
     EngagementRecord,
     OptionId,
+    Slide,
+    deck_composition,
+    effective_system,
 )
 
 MAX_BLOCK_TEXT = 80
@@ -155,7 +159,71 @@ def deck_outline(deck: DeckArtifact, *, max_text: int = MAX_BLOCK_TEXT) -> str:
             )
             summaries = " / ".join(_block_summary(b, max_text) for b in slide.blocks)
             lines.append(f"     {summaries or '(no blocks)'}")
+            if slide.brief is not None:
+                lines.append(slide_brief_line(slide, effective_system(deck), max_text=max_text))
     return "\n".join(lines)
+
+
+def slide_brief_line(slide: Slide, system: tuple[str, int], *, max_text: int) -> str:
+    """Phase 2-3: the third outline line of a slide that has a brief, exactly:
+
+    `     brief: "<clip(flat(header), max_text)>" | <k> point|points, <f> figure|figures,
+    <chart|no chart> | <state>` (one line; five leading spaces; the quote marks are literal
+    `"`; singular only for 1), where `<state>` follows `models.composition_status(slide,
+    system)`: `not designed yet` (undesigned), `designed` (fresh), `stale: <reasons joined
+    by "; ">`, `failed to compose: <first finding, or "no findings"> (<a> attempts)`.
+    Example: `     brief: "Quantisation alone cuts serving cost by 38%" | 2 points, 1
+    figure, chart | stale: design system changed`.
+    """
+    raise NotImplementedError
+
+
+def design_system_text(system: DesignSystem) -> str:
+    """Phase 2-3: the design system as the lead reads it in the context (no colours: the
+    lead never picks them). Lines joined by `\n`:
+
+    `<name> (<id> v<version>, <marker>)`, `Concept: <flat(concept) or "none stated">`,
+    then `Rules:` and one `- <rule>` per rule, or `Rules: none`.
+    """
+    raise NotImplementedError
+
+
+def composition_view(deck: DeckArtifact) -> dict[str, Any]:
+    """Phase 2-3: per slide id (deck order), `{"state", "reasons": [..], "failure":
+    {"attempts", "findings", "model_id"} or None (only for state "failed"), "composed_by":
+    composed.model_id or None}`, from `models.deck_composition(deck)`."""
+    statuses = deck_composition(deck)
+    out: dict[str, Any] = {}
+    for slide in deck.slides:
+        status = statuses[slide.id]
+        failure = slide.compose_failure if status.state == "failed" else None
+        out[slide.id] = {
+            "state": status.state,
+            "reasons": list(status.reasons),
+            "failure": None
+            if failure is None
+            else {
+                "attempts": failure.attempts,
+                "findings": list(failure.findings),
+                "model_id": failure.model_id,
+            },
+            "composed_by": slide.composed.model_id if slide.composed is not None else None,
+        }
+    return out
+
+
+def design_system_view(system: DesignSystem) -> dict[str, Any]:
+    """Phase 2-3: the Design tab's data: `{"id", "version", "name", "concept", "rules",
+    "marker", "is_default", "background", "made_by", "created_at" (ISO or None),
+    "palette": [{"slot", "hex": "#RRGGBB", "role": role or ""}] one per slot in
+    `models.COLOR_SLOTS` order, "text_pairs": [{"text", "ground", "large_only"}]}`."""
+    raise NotImplementedError
+
+
+def design_draft_view(draft: DesignDraft) -> dict[str, Any]:
+    """Phase 2-3: a proposal option's design: `{"name", "concept", "rules", "background",
+    "made_by", "palette": [...as design_system_view...], "text_pairs": [...]}`."""
+    raise NotImplementedError
 
 
 def slide_order(deck: DeckArtifact, *, max_intent: int = 50) -> str:
@@ -275,17 +343,26 @@ def artifact_summary(deck: DeckArtifact, log: ChangeLog) -> dict[str, Any]:
 
 
 def artifact_view(
-    deck: DeckArtifact, log: ChangeLog, manifest: RenderManifest | None, *, base: str
+    deck: DeckArtifact,
+    log: ChangeLog,
+    manifest: RenderManifest | None,
+    *,
+    base: str,
+    system: DesignSystem | None = None,
 ) -> dict[str, Any]:
     """The artifact panel's data: `artifact_summary(deck, log)` plus
     `{"deck": deck.model_dump(mode="json"), "can_undo", "can_redo",
-    "render": render_view(manifest, base=base)}`."""
+    "render": render_view(manifest, base=base)}`, and (Phase 2-3) `"composition":
+    composition_view(deck)` and `"design_system": design_system_view(system)`, or None when
+    no system is given."""
     return {
         **artifact_summary(deck, log),
         "deck": deck.model_dump(mode="json"),
         "can_undo": changelog.undo_target(log) is not None,
         "can_redo": changelog.redo_target(log) is not None,
         "render": render_view(manifest, base=base),
+        "composition": composition_view(deck),
+        "design_system": design_system_view(system) if system is not None else None,
     }
 
 
@@ -336,7 +413,10 @@ def messages_view(lines: Sequence[ThreadLine]) -> list[dict[str, Any]]:
       turn has not ended, "stop_reason" or None, "error" ("" unless errored),
       "change_ids", "undone_ids", "redone_ids", "created_artifacts", "proposal_ids"
       (empty lists until the turn ends), "created_at": of the first of those lines}`,
-      placed where the first of those lines is.
+      placed where the first of those lines is. Phase 2-3 adds `"roles"`: the roles of its
+      assistant lines in first-seen order (`["mechanic"]`, `["lead"]`, `["mechanic",
+      "lead"]` after a handoff), and `"route"` / `"usage"`: the turn end's `RouteRecord` /
+      `TurnUsage` as JSON, or None (while running, or on older lines).
     * `NoteLine` → `{"type": "note", "note", "ref", "text", "created_at"}`.
 
     Times are ISO 8601 with seconds.
@@ -382,11 +462,16 @@ def messages_view(lines: Sequence[ThreadLine]) -> list[dict[str, Any]]:
                     "redone_ids": [],
                     "created_artifacts": [],
                     "proposal_ids": [],
+                    "roles": [],
+                    "route": None,
+                    "usage": None,
                     "created_at": _iso(line.created_at),
                 }
                 turns[line.turn_id] = item
                 items.append(item)
             if isinstance(line, AssistantLine):
+                if line.role not in item["roles"]:
+                    item["roles"].append(line.role)
                 if line.text.strip():
                     item["texts"].append(line.text)
                 if item["model_id"] is None:
@@ -406,6 +491,8 @@ def messages_view(lines: Sequence[ThreadLine]) -> list[dict[str, Any]]:
                 item["redone_ids"] = list(line.redone_ids)
                 item["created_artifacts"] = list(line.created_artifacts)
                 item["proposal_ids"] = list(line.proposal_ids)
+                item["route"] = line.route.model_dump(mode="json") if line.route else None
+                item["usage"] = line.usage.model_dump(mode="json") if line.usage else None
     for item in turns.values():
         if item["model_id"] is None:
             item["model_id"] = ""
@@ -419,6 +506,8 @@ def _option_effect(option: ProposalOption, deck: DeckArtifact | None) -> str:
     from `deck` (the deck now); without the deck, or when the slide is gone, its id."""
     if option.legacy:
         return "Old proposal: what applying it does was not recorded"
+    if option.design is not None:
+        return f'Adopts the design "{option.design.name}"; designed slides become stale'
     ids = [s.id for s in deck.slides] if deck is not None else []
     parts: list[str] = []
     for c in option.candidates:
@@ -441,7 +530,8 @@ def proposal_view(
     "text", "slide_ids": candidate slide ids in order, "placements": [{"slide_id",
     "replaces": slide id or None, "insert_at": position or None}] one per candidate,
     "applies": what applying it does in words (`_option_effect`; "" without candidates),
-    "previews": (previews or {}).get(option id, [])}]}`. `previews` maps an option id to
+    "previews": (previews or {}).get(option id, []), "design": design_draft_view(design) or
+    None (Phase 2-3)}]}`. `previews` maps an option id to
     its image URLs (built by the API); `deck` is the proposal's deck now, if it can be
     read, and gives the number of a replaced slide."""
     chosen_previews = previews or {}
@@ -468,6 +558,7 @@ def proposal_view(
                 ],
                 "applies": _option_effect(o, deck),
                 "previews": list(chosen_previews.get(o.id, [])),
+                "design": design_draft_view(o.design) if o.design is not None else None,
             }
             for o in record.options
         ],

@@ -23,7 +23,7 @@ this code.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -41,6 +41,7 @@ from autodeck.studio.conversation import (
     ChangeReverted,
     NoteLine,
     ProposalCreated,
+    SlideComposed,
     StopReason,
     ThreadLine,
     ToolCalled,
@@ -51,7 +52,7 @@ from autodeck.studio.conversation import (
 )
 from autodeck.studio.models import ChangeEntry
 from autodeck.studio.prompt import CONTEXT_SEPARATOR
-from autodeck.studio.tools import TurnLedger
+from autodeck.studio.tools import ComposedSlide, TurnLedger
 
 STALL_NUDGE = "You returned neither a reply nor a tool call. Reply to the owner in words."
 """Sent once, unrecorded, when a model call returns no text and no tool call."""
@@ -62,6 +63,22 @@ INTERRUPTED_RESULT = "ERROR: this call was interrupted before it ran."
 
 NOTE_PREFIX = "[Note: "
 NOTE_SUFFIX = "]"
+
+MECHANIC_PREFIX = "[mechanic] "
+"""Phase 2-3: how the mechanic's part of a turn appears in the lead's conversation."""
+
+
+def fold_mechanic_lines(lines: Sequence[ThreadLine]) -> str | None:
+    """Phase 2-3: a run of the mechanic's lines as one line of assistant text for the lead.
+
+    `lines` are consecutive `AssistantLine`s and `ToolLine`s with `role == "mechanic"`.
+    Parts, in order: each `ToolLine`'s `summary` (with `" (error)"` appended when
+    `error`), then `"reply: <views.flat(text)>"` for the last `AssistantLine` with
+    non-blank text. Returns `MECHANIC_PREFIX + " | ".join(parts)`, or None when there are
+    no parts. Pure. Example: `[mechanic] retitled s2: layout passed | reply: Slide 2 is now
+    titled 'Quantisation cuts the bill by 38%'.`
+    """
+    raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -108,8 +125,16 @@ class TurnSink(Protocol):
         ...
 
 
-def build_model_messages(lines: Sequence[ThreadLine]) -> tuple[list[Message], dict[str, str]]:
+def build_model_messages(
+    lines: Sequence[ThreadLine], *, role: str = "lead"
+) -> tuple[list[Message], dict[str, str]]:
     """A thread's log as provider messages, plus the tool summaries for compaction.
+
+    Phase 2-3: `role` is the role the messages are for (the lead). Assistant and tool lines
+    written by another role (the mechanic) are not replayed as calls: each maximal run of
+    them becomes one `assistant` message with `fold_mechanic_lines`' text (skipped when it
+    is None), so the lead sees what the mechanic did without tool calls it does not have.
+    Logs with only lead lines are unchanged from Phase 1.
 
     Walk the lines in order:
 
@@ -147,7 +172,21 @@ def build_model_messages(lines: Sequence[ThreadLine]) -> tuple[list[Message], di
         else:
             messages.append(Message("user", text))
 
+    folded: list[ThreadLine] = []
+
+    def flush_folded() -> None:
+        if folded:
+            text = fold_mechanic_lines(folded)
+            if text is not None:
+                messages.append(Message("assistant", text))
+            folded.clear()
+
     for line in lines:
+        if isinstance(line, AssistantLine | ToolLine) and line.role != role:
+            flush()
+            folded.append(line)
+            continue
+        flush_folded()
         if isinstance(line, ToolLine):
             pending[:] = [c for c in pending if c.id != line.tool_call_id]
             messages.append(Message("tool", line.text, tool_call_id=line.tool_call_id))
@@ -166,6 +205,7 @@ def build_model_messages(lines: Sequence[ThreadLine]) -> tuple[list[Message], di
             ]
             messages.append(Message("assistant", line.text, list(calls)))
             pending.extend(calls)
+    flush_folded()
     flush()
     return messages, summaries
 
@@ -182,6 +222,7 @@ def run_steps(
     thread_id: str,
     turn_id: str,
     limits: LoopLimits = LoopLimits(),  # noqa: B008 - frozen
+    stop_when: Callable[[], bool] | None = None,
 ) -> LoopOutcome:
     """Run model calls until the model replies or a cap stops the turn.
 
@@ -211,6 +252,11 @@ def run_steps(
        `instruction`/`layer`/`model_id` from the entry), `undo`/`redo` →
        `ChangeReverted(by="model")`, `created` → `ArtifactCreated`, `proposal` →
        `ProposalCreated`.
+
+    6. Phase 2-3: after all of an iteration's tool calls, if `stop_when` is given and
+       returns True (the mechanic called `hand_to_lead`), return `handed_off`.
+
+    Ledger `composed` items become `SlideComposed` events (step 5).
 
     Exceptions from the model or a tool propagate (after whatever was already reported).
     """
@@ -294,6 +340,8 @@ def run_steps(
                 event = _ledger_event(kind, artifact_id, item, thread_id, turn_id)
                 if event is not None:
                     sink.event(event)
+        if stop_when is not None and stop_when():
+            return outcome("handed_off")
 
 
 def _ledger_event(
@@ -325,6 +373,19 @@ def _ledger_event(
         )
     if kind == "created":
         return ArtifactCreated(thread_id=thread_id, turn_id=turn_id, artifact_id=artifact_id)
+    if kind == "composed":
+        assert isinstance(item, ComposedSlide)
+        return SlideComposed(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            artifact_id=artifact_id,
+            slide_id=item.slide_id,
+            clean=item.clean,
+            attempts=item.attempts,
+            findings=list(item.findings),
+            model_id=item.model_id,
+            seconds=round(item.seconds, 2),
+        )
     if kind == "proposal":
         return ProposalCreated(
             thread_id=thread_id,

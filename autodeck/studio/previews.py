@@ -20,6 +20,8 @@ channel.
 **Proposal previews.** An option's candidate slides are rendered as a small deck (the
 current deck with `slides` replaced by the candidates, so storyline links stay valid) into
 `proposals/<id>/renders/<option>/`, same file layout; then one `ProposalPreviewsReady`.
+Phase 2-3: a design option's samples render in that option's palette (the small deck's
+`design_system` is the draft's `preview_ref`), so each direction is shown in its colours.
 
 A slide with no layout, or one failing layout QA, is drawn by `render.build_pptx` as the
 labelled placeholder Phase 0 already draws. A render that fails entirely (fonts missing,
@@ -223,7 +225,12 @@ class PreviewService:
             for option in proposal.options:
                 if not option.slides:
                     continue
-                candidate = deck.model_copy(update={"slides": list(option.slides)})
+                update: dict[str, object] = {"slides": list(option.slides)}
+                if option.design is not None:  # Phase 2-3: samples render in the draft
+                    update["design_system"] = option.design.preview_ref(
+                        f"{proposal.id}-{option.id}".lower()
+                    )
+                candidate = deck.model_copy(update=update)
                 try:
                     folder = self.proposal_render_dir(engagement, proposal.id, option.id)
                     manifest, _ = self._render_deck(candidate, folder)

@@ -74,7 +74,10 @@ def test_the_recap_and_the_prompt_use_the_contexts_proposal_terms() -> None:
         "the other options were not chosen, which is not a dismissal",
         "`replaces`",
         "`insert_at`",
-        "A slide has only these fields",
+        # Phase 2-3: the lead writes briefs and never layouts.
+        "You never write coordinates, sizes, layouts, colours or hex values",
+        "`propose_design`",
+        "stale",
     ):
         assert phrase in text, phrase
     assert "- accepted: the owner picked one option and it was applied." in PROPOSAL_TERMS

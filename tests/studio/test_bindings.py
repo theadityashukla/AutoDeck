@@ -69,8 +69,11 @@ def test_load_errors_are_studio_config_errors(tmp_path: Path) -> None:
         load_studio_config(bad)
     wrong = tmp_path / "wrong.yaml"
     wrong.write_text(
-        "default_env: x\ntokens: t.json\nenvironments:\n"
-        "  y:\n    lead: {provider: mistral, model: m}\n",
+        "default_env: x\ntokens: t.json\nenvironments:\n  y:\n"
+        + "".join(
+            f"    {role}: {{provider: mistral, model: m}}\n"
+            for role in ("lead", "system", "designer", "mechanic", "router")
+        ),
         encoding="utf-8",
     )
     with pytest.raises(StudioConfigError, match="default_env"):
