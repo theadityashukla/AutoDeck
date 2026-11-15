@@ -61,7 +61,7 @@ from autodeck.agents.tools.registry import (
 from autodeck.design.fonts import FontNotFoundError
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.knowledge.loader import ClientIsolationError
-from autodeck.studio import design, edits, prompt, render_adapter, tool_args, views
+from autodeck.studio import design, edits, models, prompt, render_adapter, tool_args, views
 from autodeck.studio import diff as diffmod
 from autodeck.studio.bindings import StudioBindings
 from autodeck.studio.conversation import ProposalRecord
@@ -420,7 +420,19 @@ def qa_gate(deck: DeckArtifact, slide_id: str, tokens: DesignTokens) -> None:
     `"the new text does not fit slide <id>:\\n"` + the findings as `qa_text` lists them +
     `"\\nShorten it, or change the brief and compose the slide again."`. A slide without a
     layout passes. Nothing is recorded either way."""
-    raise NotImplementedError
+    if slide_id not in deck.slide_ids():
+        return
+    slide = deck.slide(slide_id)
+    if slide.layout is None:
+        return
+    status, text = qa_text(slide, tokens)
+    if status == QA_PASSED or status == "layout not checked":
+        return
+    findings = text.split("\n", 1)[1]
+    raise EditError(
+        f"the new text does not fit slide {slide_id}:\n{findings}"
+        "\nShorten it, or change the brief and compose the slide again."
+    )
 
 
 def run_set_slide_brief(ctx: ToolContext, a: tool_args.SetSlideBriefArgs) -> ToolResult:
@@ -435,7 +447,25 @@ def run_set_slide_brief(ctx: ToolContext, a: tool_args.SetSlideBriefArgs) -> Too
     redesign it.`; any other state → `Slide <id> is <state>.`.
     Summary: `set brief of <id> (<new|updated>, position <i>)`.
     """
-    raise NotImplementedError
+    store = resolve_artifact(ctx, a.artifact_id)
+    new, is_new, position = edits.set_slide_brief(
+        store.load(), a.slide_id, a.brief, position=a.position, serves=a.serves
+    )
+    entry = apply_edit(ctx, store, new, "set_slide_brief")
+    status = models.composition_status(new.slide(a.slide_id), models.effective_system(new))
+    if status.state == "undesigned":
+        line = f"Slide {a.slide_id} is not designed yet; call compose_slides to design it."
+    elif status.state == "stale":
+        line = (
+            f"Slide {a.slide_id} is now stale ({'; '.join(status.reasons)}); "
+            "call compose_slides to redesign it."
+        )
+    else:
+        line = f"Slide {a.slide_id} is {status.state}."
+    return ToolResult(
+        f"{change_text(store, entry)}\n\n{line}",
+        f"set brief of {a.slide_id} ({'new' if is_new else 'updated'}, position {position})",
+    )
 
 
 def run_compose_slides(ctx: ToolContext, a: tool_args.ComposeSlidesArgs) -> ToolResult:
@@ -443,7 +473,14 @@ def run_compose_slides(ctx: ToolContext, a: tool_args.ComposeSlidesArgs) -> Tool
     deck. Text `compose.compose_text(results)`; summary `composed <clean>/<n> slides`, or
     `nothing to compose` when no slide was selected (text then
     `compose.NOTHING_TO_COMPOSE`)."""
-    raise NotImplementedError
+    from autodeck.studio import compose
+
+    store = resolve_artifact(ctx, a.artifact_id)
+    results = compose.compose_slides(ctx, store, a.slide_ids)
+    if not results:
+        return ToolResult(compose.NOTHING_TO_COMPOSE, "nothing to compose")
+    clean = sum(1 for r in results if r.clean)
+    return ToolResult(compose.compose_text(results), f"composed {clean}/{len(results)} slides")
 
 
 def run_propose_design(ctx: ToolContext, a: tool_args.ProposeDesignArgs) -> ToolResult:
@@ -452,7 +489,21 @@ def run_propose_design(ctx: ToolContext, a: tool_args.ProposeDesignArgs) -> Tool
     ids joined by ", ">. Nothing has changed; the owner will pick one or dismiss them.`
     then the lines (one per direction, from `compose`). Summary
     `proposed <id>: <k> design directions`."""
-    raise NotImplementedError
+    from autodeck.studio import compose
+
+    store = resolve_artifact(ctx, a.artifact_id)
+    record, lines = compose.propose_design(ctx, store, a)
+    samples: list[str] = []
+    for option in record.options:
+        for candidate in option.candidates:
+            if candidate.replaces and candidate.replaces not in samples:
+                samples.append(candidate.replaces)
+    k = len(record.options)
+    head = (
+        f"Recorded proposal {record.id} with {k} design directions, each rendered on "
+        f"{', '.join(samples)}. Nothing has changed; the owner will pick one or dismiss them."
+    )
+    return ToolResult("\n".join([head, *lines]), f"proposed {record.id}: {k} design directions")
 
 
 def run_apply_design(ctx: ToolContext, a: tool_args.ApplyDesignArgs) -> ToolResult:
@@ -463,7 +514,28 @@ def run_apply_design(ctx: ToolContext, a: tool_args.ApplyDesignArgs) -> ToolResu
     decided design system.`, then `change_text(store, entry)`, then `Now stale: <ids joined
     by ", ">. Call compose_slides to redesign them.` or `No slide was designed yet.`.
     Summary `adopted design <id> v<version>; <k> slides stale`."""
-    raise NotImplementedError
+    from autodeck.studio import compose
+
+    if a.proposal_id is not None:
+        record = ctx.proposals.load(a.proposal_id)
+        store = resolve_artifact(ctx, record.artifact_id)
+    else:
+        store = resolve_artifact(ctx, a.artifact_id)
+    system, entry, stale = compose.apply_design(ctx, store, a)
+    lines = [
+        f'Adopted the design "{system.name}" ({system.id} v{system.version}) '
+        "as the deck's decided design system.",
+        change_text(store, entry),
+        (
+            f"Now stale: {', '.join(stale)}. Call compose_slides to redesign them."
+            if stale
+            else "No slide was designed yet."
+        ),
+    ]
+    return ToolResult(
+        "\n".join(lines),
+        f"adopted design {system.id} v{system.version}; {len(stale)} slides stale",
+    )
 
 
 def run_retitle_slide(ctx: ToolContext, a: tool_args.RetitleSlideArgs) -> ToolResult:
@@ -471,7 +543,15 @@ def run_retitle_slide(ctx: ToolContext, a: tool_args.RetitleSlideArgs) -> ToolRe
     `qa_gate(new, a.slide_id, design.deck_tokens(new, ctx.base_tokens))`, then
     `apply_edit(..., "retitle_slide")`. Text: `change_text`, a blank line, `qa_text` of the
     slide (deck tokens). Summary `retitled <id>: <qa status>`."""
-    raise NotImplementedError
+    store = resolve_artifact(ctx, a.artifact_id)
+    new = edits.retitle_slide(store.load(), a.slide_id, a.header)
+    tokens = design.deck_tokens(new, ctx.base_tokens)
+    qa_gate(new, a.slide_id, tokens)
+    entry = apply_edit(ctx, store, new, "retitle_slide")
+    status, text = qa_text(new.slide(a.slide_id), tokens)
+    return ToolResult(
+        f"{change_text(store, entry)}\n\n{text}", f"retitled {a.slide_id}: {status}"
+    )
 
 
 def run_set_block_text(ctx: ToolContext, a: tool_args.SetBlockTextArgs) -> ToolResult:
@@ -479,21 +559,40 @@ def run_set_block_text(ctx: ToolContext, a: tool_args.SetBlockTextArgs) -> ToolR
     tokens), `apply_edit(..., "set_block_text")`. Text and summary as Phase 1:
     `change_text`, a blank line, `qa_text` (deck tokens); summary `set text of
     <slide>/<block>: <qa status>`."""
-    raise NotImplementedError
+    store = resolve_artifact(ctx, a.artifact_id)
+    new = edits.set_designed_text(store.load(), a.slide_id, a.block_id, a.text)
+    tokens = design.deck_tokens(new, ctx.base_tokens)
+    qa_gate(new, a.slide_id, tokens)
+    entry = apply_edit(ctx, store, new, "set_block_text")
+    status, text = qa_text(new.slide(a.slide_id), tokens)
+    return ToolResult(
+        f"{change_text(store, entry)}\n\n{text}",
+        f"set text of {a.slide_id}/{a.block_id}: {status}",
+    )
 
 
 def run_swap_slides(ctx: ToolContext, a: tool_args.SwapSlidesArgs) -> ToolResult:
     """`swap_slides`: `edits.swap_slides`, `apply_edit(..., "swap_slides")`. Text
     `change_text` then `Slide order now: <views.slide_order(new)>`; summary
     `swapped slides <first> and <second>`."""
-    raise NotImplementedError
+    store = resolve_artifact(ctx, a.artifact_id)
+    new = edits.swap_slides(store.load(), a.first, a.second)
+    entry = apply_edit(ctx, store, new, "swap_slides")
+    return ToolResult(
+        f"{change_text(store, entry)}\nSlide order now: {views.slide_order(new)}",
+        f"swapped slides {a.first} and {a.second}",
+    )
 
 
 def run_hand_to_lead(ctx: ToolContext, a: tool_args.HandToLeadArgs) -> ToolResult:
     """`hand_to_lead` (mechanic only): `ctx.ledger.handoff = a.reason`. Text
     `Handed to the lead: <reason>`; summary `handed to the lead: <clip(reason, 80)>`.
     Changes nothing."""
-    raise NotImplementedError
+    ctx.ledger.handoff = a.reason
+    return ToolResult(
+        f"Handed to the lead: {a.reason}",
+        f"handed to the lead: {views.clip(a.reason, 80)}",
+    )
 
 
 def run_propose(ctx: ToolContext, a: tool_args.ProposeBriefsArgs) -> ToolResult:
@@ -504,7 +603,19 @@ def run_propose(ctx: ToolContext, a: tool_args.ProposeBriefsArgs) -> ToolResult:
     will pick one or dismiss them.` / `proposed <id>: <k> options`. The deck is resolved as
     Phase 1 did (only when some option has candidates, an `artifact_id` was given, or the
     engagement has a deck; `store` is None otherwise)."""
-    raise NotImplementedError
+    from autodeck.studio import compose
+
+    has_candidates = any(o.slides for o in a.options)
+    store: ArtifactStore | None = None
+    if has_candidates or a.artifact_id is not None or ctx.engagement.artifact_ids():
+        store = resolve_artifact(ctx, a.artifact_id)
+    record = compose.propose_briefs(ctx, store, a)
+    ids = ", ".join(o.id for o in record.options)
+    return ToolResult(
+        f"Recorded proposal {record.id} with options {ids}. Nothing has changed; "
+        "the owner will pick one or dismiss them.",
+        f"proposed {record.id}: {len(record.options)} options",
+    )
 
 
 def build_toolbox(ctx: ToolContext, *, names: tuple[str, ...] | None = None) -> ToolBox:
