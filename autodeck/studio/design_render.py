@@ -34,55 +34,47 @@ SYS_CLR = re.compile(r'<a:(dk1|lt1)><a:sysClr [^>]*?lastClr="([0-9A-Fa-f]{6})"[^
 """A `dk1`/`lt1` slot written as a system colour, with the token's hex in `lastClr`."""
 
 
-def patch_theme_colours(pptx_path):
-    import os, zipfile
-    with zipfile.ZipFile(pptx_path) as zin:
-        items = [(info, zin.read(info.filename)) for info in zin.infolist()]
-    patched = False
-    for n, (info, data) in enumerate(items):
-        if info.filename == THEME_PART:
-            t = data.decode("utf-8")
-            new = SYS_CLR.sub(r'<a:\1><a:srgbClr val="\2"/></a:\1>', t)
-            patched = new != t
-            items[n] = (info, new.encode("utf-8"))
-    if not patched:
-        return False
-    tmp = pptx_path.with_suffix(".tmp")
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
-        for info, data in items:
-            z.writestr(info, data)
-    os.replace(tmp, pptx_path)
-    return True
+def patch_theme_colours(pptx_path: Path) -> bool:
+    """Rewrite `dk1` and `lt1` in the PPTX's theme part as `<a:srgbClr val="<hex>"/>`, in
+    place. Returns True when the file was changed.
+
+    Read every member of the zip; in `THEME_PART` replace each `SYS_CLR` match with
+    `<a:\\1><a:srgbClr val="\\2"/></a:\\1>` (the hex is the `lastClr` v2 wrote, which is the
+    token's value). When nothing matched, return False without writing. Otherwise write all
+    members, in their original order and with their original `ZipInfo`, to a sibling
+    temporary file (`.tmp` suffix) with `ZIP_DEFLATED`, then `os.replace` it over the
+    original. Never raises for a file without a theme part (returns False).
+    """
+    raise NotImplementedError
 
 
-def build_designed_pptx(deck, *, base, out_path):
-    from autodeck.studio import design, render
-    built = render.build_pptx(deck, tokens=design.deck_tokens(deck, base), out_path=out_path)
-    patch_theme_colours(Path(out_path))
-    return built
+def build_designed_pptx(deck: DeckArtifact, *, base: DesignTokens, out_path: Path) -> object:
+    """`render.build_pptx(deck, tokens=design.deck_tokens(deck, base), out_path=out_path)`,
+    then `patch_theme_colours(out_path)`. Returns the `render.BuiltDeck`."""
+    raise NotImplementedError
 
 
-def render_designed(deck, *, base, out_dir):
-    from autodeck.studio import design, render
-    out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    built = build_designed_pptx(deck, base=base, out_path=out_dir / render.PPTX_FILENAME)
-    prev = render.render_previews(built.path, out_dir=out_dir / render.PREVIEWS_DIRNAME, tokens=design.deck_tokens(deck, base))
-    return RenderReport(built=built, previews=prev)
+def render_designed(deck: DeckArtifact, *, base: DesignTokens, out_dir: Path) -> RenderReport:
+    """As `render.render_artifact`, in the deck's design: `build_designed_pptx` to
+    `out_dir / render.PPTX_FILENAME`, then `render.render_previews` of it into
+    `out_dir / render.PREVIEWS_DIRNAME` with the deck's tokens. `out_dir` is created."""
+    raise NotImplementedError
 
 
-def render_with_design(base):
-    from autodeck.studio import render
-    from autodeck.studio.conversation import RenderManifest
-    def renderer(deck, out_dir, digest):
-        report = render_designed(deck, base=base, out_dir=out_dir)
-        p = report.previews
-        return RenderManifest(digest=digest, slide_ids=list(report.built.slide_ids), rendered=p.rendered, note=p.note, placeholders=dict(report.built.placeholders), images=[f"{render.PREVIEWS_DIRNAME}/{i.name}" for i in p.images] if p.rendered else [], pptx=render.PPTX_FILENAME, seconds_build=report.built.seconds, seconds_previews=p.seconds)
-    return renderer
+def render_with_design(base: DesignTokens) -> object:
+    """The production `previews.Renderer` (`(deck, out_dir, digest12) -> RenderManifest`):
+    exactly `previews.render_with_libreoffice`'s mapping to a manifest, but rendering with
+    `render_designed(deck, base=base, out_dir=out_dir)`. v2's `FontNotFoundError` becomes
+    `rendered=False` with its message, as there. Returns the callable."""
+    raise NotImplementedError
 
 
-def renderable(slide, tokens):
-    import tempfile
-    from autodeck.studio import render
-    with tempfile.TemporaryDirectory() as t:
-        b = render.build_pptx(DeckArtifact(id="check", client="check", project="check", slides=[slide]), tokens=tokens, out_path=Path(t) / "c.pptx")
-    return b.placeholders.get(slide.id)
+def renderable(slide: Slide, tokens: DesignTokens) -> str | None:
+    """Why the renderer would draw `slide` as a placeholder, or None when it would draw it.
+
+    Build a one-slide deck (`DeckArtifact(id="check", client="check", project="check",
+    slides=[slide])`) with `render.build_pptx(..., tokens=tokens, out_path=<a file in a
+    temporary directory>)` and return `built.placeholders.get(slide.id)`. v2's
+    `FontNotFoundError` propagates (no honest check is possible without the font).
+    """
+    raise NotImplementedError

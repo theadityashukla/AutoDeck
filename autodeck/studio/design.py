@@ -247,112 +247,123 @@ DEFAULT_REF: tuple[str, int] = (DEFAULT_SYSTEM_ID, DEFAULT_SYSTEM_VERSION)
 
 
 def default_design_system(base: DesignTokens) -> DesignSystem:
-    pal = {k: str(getattr(base.palette, k)).upper() for k in COLOR_SLOTS}
-    return DesignSystem(id=DEFAULT_SYSTEM_ID, version=DEFAULT_SYSTEM_VERSION, marker="provisional",
-        name=DEFAULT_SYSTEM_NAME, concept="", rules=[], palette=DesignPalette.model_validate(pal),
-        roles={}, background="lt1", text_pairs=[TextPair(text=t, ground=g) for t, g in DEFAULT_TEXT_PAIRS],
-        made_by=DEFAULT_MADE_BY, created_at=None)
+    """The provisional default system every engagement starts in.
+
+    `DesignSystem(id=DEFAULT_SYSTEM_ID, version=DEFAULT_SYSTEM_VERSION, marker="provisional",
+    name=DEFAULT_SYSTEM_NAME, concept="", rules=[], palette=<the ten slots of
+    base.palette>, roles={}, background="lt1", text_pairs=[TextPair(text=t, ground=g) for
+    t, g in DEFAULT_TEXT_PAIRS], made_by=DEFAULT_MADE_BY, created_at=None)`. Pure.
+    """
+    raise NotImplementedError
 
 
-def design_tokens(palette, base):
-    from autodeck.design.theme.tokens import Palette
-    if palette is None:
-        return base
-    merged = base.palette.model_dump()
-    merged.update(palette.model_dump())
-    return base.model_copy(update={"palette": Palette.model_validate(merged), "name": f"{base.name} + design"})
+def design_tokens(palette: DesignPalette | None, base: DesignTokens) -> DesignTokens:
+    """`base` with its ten colour slots replaced by `palette` (hyperlink slots, fonts,
+    sizes and spacing kept), as a new object: `base.model_copy(update={"palette":
+    <validated v2 Palette>})`. `palette=None` returns `base` itself. The token name becomes
+    `f"{base.name} + design"` when a palette is applied. Never writes a file."""
+    raise NotImplementedError
 
 
-def deck_tokens(deck, base):
-    ref = deck.design_system
-    return design_tokens(ref.palette if ref is not None else None, base)
+def deck_tokens(deck: DeckArtifact, base: DesignTokens) -> DesignTokens:
+    """The tokens a deck renders and is checked with: `design_tokens(deck.design_system.
+    palette, base)`, or `base` when the deck has no design-system reference. Pure: the
+    same deck state always gets the same tokens, so a render digest names one image."""
+    raise NotImplementedError
 
 
-def check_palette(palette, *, background, text_pairs):
-    from autodeck.design.free_layout import contrast_ratio
-    out = []
-    for p in text_pairs:
-        need = CONTRAST_LARGE if p.large_only else CONTRAST_TEXT
-        r = contrast_ratio(palette.hex(p.text), palette.hex(p.ground))
-        if r < need:
-            out.append(PaletteFinding(p.text, p.ground, round(r, 2), need, "large text pair" if p.large_only else "text pair"))
-    if background != CHART_LABEL_SLOT:
-        r = contrast_ratio(palette.hex(CHART_LABEL_SLOT), palette.hex(background))
-        if r < CONTRAST_TEXT:
-            out.append(PaletteFinding(CHART_LABEL_SLOT, background, round(r, 2), CONTRAST_TEXT, "charts draw labels in dk2"))
-    return out
+def check_palette(
+    palette: DesignPalette, *, background: str, text_pairs: list[TextPair]
+) -> list[PaletteFinding]:
+    """Every contrast the palette fails, `[]` when it passes.
+
+    Ratios use v2's `autodeck.design.free_layout.contrast_ratio` on the two slots' hex. In
+    order: each pair in `text_pairs` order, needing `CONTRAST_LARGE` when `large_only` (why
+    `"large text pair"`) else `CONTRAST_TEXT` (why `"text pair"`); then `CHART_LABEL_SLOT`
+    on `background`, needing `CONTRAST_TEXT` (why `"charts draw labels in dk2"`), skipped
+    when `background` is `dk2`. A ratio is a failure when `ratio < needed` (compare the
+    unrounded ratio). `ratio` is stored rounded to 2 decimals.
+    """
+    raise NotImplementedError
 
 
-def findings_text(findings):
-    return "\n".join(f"- {f.text} on {f.ground}: {f.ratio:.2f}:1, needs {f.needed:g}:1 ({f.why})" for f in findings)
+def findings_text(findings: list[PaletteFinding]) -> str:
+    """One line per finding, joined by `\\n`, exactly:
+    `- <text> on <ground>: <ratio:.2f>:1, needs <needed:g>:1 (<why>)`.
+    Example: `- accent1 on lt2: 2.31:1, needs 4.5:1 (text pair)`. `""` for no findings."""
+    raise NotImplementedError
 
 
-def check_draft(draft):
-    return check_palette(draft.palette, background=draft.background, text_pairs=draft.text_pairs)
+def check_draft(draft: DesignDraft) -> list[PaletteFinding]:
+    """`check_palette(draft.palette, background=draft.background,
+    text_pairs=draft.text_pairs)`."""
+    raise NotImplementedError
 
 
-def slugify(name):
-    s = _SLUG.sub("-", name.lower()).strip("-")[:40].strip("-")
-    if not s:
-        return "design"
-    return "design-default" if s == DEFAULT_SYSTEM_ID else s
+def slugify(name: str) -> str:
+    """A design-system id from a name: lower-cased, every run of characters outside
+    `[a-z0-9]` replaced by one `-`, `-` stripped from both ends, clipped to 40 characters
+    (and `-` stripped again). Empty → `"design"`. Equal to `DEFAULT_SYSTEM_ID` →
+    `"design-default"`. Always matches `SEGMENT_PATTERN`. Examples: `"Shelf price"` →
+    `"shelf-price"`, `"  Demand / Curve! "` → `"demand-curve"`."""
+    raise NotImplementedError
 
 
 class DesignSystemStore:
-    def __init__(self, engagement, *, base=None):
-        self.engagement = engagement
-        self.base = base
+    """The engagement's design-system versions on disk (`paths.EngagementPaths.
+    design_system_version`), behind the engagement's guard. Versions are immutable: a
+    version file is written once (atomically, `serialise.atomic_write_text` of
+    `serialise.dump_model`) and never rewritten or deleted."""
 
-    def _dir(self, sid):
-        return self.engagement.guard(self.engagement.paths.design_system_dir(sid))
+    def __init__(self, engagement: object, *, base: DesignTokens | None = None) -> None:
+        """`engagement` is an `engagement.Engagement` (typed loosely to avoid an import
+        cycle); `base` builds the default system (without it, `load` of the default system
+        raises `DesignSystemNotFoundError("the default system needs base tokens")`; the
+        context builder loads only stored versions). Stores both; touches no file."""
+        raise NotImplementedError
 
-    def ids(self):
-        root = self.engagement.paths.design_systems
-        if not root.is_dir():
-            return []
-        return sorted(d.name for d in root.iterdir() if d.is_dir() and self.versions(d.name))
+    def ids(self) -> list[str]:
+        """Stored system ids (directories under `design_systems/` holding at least one
+        valid version file), sorted. Never includes the default system."""
+        raise NotImplementedError
 
-    def versions(self, sid):
-        if sid == DEFAULT_SYSTEM_ID:
-            return [1]
-        d = self._dir(sid)
-        if not d.is_dir():
-            return []
-        return sorted(int(m.group(1)) for f in d.iterdir() if (m := re.fullmatch(r"v([0-9]{4,})\.json", f.name)))
+    def versions(self, system_id: str) -> list[int]:
+        """The stored versions of `system_id`, ascending; `[1]` for the default system;
+        `[]` for an unknown id. Only files named `v<4+ digits>.json` count."""
+        raise NotImplementedError
 
-    def load(self, sid, version):
-        from autodeck.studio.errors import DesignSystemNotFoundError
-        from autodeck.studio import serialise
-        if sid == DEFAULT_SYSTEM_ID:
-            if version != 1:
-                raise DesignSystemNotFoundError("no such version")
-            if self.base is None:
-                raise DesignSystemNotFoundError("the default system needs base tokens")
-            return default_design_system(self.base)
-        path = self.engagement.guard(self.engagement.paths.design_system_version(sid, version))
-        if not path.is_file():
-            raise DesignSystemNotFoundError(f"no design system {sid} v{version}")
-        sys_ = DesignSystem.model_validate_json(serialise.read_text(path))
-        if (sys_.id, sys_.version) != (sid, version):
-            raise ValueError("mismatch")
-        return sys_
+    def load(self, system_id: str, version: int) -> DesignSystem:
+        """One version. The default system `(DEFAULT_SYSTEM_ID, 1)` is
+        `default_design_system(base)` and reads no file.
 
-    def for_deck(self, deck):
-        from autodeck.studio.models import effective_system
-        return self.load(*effective_system(deck))
+        Raises:
+            DesignSystemNotFoundError: no such stored version (also for the default id with
+                a version other than 1).
+            ClientIsolationError: (v2's) the path resolves into another client's tree.
+            InvalidSegmentError: `system_id` is not a safe segment.
+            pydantic.ValidationError: the file is not a valid `DesignSystem`, or its `id` /
+                `version` disagree with its path (checked: raise `ValueError` naming both).
+        """
+        raise NotImplementedError
 
-    def add(self, draft, *, marker, now, system_id=None):
-        from autodeck.studio.errors import InvalidSegmentError, PaletteRefusedError
-        from autodeck.studio import serialise
-        if system_id == DEFAULT_SYSTEM_ID:
-            raise InvalidSegmentError("no")
-        sid = system_id or slugify(draft.name)
-        f = check_draft(draft)
-        if f:
-            raise PaletteRefusedError(findings_text(f))
-        v = max(self.versions(sid), default=0) + 1
-        sys_ = DesignSystem(id=sid, version=v, marker=marker, created_at=now, **draft.model_dump())
-        path = self.engagement.guard(self.engagement.paths.design_system_version(sid, v))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        serialise.atomic_write_text(path, serialise.dump_model(sys_))
-        return sys_
+    def for_deck(self, deck: DeckArtifact) -> DesignSystem:
+        """The version the deck is in: `load(*models.effective_system(deck))`."""
+        raise NotImplementedError
+
+    def add(
+        self,
+        draft: DesignDraft,
+        *,
+        marker: Marker,
+        now: datetime,
+        system_id: str | None = None,
+    ) -> DesignSystem:
+        """Store `draft` as the next version and return it.
+
+        The id is `system_id` when given (it must not be `DEFAULT_SYSTEM_ID`:
+        `InvalidSegmentError`), else `slugify(draft.name)`. The version is one more than
+        the highest stored version of that id (1 for a new id). The draft is checked first:
+        if `check_draft` finds anything, `PaletteRefusedError(findings_text(...))` and
+        nothing is written. Writes `v<NNNN>.json` with `created_at=now`.
+        """
+        raise NotImplementedError

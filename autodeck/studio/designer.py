@@ -113,8 +113,9 @@ class DesignResult:
     `clean` True: `slide` is the designed slide (blocks and layout, id = the job's slide
     id, `intent` = the brief's intent, `brief` = the brief, no `composed`), and it passed
     every check. `clean` False: `slide` is None and `findings` are the last attempt's
-    findings (one line each, at most `models.MAX_FAILURE_FINDINGS`), or `[error]` /
-    `[no_tool_call]` lines that say what happened. `attempts` counts model calls.
+    findings (one line each, at most `models.MAX_FAILURE_FINDINGS`), or the one line
+    `[no_tool_call] the model did not call write_slide (after one nudge)` /
+    `[error] <Type>: <message>` that says what happened. `attempts` counts model calls.
     """
 
     slide_id: str

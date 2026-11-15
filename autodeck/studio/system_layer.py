@@ -54,7 +54,8 @@ MAX_SAMPLE_BRIEFS = 3
 class SystemResult:
     """`draft` is set exactly when the palette passed. `findings` are the last attempt's
     problems (palette findings as `design.findings_text` lines, or validation lines
-    `[validation] <loc>: <msg>`, or `[no_tool_call]` / `[error] <Type>: <msg>`)."""
+    `[validation] <loc>: <msg>`, or the one line `[no_tool_call] the model did not call
+    set_palette (after one nudge)` / `[error] <Type>: <msg>`)."""
 
     direction: DesignDirection
     draft: DesignDraft | None

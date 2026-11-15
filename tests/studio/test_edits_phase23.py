@@ -75,7 +75,7 @@ def test_set_slide_brief_creates_and_updates_without_touching_the_design() -> No
     assert updated.slide("s2").blocks == fresh.slide("s2").blocks
     assert updated.slide("s2").composed == fresh.slide("s2").composed
     assert state(updated) == "stale"
-    with pytest.raises(EditError, match="1 .. 2"):
+    with pytest.raises(EditError, match=r"1 \.\. 2"):
         edits.set_slide_brief(fresh, "s7", flow_brief("s1"), position=3)
     with pytest.raises(ValidationError):
         edits.set_slide_brief(deck, "s11", flow_brief("s1"), serves=["p99"])
