@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from autodeck.providers.base import Message
 from autodeck.studio.engagement import Engagement
+from autodeck.studio.views import deck_outline
 
 
 def mechanic_request_text(engagement: Engagement, text: str) -> str:
@@ -22,9 +23,14 @@ def mechanic_request_text(engagement: Engagement, text: str) -> str:
     where `<the decks>` is `views.deck_outline(deck)` for each artifact of the engagement in
     id order (loaded through `engagement.artifact_store(id).load()`), joined by `"\\n\\n"`,
     or `(no deck yet)` when there is none."""
-    raise NotImplementedError
+    outlines = [
+        deck_outline(engagement.artifact_store(artifact_id).load())
+        for artifact_id in engagement.artifact_ids()
+    ]
+    decks = "\n\n".join(outlines) if outlines else "(no deck yet)"
+    return f"# The deck\n\n{decks}\n\n# The owner's message\n\n{text}"
 
 
 def mechanic_messages(engagement: Engagement, text: str) -> list[Message]:
     """`[Message("user", mechanic_request_text(engagement, text))]`."""
-    raise NotImplementedError
+    return [Message("user", mechanic_request_text(engagement, text))]

@@ -156,8 +156,53 @@
     return null;
   }
 
+  function sentence(parts) {
+    const t = (parts || []).join(" and ");
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+  }
+
+  // The composition record of a slide (stale, failed, undesigned ...), or null.
+  function compOf(T, slide) {
+    const c = T.art && T.art.composition ? T.art.composition[slide.id] : null;
+    return c || null;
+  }
+
+  function compTag(c) {
+    if (!c) return null;
+    if (c.state === "stale") {
+      const t = h("span", { class: "tag tag-stale", text: "Stale" });
+      if ((c.reasons || []).length) t.title = sentence(c.reasons) + ".";
+      return t;
+    }
+    if (c.state === "failed") return h("span", { class: "tag tag-warn", text: "Failed to compose" });
+    if (c.state === "undesigned") return h("span", { class: "tag tag-plain", text: "Not designed yet" });
+    return null;
+  }
+
+  // Marker tags plus composition tags, never the same word twice.
+  function slideTags(T, slide) {
+    const c = compOf(T, slide);
+    const dup = slide.marker === "stale" && c && c.state === "stale";
+    return [dup ? null : markerTag(slide.marker), compTag(c)];
+  }
+
+  function usd(v) { return "$" + (v < 0.01 ? v.toFixed(3) : v.toFixed(2)); }
+  function kTokens(n) { return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n); }
+
   // ------------------------------------------------------------------ app state
   const app = { health: null, thread: null };
+
+  const ROUTE_TIPS = {
+    auto: "Auto: small edits go to a cheaper model",
+    lead: "Lead: always the lead",
+  };
+  function routeKey(T) { return "autodeck.route." + T.client + "/" + T.project + "/" + T.id; }
+  function loadRoute(T) {
+    try { return localStorage.getItem(routeKey(T)) === "lead" ? "lead" : "auto"; } catch (e) { return "auto"; }
+  }
+  function saveRoute(T) {
+    try { localStorage.setItem(routeKey(T), T.route); } catch (e) { /* kept for this page only */ }
+  }
 
   function setCrumb(c, p) {
     const el = $("crumb");
@@ -173,7 +218,9 @@
   async function loadHealth() {
     try {
       app.health = await api("GET", "/api/health");
-      $("model-id").textContent = app.health.model_id || "";
+      const b = app.health.bindings || null;
+      $("model-id").textContent = app.health.model_id || (b && b.lead) || "";
+      if (b) $("model-id").title = Object.entries(b).map(([role, id]) => role + ": " + id).join("\n");
       $("scripted-tag").hidden = !app.health.scripted;
     } catch (e) {
       toast(e.message);
@@ -347,7 +394,7 @@
   // ------------------------------------------------------------------ thread
   const EVENT_TYPES = ["turn_started", "assistant_text", "tool_called", "tool_finished", "artifact_created",
     "change_recorded", "change_reverted", "proposal_created", "proposal_resolved", "turn_finished",
-    "previews_ready", "proposal_previews_ready"];
+    "previews_ready", "proposal_previews_ready", "slide_composed"];
 
   const STOP_TEXT = {
     step_cap: "Stopped: the step limit for one turn was reached.",
@@ -369,7 +416,7 @@
   function slideTitle(slide) {
     const blocks = slide.blocks || [];
     const t = blocks.find((b) => b.id === "title" && b.text) || blocks.find((b) => b.kind === "text" && b.text);
-    return t ? t.text : slide.id;
+    return t ? t.text : (slide.brief && slide.brief.header) || slide.id;
   }
 
   async function showThread(r, token) {
@@ -381,8 +428,9 @@
       E: engPath(r.client, r.project), summary: null, messages: [], running: null, live: null,
       artifacts: [], artId: null, art: null, changes: null, proposals: {}, panelTab: "slides",
       slideId: null, flash: new Set(), renderAsked: new Set(), lastEvent: 0, connLost: false,
-      tab: "chat", els: {}, dead: false, busy: false,
+      tab: "chat", els: {}, dead: false, busy: false, route: "auto", openRoutes: new Set(), previewState: {},
     };
+    T.route = loadRoute(T);
     T.base = T.E + "/threads/" + enc(T.id);
     try {
       const [th, eng] = await Promise.all([api("GET", T.base), api("GET", T.E)]);
@@ -427,7 +475,7 @@
     T.live = {
       turn_id: T.running, origin: null, text: null, model_id: open ? open.model_id : null,
       texts: open ? (open.texts || []).slice() : [], tools: open ? (open.tools || []).map((t, i) => ({ call_id: "r" + i, name: t.name, summary: t.summary, error: t.error, done: true })) : [],
-      changes: [],
+      changes: [], composed: [],
     };
   }
 
@@ -445,7 +493,8 @@
     E.title = h("h1", { class: "chat-title", text: threadTitle(T.summary) });
     E.send = h("button", { class: "btn primary", type: "submit", text: "Send" });
     E.hint = h("p", { class: "hint", id: "composer-hint" });
-    E.form = h("form", { class: "cform" }, E.input, E.send);
+    E.routeCtl = routeControl(T);
+    E.form = h("form", { class: "cform" }, E.input, E.routeCtl, E.send);
     E.form.addEventListener("submit", (ev) => { ev.preventDefault(); sendMessage(T); });
     E.input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); sendMessage(T); }
@@ -482,6 +531,33 @@
   }
 
   // ---- composer
+  function routeControl(T) {
+    const mk = (key, label) => h("button", { type: "button", role: "radio", "data-route": key, title: ROUTE_TIPS[key], text: label });
+    const group = h("div", { class: "seg", role: "radiogroup", "aria-label": "Routing" }, mk("auto", "Auto"), mk("lead", "Lead"));
+    const paint = () => {
+      for (const b of group.children) {
+        const on = b.getAttribute("data-route") === T.route;
+        b.setAttribute("aria-checked", String(on));
+        b.tabIndex = on ? 0 : -1;
+      }
+    };
+    const choose = (key, focus) => {
+      T.route = key;
+      saveRoute(T);
+      paint();
+      if (focus) group.querySelector('[data-route="' + key + '"]').focus();
+    };
+    for (const b of group.children) b.addEventListener("click", () => choose(b.getAttribute("data-route"), false));
+    group.addEventListener("keydown", (ev) => {
+      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "ArrowUp" || ev.key === "ArrowDown") {
+        ev.preventDefault();
+        choose(T.route === "auto" ? "lead" : "auto", true);
+      }
+    });
+    paint();
+    return group;
+  }
+
   function renderComposer(T) {
     const E = T.els;
     const busy = !!T.running || T.busy;
@@ -491,17 +567,22 @@
     E.input.placeholder = T.running ? "A turn is running. You can write again when it finishes." : "Message the model";
     E.hint.textContent = T.running ? "" : "Enter sends, Shift+Enter adds a line.";
     if (was && !busy && document.activeElement === document.body) E.input.focus();
+    if (E.recompose) E.recompose.disabled = busy;
   }
 
-  async function sendMessage(T) {
-    const text = T.els.input.value;
+  async function sendMessage(T, override) {
+    const fromInput = override === undefined;
+    const text = fromInput ? T.els.input.value : override.text;
+    const route = fromInput ? T.route : override.route;
     if (!text.trim() || T.running || T.busy) return;
     T.busy = true;
     renderComposer(T);
     try {
-      const res = await api("POST", T.base + "/messages", { text });
-      T.els.input.value = "";
-      T.els.input.style.height = "auto";
+      const res = await api("POST", T.base + "/messages", { text, route });
+      if (fromInput) {
+        T.els.input.value = "";
+        T.els.input.style.height = "auto";
+      }
       beginLive(T, res.turn_id, "owner", text);
     } catch (e) {
       toast(e.message);
@@ -518,7 +599,7 @@
       renderTitle(T);
     }
     if (!T.live || T.live.turn_id !== turnId) {
-      T.live = { turn_id: turnId, origin, text, model_id: model || null, texts: [], tools: [], changes: [] };
+      T.live = { turn_id: turnId, origin, text, model_id: model || null, texts: [], tools: [], changes: [], composed: [] };
     } else {
       if (origin) T.live.origin = origin;
       if (text !== null && text !== undefined) T.live.text = text;
@@ -544,6 +625,49 @@
   }
 
   function modelOf(m) { return m ? h("span", { class: "tag tag-plain mono", text: m }) : null; }
+
+  const BY_TEXT = {
+    rule: "by a fixed rule",
+    model: "by the router model",
+    override: "pinned to the lead by you",
+    origin: "by the kind of message",
+    fallback: "fell back to the lead",
+  };
+  const cap = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : "");
+
+  function routeLine(T, m) {
+    const u = m.usage;
+    if (!u || !(u.layers || []).length) return null;
+    const layers = u.layers;
+    const ran = (role) => layers.some((l) => l.role === role);
+    const path = [];
+    if (ran("router")) path.push("Router");
+    for (const r of m.roles && m.roles.length ? m.roles : layers.filter((l) => l.role === "mechanic" || l.role === "lead").map((l) => l.role)) path.push(cap(r));
+    const calls = layers.reduce((n, l) => n + (l.calls || 0), 0);
+    const tokens = layers.reduce((n, l) => n + (l.input_tokens || 0) + (l.output_tokens || 0), 0);
+    const cost = typeof u.total_cost_usd === "number" ? usd(u.total_cost_usd) + " est." : "cost unknown";
+    const parts = [path.join(" \u2192 ") || "Lead"];
+    if (layers.length === 1) parts.push(layers[0].model_id, plural(calls, "call"));
+    else parts.push(plural(layers.length, "layer"), kTokens(tokens) + " tokens");
+    parts.push(cost);
+    const rows = layers.map((l) => h("tr", null,
+      h("td", { text: cap(l.role) }), h("td", { text: l.layer }), h("td", { class: "mono", text: l.model_id }),
+      h("td", { class: "num", text: String(l.calls) }), h("td", { class: "num", text: (l.input_tokens || 0).toLocaleString() }),
+      h("td", { class: "num", text: (l.output_tokens || 0).toLocaleString() }),
+      h("td", { class: "num", text: typeof l.cost_usd === "number" ? usd(l.cost_usd) + " est." : "unpriced" })));
+    const rt = m.route;
+    const d = h("details", { class: "route" },
+      h("summary", { text: parts.join(" \u00b7 ") }),
+      h("div", { class: "route-body" },
+        h("div", { class: "tbl-wrap" }, h("table", { class: "tbl" },
+          h("thead", null, h("tr", null, ["Role", "Layer", "Model", "Calls", "Input", "Output", "Cost"].map((c, i) => h("th", { class: i > 2 ? "num" : "", scope: "col", text: c })))),
+          h("tbody", null, rows))),
+        rt ? h("p", { class: "quiet", text: "Routed to the " + rt.route + " " + (BY_TEXT[rt.by] || "(" + rt.by + ")") + (rt.reason ? ": " + rt.reason : "") + (rt.handed_off ? " The mechanic handed the turn to the lead." : "") }) : null,
+        h("p", { class: "fine", text: (typeof u.total_cost_usd === "number" ? "Total " + usd(u.total_cost_usd) + " est. " : "Total cost unknown. ") + (u.price_note || "Estimated from assumed prices, not a bill.") })));
+    if (T.openRoutes.has(m.turn_id)) d.open = true;
+    d.addEventListener("toggle", () => { if (d.open) T.openRoutes.add(m.turn_id); else T.openRoutes.delete(m.turn_id); });
+    return d;
+  }
 
   function renderAssistant(T, m) {
     const kindLabel = { talk: "Talk", proposal: "Proposal", change: "Change" }[m.kind] || "Talk";
@@ -573,7 +697,8 @@
     if (!kids.length) kids.push(h("p", { class: "quiet", text: "No reply." }));
     return h("article", { class: "msg assistant", "data-turn": m.turn_id },
       h("div", { class: "msg-meta" }, h("span", { class: "kind kind-" + (m.kind || "talk"), text: kindLabel }), modelOf(m.model_id)),
-      h("div", { class: "bubble" }, kids));
+      h("div", { class: "bubble" }, kids),
+      routeLine(T, m));
   }
 
   function renderMessages(T) {
@@ -612,6 +737,7 @@
       const tl = toolList(L.tools, true);
       if (tl) body.push(tl);
       for (const c of L.changes) body.push(h("p", { class: "quiet", text: "Recorded: " + c }));
+      for (const c of L.composed || []) body.push(h("p", { class: "quiet", text: c }));
       body.push(h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")));
       kids.push(h("article", { class: "msg assistant", "aria-busy": "true" },
         h("div", { class: "msg-meta" }, h("span", { class: "kind kind-working", text: "Working" }), modelOf(L.model_id)),
@@ -635,7 +761,9 @@
       ];
       if (o.applies) kids.push(h("p", { class: "opt-applies quiet", text: o.applies + "." }));
       const n = (o.slide_ids || []).length;
-      if (n) {
+      if (o.design) {
+        kids.push(designOption(T, p, o));
+      } else if (n) {
         const pv = o.previews || [];
         kids.push(h("div", { class: "samples" }, (o.slide_ids || []).map((sid, i) => h("div", { class: "sample" },
           pv[i] ? h("img", { src: pv[i], alt: "Option " + o.id + ", slide " + (i + 1), loading: "lazy" })
@@ -659,6 +787,28 @@
       foot.push(h("p", { class: "pstat", text: p.status === "dismissed" ? "Dismissed" + by + "." : "Option " + p.chosen + " chosen" + by + "." }));
     }
     return h("div", { class: "proposal", "data-proposal": p.id }, head, opts, foot);
+  }
+
+  function designOption(T, p, o) {
+    const ds = o.design;
+    const out = h("div", { class: "dopt" });
+    out.append(h("div", { class: "dopt-name" }, h("b", { text: ds.name }), h("span", { class: "tag tag-plain", text: "Design" })));
+    if (ds.concept) out.append(h("p", { class: "opt-text", text: ds.concept }));
+    out.append(swatchRow(ds));
+    if ((ds.rules || []).length) {
+      out.append(h("details", { class: "lines" }, h("summary", { text: plural(ds.rules.length, "rule") }),
+        h("ul", { class: "rules" }, ds.rules.map((r) => h("li", { text: r })))));
+    }
+    const pv = o.previews || [];
+    if (pv.length) {
+      out.append(h("div", { class: "samples" }, pv.map((src, i) => h("div", { class: "sample" },
+        h("img", { src, alt: "Option " + o.id + ", sample slide " + (i + 1) + " in the " + ds.name + " design", loading: "lazy" })))));
+    } else {
+      const st = T.previewState[p.id];
+      const text = st && !st.rendered ? (st.note || "Sample slides could not be rendered.") : st ? "No sample slides." : "Sample slides are being drawn.";
+      out.append(h("div", { class: "samples" }, h("div", { class: "sample" }, h("div", { class: "ph" }, h("span", { text })))));
+    }
+    return out;
   }
 
   async function pickOption(T, p, optionId) {
@@ -800,7 +950,7 @@
   function liveFor(T, turnId) {
     if (!T.live || T.live.turn_id !== turnId) {
       T.running = turnId;
-      T.live = { turn_id: turnId, origin: null, text: null, model_id: null, texts: [], tools: [], changes: [] };
+      T.live = { turn_id: turnId, origin: null, text: null, model_id: null, texts: [], tools: [], changes: [], composed: [] };
       renderComposer(T);
     }
     return T.live;
@@ -844,6 +994,16 @@
       case "change_reverted":
         scheduleArtifactRefresh(T);
         break;
+      case "slide_composed": {
+        const L = liveFor(T, d.turn_id);
+        if (!L.composed) L.composed = [];
+        L.composed.push(d.clean
+          ? "Designed slide " + d.slide_id + " (" + plural(d.attempts || 1, "attempt") + ")"
+          : "Slide " + d.slide_id + " failed to compose");
+        renderLive(T);
+        scheduleArtifactRefresh(T);
+        break;
+      }
       case "proposal_created":
       case "proposal_resolved":
         refreshEngagement(T).then(() => renderMessages(T));
@@ -860,6 +1020,7 @@
         if (!T.artId || d.artifact_id === T.artId) scheduleArtifactRefresh(T);
         break;
       case "proposal_previews_ready":
+        T.previewState[d.proposal_id] = { rendered: d.rendered !== false, note: d.note || "" };
         refreshEngagement(T).then(() => renderMessages(T));
         break;
       default:
@@ -872,7 +1033,8 @@
     const keep = E.panelBody.scrollTop;
     clear(E.panelHead);
     clear(E.panelBody);
-    const tabs = [["slides", "Slides"], ["storyline", "Storyline"], ["changes", "Changes"]];
+    E.recompose = null;
+    const tabs = [["slides", "Slides"], ["storyline", "Storyline"], ["changes", "Changes"], ["design", "Design"]];
     const tablist = h("div", { class: "ptabs", role: "tablist", "aria-label": "Artifact views" }, tabs.map(([k, label]) => {
       const b = h("button", { type: "button", role: "tab", "aria-selected": String(T.panelTab === k), "aria-controls": "panel-body", text: label });
       b.addEventListener("click", () => { T.panelTab = k; renderPanel(T); });
@@ -895,6 +1057,7 @@
     }
     if (T.panelTab === "slides") renderSlides(T);
     else if (T.panelTab === "storyline") renderStoryline(T);
+    else if (T.panelTab === "design") renderDesign(T);
     else renderChanges(T);
     E.panelBody.scrollTop = keep;
   }
@@ -902,6 +1065,8 @@
   function slideVisual(T, slide, index, big) {
     const r = T.art.render;
     const ph = (reason) => h("div", { class: "ph" + (big ? " big" : "") }, h("b", { text: slide.id }), h("span", { text: reason }));
+    const c = compOf(T, slide);
+    if (c && c.state === "undesigned") return ph("Not designed yet");
     if (!r) return ph("Rendering the preview.");
     if (!r.rendered) return ph(r.note || "Preview not rendered.");
     const reason = (r.placeholders || {})[slide.id];
@@ -911,6 +1076,46 @@
     const img = h("img", { src, alt: big ? "Slide " + (index + 1) + ": " + slideTitle(slide) : "", loading: big ? "eager" : "lazy" });
     img.addEventListener("error", () => { img.replaceWith(ph("Preview not available.")); });
     return img;
+  }
+
+  function briefBlock(slide, open) {
+    const b = slide.brief;
+    if (!b) return null;
+    const c = b.content || {};
+    const rows = [h("dt", { text: "Header" }), h("dd", { text: b.header })];
+    if (b.intent) rows.push(h("dt", { text: "Intent" }), h("dd", { text: b.intent }));
+    if ((c.points || []).length) rows.push(h("dt", { text: "Points" }), h("dd", null, h("ul", { class: "rules" }, c.points.map((x) => h("li", { text: x })))));
+    if ((c.figures || []).length) rows.push(h("dt", { text: "Figures" }), h("dd", null, h("ul", { class: "figs" }, c.figures.map((f) => h("li", null, h("b", { text: f.value }), " ", f.label)))));
+    if (c.chart) {
+      const ch = c.chart;
+      const series = (ch.series || []).map((x) => x.name).filter(Boolean);
+      rows.push(h("dt", { text: "Chart" }), h("dd", { text: [ch.kind, plural((ch.categories || []).length, "category", "categories"), series.length ? "series: " + series.join(", ") : null, (ch.emphasis || []).length ? "emphasis: " + [].concat(ch.emphasis).join(", ") : (ch.emphasis ? "emphasis: " + ch.emphasis : null)].filter(Boolean).join(" · ") }));
+    }
+    if (c.notes || b.notes) rows.push(h("dt", { text: "Notes" }), h("dd", { text: c.notes || b.notes }));
+    const d = h("details", { class: "brief" }, h("summary", { text: "Brief" }), h("dl", { class: "kv" }, rows));
+    if (open) d.open = true;
+    return d;
+  }
+
+  function slideStatus(c) {
+    if (!c) return null;
+    if (c.state === "stale") return h("p", { class: "quiet status", text: (sentence(c.reasons) || "The design is out of date") + ". Recompose to bring it up to date." });
+    if (c.state === "failed") {
+      const f = c.failure || {};
+      const first = (f.findings || [])[0];
+      return h("p", { class: "status warn", text: "Failed to compose" + (f.attempts ? " after " + plural(f.attempts, "attempt") : "") + (first ? ": " + first : ".") });
+    }
+    return null;
+  }
+
+  function recomposeBar(T, slides) {
+    const stale = slides.filter((s) => { const c = compOf(T, s); return c && c.state === "stale"; }).map((s) => s.id);
+    T.els.recompose = null;
+    if (!stale.length) return null;
+    const b = h("button", { class: "btn small", type: "button", text: "Recompose " + plural(stale.length, "stale slide"), disabled: !!T.running || T.busy });
+    b.addEventListener("click", () => sendMessage(T, { text: "Recompose the stale slides: " + stale.join(", ") + ".", route: "lead" }));
+    T.els.recompose = b;
+    return h("div", { class: "recompose" }, b, h("span", { class: "quiet", text: "Asks the lead to design them again." }));
   }
 
   function renderSlides(T) {
@@ -923,23 +1128,100 @@
     let idx = slides.findIndex((s) => s.id === T.slideId);
     if (idx < 0) { idx = 0; T.slideId = slides[0].id; }
     const cur = slides[idx];
+    const curC = compOf(T, cur);
+    const curState = curC ? curC.state : "unbriefed";
     const strip = h("div", { class: "strip", role: "group", "aria-label": "Slides" }, slides.map((s, i) => {
-      const b = h("button", { type: "button", class: "thumb mk-" + s.marker + (i === idx ? " cur" : "") + (T.flash.has(s.id) ? " flash" : ""), "aria-pressed": String(i === idx), "aria-label": "Slide " + (i + 1) + ": " + slideTitle(s) + (s.marker !== "decided" ? ", " + s.marker : "") },
+      const c = compOf(T, s);
+      const st = c ? c.state : "unbriefed";
+      const said = [s.marker !== "decided" ? s.marker : null, st === "stale" ? "stale" : st === "failed" ? "failed to compose" : st === "undesigned" ? "not designed yet" : null].filter(Boolean);
+      const b = h("button", { type: "button", class: "thumb mk-" + s.marker + " cs-" + st + (i === idx ? " cur" : "") + (T.flash.has(s.id) ? " flash" : ""), "aria-pressed": String(i === idx), "aria-label": "Slide " + (i + 1) + ": " + slideTitle(s) + (said.length ? ", " + said.join(", ") : "") },
         h("span", { class: "th-frame" }, slideVisual(T, s, i, false)),
-        h("span", { class: "th-meta" }, h("span", { class: "th-n", text: String(i + 1) }), markerTag(s.marker)));
+        h("span", { class: "th-meta" }, h("span", { class: "th-n", text: String(i + 1) }), slideTags(T, s)));
       b.addEventListener("click", () => { T.slideId = s.id; renderPanel(T); });
       return b;
     }));
     const r = T.art.render;
     const note = r && !r.rendered && r.note ? h("p", { class: "quiet", text: r.note }) : null;
     add(body,
+      recomposeBar(T, slides),
       strip,
       h("div", { class: "stage-top" },
         h("div", { class: "stage-title" }, h("span", { class: "stage-head", text: slideTitle(cur) }), h("span", { class: "mono", text: "Slide " + (idx + 1) + " of " + slides.length + " · " + cur.id })),
-        markerTag(cur.marker)),
-      h("div", { class: "stage mk-" + cur.marker + (T.flash.has(cur.id) ? " flash" : "") }, h("div", { class: "stage-slide" }, slideVisual(T, cur, idx, true))),
-      cur.intent ? h("p", { class: "intent", text: cur.intent }) : null,
+        h("span", { class: "tags" }, slideTags(T, cur))),
+      h("div", { class: "stage mk-" + cur.marker + " cs-" + curState + (T.flash.has(cur.id) ? " flash" : "") }, h("div", { class: "stage-slide" }, slideVisual(T, cur, idx, true))),
+      slideStatus(curC),
+      cur.brief ? null : (cur.intent ? h("p", { class: "intent", text: cur.intent }) : null),
+      briefBlock(cur, curState === "undesigned" || curState === "failed"),
       note);
+  }
+
+  // ---- design tab
+  const safeHex = (x) => (/^#[0-9a-fA-F]{6}$/.test(x || "") ? x : null);
+
+  function swatch(hex, cls) {
+    const el = h("span", { class: "swatch " + (cls || ""), "aria-hidden": "true" });
+    const c = safeHex(hex);
+    if (c) el.style.backgroundColor = c;
+    return el;
+  }
+
+  function swatchRow(ds) {
+    const pal = ds.palette || [];
+    const row = h("div", { class: "swrow", role: "img", "aria-label": "Palette: " + pal.map((x) => x.slot + " " + x.hex).join(", ") });
+    for (const x of pal) {
+      const sw = swatch(x.hex, "sm");
+      sw.title = x.slot + " " + x.hex + (x.role ? ": " + x.role : "");
+      row.append(sw);
+    }
+    return row;
+  }
+
+  function paletteList(ds) {
+    return h("ul", { class: "pal" }, (ds.palette || []).map((x) => h("li", { class: "pal-row" },
+      swatch(x.hex, ""),
+      h("span", { class: "pal-b" },
+        h("span", { class: "pal-top" }, h("span", { class: "mono pal-slot", text: x.slot }), h("span", { class: "mono pal-hex", text: x.hex }),
+          x.slot === ds.background ? h("span", { class: "tag tag-ok", text: "Background" }) : null),
+        x.role ? h("span", { class: "pal-role", text: x.role }) : null))));
+  }
+
+  function pairList(ds) {
+    const hex = {};
+    for (const x of ds.palette || []) hex[x.slot] = x.hex;
+    const pairs = ds.text_pairs || [];
+    if (!pairs.length) return h("p", { class: "muted", text: "No text pairs declared." });
+    return h("ul", { class: "pairs" }, pairs.map((q) => {
+      const aa = h("span", { class: "pair-aa", text: "Aa" });
+      const fg = safeHex(hex[q.text]);
+      const bg = safeHex(hex[q.ground]);
+      if (fg) aa.style.color = fg;
+      if (bg) aa.style.backgroundColor = bg;
+      return h("li", { class: "pair" }, aa,
+        h("span", { class: "pair-t" }, h("span", { class: "mono", text: q.text + " on " + q.ground }), q.large_only ? h("span", { class: "quiet", text: "Large text only" }) : null));
+    }));
+  }
+
+  function renderDesign(T) {
+    const body = T.els.panelBody;
+    const ds = T.art.design_system;
+    if (!ds) {
+      body.append(h("p", { class: "empty", text: "The design system for this deck could not be read." }));
+      return;
+    }
+    const sec = (title, ...kids) => h("section", { class: "sec" }, h("h2", { class: "sec-h", text: title }), kids);
+    const made = [ds.made_by ? "Made by " + ds.made_by : null, ds.created_at ? fmtTime(ds.created_at) : null].filter(Boolean).join(" · ");
+    add(body,
+      h("div", { class: "ds-head" },
+        h("h2", { class: "ds-name", text: ds.name }),
+        h("span", { class: "mono ds-ver", text: "Version " + ds.version }),
+        h("span", { class: "tags" },
+          h("span", { class: "tag " + (ds.marker === "decided" ? "tag-ok" : "tag-prov"), text: ds.marker === "decided" ? "Decided" : "Provisional" }),
+          ds.is_default ? h("span", { class: "tag tag-plain", text: "Default" }) : null)),
+      made ? h("p", { class: "quiet", text: made }) : null,
+      sec("Concept", h("p", { class: "concept" + (ds.concept ? "" : " none"), text: ds.concept || "No concept stated" })),
+      sec("Rules", (ds.rules || []).length ? h("ul", { class: "rules" }, ds.rules.map((r) => h("li", { text: r }))) : h("p", { class: "muted", text: "No rules stated." })),
+      sec("Palette", paletteList(ds)),
+      sec("Text pairs", pairList(ds)));
   }
 
   function renderStoryline(T) {

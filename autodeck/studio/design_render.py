@@ -21,12 +21,20 @@ designer builds the slide in memory on every attempt and treats a placeholder as
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
+import zipfile
 from pathlib import Path
+from typing import cast
 
+from autodeck.design.fonts import FontNotFoundError
 from autodeck.design.theme.tokens import DesignTokens
+from autodeck.studio import render
+from autodeck.studio.conversation import RenderManifest
+from autodeck.studio.design import deck_tokens
 from autodeck.studio.models import DeckArtifact, Slide
-from autodeck.studio.render import RenderReport
+from autodeck.studio.render import BuiltDeck, RenderReport
 
 THEME_PART = "ppt/theme/theme1.xml"
 
@@ -45,20 +53,52 @@ def patch_theme_colours(pptx_path: Path) -> bool:
     temporary file (`.tmp` suffix) with `ZIP_DEFLATED`, then `os.replace` it over the
     original. Never raises for a file without a theme part (returns False).
     """
-    raise NotImplementedError
+    pptx_path = Path(pptx_path)
+    with zipfile.ZipFile(pptx_path) as zin:
+        members = [(info, zin.read(info.filename)) for info in zin.infolist()]
+    changed = False
+    for index, (info, data) in enumerate(members):
+        if info.filename != THEME_PART:
+            continue
+        text = data.decode("utf-8")
+        new_text = SYS_CLR.sub(r'<a:\1><a:srgbClr val="\2"/></a:\1>', text)
+        if new_text != text:
+            changed = True
+            members[index] = (info, new_text.encode("utf-8"))
+    if not changed:
+        return False
+    tmp = pptx_path.with_suffix(".tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info, data in members:
+            zout.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
+    os.replace(tmp, pptx_path)
+    return True
 
 
 def build_designed_pptx(deck: DeckArtifact, *, base: DesignTokens, out_path: Path) -> object:
     """`render.build_pptx(deck, tokens=design.deck_tokens(deck, base), out_path=out_path)`,
     then `patch_theme_colours(out_path)`. Returns the `render.BuiltDeck`."""
-    raise NotImplementedError
+    built = render.build_pptx(deck, tokens=deck_tokens(deck, base), out_path=out_path)
+    patch_theme_colours(built.path)
+    return built
 
 
 def render_designed(deck: DeckArtifact, *, base: DesignTokens, out_dir: Path) -> RenderReport:
     """As `render.render_artifact`, in the deck's design: `build_designed_pptx` to
     `out_dir / render.PPTX_FILENAME`, then `render.render_previews` of it into
     `out_dir / render.PREVIEWS_DIRNAME` with the deck's tokens. `out_dir` is created."""
-    raise NotImplementedError
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    built = cast(
+        BuiltDeck,
+        build_designed_pptx(deck, base=base, out_path=out_dir / render.PPTX_FILENAME),
+    )
+    previews = render.render_previews(
+        built.path,
+        out_dir=out_dir / render.PREVIEWS_DIRNAME,
+        tokens=deck_tokens(deck, base),
+    )
+    return RenderReport(built=built, previews=previews)
 
 
 def render_with_design(base: DesignTokens) -> object:
@@ -66,7 +106,29 @@ def render_with_design(base: DesignTokens) -> object:
     exactly `previews.render_with_libreoffice`'s mapping to a manifest, but rendering with
     `render_designed(deck, base=base, out_dir=out_dir)`. v2's `FontNotFoundError` becomes
     `rendered=False` with its message, as there. Returns the callable."""
-    raise NotImplementedError
+
+    def renderer(deck: DeckArtifact, out_dir: Path, digest: str) -> RenderManifest:
+        try:
+            report = render_designed(deck, base=base, out_dir=out_dir)
+        except FontNotFoundError as exc:
+            return RenderManifest(
+                digest=digest, slide_ids=deck.slide_ids(), rendered=False, note=str(exc)
+            )
+        previews = report.previews
+        images = [f"{render.PREVIEWS_DIRNAME}/{image.name}" for image in previews.images]
+        return RenderManifest(
+            digest=digest,
+            slide_ids=list(report.built.slide_ids),
+            rendered=previews.rendered,
+            note=previews.note,
+            placeholders=dict(report.built.placeholders),
+            images=images if previews.rendered else [],
+            pptx=render.PPTX_FILENAME,
+            seconds_build=report.built.seconds,
+            seconds_previews=previews.seconds,
+        )
+
+    return renderer
 
 
 def renderable(slide: Slide, tokens: DesignTokens) -> str | None:
@@ -77,4 +139,9 @@ def renderable(slide: Slide, tokens: DesignTokens) -> str | None:
     temporary directory>)` and return `built.placeholders.get(slide.id)`. v2's
     `FontNotFoundError` propagates (no honest check is possible without the font).
     """
-    raise NotImplementedError
+    slide_deck = DeckArtifact(id="check", client="check", project="check", slides=[slide])
+    with tempfile.TemporaryDirectory() as scratch:
+        built = render.build_pptx(
+            slide_deck, tokens=tokens, out_path=Path(scratch) / "check.pptx"
+        )
+        return built.placeholders.get(slide.id)

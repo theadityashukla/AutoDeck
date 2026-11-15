@@ -16,10 +16,15 @@ model answers in prose, every problem fed back as the tool result.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from autodeck.providers.base import ToolSpec
+from pydantic import ValidationError
+
+from autodeck.providers.base import Message, ToolSpec
+from autodeck.studio import design, prompt
 from autodeck.studio.bindings import BoundModel
 from autodeck.studio.design import DesignDirection, DesignDraft
 from autodeck.studio.models import SlideBrief
@@ -48,6 +53,8 @@ REJECTED_PREFIX = "set_palette was rejected. Fix these and call it again:\n"
 
 DEFAULT_ATTEMPTS = 3
 MAX_SAMPLE_BRIEFS = 3
+MAX_VALIDATION_LINES = 20
+OTHER_CALL_TEXT = "Not run: only one set_palette call is read per turn."
 
 
 @dataclass(frozen=True)
@@ -85,7 +92,22 @@ def system_user_text(direction: DesignDirection, briefs: Sequence[SlideBrief]) -
     suit the content), or `(no slides yet)` when there are none; then a blank line and
     `Make this direction concrete and call set_palette.`
     """
-    raise NotImplementedError
+    lines = [
+        "# Design direction",
+        f"Name: {direction.name}",
+        f"Concept: {direction.concept.strip()}",
+        "Rules:",
+        *(f"- {rule}" for rule in direction.rules),
+        "",
+        "# What the deck is about",
+    ]
+    sample = list(briefs)[:MAX_SAMPLE_BRIEFS]
+    if sample:
+        lines.extend(f"- {brief.header}" for brief in sample)
+    else:
+        lines.append("(no slides yet)")
+    lines.extend(["", "Make this direction concrete and call set_palette."])
+    return "\n".join(lines)
 
 
 def draft_from_args(
@@ -96,7 +118,16 @@ def draft_from_args(
     background=args.background, text_pairs=args.text_pairs, made_by=model_id)`. Raises
     `pydantic.ValidationError` for a structural problem (a missing role, no text colour on
     the background)."""
-    raise NotImplementedError
+    return DesignDraft(
+        name=direction.name,
+        concept=direction.concept,
+        rules=direction.rules,
+        palette=args.palette,
+        roles={slot: role for slot, role in args.roles.items()},
+        background=args.background,
+        text_pairs=args.text_pairs,
+        made_by=model_id,
+    )
 
 
 def make_design(
@@ -119,7 +150,98 @@ def make_design(
     names: `"No such tool <name>."`). At most `attempts` calls. A model exception fails the
     result with `[error] <Type>: <msg>`. `made_by` is `model.model_id`.
     """
-    raise NotImplementedError
+    started = time.perf_counter()
+    prompt_text = system_prompt or prompt.role_prompt(prompt.SYSTEM_PROMPT_PATH)
+    messages: list[Message] = [
+        Message(role="user", content=system_user_text(direction, briefs))
+    ]
+    input_tokens = output_tokens = calls = 0
+    findings: tuple[str, ...] = ()
+    draft: DesignDraft | None = None
+    nudged = False
+    no_call = f"[no_tool_call] the model did not call {TOOL_NAME} (after one nudge)"
+
+    def result() -> SystemResult:
+        return SystemResult(
+            direction=direction,
+            draft=draft,
+            attempts=calls,
+            findings=() if draft is not None else findings,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            seconds=time.perf_counter() - started,
+            model_id=model.model_id,
+        )
+
+    while calls < attempts:
+        calls += 1
+        try:
+            turn = model.model.converse(messages, [SET_PALETTE_TOOL], system=prompt_text)
+        except Exception as exc:  # a model failure fails this direction only
+            findings = (f"[error] {type(exc).__name__}: {exc}",)
+            return result()
+        input_tokens += turn.usage.input_tokens
+        output_tokens += turn.usage.output_tokens
+        messages.append(
+            Message(role="assistant", content=turn.text, tool_calls=turn.tool_calls)
+        )
+        primary = next((c for c in turn.tool_calls if c.name == TOOL_NAME), None)
+        if primary is None:
+            findings = (no_call,)
+            if nudged:
+                return result()
+            nudged = True
+            if turn.tool_calls:
+                messages.extend(
+                    Message(
+                        role="tool",
+                        content=f"No such tool {c.name}. {NUDGE_TEXT}",
+                        tool_call_id=c.id,
+                    )
+                    for c in turn.tool_calls
+                )
+            else:
+                messages.append(Message(role="user", content=NUDGE_TEXT))
+            continue
+
+        text = ""
+        candidate: DesignDraft | None = None
+        if "__invalid__" in primary.arguments:
+            findings = ("[validation] invalid JSON",)
+            text = REJECTED_PREFIX + "\n".join(findings)
+        else:
+            try:
+                candidate = draft_from_args(
+                    SetPaletteArgs.model_validate(primary.arguments),
+                    direction,
+                    model_id=model.model_id,
+                )
+            except ValidationError as exc:
+                findings = tuple(
+                    f"[validation] {'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+                    for err in exc.errors()[:MAX_VALIDATION_LINES]
+                )
+                text = REJECTED_PREFIX + "\n".join(findings)
+        if candidate is not None:
+            palette_findings = design.check_draft(candidate)
+            if palette_findings:
+                body = design.findings_text(palette_findings)
+                findings = tuple(body.split("\n"))
+                text = REFUSED_PREFIX + body
+            else:
+                draft = candidate
+                text = ACCEPTED_TEXT
+        for call in turn.tool_calls:
+            if call is primary:
+                answer = text
+            elif call.name == TOOL_NAME:
+                answer = OTHER_CALL_TEXT
+            else:
+                answer = f"No such tool {call.name}."
+            messages.append(Message(role="tool", content=answer, tool_call_id=call.id))
+        if draft is not None:
+            break
+    return result()
 
 
 def make_designs(
@@ -131,4 +253,23 @@ def make_designs(
 ) -> list[SystemResult]:
     """`make_design` for every direction in parallel (one thread each), results in
     direction order."""
-    raise NotImplementedError
+
+    def one(direction: DesignDirection) -> SystemResult:
+        try:
+            return make_design(model, direction, briefs=briefs, attempts=attempts)
+        except Exception as exc:  # never let one direction stop the others
+            return SystemResult(
+                direction=direction,
+                draft=None,
+                attempts=0,
+                findings=(f"[error] {type(exc).__name__}: {exc}",),
+                input_tokens=0,
+                output_tokens=0,
+                seconds=0.0,
+                model_id=model.model_id,
+            )
+
+    if not directions:
+        return []
+    with ThreadPoolExecutor(max_workers=len(directions)) as pool:
+        return list(pool.map(one, directions))

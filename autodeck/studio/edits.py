@@ -26,6 +26,9 @@ from autodeck.studio.models import (
     Marker,
     Slide,
     SlideBrief,
+    brief_digest,
+    composition_status,
+    effective_system,
 )
 from autodeck.studio.tool_args import MARK_TARGET_PATTERN
 
@@ -406,7 +409,38 @@ def set_slide_brief(
         EditError: `position` out of range (the message gives the range).
         pydantic.ValidationError: e.g. `serves` names an unknown storyline point.
     """
-    raise NotImplementedError
+    existing = next((i for i, s in enumerate(deck.slides) if s.id == slide_id), None)
+    count = len(deck.slides)
+    top = count if existing is not None else count + 1
+    if position is not None and not 1 <= position <= top:
+        raise EditError(f"position {position} is outside 1 .. {top} for deck {deck.id!r}")
+
+    slides = [s.model_dump() for s in deck.slides]
+    if existing is None:
+        new_slide = Slide(id=slide_id, intent=brief.intent, brief=brief, serves=serves or [])
+        insert_index = count if position is None else position - 1
+        slides.insert(insert_index, new_slide.model_dump())
+    else:
+        moved = slides.pop(existing)
+        moved["brief"] = brief.model_dump()
+        moved["intent"] = brief.intent
+        if serves is not None:
+            moved["serves"] = list(serves)
+        insert_index = existing if position is None else position - 1
+        slides.insert(insert_index, moved)
+
+    data = deck.model_dump()
+    data["slides"] = slides
+    return DeckArtifact.model_validate(data), existing is None, insert_index + 1
+
+
+def _flat(text: str) -> str:
+    """`views.flat`, repeated here (the one-line regex) so this module does not import views."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _is_fresh(deck: DeckArtifact, slide: Slide) -> bool:
+    return composition_status(slide, effective_system(deck)).state == "fresh"
 
 
 def apply_composition(
@@ -424,7 +458,23 @@ def apply_composition(
             being composed; compose it again").
         pydantic.ValidationError: the result is invalid.
     """
-    raise NotImplementedError
+    index = _slide_index(deck, slide_id)
+    slide = deck.slides[index]
+    if slide.brief is None:
+        raise EditError(f"slide {slide_id} has no brief")
+    if brief_digest(slide.brief) != composed.brief_digest:
+        raise EditError(
+            f"the brief of slide {slide_id} changed while it was being composed; "
+            "compose it again"
+        )
+    designed_data = designed.model_dump()
+    data = deck.model_dump()
+    target = data["slides"][index]
+    target["blocks"] = designed_data["blocks"]
+    target["layout"] = designed_data["layout"]
+    target["composed"] = composed.model_dump()
+    target["compose_failure"] = None
+    return DeckArtifact.model_validate(data)
 
 
 def record_compose_failure(
@@ -436,13 +486,20 @@ def record_compose_failure(
     Raises:
         EditError: no slide `slide_id`, or it has no brief.
     """
-    raise NotImplementedError
+    index = _slide_index(deck, slide_id)
+    if deck.slides[index].brief is None:
+        raise EditError(f"slide {slide_id} has no brief; a composition failure needs one")
+    data = deck.model_dump()
+    data["slides"][index]["compose_failure"] = failure.model_dump()
+    return DeckArtifact.model_validate(data)
 
 
 def set_design_system(deck: DeckArtifact, ref: DesignSystemRef) -> DeckArtifact:
     """The deck with `design_system` set to `ref`. Slides are not touched: designed slides
     become stale by fingerprint (`models.composition_status`)."""
-    raise NotImplementedError
+    data = deck.model_dump()
+    data["design_system"] = ref.model_dump()
+    return DeckArtifact.model_validate(data)
 
 
 def swap_slides(deck: DeckArtifact, first: str, second: str) -> DeckArtifact:
@@ -451,7 +508,14 @@ def swap_slides(deck: DeckArtifact, first: str, second: str) -> DeckArtifact:
     Raises:
         EditError: either id is not in the deck, or both are the same.
     """
-    raise NotImplementedError
+    first_index = _slide_index(deck, first)
+    second_index = _slide_index(deck, second)
+    if first_index == second_index:
+        raise EditError(f"cannot swap slide {first!r} with itself")
+    data = deck.model_dump()
+    slides = data["slides"]
+    slides[first_index], slides[second_index] = slides[second_index], slides[first_index]
+    return DeckArtifact.model_validate(data)
 
 
 def retitle_slide(deck: DeckArtifact, slide_id: str, header: str) -> DeckArtifact:
@@ -471,7 +535,34 @@ def retitle_slide(deck: DeckArtifact, slide_id: str, header: str) -> DeckArtifac
             use set_block_text"); the header is blank or more than one line.
         NoChangeError: is not raised here; an unchanged deck is the store's to refuse.
     """
-    raise NotImplementedError
+    index = _slide_index(deck, slide_id)
+    slide = deck.slides[index]
+    if slide.brief is None:
+        raise EditError(f"slide {slide_id} has no brief; use set_block_text")
+    new_header = header.strip()
+    if not new_header or "\n" in new_header or "\r" in new_header:
+        raise EditError("a slide header is one non-blank line")
+
+    old_flat = _flat(slide.brief.header)
+    was_fresh = _is_fresh(deck, slide)
+    new_brief = SlideBrief.model_validate({**slide.brief.model_dump(), "header": new_header})
+
+    data = deck.model_dump()
+    target = data["slides"][index]
+    target["brief"] = new_brief.model_dump()
+    block = next(
+        (
+            b
+            for b in target["blocks"]
+            if b["kind"] == "text" and _flat(b["text"] or "") == old_flat
+        ),
+        None,
+    )
+    if block is not None:
+        block["text"] = new_header
+        if was_fresh:
+            target["composed"]["brief_digest"] = brief_digest(new_brief)
+    return DeckArtifact.model_validate(data)
 
 
 def set_designed_text(
@@ -486,4 +577,29 @@ def set_designed_text(
     `fresh` before the edit, `composed.brief_digest` is updated to the new digest (still
     fresh). A slide without a brief is changed exactly as `set_block_text` changes it.
     """
-    raise NotImplementedError
+    new = set_block_text(deck, slide_id=slide_id, block_id=block_id, text=text)
+    index = _slide_index(deck, slide_id)
+    slide = deck.slides[index]
+    if slide.brief is None:
+        return new
+
+    old_text = _flat(slide.block(block_id).text or "")
+    brief_data = slide.brief.model_dump()
+    if old_text == _flat(slide.brief.header):
+        brief_data["header"] = _flat(text)
+    else:
+        point_index = next(
+            (i for i, p in enumerate(slide.brief.content.points) if _flat(p) == old_text),
+            None,
+        )
+        if point_index is None:
+            return new
+        brief_data["content"]["points"][point_index] = _flat(text)
+
+    new_brief = SlideBrief.model_validate(brief_data)
+    data = new.model_dump()
+    target = data["slides"][index]
+    target["brief"] = new_brief.model_dump()
+    if _is_fresh(deck, slide):
+        target["composed"]["brief_digest"] = brief_digest(new_brief)
+    return DeckArtifact.model_validate(data)

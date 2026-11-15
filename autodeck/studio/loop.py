@@ -53,6 +53,7 @@ from autodeck.studio.conversation import (
 from autodeck.studio.models import ChangeEntry
 from autodeck.studio.prompt import CONTEXT_SEPARATOR
 from autodeck.studio.tools import ComposedSlide, TurnLedger
+from autodeck.studio.views import flat
 
 STALL_NUDGE = "You returned neither a reply nor a tool call. Reply to the owner in words."
 """Sent once, unrecorded, when a model call returns no text and no tool call."""
@@ -78,7 +79,18 @@ def fold_mechanic_lines(lines: Sequence[ThreadLine]) -> str | None:
     no parts. Pure. Example: `[mechanic] retitled s2: layout passed | reply: Slide 2 is now
     titled 'Quantisation cuts the bill by 38%'.`
     """
-    raise NotImplementedError
+    parts: list[str] = []
+    reply: str | None = None
+    for line in lines:
+        if isinstance(line, ToolLine):
+            parts.append(line.summary + (" (error)" if line.error else ""))
+        elif isinstance(line, AssistantLine) and line.text.strip():
+            reply = line.text
+    if reply is not None:
+        parts.append(f"reply: {flat(reply)}")
+    if not parts:
+        return None
+    return MECHANIC_PREFIX + " | ".join(parts)
 
 
 @dataclass(frozen=True)

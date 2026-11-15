@@ -277,7 +277,9 @@ def default_design_system(base: DesignTokens) -> DesignSystem:
         palette=DesignPalette.model_validate(slots),
         roles={},
         background="lt1",
-        text_pairs=[TextPair(text=t, ground=g) for t, g in DEFAULT_TEXT_PAIRS],
+        text_pairs=[
+            TextPair.model_validate({"text": t, "ground": g}) for t, g in DEFAULT_TEXT_PAIRS
+        ],
         made_by=DEFAULT_MADE_BY,
         created_at=None,
     )
@@ -422,7 +424,7 @@ class DesignSystemStore:
         if system_id == DEFAULT_SYSTEM_ID:
             if version != DEFAULT_SYSTEM_VERSION:
                 raise DesignSystemNotFoundError(
-                    f"the default system has only version {DEFAULT_SYSTEM_VERSION}, not {version}"
+                    f"the default system has only version {DEFAULT_SYSTEM_VERSION}"
                 )
             if self._base is None:
                 raise DesignSystemNotFoundError("the default system needs base tokens")

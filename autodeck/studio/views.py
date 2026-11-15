@@ -41,15 +41,18 @@ from autodeck.studio.conversation import (
     TurnEndLine,
     UserLine,
 )
-from autodeck.studio.design import DesignDraft, DesignSystem
+from autodeck.studio.design import DesignDraft, DesignSystem, TextPair
 from autodeck.studio.models import (
+    COLOR_SLOTS,
     Block,
     ChangeEntry,
     ChangeLog,
     DeckArtifact,
+    DesignPalette,
     EngagementRecord,
     OptionId,
     Slide,
+    composition_status,
     deck_composition,
     effective_system,
 )
@@ -164,6 +167,17 @@ def deck_outline(deck: DeckArtifact, *, max_text: int = MAX_BLOCK_TEXT) -> str:
     return "\n".join(lines)
 
 
+def _palette_view(palette: DesignPalette, roles: dict[str, str]) -> list[dict[str, Any]]:
+    return [
+        {"slot": slot, "hex": "#" + palette.hex(slot), "role": roles.get(slot, "")}
+        for slot in COLOR_SLOTS
+    ]
+
+
+def _text_pairs_view(pairs: Sequence[TextPair]) -> list[dict[str, Any]]:
+    return [{"text": p.text, "ground": p.ground, "large_only": p.large_only} for p in pairs]
+
+
 def slide_brief_line(slide: Slide, system: tuple[str, int], *, max_text: int) -> str:
     """Phase 2-3: the third outline line of a slide that has a brief, exactly:
 
@@ -175,7 +189,31 @@ def slide_brief_line(slide: Slide, system: tuple[str, int], *, max_text: int) ->
     Example: `     brief: "Quantisation alone cuts serving cost by 38%" | 2 points, 1
     figure, chart | stale: design system changed`.
     """
-    raise NotImplementedError
+    status = composition_status(slide, system)
+    brief = slide.brief
+    assert brief is not None
+    content = brief.content
+    k = len(content.points)
+    f = len(content.figures)
+    if status.state == "undesigned":
+        state = "not designed yet"
+    elif status.state == "fresh":
+        state = "designed"
+    elif status.state == "stale":
+        state = "stale: " + "; ".join(status.reasons)
+    else:
+        failure = slide.compose_failure
+        first = (
+            failure.findings[0] if failure is not None and failure.findings else "no findings"
+        )
+        attempts = failure.attempts if failure is not None else 0
+        state = f"failed to compose: {first} ({attempts} attempts)"
+    return (
+        f'     brief: "{clip(flat(brief.header), max_text)}"'
+        f" | {k} {'point' if k == 1 else 'points'},"
+        f" {f} {'figure' if f == 1 else 'figures'}, {'chart' if content.chart else 'no chart'}"
+        f" | {state}"
+    )
 
 
 def design_system_text(system: DesignSystem) -> str:
@@ -185,7 +223,16 @@ def design_system_text(system: DesignSystem) -> str:
     `<name> (<id> v<version>, <marker>)`, `Concept: <flat(concept) or "none stated">`,
     then `Rules:` and one `- <rule>` per rule, or `Rules: none`.
     """
-    raise NotImplementedError
+    lines = [
+        f"{system.name} ({system.id} v{system.version}, {system.marker})",
+        f"Concept: {flat(system.concept) or 'none stated'}",
+    ]
+    if system.rules:
+        lines.append("Rules:")
+        lines.extend(f"- {rule}" for rule in system.rules)
+    else:
+        lines.append("Rules: none")
+    return "\n".join(lines)
 
 
 def composition_view(deck: DeckArtifact) -> dict[str, Any]:
@@ -217,13 +264,34 @@ def design_system_view(system: DesignSystem) -> dict[str, Any]:
     "marker", "is_default", "background", "made_by", "created_at" (ISO or None),
     "palette": [{"slot", "hex": "#RRGGBB", "role": role or ""}] one per slot in
     `models.COLOR_SLOTS` order, "text_pairs": [{"text", "ground", "large_only"}]}`."""
-    raise NotImplementedError
+    return {
+        "id": system.id,
+        "version": system.version,
+        "name": system.name,
+        "concept": system.concept,
+        "rules": list(system.rules),
+        "marker": system.marker,
+        "is_default": system.is_default,
+        "background": system.background,
+        "made_by": system.made_by,
+        "created_at": _iso(system.created_at) if system.created_at is not None else None,
+        "palette": _palette_view(system.palette, system.roles),
+        "text_pairs": _text_pairs_view(system.text_pairs),
+    }
 
 
 def design_draft_view(draft: DesignDraft) -> dict[str, Any]:
     """Phase 2-3: a proposal option's design: `{"name", "concept", "rules", "background",
     "made_by", "palette": [...as design_system_view...], "text_pairs": [...]}`."""
-    raise NotImplementedError
+    return {
+        "name": draft.name,
+        "concept": draft.concept,
+        "rules": list(draft.rules),
+        "background": draft.background,
+        "made_by": draft.made_by,
+        "palette": _palette_view(draft.palette, draft.roles),
+        "text_pairs": _text_pairs_view(draft.text_pairs),
+    }
 
 
 def slide_order(deck: DeckArtifact, *, max_intent: int = 50) -> str:

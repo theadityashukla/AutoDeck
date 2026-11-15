@@ -29,12 +29,18 @@ from pathlib import Path
 from autodeck.knowledge.context_assembler import assemble_context
 from autodeck.knowledge.memory import MemoryScope, MemoryStore
 from autodeck.studio.conversation import ProposalRecord
-from autodeck.studio.design import DesignSystem
+from autodeck.studio.design import DesignSystem, DesignSystemStore
 from autodeck.studio.diff import describe
 from autodeck.studio.engagement import Engagement
-from autodeck.studio.models import ChangeLog, DeckArtifact, Slide
+from autodeck.studio.models import (
+    ChangeLog,
+    DeckArtifact,
+    Slide,
+    composition_status,
+    effective_system,
+)
 from autodeck.studio.proposals import ProposalStore
-from autodeck.studio.views import change_line, deck_outline, design_system_text, flat
+from autodeck.studio.views import change_line, clip, deck_outline, design_system_text, flat
 
 RECENT_CHANGES = 15
 """How many change-log entries per artifact the context lists (newest first)."""
@@ -148,7 +154,9 @@ def load_deck_system(engagement: Engagement, deck: DeckArtifact) -> DesignSystem
     reference always names a stored version). Its errors propagate
     (`DesignSystemNotFoundError` for a dangling reference: a context that cannot be built
     honestly is not built)."""
-    raise NotImplementedError
+    ref = deck.design_system
+    assert ref is not None
+    return DesignSystemStore(engagement).load(ref.id, ref.version)
 
 
 def slide_composition_item(
@@ -159,7 +167,22 @@ def slide_composition_item(
     undesigned → `"<a>: slide <i> (<id>) is not designed yet"`; stale → `"<a>: slide <i>
     (<id>) is stale: <reasons joined by "; ">"`; failed → `"<a>: slide <i> (<id>) failed to
     compose: <views.clip(first finding, 120), or "no findings">"`; fresh → None."""
-    raise NotImplementedError
+    brief = slide.brief
+    if brief is None:
+        return None
+    status = composition_status(slide, effective_system(deck))
+    prefix = f"{artifact_id}: slide {index} ({slide.id})"
+    if status.state == "undesigned":
+        return f"{prefix} is not designed yet"
+    if status.state == "stale":
+        return f"{prefix} is stale: {'; '.join(status.reasons)}"
+    if status.state == "failed":
+        failure = slide.compose_failure
+        first = (
+            clip(failure.findings[0], 120) if failure and failure.findings else "no findings"
+        )
+        return f"{prefix} failed to compose: {first}"
+    return None
 
 
 def design_system_item(artifact_id: str, deck: DeckArtifact) -> str | None:
@@ -167,7 +190,16 @@ def design_system_item(artifact_id: str, deck: DeckArtifact) -> str | None:
     slide that has a brief (decks made before Phase 2-3 are unchanged): no reference →
     `"<a>: the design system is the provisional default (no concept decided)"`; a reference
     whose marker is not `decided` → `"<a>: the design system is <marker>"`; else None."""
-    raise NotImplementedError
+    if not any(slide.brief is not None for slide in deck.slides):
+        return None
+    ref = deck.design_system
+    if ref is None:
+        return (
+            f"{artifact_id}: the design system is the provisional default (no concept decided)"
+        )
+    if ref.marker != "decided":
+        return f"{artifact_id}: the design system is {ref.marker}"
+    return None
 
 
 def is_returning(inputs: ContextInputs) -> bool:
