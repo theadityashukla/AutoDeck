@@ -492,8 +492,8 @@ def run_propose_design(ctx: ToolContext, a: tool_args.ProposeDesignArgs) -> Tool
     Text: `Recorded proposal <id> with <k> design directions, sampled on <sample slide ids
     joined by ", ">. Nothing has changed; the owner will pick one or dismiss them.` then, when
     any direction has a failed sample, a line telling the lead to say so, then the lines (one
-    per direction, from `compose`: samples rendered and failed with reasons, the palette note). Summary
-    `proposed <id>: <k> design directions`."""
+    per direction, from `compose`: samples rendered and failed with reasons, the palette
+    note). Summary `proposed <id>: <k> design directions`."""
     from autodeck.studio import compose
 
     store = resolve_artifact(ctx, a.artifact_id)
@@ -526,7 +526,8 @@ def run_apply_design(ctx: ToolContext, a: tool_args.ApplyDesignArgs) -> ToolResu
     a.artifact_id)`. Text: `Adopted the design "<name>" (<id> v<version>) as the deck's
     decided design system.`, then `change_text(store, entry)`, then `Now stale: <ids joined
     by ", ">. Call compose_slides to redesign them.` or `No slide was designed yet.`, then,
-    when the palette needed more than one attempt, `compose.palette_note`. Summary `adopted design <id> v<version>; <k> slides stale`."""
+    when the palette needed more than one attempt, `compose.palette_note`. Summary
+    `adopted design <id> v<version>; <k> slides stale`."""
     from autodeck.studio import compose
 
     if a.proposal_id is not None:

@@ -195,8 +195,8 @@ who composed each slide and one slide can be undone alone.
 `list_sources`, `read_source`, `search_sources`, `create_deck`, `set_brief`,
 `set_storyline`, `remove_slide`, `move_slide`, `set_marker`, `apply_option`, `undo`,
 `redo`, `load_skill`. New: `set_slide_brief`, `compose_slides` (named slides, or every stale
-and undesigned one), `propose_design` (two or three directions in words; each is made
-concrete by the system layer and rendered by the designer on up to three real slides, all in
+and undesigned one), `propose_design` (two directions by default, three on request, in words; each is made
+concrete by the system layer and rendered by the designer on real slides (two by default, up to three), all in
 parallel; recorded as a proposal whose options carry the design and the sample slides),
 `apply_design` (a proposal option, or a direction in words; stored as a decided version; the
 deck's reference changes), `retitle_slide` and `set_block_text` (small direct text changes
@@ -328,7 +328,10 @@ Everything the front end (task 23.16) needs beyond Phase 1's contract
 - **DesignSystemView** `{id, version, name, concept, rules: [str], marker: "provisional" |
   "decided", is_default: bool, background: slot, made_by, created_at: time | null, palette:
   [{slot, hex: "#RRGGBB", role}] (ten, in the order dk1, lt1, dk2, lt2, accent1..accent6),
-  text_pairs: [{text: slot, ground: slot, large_only: bool}]}`.
+  text_pairs: [{text: slot, ground: slot, large_only: bool}], palette_attempts: [{attempt:
+  int, accepted: bool, findings: [str]}]}` (`palette_attempts`: how the system layer reached
+  the palette, in order, the refused attempts with their measured ratios; empty for the
+  default and for versions stored before it was recorded).
 - **The deck JSON** (`ArtifactView.deck`) slides also carry `brief` (`{header, intent,
   content: {points, figures: [{value, label}], chart: {kind, categories, series: [{name,
   values}], emphasis} | null}, notes}` or null), `composed` and `compose_failure` (show
@@ -343,10 +346,27 @@ Everything the front end (task 23.16) needs beyond Phase 1's contract
     price_note: str}`; `layers` lists only roles that ran, in the order router, mechanic,
     lead, system, designer.
 - **ProposalView options** also have `design`: null, or `{name, concept, rules, background,
-  made_by, palette: [...], text_pairs: [...]}` (as DesignSystemView, without id, version,
-  marker and created_at). A design option's `applies` reads `Adopts the design "<name>";
+  made_by, palette: [...], text_pairs: [...], palette_attempts: [...]}` (as DesignSystemView,
+  without id, version, marker and created_at), `samples`: `[{slide_id, clean, attempts,
+  findings: [str]}]` (a design option's outcome for every sample slide asked of it; `[]` for
+  other options and old records) and `samples_summary`: a sentence such as `1 of 2 samples
+  rendered; slide 3 could not be designed: <first finding>` ("" without samples; slides by
+  their number in the deck now). A design option's `applies` reads `Adopts the design "<name>";
   designed slides become stale`, and its `previews` are the sample slides rendered in its own
   palette.
+
+- **ChangeView** (each entry of `GET .../changes`, and `entry` of undo and redo) also has
+  `summary`: one plain sentence for the entry, written by the server from the structured diff
+  (`change_summary.py`): `Wrote the brief for slide 2: <header>`, `Designed slide 2`,
+  `Redesigned slide 1 in Demand curve`, `Slide 3 could not be designed after 4 attempts`,
+  `Adopted the design Demand curve (version 1)`, `Retitled slide 2: <old> -> <new>`,
+  `Reworded text on slide 2`, `Updated the brief for slide 2`, `Swapped slides 2 and 3`,
+  `Moved slide 3 to position 1`, `Marked slide 2 as decided`, `Added slide <id>`, `Removed
+  slide <id>`, several joined with `; ` (at most three, then `and <n> more`). Slides are
+  named by their number in the deck now. The front end shows `summary` as the headline of an
+  entry and of a Change message, and puts all of `lines` (the raw diff, unchanged) behind the
+  existing disclosure; it falls back to its own wording of `lines[0]` only when `summary` is
+  absent.
 
 ### Changed routes
 
@@ -397,7 +417,8 @@ model that answers: the mechanic's for a mechanic turn.
   persists per thread in `localStorage` (wrapped in try/catch). A tooltip says what each does
   ("Auto: small edits go to a cheaper model", "Lead: always the lead").
 - **Design proposals**: a Proposal message whose options have `design` shows each option as a
-  card with its name, concept, its swatches (a compact row of ten), its rules collapsed, and
+  card with its name, concept, `samples_summary` as one line (in the warning colour when a
+  sample failed), its swatches (a compact row of ten), its rules collapsed, and
   its sample slides (`previews`; placeholders until `proposal_previews_ready`), with "Use this"
   and "Dismiss" as for other proposals.
 - **Live composition**: while a turn runs, each `slide_composed` event adds one line to the
@@ -649,3 +670,59 @@ The designer prompt lost the advice that a line "can be drawn across text on pur
 strike-through)" and gained two requirements, "No line through text or a chart" and "One
 ground per item". Real strike-through belongs to a later vocabulary phase. Fixtures:
 `tests/studio/fixtures/designed_slides/`; tests: `tests/studio/test_layout_rules.py`.
+
+## Fixes after the first real-model run
+
+Four of the six defects above, and the cost default, were fixed afterwards (defects 1 and 4
+were handled separately). Nothing else changed.
+
+1. **Failed design-proposal samples are no longer silent (defect 2).** Each option of a
+   design proposal records the outcome of every sample asked of it
+   (`ProposalOption.samples`: slide, clean, attempts, the first findings of a failure,
+   clipped). `propose_design`'s tool result says per direction `<k> of <n> samples rendered;
+   slide <s> could not be designed after <a> attempts: <findings>. INCOMPLETE: say so when
+   you present it`, and starts with a line telling the lead to name incomplete directions.
+   The proposal view carries `samples` and a ready sentence `samples_summary`; the option card
+   shows it (warning colour when incomplete). The lead prompt says to state an incomplete
+   direction plainly. **Decision:** a direction with no clean sample at all is still not
+   offered (the owner picks by looking, an option with nothing to see is a coin toss on a
+   palette, and the model forbids a design option without samples), but it is dropped loudly:
+   its line in the tool result names every sample's reason and the prompt tells the lead to say
+   it was dropped; if every direction is dropped the call fails with all reasons.
+2. **A palette retry leaves a record (defect 6).** `system_layer.make_design` logs every
+   attempt (`SystemResult.attempt_log`); the accepted draft carries it as
+   `DesignDraft.palette_attempts`, which the proposal option stores with its design and the
+   design-system store writes into the version (`DesignSystem.palette_attempts`; old versions
+   load with none). Refused attempts hold their findings (measured ratios). `propose_design`
+   and `apply_design` add one line when a palette needed more than one attempt (`Palette for
+   "<name>" needed 2 attempts; refused attempt 1: ...`). Both views expose `palette_attempts`.
+3. **The lead can no longer gloss over a compose failure (defect 3).** `lead.md` requires one
+   plain line in the reply for any slide that failed to compose during the turn, whether or not
+   a retry succeeded, and forbids "all slides composed cleanly" unless every slide was clean on
+   its first compose call. Made harder to skip in the tool result too: `compose_slides` marks
+   a clean slide that failed earlier in the same turn (`ComposedSlide.failed_earlier`, read from
+   the turn's ledger): `- s2: clean in 1 attempt (it FAILED to compose 1 time earlier this turn:
+   report that to the owner)`.
+4. **Change descriptions are in words (defect 5).** The server writes one sentence per entry
+   (`autodeck/studio/change_summary.py`, `ChangeView.summary`, see the contract). It does this
+   server-side because the diff paths are structured there (a redesign is "composed appeared or
+   changed" plus layout items, a retitle is `brief.header` alone, a swap is `slides[order]`),
+   the browser would have to parse path strings and could not read a design's real name; the
+   API resolves it from the design store, falling back to the slug. The browser shows
+   `summary` (the raw lines, all of them, behind the existing disclosure).
+5. **Cheaper design proposals by default.** Two directions unless the owner asks for more (the
+   schema still allows three, the argument description and the lead prompt say two), and two
+   sample slides per direction when the lead names none (`compose.DEFAULT_SAMPLES`): the opening
+   (first slide with a brief) and, of the rest, the slide with the most showing power (one with
+   a chart, then the most figures; earliest wins a tie; with nothing to show, the next slide),
+   in deck order. Up to three named samples stay possible for a fuller look. That is four
+   designer runs and two palette calls by default instead of nine and three. Risk 1 above
+   still applies to the real-run measurements.
+
+Tests: `test_change_summary.py` (every kind of change, from real edits), `test_compose.py`
+(default and deterministic samples, direction lines, palette note, compose history),
+`test_tools_phase23.py` (a proposal with a failing sample, a direction dropped, every direction
+failing, palette retries in both tools, the compose history through the tool, the argument
+defaults), `test_system_layer.py` (the attempt log), `test_api_phase23.py` (summaries over the
+API with the design's real name), `test_views_phase23.py` (old records), `test_prompt.py`, and
+the exit test (recorded samples and palette attempts, the summary of every entry of the flow).

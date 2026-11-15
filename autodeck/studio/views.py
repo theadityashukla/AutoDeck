@@ -271,9 +271,9 @@ def design_system_view(system: DesignSystem) -> dict[str, Any]:
     """Phase 2-3: the Design tab's data: `{"id", "version", "name", "concept", "rules",
     "marker", "is_default", "background", "made_by", "created_at" (ISO or None),
     "palette": [{"slot", "hex": "#RRGGBB", "role": role or ""}] one per slot in
-    `models.COLOR_SLOTS` order, "text_pairs": [{"text", "ground", "large_only"}], "palette_attempts": [{"attempt",
-    "accepted", "findings": [str]}]}` (the system layer's attempts; empty for the default and
-    for versions stored before they were recorded)."""
+    `models.COLOR_SLOTS` order, "text_pairs": [{"text", "ground", "large_only"}],
+    "palette_attempts": [{"attempt", "accepted", "findings": [str]}]}` (the system layer's
+    attempts; empty for the default and for versions stored before they were recorded)."""
     return {
         "id": system.id,
         "version": system.version,
@@ -293,8 +293,8 @@ def design_system_view(system: DesignSystem) -> dict[str, Any]:
 
 def design_draft_view(draft: DesignDraft) -> dict[str, Any]:
     """Phase 2-3: a proposal option's design: `{"name", "concept", "rules", "background",
-    "made_by", "palette": [...as design_system_view...], "text_pairs": [...], "palette_attempts":
-    [...as design_system_view...]}`."""
+    "made_by", "palette": [...as design_system_view...], "text_pairs": [...],
+    "palette_attempts": [...as design_system_view...]}`."""
     return {
         "name": draft.name,
         "concept": draft.concept,

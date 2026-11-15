@@ -300,3 +300,28 @@ def test_gather_inputs_loads_the_decks_design_system(
     engagement.create_artifact(deck)
     inputs = gather_inputs(engagement, owner_memory_path=workspace_root / "owner.md")
     assert inputs.artifacts[0].system == system
+
+
+def test_an_option_without_recorded_samples_has_no_summary() -> None:
+    """Records made before samples were recorded still load and show no summary."""
+    from autodeck.studio.conversation import CandidateSlide, ProposalOption
+    from autodeck.studio.models import Slide
+    from autodeck.studio.views import samples_summary
+    from tests.studio.helpers import flow_draft
+
+    option = ProposalOption.model_validate(
+        {
+            "id": "A",
+            "label": "Itemised",
+            "text": "x",
+            "design": flow_draft("Itemised").model_dump(
+                mode="json", exclude={"palette_attempts"}
+            ),
+            "candidates": [
+                CandidateSlide(slide=Slide(id="s1"), replaces="s1").model_dump(mode="json")
+            ],
+        }
+    )
+    assert option.samples == [] and option.design is not None
+    assert option.design.palette_attempts == []
+    assert samples_summary(option, None) == ""

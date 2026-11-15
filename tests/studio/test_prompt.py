@@ -81,3 +81,16 @@ def test_the_recap_and_the_prompt_use_the_contexts_proposal_terms() -> None:
     ):
         assert phrase in text, phrase
     assert "- accepted: the owner picked one option and it was applied." in PROPOSAL_TERMS
+
+
+def test_the_prompt_states_the_cost_defaults_and_the_honesty_rules() -> None:
+    """Fixes after the first real-model run: cheap design proposals, incomplete directions
+    named, and no hidden compose failure."""
+    text = " ".join(LEAD_PROMPT_PATH.read_text(encoding="utf-8").split())
+    assert "call `propose_design` with **two** clearly different directions" in text
+    assert "leave `sample_slide_ids` out" in text and "two slides" in text
+    assert "only when the owner asks for more choice" in text
+    assert "When any sample of a direction failed, say so plainly" in text
+    assert "Never present such a direction as equal to a complete one" in text
+    assert "**Never hide a failure.**" in text
+    assert "even if a retry then succeeded" in text

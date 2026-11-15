@@ -253,7 +253,9 @@ def compose_text(results: Sequence[ComposedSlide]) -> str:
     """The tool result for `compose_slides`, lines joined by `\\n`:
 
     * `Composed <clean> of <n> slides.`
-    * per slide, in order: `- <id>: clean in <a> attempt|attempts` or
+    * per slide, in order: `- <id>: clean in <a> attempt|attempts` (plus ` (it FAILED to
+      compose <n> time|times earlier this turn: report that to the owner)` when the slide
+      failed earlier in the same turn, `ComposedSlide.failed_earlier`) or
       `- <id>: failed after <a> attempt|attempts: <first MAX_FINDINGS_IN_TEXT findings
       joined by "; ">` (singular only for 1);
     * when any failed: `The previous design is kept for slides that failed; shorten their
@@ -400,7 +402,8 @@ def propose_design(
     """Offer design directions, each made concrete and rendered on real slides. In order:
 
     1. No bindings → `CompositionError("no designer is bound")`. `deck = store.load()`;
-       `samples = sample_slides(deck, args.sample_slide_ids)`; `briefs` = the briefs of the
+       `samples = sample_slides(deck, args.sample_slide_ids)` (two by default);
+       `briefs` = the briefs of the
        deck's slides in deck order.
     2. `system_layer.make_designs(ctx.bindings.system, args.directions, briefs=briefs,
        attempts=ctx.system_attempts)` (in parallel).
@@ -410,7 +413,9 @@ def propose_design(
     4. Options, in direction order, for each direction with at least one clean sample:
        `ProposalOption(id=<next of A, B, C>, label=direction.name, text=direction.concept,
        design=draft, candidates=[CandidateSlide(slide=<the clean sample slide, with the
-       deck slide's serves and marker>, replaces=<its slide id>) per clean sample])`.
+       deck slide's serves and marker>, replaces=<its slide id>) per clean sample],
+       samples=<one `SampleOutcome` per sample asked: slide, clean, attempts, first
+       findings of a failure>)`. The draft carries the system layer's `palette_attempts`.
     5. No option → `CompositionError` whose message lists, per direction, why it was
        dropped (`palette refused: <findings>` or `no sample came out clean: <findings>`).
     6. `record = ctx.proposals.create(thread_id, turn_id, artifact_id=store.artifact_id,

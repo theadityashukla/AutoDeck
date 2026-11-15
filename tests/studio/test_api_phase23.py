@@ -143,6 +143,39 @@ def test_the_artifact_view_carries_composition_and_the_design_system(
     assert ok(api.handle("GET", f"{E}/artifacts/d", None))["design_system"] is None
 
 
+def test_the_changes_carry_a_plain_summary_with_the_designs_real_name(
+    tmp_path: Path, knowledge_root: Path
+) -> None:
+    api, studio = app(tmp_path, knowledge_root, [{"text": "x"}])
+    engagement = studio.create_engagement(CLIENT, PROJECT)
+    from autodeck.studio.models import DeckArtifact
+
+    deck = DeckArtifact(id="d", client=CLIENT, project=PROJECT)
+    deck, _, _ = edits.set_slide_brief(deck, "s1", flow_brief("s1"))
+    engagement.create_artifact(deck)
+    draft = flow_draft("Demand curve").model_copy(update={"name": "Demand Curve NIGHT"})
+    system = DesignSystemStore(engagement, base=dev_tokens()).add(
+        draft, marker="decided", now=T0
+    )
+    store = engagement.artifact_store("d")
+    store.apply(
+        edits.set_design_system(store.load(), system.ref()),
+        instruction="Adopt",
+        thread_id="t0001",
+        layer="direction",
+        model_id="scripted/lead",
+        now=T0,
+    )
+    changes = ok(api.handle("GET", f"{E}/artifacts/d/changes", None))
+    assert changes["entries"][0]["summary"] == (
+        "Adopted the design Demand Curve NIGHT (version 1)"  # the stored name, not the slug
+    )
+    assert changes["entries"][0]["lines"]  # the raw lines are still there
+    undone = ok(api.handle("POST", f"{E}/artifacts/d/undo", {}))
+    assert undone["entry"]["summary"] == "Adopted the design Demand Curve NIGHT (version 1)"
+    assert undone["changes"]["entries"][0]["summary"]
+
+
 def test_the_entry_point_binds_every_role_from_a_script(tmp_path: Path) -> None:
     args = parse_args(
         ["--script", str(DESIGN_FLOW_SCRIPT), "--workspace", str(tmp_path / "w"), "--no-render"]

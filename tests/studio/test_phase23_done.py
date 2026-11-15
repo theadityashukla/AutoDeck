@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from autodeck.studio import render_adapter
+from autodeck.studio import render_adapter, views
 from autodeck.studio.context import build_context
 from autodeck.studio.conversation import AssistantLine, RenderManifest, TurnFinished
 from autodeck.studio.design import deck_tokens
@@ -155,6 +155,10 @@ def test_the_design_flow_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert store.current_text() == before
     proposal = ProposalStore(engagement).load("p0001")
     assert [o.label for o in proposal.options] == ["Itemised", "Demand curve"]
+    for option in proposal.options:  # every sample's outcome is recorded with the proposal
+        assert [(x.slide_id, x.clean, x.attempts) for x in option.samples] == [("s2", True, 1)]
+        assert option.design is not None
+        assert [(a.attempt, a.accepted) for a in option.design.palette_attempts] == [(1, True)]
     sample_decks = renderer.decks[-2:]
     assert [d.design_system.palette.lt2 for d in sample_decks] == ["D3DCCF", NIGHT]  # type: ignore[union-attr]
     for option in ("A", "B"):
@@ -232,6 +236,25 @@ def test_the_design_flow_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     deck = store.load()
     assert deck.slide("s2").block("header").text == "Quantisation cuts the bill by 38%"
     assert states(deck) == ["fresh"] * 3
+    # the Changes tab reads in words, from the same entries
+    summaries = {
+        e["id"]: e["summary"]
+        for e in views.changes_view(store.changelog(), deck=deck)["entries"]
+    }
+    assert summaries["c0001"].startswith("Wrote the brief for slide 1: ")
+    assert [summaries[c] for c in ("c0004", "c0005", "c0006")] == [
+        "Designed slide 1",
+        "Designed slide 2",
+        "Designed slide 3",
+    ]
+    assert summaries["c0007"] == "Adopted the design Demand curve (version 1)"
+    assert [summaries[c] for c in ("c0008", "c0009", "c0010")] == [
+        f"Redesigned slide {n} in Demand curve" for n in (1, 2, 3)
+    ]
+    assert summaries["c0011"] == (
+        "Retitled slide 2: Quantisation alone cuts serving cost by 38% \u2192 "
+        "Quantisation cuts the bill by 38%"
+    )
     mechanic_lines = [
         line for line in threads.read_lines(second.id) if isinstance(line, AssistantLine)
     ]
