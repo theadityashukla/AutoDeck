@@ -36,15 +36,21 @@ the layer `composition` and the designer's model id.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Literal
 
+from pydantic import ValidationError
+
+from autodeck.design.fonts import FontNotFoundError
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.providers.base import AssistantTurn, Message, ToolCall, ToolSpec
+from autodeck.studio import design_render, designer_prompt, render_adapter
 from autodeck.studio.bindings import BoundModel
 from autodeck.studio.design import DesignSystem
-from autodeck.studio.models import Slide, SlideBrief
+from autodeck.studio.models import MAX_FAILURE_FINDINGS, Slide, SlideBrief, brief_digest
 from autodeck.studio.tool_args import DesignerWriteArgs
 
 TOOL_NAME = "write_slide"
@@ -137,13 +143,23 @@ class DesignResult:
         return len(self.attempts)
 
 
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
 def designed_slide(args: DesignerWriteArgs, *, slide_id: str, brief: SlideBrief) -> Slide:
     """The `Slide` the designer's call describes: `Slide(id=slide_id, intent=brief.intent,
     brief=brief, blocks=args.slide.blocks, layout=args.slide.layout)` (the model's own `id`,
     `intent` and `speaker_notes` are ignored; marker, serves and notes are the caller's to
     restore). Raises `pydantic.ValidationError` when the layout does not place every block
     exactly once, as `Slide` validates."""
-    raise NotImplementedError
+    return Slide(
+        id=slide_id,
+        intent=brief.intent,
+        brief=brief,
+        blocks=args.slide.blocks,
+        layout=args.slide.layout,
+    )
 
 
 def conformance_findings(slide: Slide, brief: SlideBrief) -> list[str]:
@@ -162,7 +178,37 @@ def conformance_findings(slide: Slide, brief: SlideBrief) -> list[str]:
       <list>, series <name: values; ...>`. A brief chart that is not drawn is allowed (the
       designer may leave it out).
     """
-    raise NotImplementedError
+    findings: list[str] = []
+    flat_header = _flat(brief.header)
+    if not any(b.kind == "text" and _flat(b.text or "") == flat_header for b in slide.blocks):
+        findings.append(
+            f'[brief] the header must appear word for word in one text block: "{brief.header}"'
+        )
+    charts = [b for b in slide.blocks if b.kind == "chart" and b.chart is not None]
+    want = brief.content.chart
+    if want is None:
+        findings.extend(
+            f"[brief] chart {b.id}: the brief has no chart data; remove the chart"
+            for b in charts
+        )
+        return findings
+    if len(charts) > 1:
+        findings.append("[brief] the brief has one chart; draw it once")
+    expected_series = [(x.name, [float(v) for v in x.values]) for x in want.series]
+    for block in charts:
+        data = block.chart
+        assert data is not None
+        got_series = [(x.name, [float(v) for v in x.values]) for x in data.series]
+        if list(data.categories) != list(want.categories) or got_series != expected_series:
+            series_text = "; ".join(
+                f"{name}: {', '.join(f'{v:g}' for v in values)}"
+                for name, values in expected_series
+            )
+            findings.append(
+                f"[brief] chart {block.id} must use the brief's data exactly: categories "
+                f"{list(want.categories)}, series {series_text}"
+            )
+    return findings
 
 
 def qa_findings(slide: Slide, tokens: DesignTokens) -> list[str]:
@@ -171,7 +217,14 @@ def qa_findings(slide: Slide, tokens: DesignTokens) -> list[str]:
     when that is empty, the dry build: `design_render.renderable(slide, tokens)` → one line
     `[render] slide: <reason>` when it returns a reason. `[]` when clean. v2's
     `FontNotFoundError` propagates."""
-    raise NotImplementedError
+    lines = [
+        f"[{f.check}] {f.block_id or 'slide'}: {f.message}"
+        for f in render_adapter.check_slide(slide, tokens)
+    ]
+    if lines:
+        return lines
+    reason = design_render.renderable(slide, tokens)
+    return [f"[render] slide: {reason}"] if reason else []
 
 
 def evaluate(
@@ -190,14 +243,47 @@ def evaluate(
       slide is returned (it validated).
     * Otherwise `(slide, "clean", [], ACCEPTED_TEXT)`.
     """
-    raise NotImplementedError
+    if "__invalid__" in call.arguments:
+        return None, "validation_error", ["[validation] invalid JSON"], INVALID_JSON_TEXT
+    try:
+        args = DesignerWriteArgs.model_validate(call.arguments)
+        slide = designed_slide(args, slide_id=slide_id, brief=brief)
+    except ValidationError as exc:
+        lines = [
+            f"[validation] {'.'.join(str(part) for part in e['loc'])}: {e['msg']}"
+            for e in exc.errors()[:MAX_VALIDATION_LINES]
+        ]
+        return None, "validation_error", lines, REJECTED_PREFIX + "\n".join(lines)
+    outcome: Outcome = "conformance"
+    lines = conformance_findings(slide, brief)
+    if not lines:
+        lines = qa_findings(slide, tokens)
+        outcome = (
+            "qa_findings"
+            if any(not line.startswith("[render]") for line in lines)
+            else "render"
+        )
+    if lines:
+        return slide, outcome, lines, FINDINGS_PREFIX + "\n".join(lines)
+    return slide, "clean", [], ACCEPTED_TEXT
 
 
 def answer_calls(turn: AssistantTurn, primary: ToolCall | None, result: str) -> list[Message]:
     """One `tool` message per tool call of `turn`, in order: `result` for `primary`;
     `OTHER_WRITE_TEXT` for any other `write_slide` call; `f"No such tool {name!r}. {result}"`
     for a call to any other name (with `primary` None, every call gets that form)."""
-    raise NotImplementedError
+    answers: list[Message] = []
+    for call in turn.tool_calls:
+        if primary is None:
+            text = f"No such tool {call.name!r}. {result}"
+        elif call is primary:
+            text = result
+        elif call.name == TOOL_NAME:
+            text = OTHER_WRITE_TEXT
+        else:
+            text = f"No such tool {call.name!r}. {result}"
+        answers.append(Message(role="tool", content=text, tool_call_id=call.id))
+    return answers
 
 
 def design_slide(
@@ -222,7 +308,72 @@ def design_slide(
     attempt, `error=f"{type(exc).__name__}: {exc}"`, findings `("[error] <that text>",)`.
     `FontNotFoundError` from the checks propagates.
     """
-    raise NotImplementedError
+    started = time.perf_counter()
+    prompt = system_prompt or designer_prompt.designer_system_prompt(job.tokens, job.system)
+    messages: list[Message] = [
+        Message(
+            role="user",
+            content=designer_prompt.brief_user_text(job.slide_id, job.brief, job.system),
+        )
+    ]
+    made: list[Attempt] = []
+    slide: Slide | None = None
+    findings: tuple[str, ...] = ()
+    error = ""
+    clean = False
+    nudged = False
+    for n in range(1, attempts + 1):
+        try:
+            turn = model.model.converse(messages, [WRITE_SLIDE_TOOL], system=prompt)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            findings = (f"[error] {error}",)
+            made.append(Attempt(n, "error", findings))
+            break
+        used = {
+            "input_tokens": turn.usage.input_tokens,
+            "output_tokens": turn.usage.output_tokens,
+        }
+        messages.append(
+            Message(role="assistant", content=turn.text, tool_calls=turn.tool_calls)
+        )
+        writes = [c for c in turn.tool_calls if c.name == TOOL_NAME]
+        if not writes:
+            made.append(Attempt(n, "no_tool_call", **used))
+            findings = ("[no_tool_call] the model did not call write_slide (after one nudge)",)
+            if nudged:
+                break
+            nudged = True
+            if turn.tool_calls:
+                messages.extend(answer_calls(turn, None, NUDGE_TEXT))
+            else:
+                messages.append(Message(role="user", content=NUDGE_TEXT))
+            continue
+        primary = writes[0]
+        built, outcome, lines, result = evaluate(
+            primary, slide_id=job.slide_id, brief=job.brief, tokens=job.tokens
+        )
+        made.append(Attempt(n, outcome, tuple(lines), **used))
+        findings = tuple(lines)
+        messages.extend(answer_calls(turn, primary, result))
+        if outcome == "clean":
+            clean, slide = True, built
+            break
+    return DesignResult(
+        slide_id=job.slide_id,
+        clean=clean,
+        slide=slide,
+        attempts=tuple(made),
+        findings=() if clean else findings[:MAX_FAILURE_FINDINGS],
+        input_tokens=sum(a.input_tokens for a in made),
+        output_tokens=sum(a.output_tokens for a in made),
+        seconds=time.perf_counter() - started,
+        model_id=model.model_id,
+        error=error,
+        system_id=job.system.id,
+        system_version=job.system.version,
+        brief_digest=brief_digest(job.brief),
+    )
 
 
 def design_slides(
@@ -236,4 +387,43 @@ def design_slides(
     (`concurrent.futures.ThreadPoolExecutor`), results in **job order**. `[]` for no jobs.
     The system prompt is built once per distinct system (`designer_system_prompt`) and
     shared. A `FontNotFoundError` from any job propagates after the pool shuts down."""
-    raise NotImplementedError
+    if not jobs:
+        return []
+    prompts: dict[tuple[str, int], str] = {}
+    for job in jobs:
+        key = (job.system.id, job.system.version)
+        if key not in prompts:
+            prompts[key] = designer_prompt.designer_system_prompt(job.tokens, job.system)
+
+    def run(job: DesignJob) -> DesignResult:
+        started = time.perf_counter()
+        try:
+            return design_slide(
+                model,
+                job,
+                system_prompt=prompts[(job.system.id, job.system.version)],
+                attempts=attempts,
+            )
+        except FontNotFoundError:
+            raise
+        except Exception as exc:
+            text = f"{type(exc).__name__}: {exc}"
+            return DesignResult(
+                slide_id=job.slide_id,
+                clean=False,
+                slide=None,
+                attempts=(Attempt(1, "error", (f"[error] {text}",)),),
+                findings=(f"[error] {text}",),
+                input_tokens=0,
+                output_tokens=0,
+                seconds=time.perf_counter() - started,
+                model_id=model.model_id,
+                error=text,
+                system_id=job.system.id,
+                system_version=job.system.version,
+                brief_digest=brief_digest(job.brief),
+            )
+
+    with ThreadPoolExecutor(max_workers=max(1, max_parallel)) as pool:
+        futures = [pool.submit(run, job) for job in jobs]
+        return [f.result() for f in futures]
