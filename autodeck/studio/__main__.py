@@ -80,7 +80,39 @@ def build(args: argparse.Namespace) -> tuple[StudioApp, Studio]:
     `Studio(settings, bindings=..., bus=..., previews=...)`; and `StudioApp(studio,
     env=<the lead binding's env>, scripted=<a script was used>)`. Returns `(app, studio)`.
     """
-    raise NotImplementedError
+    import os
+
+    from autodeck.design.theme.tokens import DesignTokens
+    from autodeck.knowledge.memory import DEFAULT_OWNER_PATH
+    from autodeck.studio import bindings, design_render, scripted, usage
+    from autodeck.studio.events import EventBus
+    from autodeck.studio.paths import REPO_ROOT, default_workspace_root
+    from autodeck.studio.previews import PreviewService
+    from autodeck.studio.session import StudioSettings
+
+    config = bindings.load_studio_config()
+    tokens = DesignTokens.load(bindings.tokens_path(config))
+    workspace: Path = args.workspace or default_workspace_root()
+    script: Path | None = args.script
+    if script is None and os.environ.get(scripted.SCRIPT_ENV_VAR):
+        script = Path(os.environ[scripted.SCRIPT_ENV_VAR])
+    if script is not None:
+        all_roles = scripted.scripted_bindings(scripted.ScriptedModel.from_file(script))
+    else:
+        all_roles = bindings.bind_all(config, env=args.env, cache_dir=workspace / "llm_cache")
+    bus = EventBus()
+    renderer = _no_render if args.no_render else design_render.render_with_design(tokens)
+    previews = PreviewService(bus=bus, renderer=renderer)  # type: ignore[arg-type]
+    settings = StudioSettings(
+        knowledge_root=args.knowledge or REPO_ROOT / "knowledge",
+        workspace_root=workspace,
+        corpus_root=args.corpus or REPO_ROOT / "corpus",
+        owner_memory_path=args.owner_memory or DEFAULT_OWNER_PATH,
+        tokens=tokens,
+        prices=usage.load_prices(args.prices or usage.DEFAULT_PRICES_PATH),
+    )
+    studio = Studio(settings, bindings=all_roles, bus=bus, previews=previews)
+    return StudioApp(studio, env=all_roles.lead.env, scripted=script is not None), studio
 
 
 def main(argv: Sequence[str] | None = None) -> int:

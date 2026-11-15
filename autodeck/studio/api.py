@@ -461,7 +461,14 @@ class StudioApp:
         deck)`. A dangling reference (`DesignSystemNotFoundError`) or an unreadable version
         file (`ValueError`, `OSError`) returns None rather than failing the artifact view;
         `ClientIsolationError` propagates (403)."""
-        raise NotImplementedError
+        from autodeck.studio.design import DesignSystemStore
+        from autodeck.studio.errors import DesignSystemNotFoundError
+
+        store = DesignSystemStore(engagement, base=self.studio.settings.tokens)
+        try:
+            return store.for_deck(deck)
+        except (DesignSystemNotFoundError, ValueError, OSError):
+            return None
 
     def _changes(
         self, engagement: Engagement, artifact_id: str, _body: dict[str, Any]
