@@ -535,4 +535,52 @@ where the free-layout vocabulary limited the designs:
 
 ## Result (task 23.17)
 
-Not yet run.
+Verified by the lead on 2026-11-15.
+
+**On scripted models**
+
+- Studio tests: 483 in the default selection, 8 `render`-marked, all passing. Bench tests:
+  42 passing. Ruff and pyright clean on the studio code. No skeleton body remains.
+- v2 unchanged: no v2 file edited; full default suite 2615 passed, 1 failed (the known
+  `tests/test_design.py::test_a_missing_face_is_as_loud_as_a_missing_family`).
+- Browser walk-through on the real server with `design_flow.json`, driven with Playwright
+  and viewed: briefs written and composed; a design proposal with two directions, swatches
+  and rendered samples; picking Demand curve marks slides stale and shows Recompose;
+  recomposing redraws on the night ground; a new thread recaps from state; a retitle goes
+  to the mechanic and the routing line says so. No console or server errors; no horizontal
+  scroll at 390px.
+
+**First real-model run** (`dev-openai`: lead and system `gpt-5.6-terra`, designer
+`gpt-5.6-luna`, router and mechanic `gpt-5.4-mini`; driven over the HTTP API by a Sonnet
+agent; sheets in `assets/v3-phase-2-3/`)
+
+- The layered flow ran end to end with no API, adapter, schema or server error and no code
+  change. The Responses path worked on its first real call.
+- **The slides look designed.** Before any design was chosen the four slides already used
+  colour panels, large figures and a timeline (`sheet-default.png`). After picking a
+  direction they are one dark deck with mint and amber accents (`sheet-final.png`).
+- **Lead:** wrote briefs in words with published figures from the sources, never a layout
+  or colour; refused to combine figures the papers measured separately. It offered three
+  directions, not two.
+- **Designer:** 4 of 4 slides clean, 3-4 attempts each, after one slide failed on a brief
+  that was too long and the lead shortened it. Recomposition after the pick: 4 of 4 clean.
+- **System layer:** three palettes accepted, one on its second attempt.
+- **Routing:** a retitle went to the mechanic by rule, a loosely phrased swap by the router
+  model; both were done correctly without the lead, about $0.02 each.
+- **Cost (assumed prices, unconfirmed):** $8.69 over seven turns. Build $3.24, design
+  proposal $3.63, apply and recompose $1.43. The designer was about $5.5 of it.
+
+**Defects found in the real run**
+
+1. Layout QA passes slides with visible flaws: a rule running through the word UNMEASURED
+   like a strike-through; a timeline line and its last item running into a colour band;
+   labels detached from their figures. All four slides were reported clean.
+2. Three of nine design-proposal samples failed to render with nothing recorded, and the
+   lead presented those directions as complete.
+3. The lead retried a failed compose and told the owner all slides composed cleanly,
+   without mentioning the failure.
+4. The lead resends about 14k tokens per call; a one-line question costs about $0.17 on
+   the assumed prices, and the first build used 128k input tokens over nine calls.
+5. Change descriptions in the interface are technical ("composed, system id: default →
+   demand-curve").
+6. A system-layer retry leaves no record of its findings.
