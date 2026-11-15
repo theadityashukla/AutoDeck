@@ -30,18 +30,20 @@ system layer through the same metered bindings (`tools.ToolContext.bindings`).
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 from autodeck.agents.tools.registry import ToolResult
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.providers.base import ToolCall
 from autodeck.studio import context as context_module
-from autodeck.studio import prompt
+from autodeck.studio import loop, mechanic, prompt, routing, tools, usage, views
 from autodeck.studio.bindings import BoundModel, StudioBindings
 from autodeck.studio.conversation import (
     MAX_SUMMARY_CHARS,
@@ -49,9 +51,12 @@ from autodeck.studio.conversation import (
     ProposalResolved,
     ThreadRecord,
     ToolCallRecord,
+    TurnEndLine,
     TurnEvent,
     TurnFinished,
+    TurnStarted,
     UserOrigin,
+    classify_turn,
 )
 from autodeck.studio.conversation import ChangeReverted as ChangeRevertedEvent
 from autodeck.studio.engagement import (
@@ -65,8 +70,9 @@ from autodeck.studio.loop import LoopLimits
 from autodeck.studio.models import ChangeEntry
 from autodeck.studio.previews import PreviewService
 from autodeck.studio.proposals import ProposalStore
+from autodeck.studio.sources import SourceLibrary
 from autodeck.studio.threads import ThreadStore
-from autodeck.studio.usage import Prices, RouteRequest
+from autodeck.studio.usage import Prices, RouteRequest, UsageMeter
 from autodeck.studio.views import clip
 
 
@@ -164,6 +170,49 @@ class _TurnRecorder:
 
     def event(self, event: TurnEvent) -> None:
         self.studio.bus.publish(self.channel, event)
+
+
+class _RoleStamp:
+    """A thread store seen by one role's recorder: every line it appends carries the
+    role, so the mechanic's and the lead's lines can be told apart in the log."""
+
+    def __init__(self, store: ThreadStore, role: str) -> None:
+        self._store = store
+        self._role = role
+
+    def append(self, thread_id: str, line: dict[str, Any], *, now: datetime) -> Any:
+        if line.get("kind") in ("assistant", "tool"):
+            line = {**line, "role": self._role}
+        return self._store.append(thread_id, line, now=now)
+
+
+class _RoleRecorder(_TurnRecorder):
+    """`_TurnRecorder` for one conversational role (`lead` or `mechanic`)."""
+
+    def __init__(
+        self,
+        studio: Studio,
+        store: ThreadStore,
+        thread_id: str,
+        turn_id: str,
+        model_id: str,
+        channel: str,
+        counted: dict[str, int],
+        role: str,
+    ) -> None:
+        super().__init__(
+            studio,
+            cast(ThreadStore, _RoleStamp(store, role)),
+            thread_id,
+            turn_id,
+            model_id,
+            channel,
+            counted,
+        )
+
+
+def _metered(bound: BoundModel, meter: UsageMeter) -> BoundModel:
+    return cast(BoundModel, usage.metered(bound, meter))
 
 
 class Studio:
@@ -397,7 +446,205 @@ class Studio:
         9. As Phase 1: previews for `ledger.touched_artifacts()`, then for each proposal.
            Return the `TurnFinished`.
         """
-        raise NotImplementedError
+        key = self._key(engagement)
+        store = ThreadStore(engagement)
+        store.load(thread_id)
+        lines = store.read_lines(thread_id)
+        turn_id = store.next_turn_id(thread_id)
+        with self._table_lock:
+            self._running[key] = f"{thread_id}/{turn_id}"
+        channel = channel_key(engagement.client, engagement.project, thread_id)
+        started = False
+        try:
+            instruction = "Opening recap" if origin == "recap" else tools.instruction_line(text)
+            bindings = self.bindings  # read once: a test may replace it between turns
+            meter = UsageMeter()
+            metered = StudioBindings(
+                lead=_metered(bindings.lead, meter),
+                system=_metered(bindings.system, meter),
+                designer=_metered(bindings.designer, meter),
+                mechanic=_metered(bindings.mechanic, meter),
+                router=_metered(bindings.router, meter),
+            )
+
+            if not lines:
+                store.append(
+                    thread_id,
+                    {
+                        "kind": "user",
+                        "turn_id": turn_id,
+                        "origin": "context",
+                        "text": store.context_text(thread_id),
+                    },
+                    now=self.clock(),
+                )
+            store.append(
+                thread_id,
+                {"kind": "user", "turn_id": turn_id, "origin": origin, "text": text},
+                now=self.clock(),
+            )
+
+            decision = routing.decide_route(
+                text,
+                origin=origin,
+                request=route,
+                router=metered.router if self.use_router_model else None,
+                outline=self._outline(engagement),
+                system=self.router_system,
+            )
+            to_mechanic = decision.route == "mechanic"
+            self.bus.publish(
+                channel,
+                TurnStarted(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    origin=origin,
+                    text=text if origin in ("owner", "choice") else "",
+                    model_id=(bindings.mechanic if to_mechanic else bindings.lead).model_id,
+                ),
+            )
+            started = True
+        except Exception as exc:
+            # The turn never properly started: tell the interface it ended, then fail as
+            # a synchronous caller always saw (the lock is released by the caller).
+            self._end_unstarted(
+                store, thread_id, turn_id, channel, bindings=self.bindings, exc=exc
+            )
+            raise
+        assert started
+
+        ledger = tools.TurnLedger()
+        mechanic_counted: dict[str, int] = {"steps": 0, "input": 0, "output": 0}
+        lead_counted: dict[str, int] = {"steps": 0, "input": 0, "output": 0}
+        stop_reason: Any = "replied"
+        error = ""
+        lead_ran = False
+
+        def tool_context(role: str, bound: BoundModel) -> tools.ToolContext:
+            return tools.ToolContext(
+                engagement=engagement,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                instruction=instruction,
+                model_id=bound.model_id,
+                tokens=self.settings.tokens,
+                sources=SourceLibrary(engagement, corpus_root=self.settings.corpus_root),
+                proposals=ProposalStore(engagement),
+                ledger=ledger,
+                clock=self.clock,
+                role=role,
+                bindings=metered,
+                designer_attempts=self.settings.designer_attempts,
+                designer_parallel=self.settings.designer_parallel,
+                system_attempts=self.settings.system_attempts,
+            )
+
+        try:
+            run_lead = not to_mechanic
+            if to_mechanic:
+                mechanic_ctx = tool_context("mechanic", bindings.mechanic)
+                outcome = loop.run_steps(
+                    metered.mechanic,
+                    system=self.mechanic_system,
+                    messages=mechanic.mechanic_messages(engagement, text),
+                    summaries={},
+                    toolbox=tools.build_toolbox(mechanic_ctx),
+                    ledger=ledger,
+                    sink=_RoleRecorder(
+                        self,
+                        store,
+                        thread_id,
+                        turn_id,
+                        bindings.mechanic.model_id,
+                        channel,
+                        mechanic_counted,
+                        "mechanic",
+                    ),
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    limits=self.settings.mechanic_limits,
+                    stop_when=lambda: ledger.handoff is not None,
+                )
+                stop_reason = outcome.stop_reason
+                mechanic_counted.update(
+                    steps=outcome.steps,
+                    input=outcome.input_tokens,
+                    output=outcome.output_tokens,
+                )
+                if outcome.stop_reason == "handed_off":
+                    decision = decision.model_copy(update={"handed_off": True})
+                    run_lead = True
+            if run_lead:
+                lead_ran = True
+                messages, summaries = loop.build_model_messages(
+                    store.read_lines(thread_id), role="lead"
+                )
+                outcome = loop.run_steps(
+                    metered.lead,
+                    system=self.system,
+                    messages=messages,
+                    summaries=summaries,
+                    toolbox=tools.build_toolbox(tool_context("lead", bindings.lead)),
+                    ledger=ledger,
+                    sink=_RoleRecorder(
+                        self,
+                        store,
+                        thread_id,
+                        turn_id,
+                        bindings.lead.model_id,
+                        channel,
+                        lead_counted,
+                        "lead",
+                    ),
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    limits=self.settings.limits,
+                )
+                stop_reason = outcome.stop_reason
+                lead_counted.update(
+                    steps=outcome.steps,
+                    input=outcome.input_tokens,
+                    output=outcome.output_tokens,
+                )
+        except Exception as exc:
+            stop_reason = "error"
+            error = f"{type(exc).__name__}: {exc}"
+
+        change_ids = [entry.id for _, entry in ledger.changes]
+        undone_ids = [entry.id for _, entry in ledger.undone]
+        redone_ids = [entry.id for _, entry in ledger.redone]
+        proposal_ids = [proposal.id for proposal in ledger.proposals]
+        totals: dict[str, Any] = {
+            "turn_id": turn_id,
+            "turn_kind": classify_turn(
+                change_ids=change_ids,
+                undone_ids=undone_ids,
+                redone_ids=redone_ids,
+                created_artifacts=list(ledger.created),
+                proposal_ids=proposal_ids,
+            ),
+            "stop_reason": stop_reason,
+            "model_id": (bindings.lead if lead_ran else bindings.mechanic).model_id,
+            "steps": mechanic_counted["steps"] + lead_counted["steps"],
+            "change_ids": change_ids,
+            "undone_ids": undone_ids,
+            "redone_ids": redone_ids,
+            "created_artifacts": list(ledger.created),
+            "proposal_ids": proposal_ids,
+            "input_tokens": mechanic_counted["input"] + lead_counted["input"],
+            "output_tokens": mechanic_counted["output"] + lead_counted["output"],
+            "error": error,
+            "route": decision,
+            "usage": meter.snapshot(self.settings.prices),
+        }
+        finished = self._finish(store, thread_id, channel, totals)
+        for artifact_id in ledger.touched_artifacts():
+            self.previews.request_artifact(
+                engagement, artifact_id, thread_id=thread_id, turn_id=turn_id
+            )
+        for proposal in ledger.proposals:
+            self.previews.request_proposal(engagement, proposal, thread_id=thread_id)
+        return finished
 
     # -- owner actions between turns ----------------------------------------------------
 
@@ -541,6 +788,62 @@ class Studio:
             self._running.pop(key, None)
             lock = self._locks[key]
         lock.release()
+
+    def _outline(self, engagement: Engagement) -> str:
+        """The compact outline of every deck, for the router; "" when none (or unreadable:
+        routing falls back to the lead when unsure, so a bad deck must not fail a turn)."""
+        try:
+            return "\n\n".join(
+                views.deck_outline(engagement.artifact_store(artifact_id).load())
+                for artifact_id in engagement.artifact_ids()
+            )
+        except Exception:
+            return ""
+
+    def _finish(
+        self, store: ThreadStore, thread_id: str, channel: str, totals: dict[str, Any]
+    ) -> TurnFinished:
+        """Append the `TurnEndLine`, then publish the matching `TurnFinished`."""
+        finished = TurnFinished(thread_id=thread_id, **totals)
+        end = TurnEndLine.model_validate(
+            {**totals, "kind": "turn_end", "seq": 1, "created_at": self.clock()}
+        )
+        store.append(
+            thread_id,
+            {
+                "kind": "turn_end",
+                **end.model_dump(mode="json", exclude={"kind", "seq", "created_at"}),
+            },
+            now=end.created_at,
+        )
+        self.bus.publish(channel, finished)
+        return finished
+
+    def _end_unstarted(
+        self,
+        store: ThreadStore,
+        thread_id: str,
+        turn_id: str,
+        channel: str,
+        *,
+        bindings: StudioBindings,
+        exc: Exception,
+    ) -> None:
+        """A turn failed before it started (its first lines or `TurnStarted`): end it as an
+        error so the interface is told. Best effort: the failure may be the store's own."""
+        totals: dict[str, Any] = {
+            "turn_id": turn_id,
+            "turn_kind": "talk",
+            "stop_reason": "error",
+            "model_id": bindings.lead.model_id,
+            "steps": 0,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        try:
+            self._finish(store, thread_id, channel, totals)
+        except Exception:
+            with contextlib.suppress(Exception):
+                self.bus.publish(channel, TurnFinished(thread_id=thread_id, **totals))
 
     def _create_thread_locked(self, engagement: Engagement, title: str) -> ThreadRecord:
         inputs = context_module.gather_inputs(
