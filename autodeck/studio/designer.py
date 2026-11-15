@@ -330,16 +330,13 @@ def design_slide(
             findings = (f"[error] {error}",)
             made.append(Attempt(n, "error", findings))
             break
-        used = {
-            "input_tokens": turn.usage.input_tokens,
-            "output_tokens": turn.usage.output_tokens,
-        }
+        tin, tout = turn.usage.input_tokens, turn.usage.output_tokens
         messages.append(
             Message(role="assistant", content=turn.text, tool_calls=turn.tool_calls)
         )
         writes = [c for c in turn.tool_calls if c.name == TOOL_NAME]
         if not writes:
-            made.append(Attempt(n, "no_tool_call", **used))
+            made.append(Attempt(n, "no_tool_call", (), tin, tout))
             findings = ("[no_tool_call] the model did not call write_slide (after one nudge)",)
             if nudged:
                 break
@@ -353,7 +350,7 @@ def design_slide(
         built, outcome, lines, result = evaluate(
             primary, slide_id=job.slide_id, brief=job.brief, tokens=job.tokens
         )
-        made.append(Attempt(n, outcome, tuple(lines), **used))
+        made.append(Attempt(n, outcome, tuple(lines), tin, tout))
         findings = tuple(lines)
         messages.extend(answer_calls(turn, primary, result))
         if outcome == "clean":
