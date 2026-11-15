@@ -186,7 +186,7 @@
     return [dup ? null : markerTag(slide.marker), compTag(c)];
   }
 
-  function usd(v) { return "$" + (v < 0.01 ? v.toFixed(3) : v.toFixed(2)); }
+  function usd(v) { return v > 0 && v < 0.001 ? "<$0.001" : "$" + (v < 0.01 ? v.toFixed(3) : v.toFixed(2)); }
   function kTokens(n) { return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n); }
 
   // ------------------------------------------------------------------ app state
@@ -564,8 +564,8 @@
     const was = E.input.disabled;
     E.input.disabled = busy;
     E.send.disabled = busy;
-    E.input.placeholder = T.running ? "A turn is running. You can write again when it finishes." : "Message the model";
-    E.hint.textContent = T.running ? "" : "Enter sends, Shift+Enter adds a line.";
+    E.input.placeholder = T.running ? "A turn is running." : "Message the model";
+    E.hint.textContent = T.running ? "You can write again when the turn finishes." : "Enter sends, Shift+Enter adds a line.";
     if (was && !busy && document.activeElement === document.body) E.input.focus();
     if (E.recompose) E.recompose.disabled = busy;
   }
@@ -627,11 +627,11 @@
   function modelOf(m) { return m ? h("span", { class: "tag tag-plain mono", text: m }) : null; }
 
   const BY_TEXT = {
-    rule: "by a fixed rule",
-    model: "by the router model",
-    override: "pinned to the lead by you",
-    origin: "by the kind of message",
-    fallback: "fell back to the lead",
+    rule: "chosen by a fixed rule",
+    model: "chosen by the router model",
+    override: "pinned by you",
+    origin: "chosen by the kind of message",
+    fallback: "fallback, the router gave no answer",
   };
   const cap = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : "");
 
@@ -662,7 +662,7 @@
         h("div", { class: "tbl-wrap" }, h("table", { class: "tbl" },
           h("thead", null, h("tr", null, ["Role", "Layer", "Model", "Calls", "Input", "Output", "Cost"].map((c, i) => h("th", { class: i > 2 ? "num" : "", scope: "col", text: c })))),
           h("tbody", null, rows))),
-        rt ? h("p", { class: "quiet", text: "Routed to the " + rt.route + " " + (BY_TEXT[rt.by] || "(" + rt.by + ")") + (rt.reason ? ": " + rt.reason : "") + (rt.handed_off ? " The mechanic handed the turn to the lead." : "") }) : null,
+        rt ? h("p", { class: "quiet", text: "Route: " + rt.route + ", " + (BY_TEXT[rt.by] || rt.by) + "." + (rt.reason ? " " + rt.reason : "") + (rt.handed_off ? " The mechanic handed the turn to the lead." : "") }) : null,
         h("p", { class: "fine", text: (typeof u.total_cost_usd === "number" ? "Total " + usd(u.total_cost_usd) + " est. " : "Total cost unknown. ") + (u.price_note || "Estimated from assumed prices, not a bill.") })));
     if (T.openRoutes.has(m.turn_id)) d.open = true;
     d.addEventListener("toggle", () => { if (d.open) T.openRoutes.add(m.turn_id); else T.openRoutes.delete(m.turn_id); });
@@ -757,7 +757,7 @@
       const kids = [
         h("div", { class: "opt-h" }, h("span", { class: "opt-id", text: "Option " + o.id }), h("span", { class: "opt-label", text: o.label }),
           chosen ? h("span", { class: "tag tag-ok", text: "Chosen" }) : null),
-        h("p", { class: "opt-text", text: o.text }),
+        o.design && o.text === o.design.concept ? null : h("p", { class: "opt-text", text: o.text }),
       ];
       if (o.applies) kids.push(h("p", { class: "opt-applies quiet", text: o.applies + "." }));
       const n = (o.slide_ids || []).length;
@@ -792,7 +792,7 @@
   function designOption(T, p, o) {
     const ds = o.design;
     const out = h("div", { class: "dopt" });
-    out.append(h("div", { class: "dopt-name" }, h("b", { text: ds.name }), h("span", { class: "tag tag-plain", text: "Design" })));
+    if (ds.name !== o.label) out.append(h("div", { class: "dopt-name" }, h("b", { text: ds.name }), h("span", { class: "tag tag-plain", text: "Design" })));
     if (ds.concept) out.append(h("p", { class: "opt-text", text: ds.concept }));
     out.append(swatchRow(ds));
     if ((ds.rules || []).length) {
@@ -869,9 +869,11 @@
     } catch (e) { /* the next tick tries again */ }
   }
 
-  function scheduleArtifactRefresh(T) {
+  function scheduleArtifactRefresh(T, midTurn) {
     clearTimeout(T.refreshTimer);
-    if (T.running) return; // refreshed when the turn finishes; reading mid-turn can race the writes
+    // Refreshed when the turn finishes; reading mid-turn can race the writes. A finished slide
+    // (slide_composed comes after that slide's change entry) is safe to show at once.
+    if (T.running && !midTurn) return;
     T.refreshTimer = setTimeout(async () => {
       await refreshEngagement(T);
       await refreshArtifact(T);
@@ -1001,7 +1003,7 @@
           ? "Designed slide " + d.slide_id + " (" + plural(d.attempts || 1, "attempt") + ")"
           : "Slide " + d.slide_id + " failed to compose");
         renderLive(T);
-        scheduleArtifactRefresh(T);
+        scheduleArtifactRefresh(T, true);
         break;
       }
       case "proposal_created":
