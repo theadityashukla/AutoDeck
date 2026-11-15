@@ -67,7 +67,12 @@ models:
   "fake:cheap": {input: 3, output: 15}
   "fake:dear": {input: 1000, output: 1000}
   "openai:gpt-5.4-mini": {input: 3, output: 15}
+  "openai:gpt-5.6-terra": {input: 12, output: 60}
+  "fake:rev": {input: 10, output: 40}
+  "fake:revdear": {input: 100000, output: 100000}
 """
+
+REVIEW_PROMPT = "You review one slide. Call report once."
 
 
 @pytest.fixture
@@ -85,6 +90,7 @@ def bench_dir(tmp_path: Path) -> Path:
     )
     (root / "concepts" / "none.yaml").write_text(CONCEPT_NONE, encoding="utf-8")
     (root / "concepts" / "ticket.yaml").write_text(CONCEPT_TICKET, encoding="utf-8")
+    (root / "prompts" / "review.md").write_text(REVIEW_PROMPT, encoding="utf-8")
     (root / "prices.yaml").write_text(PRICES, encoding="utf-8")
     return root
 
@@ -177,3 +183,30 @@ FINDING = {"block": "t", "check": "text_fit", "message": "needs 90pt of height, 
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def report_args(
+    verdict: str = "pass",
+    findings: list[dict[str, str]] | None = None,
+    summary: str = "Fine.",
+) -> dict[str, Any]:
+    return {"verdict": verdict, "findings": findings or [], "summary": summary}
+
+
+def finding(severity: str = "blocking", where: str = "title", n: int = 1) -> dict[str, str]:
+    return {
+        "severity": severity,
+        "where": f"{where} {n}",
+        "problem": f"A rule runs through the word {n}.",
+        "fix": f"Move the rule below the word {n}.",
+    }
+
+
+def report_turn(
+    args: dict[str, Any] | None = None,
+    *,
+    usage: tuple[int, int] = (1000, 200),
+    call_id: str = "rep_1",
+) -> AssistantTurn:
+    calls = [ToolCall(id=call_id, name="report", arguments=args or report_args())]
+    return AssistantTurn(tool_calls=calls, usage=Usage(*usage))

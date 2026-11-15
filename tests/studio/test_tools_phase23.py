@@ -14,7 +14,8 @@ import pytest
 from autodeck.agents.tools.registry import ToolBox, ToolResult
 from autodeck.ir.schema import export_schema
 from autodeck.providers.base import ToolCall
-from autodeck.studio.design import DesignSystemStore
+from autodeck.studio import designer, tool_args, views
+from autodeck.studio.design import DesignSystemStore, PaletteAttempt
 from autodeck.studio.engagement import Engagement, create_engagement
 from autodeck.studio.models import DeckArtifact, composition_status, effective_system
 from autodeck.studio.proposals import ProposalStore
@@ -210,7 +211,7 @@ def test_composition_tools_need_a_designer(tmp_path: Path, knowledge_root: Path)
     assert refused.error and "no designer is bound" in refused.text
 
 
-def design_model() -> ScriptedModel:
+def design_model(*extra: dict[str, Any]) -> ScriptedModel:
     steps = [
         {
             "role": "system",
@@ -231,7 +232,7 @@ def design_model() -> ScriptedModel:
             "tool_calls": [{"name": "write_slide", "arguments": flow_designed("s2", DARK)}],
         },
     ]
-    return designer_model(*steps, *samples)
+    return designer_model(*steps, *samples, *extra)
 
 
 def test_propose_design_renders_each_direction_on_real_slides_and_changes_nothing(
@@ -243,7 +244,8 @@ def test_propose_design_renders_each_direction_on_real_slides_and_changes_nothin
     result = h.call("propose_design", **flow_call("t1 u2: propose two directions"))
     assert not result.error, result.text
     assert result.summary == "proposed p0001: 2 design directions"
-    assert "- A. Itemised: rendered on 1 slide" in result.text
+    assert "- A. Itemised: 1 of 1 sample rendered" in result.text
+    assert "Some samples failed" not in result.text
     record = ProposalStore(h.engagement).load("p0001")
     assert [o.label for o in record.options] == ["Itemised", DARK]
     option = record.options[1]
@@ -253,6 +255,258 @@ def test_propose_design_renders_each_direction_on_real_slides_and_changes_nothin
     assert h.engagement.artifact_store(DECK).current_text() == before
     assert DesignSystemStore(h.engagement, base=dev_tokens()).ids() == []
     assert h.ledger.proposals[-1].id == "p0001"
+
+
+def failing_sample(monkeypatch: pytest.MonkeyPatch, *, slide: str, system: str) -> None:
+    """Make the designer's sample of `slide` in the design named `system` fail (the other
+    jobs run for real on the scripted designer), as `designer.design_slides` would report it."""
+    real = designer.design_slides
+
+    def wrapped(model: Any, jobs: Any, **kw: Any) -> Any:
+        jobs = list(jobs)
+        bad = {i for i, j in enumerate(jobs) if j.slide_id == slide and j.system.name == system}
+        done = iter(real(model, [j for i, j in enumerate(jobs) if i not in bad], **kw))
+        out = []
+        for i, job in enumerate(jobs):
+            if i in bad:
+                findings = (
+                    "[text_fit] hero: needs 310pt of height, has 200pt",
+                    "[overlap] a, b",
+                )
+                out.append(
+                    designer.DesignResult(
+                        slide_id=job.slide_id,
+                        clean=False,
+                        slide=None,
+                        attempts=tuple(designer.Attempt(n, "qa_findings") for n in range(1, 5)),
+                        findings=findings,
+                        input_tokens=0,
+                        output_tokens=0,
+                        seconds=0.0,
+                        model_id="scripted/designer",
+                    )
+                )
+            else:
+                out.append(next(done))
+        return out
+
+    monkeypatch.setattr(designer, "design_slides", wrapped)
+
+
+def test_a_failed_design_sample_is_recorded_and_reported(
+    tmp_path: Path, knowledge_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extra = {
+        "role": "designer",
+        "match": f"Name: {DARK}",
+        "tool_calls": [{"name": "write_slide", "arguments": flow_designed("s3", DARK)}],
+    }
+    h = harness(tmp_path, knowledge_root, design_model(extra))
+    h.call("compose_slides")
+    failing_sample(monkeypatch, slide="s3", system="Itemised")
+    args = dict(flow_call("t1 u2: propose two directions"), sample_slide_ids=["s2", "s3"])
+    result = h.call("propose_design", **args)
+    assert not result.error, result.text
+    lines = result.text.split("\n")
+    assert lines[0].startswith(
+        "Recorded proposal p0001 with 2 design directions, sampled on s2, s3."
+    )
+    assert lines[1].startswith("Some samples failed: tell the owner")
+    assert lines[2] == (
+        "- A. Itemised: 1 of 2 samples rendered; slide s3 could not be designed after 4 "
+        "attempts: [text_fit] hero: needs 310pt of height, has 200pt; [overlap] a, b. "
+        "INCOMPLETE: say so when you present it"
+    )
+    assert lines[3] == f"- B. {DARK}: 2 of 2 samples rendered"
+    record = ProposalStore(h.engagement).load("p0001")
+    a, b = record.options
+    assert [(o.slide_id, o.clean, o.attempts) for o in a.samples] == [
+        ("s2", True, 1),
+        ("s3", False, 4),
+    ]
+    assert a.samples[1].findings == [
+        "[text_fit] hero: needs 310pt of height, has 200pt",
+        "[overlap] a, b",
+    ]
+    assert [c.replaces for c in a.candidates] == ["s2"]  # only the clean sample is a preview
+    assert all(o.clean for o in b.samples)
+    # the view the interface gets says the same
+    view = views.proposal_view(record, deck=h.deck())
+    assert view["options"][0]["samples_summary"] == (
+        "1 of 2 samples rendered; slide 3 could not be designed: "
+        "[text_fit] hero: needs 310pt of height, has 200pt"
+    )
+    assert view["options"][1]["samples_summary"] == "2 of 2 samples rendered"
+    assert view["options"][0]["samples"][1]["clean"] is False
+
+
+def test_a_direction_whose_samples_all_fail_is_dropped_loudly(
+    tmp_path: Path, knowledge_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    h = harness(tmp_path, knowledge_root, design_model())
+    h.call("compose_slides")
+    failing_sample(monkeypatch, slide="s2", system="Itemised")
+    result = h.call("propose_design", **flow_call("t1 u2: propose two directions"))
+    assert not result.error, result.text
+    assert result.summary == "proposed p0001: 1 design directions"
+    assert (
+        "- Itemised: dropped (no sample came out clean: slide s2: [text_fit] hero"
+        in result.text
+    )
+    assert "- A. Demand curve: 1 of 1 sample rendered" in result.text
+    record = ProposalStore(h.engagement).load("p0001")
+    assert [o.label for o in record.options] == [DARK]
+
+
+def test_when_every_direction_fails_the_call_fails_with_every_reason(
+    tmp_path: Path, knowledge_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    h = harness(tmp_path, knowledge_root, design_model())
+    h.call("compose_slides")
+    asked: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        designer,
+        "design_slides",
+        lambda model, jobs, **kw: (
+            asked.extend((j.system.name, j.slide_id) for j in jobs)
+            or [
+                designer.DesignResult(
+                    slide_id=j.slide_id,
+                    clean=False,
+                    slide=None,
+                    attempts=(designer.Attempt(1, "error"),),
+                    findings=("[error] boom",),
+                    input_tokens=0,
+                    output_tokens=0,
+                    seconds=0.0,
+                    model_id="m",
+                )
+                for j in jobs
+            ]
+        ),
+    )
+    args = {k: v for k, v in flow_call("t1 u2: propose two directions").items()}
+    args.pop("sample_slide_ids", None)  # the default: the opening and the chart slide
+    result = h.call("propose_design", **args)
+    assert result.error and "Itemised: no sample came out clean" in result.text
+    assert DARK in result.text
+    assert asked == [("Itemised", "s1"), ("Itemised", "s2"), (DARK, "s1"), (DARK, "s2")]
+
+
+def refused_palette(name: str) -> dict[str, Any]:
+    """The scripted palette of `name` with dk2 set to the background: refused (charts draw
+    their labels in dk2)."""
+    args = copy.deepcopy(flow_palette_args(name))
+    args["palette"]["dk2"] = args["palette"][args["background"]]
+    return args
+
+
+def system_step(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "role": "system",
+        "match": f"Name: {name}",
+        "tool_calls": [{"name": "set_palette", "arguments": args}],
+    }
+
+
+def test_a_palette_retry_is_recorded_and_noted_in_the_tool_results(
+    tmp_path: Path, knowledge_root: Path
+) -> None:
+    steps = [
+        system_step("Itemised", flow_palette_args("Itemised")),
+        system_step(DARK, refused_palette(DARK)),
+        system_step(DARK, flow_palette_args(DARK)),
+        {
+            "role": "designer",
+            "match": "Name: Itemised",
+            "tool_calls": [{"name": "write_slide", "arguments": flow_designed("s2")}],
+        },
+        {
+            "role": "designer",
+            "match": f"Name: {DARK}",
+            "tool_calls": [{"name": "write_slide", "arguments": flow_designed("s2", DARK)}],
+        },
+    ]
+    h = harness(tmp_path, knowledge_root, designer_model(*steps))
+    h.call("compose_slides")
+    result = h.call("propose_design", **flow_call("t1 u2: propose two directions"))
+    assert not result.error, result.text
+    b_line = next(line for line in result.text.split("\n") if line.startswith("- B."))
+    assert b_line.startswith(f'- B. {DARK}: 1 of 1 sample rendered. Palette for "{DARK}" ')
+    assert "needed 2 attempts; refused attempt 1: - dk2 on " in b_line
+    assert ":1, needs 4.5:1" in b_line
+    assert "Palette for" not in next(
+        line for line in result.text.split("\n") if line.startswith("- A.")
+    )
+    record = ProposalStore(h.engagement).load("p0001")
+    attempts = record.options[1].design.palette_attempts  # type: ignore[union-attr]
+    assert [(a.attempt, a.accepted) for a in attempts] == [(1, False), (2, True)]
+    assert attempts[0].findings and "dk2" in attempts[0].findings[0]
+    assert record.options[0].design.palette_attempts == [  # type: ignore[union-attr]
+        PaletteAttempt(attempt=1, accepted=True)
+    ]
+    view = views.proposal_view(record)
+    assert view["options"][1]["design"]["palette_attempts"][0]["accepted"] is False
+    # adopting it stores the attempts with the version, and apply_design says so too
+    applied = h.call("apply_option", proposal_id="p0001", option_id="B")
+    assert not applied.error, applied.text
+    assert applied.text.split("\n")[-1].startswith(f'Palette for "{DARK}" needed 2 attempts')
+    stored = DesignSystemStore(h.engagement, base=dev_tokens()).load("demand-curve", 1)
+    assert [a.accepted for a in stored.palette_attempts] == [False, True]
+    assert views.design_system_view(stored)["palette_attempts"][0]["findings"]
+
+
+def test_apply_design_from_words_notes_a_palette_retry(
+    tmp_path: Path, knowledge_root: Path
+) -> None:
+    steps = [
+        system_step(DARK, refused_palette(DARK)),
+        system_step(DARK, flow_palette_args(DARK)),
+    ]
+    h = harness(tmp_path, knowledge_root, designer_model(*steps))
+    direction = next(d for d in flow_directions() if d["name"] == DARK)
+    result = h.call("apply_design", direction=direction)
+    assert not result.error, result.text
+    assert f'Palette for "{DARK}" needed 2 attempts; refused attempt 1' in result.text
+
+
+def test_propose_design_defaults_are_two_directions_and_two_samples() -> None:
+    props = tool_args.ProposeDesignArgs.model_json_schema()["properties"]
+    assert props["directions"]["minItems"] == 2 and props["directions"]["maxItems"] == 3
+    assert "Two clearly different" in props["directions"]["description"]
+    base = {"summary": "s", "directions": flow_directions()}
+    with pytest.raises(ValueError):
+        tool_args.ProposeDesignArgs.model_validate({**base, "sample_slide_ids": list("abcd")})
+    assert tool_args.ProposeDesignArgs.model_validate({**base}).sample_slide_ids is None
+    assert "default two" in props["sample_slide_ids"]["description"]
+
+
+def test_a_slide_that_failed_and_then_composed_is_reported_as_having_failed(
+    tmp_path: Path, knowledge_root: Path
+) -> None:
+    crowded = copy.deepcopy(flow_designed("s2"))
+    for element in crowded["slide"]["layout"]["elements"]:
+        if element.get("block_id") == "hero":
+            element["size_pt"] = 240
+    bad = {
+        "role": "designer",
+        "match": "Slide id: s2",
+        "tool_calls": [{"name": "write_slide", "arguments": crowded}],
+    }
+    model = ScriptedModel.from_steps(
+        [bad, bad, write_slide_step("s2")],
+        model_id="scripted/lead",
+        model_ids={"designer": "scripted/designer"},
+    )
+    h = harness(tmp_path, knowledge_root, model)
+    first = h.call("compose_slides", slide_ids=["s2"])
+    assert "- s2: failed after 2 attempts" in first.text
+    assert "FAILED" not in first.text
+    again = h.call("compose_slides", slide_ids=["s2"])
+    assert (
+        "- s2: clean in 1 attempt (it FAILED to compose 1 time earlier this turn" in again.text
+    )
+    assert h.ledger.composed[-1][1].failed_earlier == 1
 
 
 def test_apply_design_adopts_it_and_makes_designed_slides_stale(

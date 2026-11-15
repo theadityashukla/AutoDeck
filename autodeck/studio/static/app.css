@@ -271,6 +271,8 @@ a.row:hover { background: var(--surface-2); }
 .opt-label { font-weight: 600; font-size: 14px; }
 .opt-text { color: var(--text-2); font-size: 13px; }
 .opt-applies { margin: 4px 0 0; font-size: 12px; }
+.opt-samples { margin: 4px 0 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.opt-samples.warn { color: var(--warn-text); font-weight: 550; }
 .samples { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
 .sample { border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-s); background: var(--stage); min-width: 0; }
 .sample img { display: block; width: 100%; height: auto; }

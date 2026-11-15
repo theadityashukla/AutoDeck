@@ -584,3 +584,68 @@ agent; sheets in `assets/v3-phase-2-3/`)
 5. Change descriptions in the interface are technical ("composed, system id: default →
    demand-curve").
 6. A system-layer retry leaves no record of its findings.
+
+## Studio layout rules (answer to defect 1)
+
+`autodeck/studio/layout_rules.py` runs inside `render_adapter.check_slide`, after v2's checks,
+so every caller (the designer's loop, previews, the dry build) gets it. v2 is unchanged. Each
+rule returns a v2 `FreeLayoutFinding`, so the designer feeds it back as `[line_through_text]
+unmeasured: ...` with no change to `designer.py`. Everything is geometry in points on the
+master's canvas; nothing needs judgement.
+
+**Measuring text.** A text element is judged by the extent of its ink, not by its frame. Each
+wrapped line (v2's `measure_text`) is as wide as v2's font metrics say, placed by the element's
+`align` and `anchor`, and `INK_HEIGHT_EM` = 0.68 of the type size tall, standing on a baseline
+`BASELINE_EM` = 0.22 of the size above the bottom of its line box. Both constants were
+measured on the LibreOffice renders of about 80 single-line text elements in the bench slides (capitals and
+digits span 0.49 to 1.18 of the size on a 1.38 line, 0.60 to 1.25 on a 1.5 line: extra leading
+goes above the line). A first guess with the ink centred in the line missed the strike-through
+on a 112pt "21%" by 1.5pt, which is why this was measured. A *rule* is a `line` shape (drawn
+as v2 draws it: through the frame's centre along its longer side, `line_pt` thick) or a
+filled rect thinner than `RULE_MAX_PT` = 3pt.
+
+| Rule | A finding when | Tolerances |
+| --- | --- | --- |
+| `line_through_text` | a rule crosses a line of ink, the ink band shrunk top and bottom | margin `LINE_CROSS_MARGIN_EM` = 0.10 of the size; crossing at least `MIN_CROSS_PT` = 2pt long. A line at or below the baseline (an underline), above the caps, or ending at the word is clean |
+| `line_through_chart` | a rule crosses the inside of a `chart` or `diagram` frame | frame inset `CHART_EDGE_PT` = 6pt; crossing at least 2pt |
+| `straddle` (text) | a text line block lies partly on a filled `rect` / `rounded_rect` / `ellipse` drawn *earlier* and partly off it | more than `STRADDLE_TOLERANCE_PT` = 3pt inside the shape and more than 3pt outside, on the extent of the ink lines |
+| `straddle` (line) | a rule lies partly inside such a shape and partly outside it, along its own direction | more than 3pt inside and more than 3pt outside; a line wholly inside, wholly outside or ending at the edge is clean |
+
+For `straddle`, the ground shapes exclude full-bleed backgrounds (90% of the slide in both
+directions), shapes that are themselves rules, and shapes drawn after the element (those hide
+it, which v2's `hidden_text` reports). Nested shapes are each judged on their own: text wholly
+inside a card on a panel is clean, text crossing the card's edge is not. Ellipses use their
+bounding box.
+
+**Measured result on the 34 designed slides** (4 real-run slides, 30 bench slides). All 34
+renders were looked at; each slide with a finding was opened.
+
+| Slide | Rule | Finding | Verdict |
+| --- | --- | --- | --- |
+| real run 1 `serve-before-buy` | `line_through_text` | `unmeasured`, line at shape 6 | true: the strike-through |
+| real run 4 `approve-benchmark` | `line_through_text` | `capacity_label`, the timeline line runs through "THEN REVISIT CAPACITY" | true |
+| real run 4 `approve-benchmark` | `straddle` | the timeline line (shape 3) starts above and ends inside the amber band | true: the line into the band |
+| bench sol s7-case, none | `line_through_text` | `cost-figure`, a rule through "$310k" | true (the same strike-through, not seen before) |
+| bench luna s5-caching, demand-curve | `line_through_text` | `hero21`, the curve through "21%" | true |
+| bench sol s2-inference, demand-curve | `line_through_chart` | `share_chart`, a rule across the bars and axis | true |
+
+Six findings, six true, none false, on 5 of the 34 slides; the other 29 give no finding. Tightening
+every tolerance (margin 0, straddle 0.5pt, crossing 0.5pt) adds no finding: nothing is on the
+edge of a threshold. Loosening them (margin 0.25, straddle 8pt, crossing 6pt) loses three true
+findings (real run 1, real run 4's label, luna s5 "21%"), which is why the margin is 0.10.
+`straddle` on text
+fired on none of the 34 even at 0.5pt, so its text half rests on synthetic tests only.
+
+**Not catchable by rule** (what a reviewer has to see): real run 4's last timeline item
+("Roll out only changes ...") ends 2pt above the band's top edge and *looks* as if it sits on
+it (tight clearance, not a straddle); labels detached from their figures (real run 2 "0" and
+its caption, bench luna s8 "PILOT BUDGET" far above "$85k"); a figure running into a chart's
+axis labels without overlapping its frame (luna s2 demand-curve "42%"); a headline broken in
+two frames with a gap (sol s1-title none); crowded, uneven gaps between figures (luna s3
+demand-curve, "-38%" against "-21%"); accent bars that straddle nothing but do not match the
+card they top (sol s3, s6 none).
+
+The designer prompt lost the advice that a line "can be drawn across text on purpose (as a
+strike-through)" and gained two requirements, "No line through text or a chart" and "One
+ground per item". Real strike-through belongs to a later vocabulary phase. Fixtures:
+`tests/studio/fixtures/designed_slides/`; tests: `tests/studio/test_layout_rules.py`.

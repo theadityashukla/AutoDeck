@@ -28,6 +28,7 @@ from datetime import datetime
 from typing import Any
 
 from autodeck.studio import changelog, diff
+from autodeck.studio.change_summary import SystemNamer, change_summary
 from autodeck.studio.conversation import (
     MAX_DIFF_LINES,
     AssistantLine,
@@ -343,15 +344,26 @@ def change_line(entry: ChangeEntry) -> str:
     )
 
 
-def change_view(entry: ChangeEntry, log: ChangeLog) -> dict[str, Any]:
+def change_view(
+    entry: ChangeEntry,
+    log: ChangeLog,
+    *,
+    deck: DeckArtifact | None = None,
+    system_name: SystemNamer | None = None,
+) -> dict[str, Any]:
     """An entry for the Changes tab:
 
     `{"id", "parent_id", "live": not undone, "layer", "model_id", "thread_id",
-    "instruction", "created_at": ISO 8601 with seconds, "lines": the first
+    "instruction", "created_at": ISO 8601 with seconds, "summary": one plain sentence
+    (`change_summary.change_summary`: slides by their number in `deck` now, a design by
+    the name `system_name` gives; "" only for an entry with nothing to say), "lines": the first
     `conversation.MAX_DIFF_LINES` of `diff.describe(entry.diff)`, "truncated": whether
     more existed, "is_head": entry.id == log.head, "can_undo": entry is
     `changelog.undo_target(log)`, "can_redo": entry is `changelog.redo_target(log)`}`."""
     described = diff.describe(entry.diff)
+    numbers = (
+        {s.id: n for n, s in enumerate(deck.slides, start=1)} if deck is not None else None
+    )
     undo = changelog.undo_target(log)
     redo = changelog.redo_target(log)
     return {
@@ -363,6 +375,7 @@ def change_view(entry: ChangeEntry, log: ChangeLog) -> dict[str, Any]:
         "thread_id": entry.thread_id,
         "instruction": entry.instruction,
         "created_at": _iso(entry.created_at),
+        "summary": change_summary(entry, numbers=numbers, system_name=system_name),
         "lines": described[:MAX_DIFF_LINES],
         "truncated": len(described) > MAX_DIFF_LINES,
         "is_head": entry.id == log.head,
@@ -371,7 +384,12 @@ def change_view(entry: ChangeEntry, log: ChangeLog) -> dict[str, Any]:
     }
 
 
-def changes_view(log: ChangeLog) -> dict[str, Any]:
+def changes_view(
+    log: ChangeLog,
+    *,
+    deck: DeckArtifact | None = None,
+    system_name: SystemNamer | None = None,
+) -> dict[str, Any]:
     """The whole log for the Changes tab: `{"artifact_id", "head", "can_undo",
     "can_redo", "entries": [change_view(e, log) for e in entries, newest first]}`
     (newest first = reverse append order)."""
@@ -380,7 +398,10 @@ def changes_view(log: ChangeLog) -> dict[str, Any]:
         "head": log.head,
         "can_undo": changelog.undo_target(log) is not None,
         "can_redo": changelog.redo_target(log) is not None,
-        "entries": [change_view(e, log) for e in reversed(log.entries)],
+        "entries": [
+            change_view(e, log, deck=deck, system_name=system_name)
+            for e in reversed(log.entries)
+        ],
     }
 
 

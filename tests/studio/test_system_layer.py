@@ -82,6 +82,28 @@ def test_a_failing_palette_is_refused_with_the_ratios_and_corrected() -> None:
     )
 
 
+def test_every_attempt_is_logged_with_the_findings_of_the_refused_ones() -> None:
+    good = flow_palette_args("Demand curve")
+    model = ScriptedModel.from_steps([palette_step(good)])
+    first = make_design(bound(model), direction())
+    assert [(a.attempt, a.accepted, a.findings) for a in first.attempt_log] == [(1, True, [])]
+    assert first.draft is not None and first.draft.palette_attempts == list(first.attempt_log)
+
+    bad = copy.deepcopy(good)
+    bad["palette"]["accent1"] = "#2B4466"
+    model = ScriptedModel.from_steps([palette_step(bad), palette_step(good)])
+    retried = make_design(bound(model), direction())
+    log = retried.attempt_log
+    assert [(a.attempt, a.accepted) for a in log] == [(1, False), (2, True)]
+    assert log[0].findings and log[0].findings[0].startswith("- accent1 on lt2: ")
+    assert "needs 4.5:1" in log[0].findings[0] and log[1].findings == []
+    assert retried.draft is not None and retried.draft.palette_attempts == list(log)
+
+    model = ScriptedModel.from_steps([palette_step(bad)] * 2)
+    failed = make_design(bound(model), direction(), attempts=2)
+    assert failed.draft is None and [a.accepted for a in failed.attempt_log] == [False, False]
+
+
 def test_structural_errors_and_prose_and_running_out() -> None:
     missing_roles = copy.deepcopy(flow_palette_args("Demand curve"))
     missing_roles["roles"] = {"lt2": "night"}

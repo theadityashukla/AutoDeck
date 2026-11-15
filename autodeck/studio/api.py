@@ -474,7 +474,27 @@ class StudioApp:
         self, engagement: Engagement, artifact_id: str, _body: dict[str, Any]
     ) -> Response:
         store = engagement.artifact_store(artifact_id)
-        return Response(200, views.changes_view(store.changelog()))
+        return Response(
+            200,
+            views.changes_view(
+                store.changelog(), deck=store.load(), system_name=self._namer(engagement)
+            ),
+        )
+
+    def _namer(self, engagement: Engagement) -> Any:
+        """`(system id, version) -> display name or None`, read from the engagement's
+        design-system store, for the change summaries; None when it cannot be read."""
+        from autodeck.studio.design import DesignSystemStore
+
+        store = DesignSystemStore(engagement, base=self.studio.settings.tokens)
+
+        def name(system_id: str, version: int) -> str | None:
+            try:
+                return store.load(system_id, version).name
+            except Exception:
+                return None
+
+        return name
 
     def _revert(
         self, engagement: Engagement, artifact_id: str, action: str, body: dict[str, Any]
@@ -484,10 +504,15 @@ class StudioApp:
             entry = self.studio.owner_undo(engagement, artifact_id, thread_id=thread_id)
         else:
             entry = self.studio.owner_redo(engagement, artifact_id, thread_id=thread_id)
-        log = engagement.artifact_store(artifact_id).changelog()
+        reverted = engagement.artifact_store(artifact_id)
+        log = reverted.changelog()
+        deck, namer = reverted.load(), self._namer(engagement)
         return Response(
             200,
-            {"entry": views.change_view(entry, log), "changes": views.changes_view(log)},
+            {
+                "entry": views.change_view(entry, log, deck=deck, system_name=namer),
+                "changes": views.changes_view(log, deck=deck, system_name=namer),
+            },
         )
 
     def _render(

@@ -1554,7 +1554,9 @@ class Trial:
         self.messages.append(Message(role="user", content=review_feedback_text(first)))
         self._revise(done_is_ok=False)
         if self.revision["state"] == "revised":
-            self.reviews["second"] = reviewer.review(self._review_item(), self.dir / "slide.png")
+            self.reviews["second"] = reviewer.review(
+                self._review_item(), self.dir / "slide.png"
+            )
 
     def _review_item(self) -> ReviewItem:
         return ReviewItem(
@@ -1690,7 +1692,7 @@ class Trial:
             "dir": str(self.dir),
         }
         (self.dir / "trial.json").write_text(
-            json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+            scrub(json.dumps(record, indent=2, ensure_ascii=False)), encoding="utf-8"
         )
         return record
 
@@ -1864,9 +1866,7 @@ def aggregate(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "cost_usd": round(sum(r["cost_usd"] for r in ran), 6),
         "mean_cost_usd": _mean([r["cost_usd"] for r in ran]),
         "review_cost_usd": round(sum(r.get("review_cost_usd", 0.0) for r in ran), 6),
-        "total_cost_usd": round(
-            sum(r.get("total_cost_usd", r["cost_usd"]) for r in ran), 6
-        ),
+        "total_cost_usd": round(sum(r.get("total_cost_usd", r["cost_usd"]) for r in ran), 6),
         "review_input_tokens": sum(r.get("review_input_tokens", 0) for r in ran),
         "review_output_tokens": sum(r.get("review_output_tokens", 0) for r in ran),
         "reviews": review_counts(ran),
@@ -1895,6 +1895,10 @@ def summarise(records: Sequence[dict[str, Any]], *, models: Sequence[str]) -> di
     }
 
 
+def _scrub_file(path: Path) -> None:
+    path.write_text(scrub(path.read_text(encoding="utf-8")), encoding="utf-8")
+
+
 def _review_csv(r: dict[str, Any]) -> dict[str, Any]:
     review = r.get("review")
     if not review:
@@ -1918,7 +1922,7 @@ def write_summary(
     summary.update(extra)
     summary["trials"] = [{k: v for k, v in r.items() if k != "attempts"} for r in records]
     (out / "summary.json").write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+        scrub(json.dumps(summary, indent=2, ensure_ascii=False)), encoding="utf-8"
     )
     with (out / "summary.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
@@ -1974,6 +1978,7 @@ def write_summary(
                     **{f"n_{k}": agg["mean_element_counts"][k] for k in COUNT_KINDS},
                 }
             )
+    _scrub_file(out / "summary.csv")
     return summary
 
 
@@ -2246,7 +2251,7 @@ def write_row_sheet(
         for row in page:
             probe = ImageDraw.Draw(Image.new("RGB", (4, 4)))
             lines: list[tuple[str, tuple[int, int, int], bool]] = [
-                (row.title, _INK, True),
+                (line, _INK, True) for line in _wrap(probe, row.title, f_bold, REVIEW_TEXT_W)
             ]
             for text, colour, bold in row.blocks:
                 for line in _wrap(probe, text, f_bold if bold else f_text, REVIEW_TEXT_W):
@@ -2273,7 +2278,12 @@ def write_row_sheet(
                         image.thumbnail((REVIEW_IMG_W, REVIEW_IMG_W))
                         sheet.paste(image, (x, y + CELL_PAD + 20))
                         draw.rectangle(
-                            [x, y + CELL_PAD + 20, x + image.width, y + CELL_PAD + 20 + image.height],
+                            [
+                                x,
+                                y + CELL_PAD + 20,
+                                x + image.width,
+                                y + CELL_PAD + 20 + image.height,
+                            ],
                             outline=(200, 200, 200),
                         )
                 else:
@@ -2290,7 +2300,9 @@ def write_row_sheet(
     return paths
 
 
-def write_reviewed_sheet(out: Path, model: str, records: Sequence[dict[str, Any]]) -> list[Path]:
+def write_reviewed_sheet(
+    out: Path, model: str, records: Sequence[dict[str, Any]]
+) -> list[Path]:
     """For `--feedback review` trials: before and after side by side where a revision
     happened, the findings that prompted it, and both verdicts."""
     rows: list[SheetRow] = []
@@ -2301,7 +2313,10 @@ def write_reviewed_sheet(out: Path, model: str, records: Sequence[dict[str, Any]
         review = r["review"]
         revised = review["revised"]
         images: list[tuple[str, Path | None]] = (
-            [("before (reviewed)", d / "slide.before.png"), ("after (revised)", d / "slide.png")]
+            [
+                ("before (reviewed)", d / "slide.before.png"),
+                ("after (revised)", d / "slide.png"),
+            ]
             if revised
             else [("reviewed", d / "slide.png")]
         )
@@ -2319,7 +2334,8 @@ def write_reviewed_sheet(out: Path, model: str, records: Sequence[dict[str, Any]
     agg = aggregate([r for r in records if r["model"] == model])
     sub = (
         f"designer {model}   {agg['trials']} trials   designer ${agg['cost_usd']:.4f}  "
-        f"reviewer ${agg['review_cost_usd']:.4f}  total ${agg['total_cost_usd']:.4f} (assumed prices)"
+        f"reviewer ${agg['review_cost_usd']:.4f}  total ${agg['total_cost_usd']:.4f} "
+        "(assumed prices)"
     )
     return write_row_sheet(
         out, f"sheet-reviewed-{model_dirname(model)}", f"Reviewed: {model}", sub, rows
@@ -2351,6 +2367,9 @@ class RunConfig:
     bench_dir: Path = BENCH_DIR
     prices_path: Path = field(default_factory=lambda: BENCH_DIR / "prices.yaml")
     tokens_path: Path = DEFAULT_TOKENS_PATH
+    reviewer: str | None = None
+    allow_self_review: bool = False
+    reviewer_reasoning: str | None = None  # default: the same as `reasoning`
 
 
 def check_prices(models: Sequence[str], prices: dict[str, Price], allow_unpriced: bool) -> None:
@@ -2359,6 +2378,16 @@ def check_prices(models: Sequence[str], prices: dict[str, Price], allow_unpriced
         raise BenchInputError(
             f"no assumed price for {', '.join(missing)} in prices.yaml; add one, or pass "
             "--allow-unpriced (the budget guard then cannot count that model's spend)"
+        )
+
+
+def refuse_self_review(reviewer: str, designers: Sequence[str], allow: bool) -> None:
+    """The reviewer must be a different model from the designer it reviews."""
+    same = [m for m in designers if m.strip().lower() == reviewer.strip().lower()]
+    if same and not allow:
+        raise BenchInputError(
+            f"the reviewer {reviewer} is also a designer ({', '.join(same)}); a model "
+            "reviewing its own slides is not the test. Pass --allow-self-review to do it anyway"
         )
 
 
@@ -2422,8 +2451,17 @@ def run(
             log(f"WARNING: {model} is unpriced; the budget guard cannot count its spend.")
     if cfg.reasoning not in REASONING_LEVELS:
         raise BenchInputError(f"--reasoning must be one of {', '.join(REASONING_LEVELS)}")
-    if any(f not in ("qa", "visual") for f in cfg.feedback):
-        raise BenchInputError("--feedback must be qa or visual")
+    if any(f not in ("qa", "visual", "review") for f in cfg.feedback):
+        raise BenchInputError("--feedback must be qa, visual or review")
+    reviewing = "review" in cfg.feedback
+    if reviewing:
+        if not cfg.reviewer:
+            raise BenchInputError("--feedback review needs --reviewer provider:model")
+        refuse_self_review(cfg.reviewer, cfg.models, cfg.allow_self_review)
+        check_prices([cfg.reviewer], prices, cfg.allow_unpriced)
+        if cfg.reviewer not in prices:
+            log(f"WARNING: {cfg.reviewer} is unpriced; the budget guard cannot count it.")
+    review_system = load_review_prompt(cfg.bench_dir) if reviewing else ""
     cfg.out.mkdir(parents=True, exist_ok=True)
 
     tokens_by_concept = {c.id: tokens_for_concept(c, cfg.tokens_path) for c in cfg.concepts}
@@ -2434,13 +2472,18 @@ def run(
     specs = expand_trials(cfg)
 
     providers: dict[str, ConverseModel] = {}
-    for model in cfg.models:
+    reviewer_reasoning = cfg.reviewer_reasoning or cfg.reasoning
+    for model in [*cfg.models, *([cfg.reviewer] if reviewing and cfg.reviewer else [])]:
+        if model in providers:
+            continue
+        is_reviewer = model == cfg.reviewer and model not in cfg.models
+        level = reviewer_reasoning if is_reviewer else cfg.reasoning
         if cfg.dry_run:
             providers[model] = make_provider(
                 model,
                 max_output_tokens=cfg.max_output_tokens,
                 api_key="dry-run",
-                reasoning=cfg.reasoning,
+                reasoning=level,
                 api=cfg.api,
             )
         elif provider_factory is not None:
@@ -2449,7 +2492,7 @@ def run(
             providers[model] = make_provider(
                 model,
                 max_output_tokens=cfg.max_output_tokens,
-                reasoning=cfg.reasoning,
+                reasoning=level,
                 api=cfg.api,
             )
 
@@ -2466,6 +2509,10 @@ def run(
         ]
         total = sum(item["approx_input_tokens_first_call"] for item in listing)
         (cfg.out / "dry-run.json").write_text(json.dumps(listing, indent=2), encoding="utf-8")
+        if reviewing:
+            (cfg.out / "review-system.md").write_text(review_system, encoding="utf-8")
+            sample = build_review_user_text(specs[0].case, specs[0].concept, cfg.tokens_path)
+            (cfg.out / "review-user-sample.md").write_text(sample, encoding="utf-8")
         log(
             f"dry run: {len(listing)} requests written under {cfg.out}; about {total:,} input "
             "tokens for the first call of every trial (later calls and revisions add more). "
@@ -2474,6 +2521,17 @@ def run(
         return {"dry_run": True, "requests": listing}
 
     ledger = Ledger(cfg.budget)
+    reviewer_obj: Reviewer | None = None
+    if reviewing and cfg.reviewer:
+        reviewer_obj = Reviewer(
+            cfg.reviewer,
+            providers[cfg.reviewer],
+            review_system,
+            prices.get(cfg.reviewer),
+            ledger,
+            reasoning=effective_reasoning(cfg.reviewer, reviewer_reasoning, cfg.api),
+            tokens_path=cfg.tokens_path,
+        )
     records: list[dict[str, Any]] = []
     records_lock = threading.Lock()
     done = 0
@@ -2515,6 +2573,7 @@ def run(
                 qa=qa or qa_findings,
                 render=render or render_slide,
                 reasoning=effective_reasoning(spec.model, cfg.reasoning, cfg.api),
+                reviewer=reviewer_obj,
             )
             record = Trial(ctx, spec).run()
         with records_lock:
@@ -2543,10 +2602,17 @@ def run(
     skipped = [r for r in records if r["status"] == "skipped"]
     stopped = [r for r in records if r["status"] == "budget_stopped"]
     revisions_skipped = [r for r in records if r["revision"].get("state") == "skipped_budget"]
+    reviews_skipped = [
+        f"{r['model']} {r['case']} {r['concept']} r{r['repeat']} ({which})"
+        for r in records
+        if r.get("review")
+        for which in ("first", "second")
+        if (r["review"][which] or {}).get("status") == "budget_stopped"
+    ]
     budget_report = {
         "budget_usd": cfg.budget,
         "estimated_spend_usd": round(ledger.spent, 6),
-        "guard_tripped": bool(skipped or stopped or revisions_skipped),
+        "guard_tripped": bool(skipped or stopped or revisions_skipped or reviews_skipped),
         "trials_not_started": [
             f"{r['model']} {r['case']} {r['concept']} {r['feedback']} r{r['repeat']}"
             for r in skipped
@@ -2558,13 +2624,14 @@ def run(
         "revisions_skipped": [
             f"{r['model']} {r['case']} {r['concept']} r{r['repeat']}" for r in revisions_skipped
         ],
+        "reviews_skipped": reviews_skipped,
     }
     extra = {
         "budget": budget_report,
         "prices": {
             m: {"input": p.input, "output": p.output}
             for m, p in prices.items()
-            if m in cfg.models
+            if m in cfg.models or m == cfg.reviewer
         },
         "prices_note": "assumed, deliberately high; not confirmed prices",
         "config": {
@@ -2572,6 +2639,12 @@ def run(
             "cases": [c.id for c in cfg.cases],
             "concepts": [c.id for c in cfg.concepts],
             "feedback": cfg.feedback,
+            "reviewer": cfg.reviewer if reviewing else None,
+            "reviewer_reasoning": (
+                effective_reasoning(cfg.reviewer or "", reviewer_reasoning, cfg.api)
+                if reviewing
+                else None
+            ),
             "attempts": cfg.attempts,
             "repeat": cfg.repeat,
             "workers": cfg.workers,
@@ -2591,11 +2664,448 @@ def run(
         sheet = write_sheet(cfg.out, model, records)
         if sheet:
             log(f"contact sheet: {sheet}")
+        for reviewed in write_reviewed_sheet(cfg.out, model, records) if reviewing else []:
+            log(f"contact sheet (review): {reviewed}")
     if budget_report["guard_tripped"]:
         log(
             f"BUDGET GUARD: estimated spend ${ledger.spent:.4f} reached ${cfg.budget:.2f}. "
             f"{len(skipped)} trials not started, {len(stopped)} stopped mid-trial, "
-            f"{len(revisions_skipped)} visual revisions skipped. See summary.json budget."
+            f"{len(revisions_skipped)} revisions and {len(reviews_skipped)} reviews skipped. "
+            "See summary.json budget."
+        )
+    log(f"summary: {cfg.out / 'summary.json'}  total estimated ${ledger.spent:.4f}")
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Review-only mode: review slides that already exist
+# ---------------------------------------------------------------------------
+
+REVIEW_INPUT_NAME = "review-input.json"
+
+
+def _slide_dirs(root: Path) -> list[Path]:
+    return sorted({p.parent for p in root.rglob("slide.png")})
+
+
+def item_from_directory(directory: Path, bench_dir: Path) -> ReviewItem:
+    """A `ReviewItem` for a directory holding `slide.png` and either `review-input.json`
+    (the case and concept written out, as `convert_studio_deck` does) or a bench
+    `trial.json` (the case and concept ids, read from `bench_dir`)."""
+    image = directory / "slide.png"
+    designer = ""
+    explicit = directory / REVIEW_INPUT_NAME
+    trial_json = directory / "trial.json"
+    if explicit.is_file():
+        raw = json.loads(explicit.read_text(encoding="utf-8"))
+        try:
+            case = Case.model_validate(raw["case"])
+            concept = Concept.model_validate(raw.get("concept") or {"id": "none"})
+        except (KeyError, ValidationError) as exc:
+            raise BenchInputError(f"{explicit}: not a usable review input: {exc}") from exc
+        designer = str(raw.get("designer_model", ""))
+        label = directory.name
+    elif trial_json.is_file():
+        trial = json.loads(trial_json.read_text(encoding="utf-8"))
+        case_path = bench_dir / "cases" / f"{trial.get('case')}.yaml"
+        concept_path = bench_dir / "concepts" / f"{trial.get('concept')}.yaml"
+        if not case_path.is_file() or not concept_path.is_file():
+            raise BenchInputError(
+                f"{directory}: its case or concept ({trial.get('case')}, "
+                f"{trial.get('concept')}) is not in {bench_dir}"
+            )
+        case, concept = load_case(case_path), load_concept(concept_path)
+        designer = str(trial.get("model", ""))
+        label = "__".join(
+            [
+                model_dirname(designer) or "unknown",
+                case.id,
+                concept.id,
+                str(trial.get("feedback", "")),
+                f"r{trial.get('repeat', 1)}",
+            ]
+        )
+    else:
+        raise BenchInputError(
+            f"{directory}: has slide.png but neither {REVIEW_INPUT_NAME} nor trial.json, so "
+            "the case and concept cannot be recovered"
+        )
+    return ReviewItem(
+        label=label,
+        image=image,
+        case=case,
+        concept=concept,
+        source=str(directory),
+        designer_model=designer,
+    )
+
+
+def discover_review_items(
+    directories: Sequence[Path], bench_dir: Path, log: Callable[[str], None] = print
+) -> list[ReviewItem]:
+    items: list[ReviewItem] = []
+    for root in directories:
+        if not root.is_dir():
+            raise BenchInputError(f"{root}: not a directory")
+        found = _slide_dirs(root)
+        if not found:
+            log(f"WARNING: no slide.png under {root}")
+        for directory in found:
+            items.append(item_from_directory(directory, bench_dir))
+    return items
+
+
+def triple_item(spec: str, bench_dir: Path) -> ReviewItem:
+    """`image,case,concept` -> an item; the ids are looked up in `bench_dir`."""
+    parts = [p.strip() for p in spec.split(",")]
+    if len(parts) != 3 or not all(parts):
+        raise BenchInputError(f"--review-item {spec!r} must be image,case,concept")
+    image, case_id, concept_id = parts
+    path = Path(image)
+    if not path.is_file():
+        raise BenchInputError(f"--review-item: {path} is not a file")
+    case = resolve_cases(case_id, bench_dir)[0]
+    concept = resolve_concepts(concept_id, bench_dir)[0]
+    return ReviewItem(
+        label=f"{path.stem}__{case.id}__{concept.id}",
+        image=path,
+        case=case,
+        concept=concept,
+        source=str(path),
+    )
+
+
+def _studio_case(slide: dict[str, Any]) -> Case:
+    brief = slide.get("brief") or {}
+    content = brief.get("content") or {}
+    chart = content.get("chart")
+    data: dict[str, Any] = {
+        "id": str(slide.get("id") or "slide"),
+        "title": str(brief.get("header") or ""),
+        "intent": str(brief.get("intent") or slide.get("intent") or ""),
+        "content": {
+            "points": [str(p) for p in content.get("points") or []],
+            "figures": [
+                {"value": str(f.get("value", "")), "label": str(f.get("label", ""))}
+                for f in content.get("figures") or []
+            ],
+            "chart": chart if isinstance(chart, dict) and chart.get("series") else None,
+        },
+        "notes": str(brief.get("notes") or ""),
+    }
+    if not data["title"]:
+        for block in slide.get("blocks") or []:
+            if block.get("kind") == "text" and block.get("text"):
+                data["title"] = str(block["text"])
+                break
+    return Case.model_validate(data)
+
+
+def _studio_concept(deck: dict[str, Any]) -> Concept:
+    system = deck.get("design_system") or {}
+    direction = deck.get("design_concept") or {}
+    palette = {k: str(v) for k, v in (system.get("palette") or {}).items()}
+    return Concept.model_validate(
+        {
+            "id": str(system.get("id") or "deck"),
+            "name": str(direction.get("name") or system.get("id") or ""),
+            "concept": str(direction.get("concept") or direction.get("idea") or ""),
+            "rules": [str(x) for x in direction.get("rules") or []],
+            "palette": palette,
+            "roles": {k: str(v) for k, v in (system.get("roles") or {}).items()},
+        }
+    )
+
+
+def convert_studio_deck(
+    deck_path: Path,
+    images: Sequence[Path],
+    out_dir: Path,
+    only: Sequence[int] | None = None,
+) -> list[Path]:
+    """Turn a studio deck JSON and one render per slide (in slide order) into directories a
+    review run can read: `slide.json`, `slide.png`, `review-input.json`. Returns them.
+    `only` keeps just those slide numbers (1-based)."""
+    try:
+        deck = json.loads(deck_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BenchInputError(f"{deck_path}: not readable as a deck: {exc}") from exc
+    slides = deck.get("slides")
+    if not isinstance(slides, list) or not slides:
+        raise BenchInputError(f"{deck_path}: no slides")
+    if len(images) != len(slides):
+        raise BenchInputError(
+            f"{deck_path} has {len(slides)} slides but {len(images)} images were given"
+        )
+    concept = _studio_concept(deck)
+    deck_id = str(deck.get("id") or "deck")
+    made: list[Path] = []
+    for n, (slide, image) in enumerate(zip(slides, images, strict=True), 1):
+        if only is not None and n not in only:
+            continue
+        case = _studio_case(slide)
+        directory = out_dir / f"{deck_id}-{n:02d}-{case.id}"
+        directory.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(image, directory / "slide.png")
+        (directory / "slide.json").write_text(
+            json.dumps(slide, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        (directory / REVIEW_INPUT_NAME).write_text(
+            json.dumps(
+                {
+                    "case": case.model_dump(),
+                    "concept": concept.model_dump(),
+                    "source_image": str(image),
+                    "source_deck": str(deck_path),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        made.append(directory)
+    return made
+
+
+@dataclass
+class ReviewOnlyConfig:
+    reviewer: str
+    items: list[ReviewItem]
+    budget: float
+    out: Path
+    bench_dir: Path = BENCH_DIR
+    prices_path: Path = field(default_factory=lambda: BENCH_DIR / "prices.yaml")
+    tokens_path: Path = DEFAULT_TOKENS_PATH
+    reasoning: str = "medium"
+    api: str = "auto"
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+    allow_unpriced: bool = False
+    allow_self_review: bool = False
+    workers: int = 1
+    dry_run: bool = False
+
+
+def _unique_labels(items: Sequence[ReviewItem]) -> list[str]:
+    seen: Counter[str] = Counter()
+    labels = []
+    for item in items:
+        base = re.sub(r"[^A-Za-z0-9._-]+", "_", item.label)
+        seen[base] += 1
+        labels.append(base if seen[base] == 1 else f"{base}-{seen[base]}")
+    return labels
+
+
+REVIEW_CSV_COLUMNS = [
+    "slide",
+    "case",
+    "concept",
+    "designer_model",
+    "status",
+    "verdict",
+    "raw_verdict",
+    "downgraded",
+    "n_blocking",
+    "n_minor",
+    "summary",
+    "findings",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "seconds",
+    "cost_usd",
+    "source",
+    "error",
+]
+
+
+def run_review_only(
+    cfg: ReviewOnlyConfig,
+    *,
+    provider_factory: Callable[[str], ConverseModel] | None = None,
+    log: Callable[[str], None] = print,
+) -> dict[str, Any]:
+    """Review every item once; write `review.json` per slide, summary.json/csv and the
+    sheet. No designer is called."""
+    prices = load_prices(cfg.prices_path)
+    check_prices([cfg.reviewer], prices, cfg.allow_unpriced)
+    if cfg.reviewer not in prices:
+        log(f"WARNING: {cfg.reviewer} is unpriced; the budget guard cannot count its spend.")
+    if cfg.reasoning not in REASONING_LEVELS:
+        raise BenchInputError(f"--reasoning must be one of {', '.join(REASONING_LEVELS)}")
+    if not cfg.items:
+        raise BenchInputError("nothing to review: no slides found")
+    designers = sorted({i.designer_model for i in cfg.items if i.designer_model})
+    refuse_self_review(cfg.reviewer, designers, cfg.allow_self_review)
+    system = load_review_prompt(cfg.bench_dir)
+    cfg.out.mkdir(parents=True, exist_ok=True)
+    labels = _unique_labels(cfg.items)
+    base = cfg.out / model_dirname(cfg.reviewer)
+
+    if cfg.dry_run:
+        listing = []
+        for item, label in zip(cfg.items, labels, strict=True):
+            directory = base / label
+            directory.mkdir(parents=True, exist_ok=True)
+            text = build_review_user_text(item.case, item.concept, cfg.tokens_path)
+            (directory / "user.md").write_text(text, encoding="utf-8")
+            listing.append({"slide": label, "image": str(item.image), "dir": str(directory)})
+        (cfg.out / "review-system.md").write_text(system, encoding="utf-8")
+        (cfg.out / "dry-run.json").write_text(json.dumps(listing, indent=2), encoding="utf-8")
+        log(
+            f"dry run: {len(listing)} review requests written under {base}. "
+            "No model was called."
+        )
+        return {"dry_run": True, "requests": listing}
+
+    if provider_factory is not None:
+        model = provider_factory(cfg.reviewer)
+    else:
+        model = make_provider(
+            cfg.reviewer,
+            max_output_tokens=cfg.max_output_tokens,
+            reasoning=cfg.reasoning,
+            api=cfg.api,
+        )
+    ledger = Ledger(cfg.budget)
+    reviewer = Reviewer(
+        cfg.reviewer,
+        model,
+        system,
+        prices.get(cfg.reviewer),
+        ledger,
+        reasoning=effective_reasoning(cfg.reviewer, cfg.reasoning, cfg.api),
+        tokens_path=cfg.tokens_path,
+    )
+    results: list[dict[str, Any]] = [{} for _ in cfg.items]
+    done = 0
+    lock = threading.Lock()
+    started = time.time()
+
+    def work(index: int) -> None:
+        nonlocal done
+        item, label = cfg.items[index], labels[index]
+        directory = base / label
+        record = reviewer.review(item)  # a budget stop is recorded, not raised
+        write_review_files(directory, "review", record, item.image.name)
+        record["_dir"] = str(directory)
+        results[index] = record
+        with lock:
+            done += 1
+            log(
+                f"[{done}/{len(cfg.items)}] {label}: {record['status']} "
+                f"{record['verdict'] or ''} ${record['cost_usd']:.4f} "
+                f"(total ${ledger.spent:.4f}/{cfg.budget:.2f})"
+                + (f" error: {record['error'][:120]}" if record["error"] else "")
+            )
+
+    if cfg.workers > 1:
+        with ThreadPoolExecutor(max_workers=cfg.workers) as pool:
+            list(pool.map(work, range(len(cfg.items))))
+    else:
+        for index in range(len(cfg.items)):
+            work(index)
+
+    rows = []
+    for item, label, record in zip(cfg.items, labels, results, strict=True):
+        fields = review_summary_fields(record) or {}
+        rows.append(
+            {
+                "slide": label,
+                "case": item.case.id,
+                "concept": item.concept.id,
+                "designer_model": item.designer_model,
+                "source": item.source,
+                "image": str(item.image),
+                "dir": record["_dir"],
+                "reasoning_tokens": record["reasoning_tokens"],
+                **fields,
+            }
+        )
+    counts = {
+        "reviewed": len(rows),
+        "pass": sum(r["verdict"] == "pass" for r in rows),
+        "revise": sum(r["verdict"] == "revise" for r in rows),
+        "downgraded": sum(bool(r["downgraded"]) for r in rows),
+        "failed": sum(r["status"] == "failed" for r in rows),
+        "budget_stopped": sum(r["status"] == "budget_stopped" for r in rows),
+    }
+    summary = {
+        "reviewer": cfg.reviewer,
+        "counts": counts,
+        "input_tokens": sum(r["input_tokens"] for r in rows),
+        "output_tokens": sum(r["output_tokens"] for r in rows),
+        "reasoning_tokens": sum(r["reasoning_tokens"] for r in rows),
+        "seconds": round(sum(r["seconds"] for r in rows), 2),
+        "review_cost_usd": round(sum(r["cost_usd"] for r in rows), 6),
+        "total_cost_usd": round(sum(r["cost_usd"] for r in rows), 6),
+        "budget": {
+            "budget_usd": cfg.budget,
+            "estimated_spend_usd": round(ledger.spent, 6),
+            "guard_tripped": counts["budget_stopped"] > 0,
+            "not_reviewed": [r["slide"] for r in rows if r["status"] == "budget_stopped"],
+        },
+        "config": {
+            "reasoning_requested": cfg.reasoning,
+            "reasoning": effective_reasoning(cfg.reviewer, cfg.reasoning, cfg.api),
+            "endpoint": "responses"
+            if uses_responses(cfg.reviewer, cfg.api)
+            else "chat.completions",
+        },
+        "prices": {
+            cfg.reviewer: {
+                "input": prices[cfg.reviewer].input,
+                "output": prices[cfg.reviewer].output,
+            }
+        }
+        if cfg.reviewer in prices
+        else {},
+        "prices_note": "assumed, deliberately high; not confirmed prices",
+        "wall_seconds": round(time.time() - started, 1),
+        "slides": rows,
+    }
+    (cfg.out / "summary.json").write_text(
+        scrub(json.dumps(summary, indent=2, ensure_ascii=False)), encoding="utf-8"
+    )
+    with (cfg.out / "summary.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REVIEW_CSV_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    **row,
+                    "findings": " | ".join(
+                        f"[{f['severity']}] {f['where']}: {f['problem']} -> {f['fix']}"
+                        for f in row.get("findings", [])
+                    ),
+                }
+            )
+    _scrub_file(cfg.out / "summary.csv")
+    sheet_rows = [
+        SheetRow(
+            f"{row['slide']}   (case {row['case']}, concept {row['concept']})   "
+            f"${row['cost_usd']:.4f}",
+            [("", Path(row["image"]))],
+            review_blocks(row),
+        )
+        for row in rows
+    ]
+    subtitle = (
+        f"{counts['reviewed']} slides   pass {counts['pass']}   revise {counts['revise']}   "
+        f"failed {counts['failed']}   ${summary['total_cost_usd']:.4f} estimated "
+        f"(assumed prices)   reasoning {summary['config']['reasoning']}"
+    )
+    for sheet in write_row_sheet(
+        cfg.out,
+        f"sheet-review-{model_dirname(cfg.reviewer)}",
+        f"Reviewer: {cfg.reviewer}",
+        subtitle,
+        sheet_rows,
+    ):
+        log(f"contact sheet: {sheet}")
+    if counts["budget_stopped"]:
+        log(
+            f"BUDGET GUARD: estimated spend ${ledger.spent:.4f} reached ${cfg.budget:.2f}; "
+            f"{counts['budget_stopped']} slides not reviewed. See summary.json budget."
         )
     log(f"summary: {cfg.out / 'summary.json'}  total estimated ${ledger.spent:.4f}")
     return summary
@@ -2612,15 +3122,59 @@ def build_parser() -> argparse.ArgumentParser:
         "--env-model",
         action="append",
         dest="models",
-        required=True,
-        help="provider:model; repeat for several models",
+        default=[],
+        help="designer, provider:model; repeat for several models (not used by review-only "
+        "mode)",
     )
     p.add_argument("--cases", default="all", help="all, or comma-separated case ids")
     p.add_argument("--concepts", default="none", help="comma-separated concept ids")
     p.add_argument(
         "--feedback",
         default="qa",
-        help="qa, visual, or qa,visual (visual also shows the model its render once)",
+        help="qa, visual, review, or a comma list. visual shows the designer its own render "
+        "once; review has the --reviewer critique the clean slide and sends its findings back "
+        "for one revision",
+    )
+    p.add_argument("--reviewer", help="provider:model of the slide reviewer (review modes)")
+    p.add_argument(
+        "--allow-self-review",
+        action="store_true",
+        help="let the reviewer be the same model as a designer it reviews",
+    )
+    p.add_argument(
+        "--reviewer-reasoning",
+        choices=REASONING_LEVELS,
+        help="reasoning effort for the reviewer (default: the value of --reasoning)",
+    )
+    p.add_argument(
+        "--review-dir",
+        action="append",
+        type=Path,
+        default=[],
+        help="review-only mode: a directory of existing trial outputs (every slide.png under "
+        "it); repeatable",
+    )
+    p.add_argument(
+        "--review-item",
+        action="append",
+        default=[],
+        help="review-only mode: image,case,concept (ids from the bench directory); repeatable",
+    )
+    p.add_argument(
+        "--studio-deck",
+        type=Path,
+        help="review-only mode: a studio deck JSON (current.json) whose slides to review, "
+        "with --studio-images",
+    )
+    p.add_argument(
+        "--studio-slides",
+        help="only these slide numbers of --studio-deck, 1-based, comma-separated (e.g. 1,4)",
+    )
+    p.add_argument(
+        "--studio-images",
+        nargs="+",
+        type=Path,
+        help="one render per slide of --studio-deck, in slide order",
     )
     p.add_argument("--attempts", type=int, default=4, help="model calls per slide (default 4)")
     p.add_argument("--budget", type=float, default=5.00, help="US dollars of estimated spend")
@@ -2662,7 +3216,52 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    review_only = bool(args.review_dir or args.review_item or args.studio_deck)
+    prices_path = (
+        args.bench_dir / "prices.yaml"
+        if (args.bench_dir / "prices.yaml").is_file()
+        else BENCH_DIR / "prices.yaml"
+    )
     try:
+        if review_only:
+            if not args.reviewer:
+                raise BenchInputError("review-only mode needs --reviewer provider:model")
+            if args.models:
+                raise BenchInputError("review-only mode designs nothing: drop --env-model")
+            items = discover_review_items(args.review_dir, args.bench_dir)
+            items += [triple_item(s, args.bench_dir) for s in args.review_item]
+            if args.studio_deck:
+                if not args.studio_images:
+                    raise BenchInputError("--studio-deck needs --studio-images")
+                converted = convert_studio_deck(
+                    args.studio_deck,
+                    args.studio_images,
+                    args.out / "inputs" / "studio",
+                    only=[int(x) for x in _csv(args.studio_slides)]
+                    if args.studio_slides
+                    else None,
+                )
+                items += discover_review_items(converted, args.bench_dir)
+            run_review_only(
+                ReviewOnlyConfig(
+                    reviewer=args.reviewer,
+                    items=items,
+                    budget=args.budget,
+                    out=args.out,
+                    bench_dir=args.bench_dir,
+                    prices_path=prices_path,
+                    reasoning=args.reviewer_reasoning or args.reasoning,
+                    api=args.api,
+                    max_output_tokens=args.max_output_tokens,
+                    allow_unpriced=args.allow_unpriced,
+                    allow_self_review=args.allow_self_review,
+                    workers=args.workers,
+                    dry_run=args.dry_run,
+                )
+            )
+            return 0
+        if not args.models:
+            raise BenchInputError("give at least one --env-model (or use review-only mode)")
         cfg = RunConfig(
             models=list(dict.fromkeys(args.models)),
             cases=resolve_cases(args.cases, args.bench_dir),
@@ -2680,9 +3279,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             reasoning=args.reasoning,
             api=args.api,
             bench_dir=args.bench_dir,
-            prices_path=args.bench_dir / "prices.yaml"
-            if (args.bench_dir / "prices.yaml").is_file()
-            else BENCH_DIR / "prices.yaml",
+            prices_path=prices_path,
+            reviewer=args.reviewer,
+            allow_self_review=args.allow_self_review,
+            reviewer_reasoning=args.reviewer_reasoning,
         )
         run(cfg)
     except BenchInputError as exc:

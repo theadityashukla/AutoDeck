@@ -339,7 +339,9 @@ def palette_note(draft: DesignDraft) -> str:
     refused = "; ".join(
         f"attempt {a.attempt}: {'; '.join(a.findings)}" for a in attempts if not a.accepted
     )
-    return _clip(f'Palette for "{draft.name}" needed {len(attempts)} attempts; refused {refused}')
+    return _clip(
+        f'Palette for "{draft.name}" needed {len(attempts)} attempts; refused {refused}'
+    )
 
 
 def _sample_outcomes(

@@ -138,8 +138,10 @@
     if (from === "null") return "Set " + path + (toText ? ": " + toText : "");
     return "Changed " + path + ": " + from + " \u2192 " + toText;
   }
-  // The headline for a change entry: what changed, first diff line, plus a count of the rest.
+  // The headline for a change entry: the server's plain sentence (`summary`); only an entry
+  // without one (an older server) falls back to words made from the first diff line.
   function changeHeadline(e) {
+    if (e && e.summary) return e.summary;
     const lines = (e && e.lines) || [];
     if (!lines.length) return (e && (e.instruction || e.id)) || "";
     return describeLine(lines[0]) + (lines.length > 1 ? " (+" + (lines.length - 1) + " more)" : "");
@@ -794,6 +796,10 @@
     const out = h("div", { class: "dopt" });
     if (ds.name !== o.label) out.append(h("div", { class: "dopt-name" }, h("b", { text: ds.name }), h("span", { class: "tag tag-plain", text: "Design" })));
     if (ds.concept) out.append(h("p", { class: "opt-text", text: ds.concept }));
+    if (o.samples_summary) {
+      const incomplete = (o.samples || []).some((x) => !x.clean);
+      out.append(h("p", { class: "opt-samples" + (incomplete ? " warn" : " quiet"), text: o.samples_summary + "." }));
+    }
     out.append(swatchRow(ds));
     if ((ds.rules || []).length) {
       out.append(h("details", { class: "lines" }, h("summary", { text: plural(ds.rules.length, "rule") }),
@@ -1287,16 +1293,18 @@
       if (e.can_undo) acts.push(h("button", { class: "btn small", type: "button", text: "Undo", disabled: !!T.running, "aria-label": "Undo: " + what, onclick: (ev) => doRevert(T, "undo", ev.currentTarget) }));
       if (e.can_redo) acts.push(h("button", { class: "btn small", type: "button", text: "Redo", disabled: !!T.running, "aria-label": "Redo: " + what, onclick: (ev) => doRevert(T, "redo", ev.currentTarget) }));
       const meta = [e.layer, e.model_id, e.thread_id ? "thread " + e.thread_id : null, fmtTime(e.created_at)].filter(Boolean).join(" \u00b7 ");
-      const rest = (e.lines || []).slice(1);
+      // With a summary the raw diff lines all sit behind the disclosure; without one the
+      // first line is the headline and the rest are behind it.
+      const rest = e.summary ? (e.lines || []) : (e.lines || []).slice(1);
       items.push(h("li", { class: "chg" + (e.live ? "" : " undone") + (e.is_head ? " head" : "") },
         h("div", { class: "chg-main" },
-          h("span", { class: "chg-what" }, describeLine((e.lines || [])[0]) || e.instruction || e.id, " ",
+          h("span", { class: "chg-what" }, e.summary || describeLine((e.lines || [])[0]) || e.instruction || e.id, " ",
             !e.live ? h("span", { class: "tag tag-plain", text: "Undone" }) : null,
             e.is_head && e.live ? h("span", { class: "tag tag-ok", text: "Current" }) : null),
           h("span", { class: "chg-meta", text: meta }),
           rest.length || e.truncated
             ? h("details", { class: "lines" },
-                h("summary", { text: rest.length ? plural(rest.length, "more line") + (e.truncated ? " (more not shown)" : "") : "More not shown" }),
+                h("summary", { text: rest.length ? (e.summary ? "Raw " + (rest.length === 1 ? "line" : "lines") + " (" + rest.length + ")" : plural(rest.length, "more line")) + (e.truncated ? " (more not shown)" : "") : "More not shown" }),
                 h("pre", { text: rest.join("\n") }))
             : null),
         acts.length ? h("div", { class: "acts" }, acts) : null));

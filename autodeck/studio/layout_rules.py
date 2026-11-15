@@ -51,8 +51,8 @@ from autodeck.design.free_layout import (
 from autodeck.design.free_layout_qa import FreeLayoutFinding
 from autodeck.design.layout_kit import Box, Canvas
 from autodeck.design.theme.tokens import DesignTokens
-from autodeck.studio.models import Slide
 from autodeck.ir.models import ShapeElement, TextElement, VisualElement
+from autodeck.studio.models import Slide
 
 LINE_THROUGH_TEXT = "line_through_text"
 STRADDLE = "straddle"
@@ -98,11 +98,15 @@ def _line_box(shape: ShapeElement, canvas: Canvas) -> _Segment | None:
     if shape.shape == "line":
         thickness = shape.line_pt
         if frame.width >= frame.height:
-            return _Segment(Box(frame.x, frame.center_y - thickness / 2, frame.width, thickness), True)
-        return _Segment(Box(frame.center_x - thickness / 2, frame.y, thickness, frame.height), False)
-    if shape.fill is not None and shape.shape in ("rect", "rounded_rect"):
-        if min(frame.width, frame.height) < RULE_MAX_PT:
-            return _Segment(frame, frame.width >= frame.height)
+            return _Segment(
+                Box(frame.x, frame.center_y - thickness / 2, frame.width, thickness), True
+            )
+        return _Segment(
+            Box(frame.center_x - thickness / 2, frame.y, thickness, frame.height), False
+        )
+    thin = min(frame.width, frame.height) < RULE_MAX_PT
+    if shape.fill is not None and shape.shape in ("rect", "rounded_rect") and thin:
+        return _Segment(frame, frame.width >= frame.height)
     return None
 
 
@@ -260,7 +264,10 @@ def check_layout_rules(slide: Slide, tokens: DesignTokens) -> list[FreeLayoutFin
     # line_through_chart
     for rule_index, segment in rules:
         for element in elements:
-            if not isinstance(element, VisualElement) or element.type not in ("chart", "diagram"):
+            if not isinstance(element, VisualElement) or element.type not in (
+                "chart",
+                "diagram",
+            ):
                 continue
             core = frame_box(canvas, element.frame).pad(CHART_EDGE_PT)
             dx, dy = _intersection(segment.box, core)

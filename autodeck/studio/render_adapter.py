@@ -120,7 +120,10 @@ def check_slide(slide: Slide, tokens: DesignTokens) -> list[FreeLayoutFinding]:
     """
     if slide.layout is None:
         return [FreeLayoutFinding(slide.id, "", MISSING_LAYOUT, "slide has no layout yet")]
-    return [*check_free_layout(to_render_slide(slide), tokens), *check_layout_rules(slide, tokens)]
+    return [
+        *check_free_layout(to_render_slide(slide), tokens),
+        *check_layout_rules(slide, tokens),
+    ]
 
 
 def check_deck(deck: DeckArtifact, tokens: DesignTokens) -> dict[str, list[FreeLayoutFinding]]:

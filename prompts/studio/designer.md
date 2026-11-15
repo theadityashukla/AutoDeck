@@ -143,8 +143,15 @@ so a frame that is too small fails even if the text would look fine.
   and its value right-aligned on the same row must be two frames side by side, not two
   full-width frames. Text may sit on top of shapes freely.
 - **Nothing hides text.** A filled shape listed after a text element that it overlaps would
-  paint over it, and fails. Put shapes first. Lines are exempt, so a line can be drawn across
-  text on purpose (as a strike-through, for example).
+  paint over it, and fails. Put shapes first.
+- **No line through text or a chart.** A line may underline text or sit beside it, but
+  it must not cross the words (it reads as a strike-through, which this vocabulary has no
+  honest use for) and must not run across a chart. The words are measured at their real
+  width, not their frame's: a rule beyond the end of a short word is fine, a rule through
+  its middle is not.
+- **One ground per item.** Text, and a line, must sit wholly on a card, panel or band, or
+  wholly clear of it, never half on and half off its edge. A timeline line that runs down
+  into a band at the foot of the slide must stop at the band's edge.
 - **Minimum size.** No text below the minimum size given below.
 - **Contrast.** Text needs a contrast ratio of at least 4.5:1 against what is beneath it, or
   3:1 at 24pt and above. "Beneath it" is the topmost earlier shape that covers the whole text
