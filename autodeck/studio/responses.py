@@ -27,11 +27,25 @@ information, never added again).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from autodeck.providers.base import AssistantTurn, ImageInput, Message, ToolSpec, Usage
+from autodeck.ir.schema import export_schema
+from autodeck.providers.base import (
+    AssistantTurn,
+    ImageInput,
+    Message,
+    ProviderConfig,
+    ProviderResponseError,
+    ToolCall,
+    ToolSpec,
+    Usage,
+)
 from autodeck.providers.cache import ResponseCache
+from autodeck.providers.openai_compat import OpenAICompatProvider
+from autodeck.providers.registry import PROVIDERS
+from autodeck.studio.errors import StudioConfigError
 
 if TYPE_CHECKING:
     from autodeck.studio.bindings import RoleBinding
@@ -75,7 +89,13 @@ def uses_responses(binding: RoleBinding) -> bool:
     `api == "responses"` → True; `api == "chat"` → False; `api == "auto"` → True exactly
     when `binding.model` starts with one of `RESPONSES_MODEL_PREFIXES`.
     """
-    raise NotImplementedError
+    if binding.provider not in RESPONSES_PROVIDERS:
+        return False
+    if binding.api == "responses":
+        return True
+    if binding.api == "chat":
+        return False
+    return binding.model.startswith(RESPONSES_MODEL_PREFIXES)
 
 
 def build_request_body(
@@ -111,7 +131,56 @@ def build_request_body(
     "parameters": autodeck.ir.schema.export_schema(t.args_model, "strict"), "strict":
     False} ...]` and `"tool_choice": "auto"`. No `temperature` key.
     """
-    raise NotImplementedError
+    items: list[dict[str, Any]] = []
+    for m in messages:
+        if m.role == "tool":
+            items.append(
+                {"type": "function_call_output", "call_id": m.tool_call_id, "output": m.content}
+            )
+        elif m.role == "assistant":
+            if m.content:
+                items.append({"role": "assistant", "content": m.content})
+            for c in m.tool_calls:
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": c.id,
+                        "name": c.name,
+                        "arguments": json.dumps(c.arguments, ensure_ascii=False),
+                    }
+                )
+        else:
+            images = getattr(m, "images", ())
+            if images:
+                parts: list[dict[str, Any]] = [{"type": "input_text", "text": m.content}]
+                parts += [
+                    {"type": "input_image", "image_url": image_url(image)} for image in images
+                ]
+                items.append({"role": "user", "content": parts})
+            else:
+                items.append({"role": "user", "content": m.content})
+    body: dict[str, Any] = {
+        "model": model,
+        "input": items,
+        "max_output_tokens": max_output_tokens,
+        "reasoning": {"effort": reasoning},
+        "store": False,
+    }
+    if system:
+        body["instructions"] = system
+    if tools:
+        body["tools"] = [
+            {
+                "type": "function",
+                "name": t.name,
+                "description": t.description,
+                "parameters": export_schema(t.args_model, "strict"),
+                "strict": False,
+            }
+            for t in tools
+        ]
+        body["tool_choice"] = "auto"
+    return body
 
 
 def parse_response(payload: dict[str, Any]) -> AssistantTurn:
@@ -130,7 +199,48 @@ def parse_response(payload: dict[str, Any]) -> AssistantTurn:
       reasoning_tokens=output_tokens_details.reasoning_tokens or 0,
       cached_tokens=input_tokens_details.cached_tokens or 0)`, every missing count 0.
     """
-    raise NotImplementedError
+    error = payload.get("error")
+    if error or payload.get("status") == "failed":
+        raise ProviderResponseError(f"responses API error: {error or payload.get('status')}")
+    text_parts: list[str] = []
+    calls: list[ToolCall] = []
+    for item in payload.get("output") or []:
+        kind = item.get("type")
+        if kind == "message":
+            for part in item.get("content") or []:
+                if part.get("type") == "output_text":
+                    text_parts.append(part.get("text", ""))
+                elif part.get("type") == "refusal":
+                    text_parts.append(f"[refusal] {part.get('refusal', '')}")
+        elif kind == "function_call":
+            raw_args = item.get("arguments")
+            try:
+                parsed = json.loads(raw_args) if raw_args else {}
+            except (TypeError, ValueError):
+                parsed = None
+            calls.append(
+                ToolCall(
+                    id=str(item.get("call_id") or item.get("id") or ""),
+                    name=item.get("name", ""),
+                    arguments=parsed if isinstance(parsed, dict) else {"__invalid__": raw_args},
+                )
+            )
+    if payload.get("status") == "incomplete" and not calls:
+        reason = (payload.get("incomplete_details") or {}).get("reason") or "unknown"
+        text_parts.append(f"[response incomplete: {reason}]")
+    usage = payload.get("usage") or {}
+    out_details = usage.get("output_tokens_details") or {}
+    in_details = usage.get("input_tokens_details") or {}
+    return AssistantTurn(
+        text="".join(text_parts),
+        tool_calls=calls,
+        usage=StudioUsage(
+            input_tokens=int(usage.get("input_tokens") or 0),
+            output_tokens=int(usage.get("output_tokens") or 0),
+            reasoning_tokens=int(out_details.get("reasoning_tokens") or 0),
+            cached_tokens=int(in_details.get("cached_tokens") or 0),
+        ),
+    )
 
 
 def make_responses_model(
@@ -152,4 +262,46 @@ def make_responses_model(
             an `OpenAICompatProvider`.
         ProviderAuthError: (v2's) the key is empty; raised by the provider's constructor.
     """
-    raise NotImplementedError
+    base = PROVIDERS.get(binding.provider)
+    if binding.provider not in RESPONSES_PROVIDERS or base is None:
+        raise StudioConfigError(
+            f"provider {binding.provider!r} has no Responses endpoint path; "
+            f"supported: {', '.join(RESPONSES_PROVIDERS)}"
+        )
+    if not issubclass(base, OpenAICompatProvider):
+        raise StudioConfigError(f"provider {binding.provider!r} is not OpenAI-compatible")
+
+    class _Responses(base):  # type: ignore[misc, valid-type]
+        reasoning_effort: str = binding.reasoning or DEFAULT_REASONING
+
+        def build_converse_request(
+            self,
+            *,
+            messages: list[Message],
+            tools: list[ToolSpec],
+            system: str | None,
+        ) -> tuple[str, dict[str, str], dict[str, Any]]:
+            body = build_request_body(
+                model=self.config.model,
+                messages=messages,
+                tools=tools,
+                system=system,
+                reasoning=self.reasoning_effort,
+                max_output_tokens=self.config.max_output_tokens,
+                image_url=lambda image: self._image_part(image)["image_url"]["url"],
+            )
+            return f"{self.base_url.rstrip('/')}/responses", self._headers(), body
+
+        def parse_converse_response(self, payload: dict[str, Any]) -> AssistantTurn:
+            return parse_response(payload)
+
+    _Responses.__name__ = _Responses.__qualname__ = f"Responses{base.__name__}"
+    return _Responses(
+        ProviderConfig(
+            model=binding.model,
+            api_key=api_key,
+            timeout=CALL_TIMEOUT_SECONDS,
+            max_output_tokens=binding.max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS,
+            cache=cache,
+        )
+    )

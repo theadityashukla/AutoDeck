@@ -43,11 +43,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from autodeck.design.theme.tokens import DesignTokens
+from autodeck.design.free_layout import contrast_ratio
+from autodeck.design.theme.tokens import DesignTokens, Palette
 from autodeck.ir.models import ColorToken
+from autodeck.studio.errors import (
+    DesignSystemNotFoundError,
+    InvalidSegmentError,
+    PaletteRefusedError,
+)
 from autodeck.studio.models import (
     COLOR_SLOTS,
     DEFAULT_SYSTEM_ID,
@@ -58,7 +65,9 @@ from autodeck.studio.models import (
     DesignSystemRef,
     Marker,
     StudioModel,
+    effective_system,
 )
+from autodeck.studio.serialise import atomic_write_text, dump_model
 
 MAX_NAME_CHARS = 60
 MAX_CONCEPT_CHARS = 400
@@ -238,6 +247,9 @@ class PaletteFinding:
 _SLUG = re.compile(r"[^a-z0-9]+")
 """What `slugify` replaces with `-`."""
 
+SEGMENT_RE = re.compile(SEGMENT_PATTERN)
+_VERSION_FILE = re.compile(r"v(\d{4,})\.json")
+
 DEFAULT_REF: tuple[str, int] = (DEFAULT_SYSTEM_ID, DEFAULT_SYSTEM_VERSION)
 """`models.effective_system` of a deck with no reference."""
 
@@ -254,7 +266,21 @@ def default_design_system(base: DesignTokens) -> DesignSystem:
     base.palette>, roles={}, background="lt1", text_pairs=[TextPair(text=t, ground=g) for
     t, g in DEFAULT_TEXT_PAIRS], made_by=DEFAULT_MADE_BY, created_at=None)`. Pure.
     """
-    raise NotImplementedError
+    slots = {slot: getattr(base.palette, slot) for slot in COLOR_SLOTS}
+    return DesignSystem(
+        id=DEFAULT_SYSTEM_ID,
+        version=DEFAULT_SYSTEM_VERSION,
+        marker="provisional",
+        name=DEFAULT_SYSTEM_NAME,
+        concept="",
+        rules=[],
+        palette=DesignPalette.model_validate(slots),
+        roles={},
+        background="lt1",
+        text_pairs=[TextPair(text=t, ground=g) for t, g in DEFAULT_TEXT_PAIRS],
+        made_by=DEFAULT_MADE_BY,
+        created_at=None,
+    )
 
 
 def design_tokens(palette: DesignPalette | None, base: DesignTokens) -> DesignTokens:
@@ -262,14 +288,21 @@ def design_tokens(palette: DesignPalette | None, base: DesignTokens) -> DesignTo
     sizes and spacing kept), as a new object: `base.model_copy(update={"palette":
     <validated v2 Palette>})`. `palette=None` returns `base` itself. The token name becomes
     `f"{base.name} + design"` when a palette is applied. Never writes a file."""
-    raise NotImplementedError
+    if palette is None:
+        return base
+    merged = base.palette.model_dump()
+    merged.update({slot: getattr(palette, slot) for slot in COLOR_SLOTS})
+    return base.model_copy(
+        update={"palette": Palette.model_validate(merged), "name": f"{base.name} + design"}
+    )
 
 
 def deck_tokens(deck: DeckArtifact, base: DesignTokens) -> DesignTokens:
     """The tokens a deck renders and is checked with: `design_tokens(deck.design_system.
     palette, base)`, or `base` when the deck has no design-system reference. Pure: the
     same deck state always gets the same tokens, so a render digest names one image."""
-    raise NotImplementedError
+    ref = deck.design_system
+    return design_tokens(ref.palette if ref is not None else None, base)
 
 
 def check_palette(
@@ -284,20 +317,43 @@ def check_palette(
     when `background` is `dk2`. A ratio is a failure when `ratio < needed` (compare the
     unrounded ratio). `ratio` is stored rounded to 2 decimals.
     """
-    raise NotImplementedError
+
+    def hex_of(slot: str) -> str:
+        return getattr(palette, slot)
+
+    findings: list[PaletteFinding] = []
+
+    def measure(text: str, ground: str, needed: float, why: str) -> None:
+        ratio = contrast_ratio(hex_of(text), hex_of(ground))
+        if ratio < needed:
+            findings.append(PaletteFinding(text, ground, round(ratio, 2), needed, why))
+
+    for pair in text_pairs:
+        if pair.large_only:
+            measure(pair.text, pair.ground, CONTRAST_LARGE, "large text pair")
+        else:
+            measure(pair.text, pair.ground, CONTRAST_TEXT, "text pair")
+    if background != CHART_LABEL_SLOT:
+        measure(CHART_LABEL_SLOT, background, CONTRAST_TEXT, "charts draw labels in dk2")
+    return findings
 
 
 def findings_text(findings: list[PaletteFinding]) -> str:
     """One line per finding, joined by `\\n`, exactly:
     `- <text> on <ground>: <ratio:.2f>:1, needs <needed:g>:1 (<why>)`.
     Example: `- accent1 on lt2: 2.31:1, needs 4.5:1 (text pair)`. `""` for no findings."""
-    raise NotImplementedError
+    return "\n".join(
+        f"- {f.text} on {f.ground}: {f.ratio:.2f}:1, needs {f.needed:g}:1 ({f.why})"
+        for f in findings
+    )
 
 
 def check_draft(draft: DesignDraft) -> list[PaletteFinding]:
     """`check_palette(draft.palette, background=draft.background,
     text_pairs=draft.text_pairs)`."""
-    raise NotImplementedError
+    return check_palette(
+        draft.palette, background=draft.background, text_pairs=draft.text_pairs
+    )
 
 
 def slugify(name: str) -> str:
@@ -306,7 +362,12 @@ def slugify(name: str) -> str:
     (and `-` stripped again). Empty → `"design"`. Equal to `DEFAULT_SYSTEM_ID` →
     `"design-default"`. Always matches `SEGMENT_PATTERN`. Examples: `"Shelf price"` →
     `"shelf-price"`, `"  Demand / Curve! "` → `"demand-curve"`."""
-    raise NotImplementedError
+    slug = _SLUG.sub("-", name.lower()).strip("-")[:40].strip("-")
+    if not slug:
+        return "design"
+    if slug == DEFAULT_SYSTEM_ID:
+        return f"design-{DEFAULT_SYSTEM_ID}"
+    return slug
 
 
 class DesignSystemStore:
@@ -320,17 +381,31 @@ class DesignSystemStore:
         cycle); `base` builds the default system (without it, `load` of the default system
         raises `DesignSystemNotFoundError("the default system needs base tokens")`; the
         context builder loads only stored versions). Stores both; touches no file."""
-        raise NotImplementedError
+        self._engagement = engagement
+        self._base = base
 
     def ids(self) -> list[str]:
         """Stored system ids (directories under `design_systems/` holding at least one
         valid version file), sorted. Never includes the default system."""
-        raise NotImplementedError
+        root = self._engagement.guard(self._engagement.paths.design_systems)  # type: ignore[attr-defined]
+        if not root.is_dir():
+            return []
+        found = [
+            child.name
+            for child in root.iterdir()
+            if child.is_dir() and SEGMENT_RE.fullmatch(child.name) and self._numbers(child)
+        ]
+        return sorted(found)
 
     def versions(self, system_id: str) -> list[int]:
         """The stored versions of `system_id`, ascending; `[1]` for the default system;
         `[]` for an unknown id. Only files named `v<4+ digits>.json` count."""
-        raise NotImplementedError
+        if system_id == DEFAULT_SYSTEM_ID:
+            return [DEFAULT_SYSTEM_VERSION]
+        directory = self._engagement.guard(  # type: ignore[attr-defined]
+            self._engagement.paths.design_system_dir(system_id)  # type: ignore[attr-defined]
+        )
+        return self._numbers(directory)
 
     def load(self, system_id: str, version: int) -> DesignSystem:
         """One version. The default system `(DEFAULT_SYSTEM_ID, 1)` is
@@ -344,11 +419,30 @@ class DesignSystemStore:
             pydantic.ValidationError: the file is not a valid `DesignSystem`, or its `id` /
                 `version` disagree with its path (checked: raise `ValueError` naming both).
         """
-        raise NotImplementedError
+        if system_id == DEFAULT_SYSTEM_ID:
+            if version != DEFAULT_SYSTEM_VERSION:
+                raise DesignSystemNotFoundError(
+                    f"the default system has only version {DEFAULT_SYSTEM_VERSION}, not {version}"
+                )
+            if self._base is None:
+                raise DesignSystemNotFoundError("the default system needs base tokens")
+            return default_design_system(self._base)
+        path = self._engagement.guard(  # type: ignore[attr-defined]
+            self._engagement.paths.design_system_version(system_id, version)  # type: ignore[attr-defined]
+        )
+        if not path.is_file():
+            raise DesignSystemNotFoundError(f"no design system {system_id!r} version {version}")
+        system = DesignSystem.model_validate_json(path.read_text(encoding="utf-8"))
+        if system.id != system_id or system.version != version:
+            raise ValueError(
+                f"{path} holds {system.id!r} v{system.version}, "
+                f"but its path names {system_id!r} v{version}"
+            )
+        return system
 
     def for_deck(self, deck: DeckArtifact) -> DesignSystem:
         """The version the deck is in: `load(*models.effective_system(deck))`."""
-        raise NotImplementedError
+        return self.load(*effective_system(deck))
 
     def add(
         self,
@@ -366,4 +460,42 @@ class DesignSystemStore:
         if `check_draft` finds anything, `PaletteRefusedError(findings_text(...))` and
         nothing is written. Writes `v<NNNN>.json` with `created_at=now`.
         """
-        raise NotImplementedError
+        chosen = system_id if system_id is not None else slugify(draft.name)
+        if chosen == DEFAULT_SYSTEM_ID:
+            raise InvalidSegmentError(f"{DEFAULT_SYSTEM_ID!r} is the default system's id")
+        findings = check_draft(draft)
+        if findings:
+            raise PaletteRefusedError(findings_text(findings))
+        existing = self.versions(chosen)
+        version = (existing[-1] if existing else 0) + 1
+        path = self._engagement.guard(  # type: ignore[attr-defined]
+            self._engagement.paths.design_system_version(chosen, version)  # type: ignore[attr-defined]
+        )
+        system = DesignSystem(
+            id=chosen,
+            version=version,
+            marker=marker,
+            name=draft.name,
+            concept=draft.concept,
+            rules=list(draft.rules),
+            palette=draft.palette,
+            roles=dict(draft.roles),
+            background=draft.background,
+            text_pairs=list(draft.text_pairs),
+            made_by=draft.made_by,
+            created_at=now,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(path, dump_model(system))
+        return system
+
+    @staticmethod
+    def _numbers(directory: Path) -> list[int]:
+        if not directory.is_dir():
+            return []
+        numbers = []
+        for child in directory.iterdir():
+            match = _VERSION_FILE.fullmatch(child.name)
+            if match and child.is_file():
+                numbers.append(int(match.group(1)))
+        return sorted(numbers)

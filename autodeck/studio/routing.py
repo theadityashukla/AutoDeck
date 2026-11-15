@@ -25,7 +25,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from autodeck.providers.base import ToolSpec
+from pydantic import ValidationError
+
+from autodeck.providers.base import Message, ToolSpec
 from autodeck.studio.bindings import BoundModel
 from autodeck.studio.tool_args import RouteArgs
 from autodeck.studio.usage import RouteName, RouteRecord, RouteRequest
@@ -91,14 +93,24 @@ def rule_route(text: str) -> RuleDecision | None:
     lead, `"a question"`; a full match (`re.fullmatch`) of one of `MECHANIC_PATTERNS` →
     mechanic with that pattern's reason; else None.
     """
-    raise NotImplementedError
+    stripped = text.strip()
+    if len(stripped) > MAX_RULE_CHARS:
+        return RuleDecision("lead", "long message")
+    if "\n" in stripped:
+        return RuleDecision("lead", "several lines")
+    if "?" in stripped:
+        return RuleDecision("lead", "a question")
+    for reason, pattern in MECHANIC_PATTERNS:
+        if pattern.fullmatch(stripped):
+            return RuleDecision("mechanic", reason)
+    return None
 
 
 def router_user_text(text: str, outline: str) -> str:
     """The router model's user message, exactly
     `"# The deck\\n\\n<outline or '(no deck yet)'>\\n\\n# The owner's message\\n\\n<text>"`.
     """
-    raise NotImplementedError
+    return f"# The deck\n\n{outline or '(no deck yet)'}\n\n# The owner's message\n\n{text}"
 
 
 def ask_router(
@@ -108,7 +120,18 @@ def ask_router(
     [ROUTE_TOOL], system=system)`. The first tool call named `route` whose arguments
     validate as `RouteArgs` → `RuleDecision(args.to, args.reason or "router")`; anything
     else → None. Exceptions propagate (the caller falls back)."""
-    raise NotImplementedError
+    turn = model.model.converse(
+        [Message("user", router_user_text(text, outline))], [ROUTE_TOOL], system=system
+    )
+    for call in turn.tool_calls:
+        if call.name != "route":
+            continue
+        try:
+            args = RouteArgs.model_validate(call.arguments)
+        except ValidationError:
+            return None
+        return RuleDecision(args.to, args.reason or "router")
+    return None
 
 
 def decide_route(
@@ -128,4 +151,39 @@ def decide_route(
     `"router gave no answer"`, or `f"router failed: {type(exc).__name__}"`. `system` is the
     router prompt (`prompt.role_prompt(prompt.ROUTER_PROMPT_PATH)` from the session).
     """
-    raise NotImplementedError
+    if origin != "owner":
+        return RouteRecord(
+            requested=request,
+            route="lead",
+            by="origin",
+            reason=f"{origin} turns go to the lead",
+        )
+    if request == "lead":
+        return RouteRecord(
+            requested=request, route="lead", by="override", reason="pinned to the lead"
+        )
+    decision = rule_route(text)
+    if decision is not None:
+        return RouteRecord(
+            requested=request, route=decision.route, by="rule", reason=decision.reason
+        )
+    if router is None:
+        return RouteRecord(
+            requested=request, route="lead", by="fallback", reason="no router model"
+        )
+    try:
+        decision = ask_router(router, text, outline, system=system)
+    except Exception as exc:
+        return RouteRecord(
+            requested=request,
+            route="lead",
+            by="fallback",
+            reason=f"router failed: {type(exc).__name__}",
+        )
+    if decision is None:
+        return RouteRecord(
+            requested=request, route="lead", by="fallback", reason="router gave no answer"
+        )
+    return RouteRecord(
+        requested=request, route=decision.route, by="model", reason=decision.reason
+    )
