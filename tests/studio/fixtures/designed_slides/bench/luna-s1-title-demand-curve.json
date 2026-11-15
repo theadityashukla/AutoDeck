@@ -1,0 +1,233 @@
+{
+ "source": "slide bench round 1, luna, s1-title, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s1-title",
+  "intent": "Open the proposal with the promise in one glance: Northwind's shopping assistant can run at 38% lower cost, with the proposed unit cost visibly dominant over today's cost.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Northwind can serve its shopping assistant at 38% lower cost",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "deck_name",
+    "kind": "text",
+    "text": "Serving the assistant for less",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "byline",
+    "kind": "text",
+    "text": "A proposal to Northwind Retail \u00b7 November 2026",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed_price",
+    "kind": "text",
+    "text": "$2.60",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed_label",
+    "kind": "text",
+    "text": "per 1,000 answers \u00b7 proposed",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today_price",
+    "kind": "text",
+    "text": "$4.20",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today_label",
+    "kind": "text",
+    "text": "per 1,000 answers \u00b7 today",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 7.0,
+      "y": 59.0,
+      "w": 86.0,
+      "h": 0.5
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 22.8,
+      "y": 57.8,
+      "w": 2.4,
+      "h": 2.4
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "deck_name",
+     "frame": {
+      "x": 7.0,
+      "y": 7.5,
+      "w": 45.0,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 15.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "byline",
+     "frame": {
+      "x": 58.0,
+      "y": 8.0,
+      "w": 34.5,
+      "h": 6.0
+     },
+     "role": "caption",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "right",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 7.0,
+      "y": 16.0,
+      "w": 82.0,
+      "h": 22.0
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today_price",
+     "frame": {
+      "x": 13.0,
+      "y": 65.0,
+      "w": 27.0,
+      "h": 19.0
+     },
+     "role": "display",
+     "size_pt": 72.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today_label",
+     "frame": {
+      "x": 13.0,
+      "y": 85.0,
+      "w": 30.0,
+      "h": 7.0
+     },
+     "role": "caption",
+     "size_pt": 13.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed_price",
+     "frame": {
+      "x": 55.0,
+      "y": 63.0,
+      "w": 31.0,
+      "h": 26.0
+     },
+     "role": "display",
+     "size_pt": 96.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed_label",
+     "frame": {
+      "x": 55.0,
+      "y": 89.0,
+      "w": 34.0,
+      "h": 6.0
+     },
+     "role": "caption",
+     "size_pt": 13.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single cool horizontal demand line gives the title an opening-slide calm, while the proposed $2.60 hangs below it in the only peach so the new economics land before the comparison price."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

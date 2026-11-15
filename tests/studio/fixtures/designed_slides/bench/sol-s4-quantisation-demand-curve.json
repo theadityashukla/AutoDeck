@@ -1,0 +1,350 @@
+{
+ "source": "slide bench round 1, sol, s4-quantisation, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s4-quantisation",
+  "intent": "Make the 38% saving unmistakable, with the quieter $412k-to-$255k comparison and unchanged answer quality hanging from the deck's demand-line motif.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Quantisation alone cuts serving cost by 38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero-label",
+    "kind": "text",
+    "text": "lower monthly serving cost",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-kicker",
+    "kind": "text",
+    "text": "MONTHLY SERVING COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "before-value",
+    "kind": "text",
+    "text": "$412k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "before-label",
+    "kind": "text",
+    "text": "BEFORE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "after-value",
+    "kind": "text",
+    "text": "$255k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "after-label",
+    "kind": "text",
+    "text": "AFTER",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "technique",
+    "kind": "text",
+    "text": "8-bit weights instead of 16-bit",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quality",
+    "kind": "text",
+    "text": "Same answer quality on 2,000 test questions",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 5.6,
+      "y": 69.2,
+      "w": 88.8,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 60.5,
+      "y": 65.5,
+      "w": 0.2,
+      "h": 7.7
+     },
+     "fill": null,
+     "line": "accent3",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 83.5,
+      "y": 65.5,
+      "w": 0.2,
+      "h": 7.7
+     },
+     "fill": null,
+     "line": "accent3",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 59.9,
+      "y": 68.1,
+      "w": 1.3,
+      "h": 2.3
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 82.9,
+      "y": 68.1,
+      "w": 1.3,
+      "h": 2.3
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.8,
+      "w": 88.8,
+      "h": 10.5
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero",
+     "frame": {
+      "x": 5.6,
+      "y": 22.5,
+      "w": 39.0,
+      "h": 38.0
+     },
+     "role": "display",
+     "size_pt": 138.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "hero-label",
+     "frame": {
+      "x": 6.2,
+      "y": 62.0,
+      "w": 35.0,
+      "h": 5.8
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-kicker",
+     "frame": {
+      "x": 50.5,
+      "y": 25.5,
+      "w": 38.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "before-value",
+     "frame": {
+      "x": 50.5,
+      "y": 34.0,
+      "w": 20.0,
+      "h": 14.0
+     },
+     "role": "display",
+     "size_pt": 48.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "center",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "after-value",
+     "frame": {
+      "x": 73.5,
+      "y": 34.0,
+      "w": 20.0,
+      "h": 14.0
+     },
+     "role": "display",
+     "size_pt": 48.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "before-label",
+     "frame": {
+      "x": 52.5,
+      "y": 73.2,
+      "w": 16.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "after-label",
+     "frame": {
+      "x": 75.5,
+      "y": 73.2,
+      "w": 16.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "technique",
+     "frame": {
+      "x": 5.6,
+      "y": 78.8,
+      "w": 38.0,
+      "h": 5.5
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quality",
+     "frame": {
+      "x": 5.6,
+      "y": 87.0,
+      "w": 45.0,
+      "h": 5.5
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "The oversized peach 38% owns the open left field, while a single cool horizontal line carries the quieter before/after evidence and the unchanged-quality proof."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

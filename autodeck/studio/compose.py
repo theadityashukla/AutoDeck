@@ -31,6 +31,7 @@ from autodeck.studio.conversation import (
     CandidateSlide,
     ProposalOption,
     ProposalRecord,
+    SampleOutcome,
 )
 from autodeck.studio.design import DesignDraft, DesignSystem, DesignSystemStore
 from autodeck.studio.designer import DesignJob, DesignResult
@@ -61,7 +62,12 @@ if TYPE_CHECKING:
 NOTHING_TO_COMPOSE = (
     "Nothing to compose: every slide with a brief is designed in the current design system."
 )
+DEFAULT_SAMPLES = 2
+"""How many slides each direction is rendered on when the lead names none: the opening and
+the slide that best shows a figure or chart (`sample_slides`). Cost: every sample is one
+designer run per direction."""
 MAX_SAMPLES = 3
+"""The most the lead may ask for, when the owner wants a fuller look."""
 MAX_FINDINGS_IN_TEXT = 3
 FINDING_CLIP = 160
 DRAFT_SYSTEM_ID = "draft"
@@ -232,6 +238,11 @@ def compose_slides(
             model_id=result.model_id,
             seconds=result.seconds,
             entry_id=entry_id,
+            failed_earlier=sum(
+                1
+                for aid, earlier in ctx.ledger.composed
+                if aid == store.artifact_id and earlier.slide_id == sid and not earlier.clean
+            ),
         )
         ctx.ledger.record_composed(store.artifact_id, outcome)
         composed.append(outcome)
@@ -256,7 +267,13 @@ def compose_text(results: Sequence[ComposedSlide]) -> str:
     for r in results:
         attempts = _plural(r.attempts, "attempt")
         if r.clean:
-            lines.append(f"- {r.slide_id}: clean in {attempts}")
+            line = f"- {r.slide_id}: clean in {attempts}"
+            if r.failed_earlier:
+                line += (
+                    f" (it FAILED to compose {_plural(r.failed_earlier, 'time')} earlier "
+                    "this turn: report that to the owner)"
+                )
+            lines.append(line)
         else:
             found = "; ".join(r.findings[:MAX_FINDINGS_IN_TEXT])
             lines.append(f"- {r.slide_id}: failed after {attempts}: {found}")
@@ -268,11 +285,20 @@ def compose_text(results: Sequence[ComposedSlide]) -> str:
     return "\n".join(lines)
 
 
+def _showing_power(brief: SlideBrief) -> tuple[int, int]:
+    """How well a slide shows a design: a chart first, then the number of figures."""
+    return (1 if brief.content.chart is not None else 0, len(brief.content.figures))
+
+
 def sample_slides(deck: DeckArtifact, named: Sequence[str] | None) -> list[str]:
     """The slides a design proposal is rendered on. Named: each must exist and have a brief
-    (`CompositionError` naming it); at most `MAX_SAMPLES`. Not named: the first
-    `MAX_SAMPLES` slides with a brief, in deck order. None found → `CompositionError(
-    "write slide briefs first: design directions are rendered on the deck's own slides")`.
+    (`CompositionError` naming it); at most `MAX_SAMPLES`. Not named: `DEFAULT_SAMPLES`
+    slides with a brief, chosen deterministically: the opening (the first slide with a
+    brief) and, of the others, the one with the most showing power (a chart, then the most
+    figures; the earliest wins a tie, so with no figures anywhere it is the next slide),
+    returned in deck order. With one slide with a brief, just that one. None found →
+    `CompositionError("write slide briefs first: design directions are rendered on the
+    deck's own slides")`.
     """
     if named is not None:
         chosen: list[str] = []
@@ -287,12 +313,83 @@ def sample_slides(deck: DeckArtifact, named: Sequence[str] | None) -> list[str]:
             if sid not in chosen:
                 chosen.append(sid)
         return chosen[:MAX_SAMPLES]
-    found = [s.id for s in deck.slides if s.brief is not None][:MAX_SAMPLES]
-    if not found:
+    briefed = [s for s in deck.slides if s.brief is not None]
+    if not briefed:
         raise CompositionError(
             "write slide briefs first: design directions are rendered on the deck's own slides"
         )
-    return found
+    picked = [briefed[0]]
+    rest = briefed[1:]
+    if rest and DEFAULT_SAMPLES > 1:
+        best = rest[0]
+        for slide in rest[1:]:
+            assert slide.brief is not None and best.brief is not None
+            if _showing_power(slide.brief) > _showing_power(best.brief):
+                best = slide
+        picked.append(best)
+    return [s.id for s in picked][:DEFAULT_SAMPLES]
+
+
+def palette_note(draft: DesignDraft) -> str:
+    """One line when a palette needed more than one attempt, else "": `Palette for "<name>"
+    needed <n> attempts; refused: <the findings of the refused attempts, clipped>`."""
+    attempts = draft.palette_attempts
+    if len(attempts) <= 1:
+        return ""
+    refused = "; ".join(
+        f"attempt {a.attempt}: {'; '.join(a.findings)}" for a in attempts if not a.accepted
+    )
+    return _clip(f'Palette for "{draft.name}" needed {len(attempts)} attempts; refused {refused}')
+
+
+def _sample_outcomes(
+    rendered: Sequence[DesignResult], samples: Sequence[str]
+) -> list[SampleOutcome]:
+    """One `SampleOutcome` per sample asked of a direction (a missing result counts as a
+    failure with no attempts)."""
+    by_slide = {r.slide_id: r for r in rendered}
+    out: list[SampleOutcome] = []
+    for sid in samples:
+        r = by_slide.get(sid)
+        if r is None:
+            out.append(SampleOutcome(slide_id=sid, clean=False, attempts=0))
+        elif r.clean and r.slide is not None:
+            out.append(SampleOutcome(slide_id=sid, clean=True, attempts=r.attempt_count))
+        else:
+            out.append(
+                SampleOutcome(
+                    slide_id=sid,
+                    clean=False,
+                    attempts=r.attempt_count,
+                    findings=[_clip(f) for f in r.findings[:MAX_FINDINGS_IN_TEXT]],
+                )
+            )
+    return out
+
+
+def direction_line(option_id: str, option: ProposalOption) -> str:
+    """The tool-result line of a design option, in words the lead can repeat:
+    `- <id>. <name>: <k> of <n> samples rendered` plus, per failed sample, `slide <s> could
+    not be designed after <a> attempt|attempts: <findings>`, plus ` INCOMPLETE: tell the
+    owner` when any failed, plus the palette note."""
+    n = len(option.samples)
+    k = sum(1 for o in option.samples if o.clean)
+    text = f"- {option_id}. {option.label}: {k} of {_plural(n, 'sample')} rendered"
+    failed = [o for o in option.samples if not o.clean]
+    if failed:
+        parts = []
+        for o in failed:
+            why = "; ".join(o.findings) or "no findings recorded"
+            parts.append(
+                f"slide {o.slide_id} could not be designed after "
+                f"{_plural(o.attempts, 'attempt')}: {why}"
+            )
+        text += "; " + "; ".join(parts) + ". INCOMPLETE: say so when you present it"
+    if option.design is not None:
+        note = palette_note(option.design)
+        if note:
+            text += f". {note}"
+    return text
 
 
 def propose_design(
@@ -317,9 +414,16 @@ def propose_design(
     6. `record = ctx.proposals.create(thread_id, turn_id, artifact_id=store.artifact_id,
        summary=args.summary, options=..., now=ctx.clock())`; `ctx.ledger.record_proposal`.
 
-    Returns the record and one line per direction: `- <option id>. <name>: rendered on
-    <k> slide|slides` or `- <name>: dropped (<reason, clipped to FINDING_CLIP>)`. Nothing in
-    the deck changes; nothing is stored in the design-system store.
+    Returns the record and one line per direction: `direction_line` for an offered one (how
+    many samples rendered, which failed and why, the palette note) or `- <name>: dropped
+    (<reason, clipped to FINDING_CLIP>)`. Nothing in the deck changes; nothing is stored in
+    the design-system store.
+
+    A direction with no clean sample at all is **not offered**: the owner picks by looking,
+    and an option with nothing to look at is a coin toss on a palette. It is dropped loudly:
+    its line names why, so the lead tells the owner; if every direction is dropped the call
+    fails with every reason. A direction with some clean samples is offered, with each
+    failed sample recorded on the option (`ProposalOption.samples`).
     """
     if ctx.bindings is None:
         raise CompositionError("no designer is bound")
@@ -360,9 +464,13 @@ def propose_design(
         name = made.direction.name
         if made.draft is None:
             reason = f"palette refused: {'; '.join(made.findings)}"
+            note = _attempt_count_note(made.attempts)
+            if note:
+                reason += f" ({note})"
         else:
             rendered = by_direction.get(i, [])
             clean = [r for r in rendered if r.clean and r.slide is not None]
+            outcomes = _sample_outcomes(rendered, samples)
             if clean:
                 option_id = OPTION_IDS[len(options)]
                 candidates = []
@@ -380,13 +488,15 @@ def propose_design(
                         text=made.direction.concept,
                         design=made.draft,
                         candidates=candidates,
+                        samples=outcomes,
                     )
                 )
-                lines.append(
-                    f"- {option_id}. {name}: rendered on {_plural(len(candidates), 'slide')}"
-                )
+                lines.append(direction_line(option_id, options[-1]))
                 continue
-            found = "; ".join(f for r in rendered for f in r.findings)
+            found = "; ".join(
+                f"slide {o.slide_id}: {'; '.join(o.findings) or 'no findings recorded'}"
+                for o in outcomes
+            )
             reason = f"no sample came out clean: {found}"
         dropped.append(f"{name}: {reason}")
         lines.append(f"- {name}: dropped ({_clip(reason)})")
@@ -402,6 +512,10 @@ def propose_design(
     )
     ctx.ledger.record_proposal(record)
     return record, lines
+
+
+def _attempt_count_note(attempts: int) -> str:
+    return f"{attempts} palette attempts" if attempts > 1 else ""
 
 
 def apply_design(

@@ -1,0 +1,456 @@
+{
+ "source": "slide bench round 1, sol, s3-techniques, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s3-techniques",
+  "intent": "Show three concrete cost-saving techniques in parallel, with quantisation visually dominant as the largest saving and the bridge to the next slide.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Three techniques account for most of the saving",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-figure",
+    "kind": "text",
+    "text": "\u221238%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-name",
+    "kind": "text",
+    "text": "Quantisation",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-desc",
+    "kind": "text",
+    "text": "smaller numbers inside the model,\nsame answers",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-metric",
+    "kind": "text",
+    "text": "serving cost",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-figure",
+    "kind": "text",
+    "text": "\u221221%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-name",
+    "kind": "text",
+    "text": "Context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-desc",
+    "kind": "text",
+    "text": "reuse the part every request repeats",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-metric",
+    "kind": "text",
+    "text": "compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-figure",
+    "kind": "text",
+    "text": "2.3\u00d7",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-name",
+    "kind": "text",
+    "text": "Request batching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-desc",
+    "kind": "text",
+    "text": "answer shoppers in groups at peak",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-metric",
+    "kind": "text",
+    "text": "peak capacity",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 25.0,
+      "w": 46.5,
+      "h": 75.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 49.0,
+      "y": 29.0,
+      "w": 21.5,
+      "h": 62.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 73.5,
+      "y": 29.0,
+      "w": 21.5,
+      "h": 62.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 49.0,
+      "y": 29.0,
+      "w": 21.5,
+      "h": 1.2
+     },
+     "fill": "accent6",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.25
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 73.5,
+      "y": 29.0,
+      "w": 21.5,
+      "h": 1.2
+     },
+     "fill": "accent6",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.25
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 9.0,
+      "y": 58.0,
+      "w": 32.0,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "lt1",
+     "line_pt": 1.25,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 52.0,
+      "y": 56.0,
+      "w": 15.5,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 76.5,
+      "y": 56.0,
+      "w": 15.5,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.5,
+      "w": 88.5,
+      "h": 12.5
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-figure",
+     "frame": {
+      "x": 8.8,
+      "y": 31.5,
+      "w": 33.0,
+      "h": 24.5
+     },
+     "role": "display",
+     "size_pt": 88.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-name",
+     "frame": {
+      "x": 9.0,
+      "y": 61.0,
+      "w": 32.0,
+      "h": 7.0
+     },
+     "role": "heading",
+     "size_pt": 22.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-desc",
+     "frame": {
+      "x": 9.0,
+      "y": 69.0,
+      "w": 32.0,
+      "h": 14.0
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-metric",
+     "frame": {
+      "x": 9.0,
+      "y": 87.0,
+      "w": 32.0,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-figure",
+     "frame": {
+      "x": 52.0,
+      "y": 34.0,
+      "w": 15.5,
+      "h": 19.0
+     },
+     "role": "display",
+     "size_pt": 62.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-name",
+     "frame": {
+      "x": 52.0,
+      "y": 59.0,
+      "w": 16.0,
+      "h": 7.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-desc",
+     "frame": {
+      "x": 52.0,
+      "y": 68.0,
+      "w": 15.5,
+      "h": 14.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-metric",
+     "frame": {
+      "x": 52.0,
+      "y": 85.0,
+      "w": 15.5,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 10.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-figure",
+     "frame": {
+      "x": 76.5,
+      "y": 34.0,
+      "w": 15.5,
+      "h": 19.0
+     },
+     "role": "display",
+     "size_pt": 62.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-name",
+     "frame": {
+      "x": 76.5,
+      "y": 59.0,
+      "w": 16.0,
+      "h": 7.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-desc",
+     "frame": {
+      "x": 76.5,
+      "y": 68.0,
+      "w": 15.5,
+      "h": 14.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-metric",
+     "frame": {
+      "x": 76.5,
+      "y": 85.0,
+      "w": 15.5,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 10.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A full-bleed, oversized quantisation field makes the largest saving unmistakable, while two aligned white cards preserve an at-a-glance comparison across all three techniques."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

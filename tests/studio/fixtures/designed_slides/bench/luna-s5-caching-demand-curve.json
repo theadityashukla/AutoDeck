@@ -1,0 +1,354 @@
+{
+ "source": "slide bench round 1, luna, s5-caching, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s5-caching",
+  "intent": "Make the 21% compute reduction the focal proof, with the request breakdown visibly separating the cached 68% from the uncached remainder.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Caching repeated context removes a fifth of the compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero21",
+    "kind": "text",
+    "text": "21%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_label",
+    "kind": "text",
+    "text": "less compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "repeat68",
+    "kind": "text",
+    "text": "68%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "repeat_label",
+    "kind": "text",
+    "text": "of each request repeats",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point1",
+    "kind": "text",
+    "text": "68% of every request repeats:\nthe same instructions and catalogue",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point2",
+    "kind": "text",
+    "text": "That shared part is computed once an hour,\nthen reused",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point3",
+    "kind": "text",
+    "text": "Net compute falls 21% after misses\nand refreshes",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point4",
+    "kind": "text",
+    "text": "Answers are unchanged; the cache resets\nwhen prices change",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart_label",
+    "kind": "text",
+    "text": "INSIDE ONE REQUEST\nShare of a 2,400-token request (%)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "request_mix",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "bar",
+     "title": null,
+     "categories": [
+      "Instructions",
+      "Catalogue",
+      "Chat",
+      "Ask"
+     ],
+     "series": [
+      {
+       "name": "Share of request (%)",
+       "values": [
+        18.0,
+        50.0,
+        22.0,
+        10.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 5.0,
+      "y": 43.0,
+      "w": 90.0,
+      "h": 0.6
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 27.8,
+      "y": 41.7,
+      "w": 1.8,
+      "h": 2.8
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 8.0,
+      "w": 57.0,
+      "h": 16.0
+     },
+     "role": "title",
+     "size_pt": 30.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero21",
+     "frame": {
+      "x": 6.0,
+      "y": 24.0,
+      "w": 24.0,
+      "h": 31.0
+     },
+     "role": "display",
+     "size_pt": 112.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_label",
+     "frame": {
+      "x": 7.0,
+      "y": 56.0,
+      "w": 20.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "repeat68",
+     "frame": {
+      "x": 32.0,
+      "y": 26.0,
+      "w": 20.0,
+      "h": 17.0
+     },
+     "role": "display",
+     "size_pt": 62.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "repeat_label",
+     "frame": {
+      "x": 33.0,
+      "y": 45.0,
+      "w": 22.0,
+      "h": 4.0
+     },
+     "role": "caption",
+     "size_pt": 13.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point1",
+     "frame": {
+      "x": 6.0,
+      "y": 63.0,
+      "w": 22.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point2",
+     "frame": {
+      "x": 31.0,
+      "y": 63.0,
+      "w": 22.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point3",
+     "frame": {
+      "x": 6.0,
+      "y": 79.0,
+      "w": 22.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point4",
+     "frame": {
+      "x": 31.0,
+      "y": 79.0,
+      "w": 22.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart_label",
+     "frame": {
+      "x": 59.0,
+      "y": 47.0,
+      "w": 34.0,
+      "h": 7.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "request_mix",
+     "frame": {
+      "x": 58.0,
+      "y": 54.0,
+      "w": 37.0,
+      "h": 37.0
+     },
+     "accent": "accent2",
+     "emphasis": [
+      "Instructions",
+      "Catalogue"
+     ]
+    }
+   ],
+   "rationale": "A single cool baseline organizes a field of scaled figures and hanging annotations, while the peach 21% reduction is the only warm focal point and the compact request-mix chart explains what gets cached."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

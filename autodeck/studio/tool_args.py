@@ -339,8 +339,11 @@ class ComposeSlidesArgs(DeckToolArgs):
 
 
 class ProposeDesignArgs(DeckToolArgs):
-    """`propose_design`: offer two or three design directions, each rendered on real slides
-    of this deck, without changing anything."""
+    """`propose_design`: offer design directions, each rendered on real slides of this deck,
+    without changing anything. The most expensive action in the studio (every direction is a
+    palette call and one designer run per sample), so the defaults are small: two directions
+    and two samples each. A third direction, or up to three samples, only when the owner
+    asks for a fuller look."""
 
     summary: str = Field(
         min_length=1, max_length=MAX_SUMMARY_CHARS, description="What is being decided."
@@ -348,15 +351,16 @@ class ProposeDesignArgs(DeckToolArgs):
     directions: list[DesignDirection] = Field(
         min_length=2,
         max_length=3,
-        description="Two or three clearly different directions: name, concept, 3-5 rules. "
-        "Words only; the system layer picks the colours.",
+        description="Two clearly different directions (three only if the owner asked for more "
+        "choice): name, concept, 3-5 rules. Words only; the system layer picks the colours.",
     )
     sample_slide_ids: list[str] | None = Field(
         default=None,
         min_length=1,
         max_length=3,
-        description="Up to three slides (with briefs) to render each direction on. Omit for "
-        "the first three slides that have briefs.",
+        description="Slides (with briefs) to render each direction on, at most three. Omit "
+        "for the default two: the opening and the slide that best shows a figure or chart. "
+        "Name more only when the owner asks to see more of each direction.",
     )
 
 

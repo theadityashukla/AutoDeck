@@ -1,0 +1,275 @@
+{
+ "source": "slide bench round 1, sol, s1-title, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s1-title",
+  "intent": "Open the proposal with an unmistakable promise to Northwind: the same shopping assistant at 38% lower serving cost, evidenced by the proposed $2.60 price against $4.20 today.",
+  "blocks": [
+   {
+    "id": "deck-name",
+    "kind": "text",
+    "text": "Serving the assistant for less",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "headline-lead",
+    "kind": "text",
+    "text": "Northwind can serve its shopping assistant at",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "headline-payoff",
+    "kind": "text",
+    "text": "38% lower cost",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed-label",
+    "kind": "text",
+    "text": "per 1,000 answers, proposed",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed-price",
+    "kind": "text",
+    "text": "$2.60",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today-label",
+    "kind": "text",
+    "text": "per 1,000 answers today",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today-price",
+    "kind": "text",
+    "text": "$4.20",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "byline",
+    "kind": "text",
+    "text": "A proposal to Northwind Retail \u00b7 November 2026",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 65.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 64.5,
+      "y": 0.0,
+      "w": 1.2,
+      "h": 100.0
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 70.5,
+      "y": 12.0,
+      "w": 24.0,
+      "h": 72.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 74.0,
+      "y": 54.0,
+      "w": 17.0,
+      "h": 0.5
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "deck-name",
+     "frame": {
+      "x": 6.0,
+      "y": 9.0,
+      "w": 52.0,
+      "h": 7.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "headline-lead",
+     "frame": {
+      "x": 6.0,
+      "y": 24.0,
+      "w": 52.0,
+      "h": 22.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "headline-payoff",
+     "frame": {
+      "x": 6.0,
+      "y": 47.0,
+      "w": 53.0,
+      "h": 15.0
+     },
+     "role": "display",
+     "size_pt": 48.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "byline",
+     "frame": {
+      "x": 6.0,
+      "y": 84.0,
+      "w": 55.0,
+      "h": 6.0
+     },
+     "role": "caption",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed-label",
+     "frame": {
+      "x": 74.0,
+      "y": 20.0,
+      "w": 17.0,
+      "h": 9.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed-price",
+     "frame": {
+      "x": 73.5,
+      "y": 31.0,
+      "w": 18.0,
+      "h": 14.0
+     },
+     "role": "display",
+     "size_pt": 44.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today-label",
+     "frame": {
+      "x": 74.0,
+      "y": 59.0,
+      "w": 17.0,
+      "h": 8.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today-price",
+     "frame": {
+      "x": 74.0,
+      "y": 69.0,
+      "w": 17.0,
+      "h": 11.0
+     },
+     "role": "heading",
+     "size_pt": 28.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark editorial field makes the promise read as the opening statement, while a narrow white price card turns the $4.20-to-$2.60 comparison into immediate proof and the teal spine visually links the proposal to the new price."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

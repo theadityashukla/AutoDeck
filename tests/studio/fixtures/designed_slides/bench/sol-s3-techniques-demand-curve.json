@@ -1,0 +1,336 @@
+{
+ "source": "slide bench round 1, sol, s3-techniques, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s3-techniques",
+  "intent": "Show three understandable techniques along one shared demand line, with quantisation visibly carrying the largest saving and strongest emphasis.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Three techniques account for most of the saving",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-figure",
+    "kind": "text",
+    "text": "\u221238%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-name",
+    "kind": "text",
+    "text": "Quantisation",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant-desc",
+    "kind": "text",
+    "text": "smaller numbers inside the model,\nsame answers",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-figure",
+    "kind": "text",
+    "text": "\u221221%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-name",
+    "kind": "text",
+    "text": "Context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache-desc",
+    "kind": "text",
+    "text": "reuse the part every request repeats",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-figure",
+    "kind": "text",
+    "text": "2.3\u00d7",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-name",
+    "kind": "text",
+    "text": "Request batching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch-desc",
+    "kind": "text",
+    "text": "answer shoppers in groups at peak",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 7.0,
+      "y": 54.8,
+      "w": 86.0,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 19.4,
+      "y": 53.85,
+      "w": 1.1,
+      "h": 2.0
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 51.45,
+      "y": 53.85,
+      "w": 1.1,
+      "h": 2.0
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 81.45,
+      "y": 53.85,
+      "w": 1.1,
+      "h": 2.0
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 7.5,
+      "w": 70.0,
+      "h": 18.5
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-figure",
+     "frame": {
+      "x": 7.0,
+      "y": 28.0,
+      "w": 27.0,
+      "h": 24.0
+     },
+     "role": "display",
+     "size_pt": 88.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-figure",
+     "frame": {
+      "x": 40.0,
+      "y": 31.0,
+      "w": 25.0,
+      "h": 19.0
+     },
+     "role": "display",
+     "size_pt": 66.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-figure",
+     "frame": {
+      "x": 70.0,
+      "y": 31.0,
+      "w": 23.0,
+      "h": 19.0
+     },
+     "role": "display",
+     "size_pt": 66.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-name",
+     "frame": {
+      "x": 7.0,
+      "y": 59.0,
+      "w": 29.0,
+      "h": 6.5
+     },
+     "role": "heading",
+     "size_pt": 20.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant-desc",
+     "frame": {
+      "x": 7.0,
+      "y": 67.0,
+      "w": 29.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-name",
+     "frame": {
+      "x": 40.0,
+      "y": 59.0,
+      "w": 27.0,
+      "h": 6.5
+     },
+     "role": "heading",
+     "size_pt": 20.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache-desc",
+     "frame": {
+      "x": 40.0,
+      "y": 67.0,
+      "w": 27.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-name",
+     "frame": {
+      "x": 70.0,
+      "y": 59.0,
+      "w": 24.0,
+      "h": 6.5
+     },
+     "role": "heading",
+     "size_pt": 20.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch-desc",
+     "frame": {
+      "x": 70.0,
+      "y": 67.0,
+      "w": 24.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single horizontal demand line anchors three hanging technique stations; the oversized peach \u221238% makes quantisation the immediate takeaway while generous open space keeps the comparison calm."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

@@ -1,0 +1,414 @@
+{
+ "source": "slide bench round 1, sol, s6-rollout, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s6-rollout",
+  "intent": "Show a reversible three-phase rollout across Jan\u2013Jun 2027 as an ascending sequence, with savings building visibly from 15% to the full 38% run rate in June.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "A phased rollout over two quarters keeps risk low while the savings build",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_pct",
+    "kind": "text",
+    "text": "15%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_phase",
+    "kind": "text",
+    "text": "PILOT",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_date",
+    "kind": "text",
+    "text": "Jan\u2013Feb 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_desc",
+    "kind": "text",
+    "text": "quantised model on 5% of traffic",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_pct",
+    "kind": "text",
+    "text": "30%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_phase",
+    "kind": "text",
+    "text": "SCALE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_date",
+    "kind": "text",
+    "text": "Mar\u2013Apr 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_desc",
+    "kind": "text",
+    "text": "all traffic, plus context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_pct",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_phase",
+    "kind": "text",
+    "text": "OPTIMISE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_date",
+    "kind": "text",
+    "text": "May\u2013Jun 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_desc",
+    "kind": "text",
+    "text": "batching at peak, full run rate",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 5.6,
+      "y": 49.0,
+      "w": 27.8,
+      "h": 43.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 36.1,
+      "y": 39.0,
+      "w": 27.8,
+      "h": 53.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.86
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 66.6,
+      "y": 28.5,
+      "w": 27.8,
+      "h": 63.5
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 5.6,
+      "y": 90.8,
+      "w": 58.3,
+      "h": 1.2
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.7
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 66.6,
+      "y": 90.2,
+      "w": 27.8,
+      "h": 1.8
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.5,
+      "w": 86.0,
+      "h": 18.0
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_pct",
+     "frame": {
+      "x": 8.0,
+      "y": 51.0,
+      "w": 23.0,
+      "h": 17.0
+     },
+     "role": "display",
+     "size_pt": 62.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_phase",
+     "frame": {
+      "x": 8.0,
+      "y": 69.0,
+      "w": 23.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_date",
+     "frame": {
+      "x": 8.0,
+      "y": 73.3,
+      "w": 23.0,
+      "h": 5.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_desc",
+     "frame": {
+      "x": 8.0,
+      "y": 80.0,
+      "w": 23.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_pct",
+     "frame": {
+      "x": 38.5,
+      "y": 41.0,
+      "w": 23.0,
+      "h": 17.0
+     },
+     "role": "display",
+     "size_pt": 62.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_phase",
+     "frame": {
+      "x": 38.5,
+      "y": 59.0,
+      "w": 23.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_date",
+     "frame": {
+      "x": 38.5,
+      "y": 63.3,
+      "w": 23.0,
+      "h": 5.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_desc",
+     "frame": {
+      "x": 38.5,
+      "y": 70.0,
+      "w": 23.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_pct",
+     "frame": {
+      "x": 69.0,
+      "y": 30.0,
+      "w": 23.0,
+      "h": 22.0
+     },
+     "role": "display",
+     "size_pt": 84.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_phase",
+     "frame": {
+      "x": 69.0,
+      "y": 54.0,
+      "w": 23.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_date",
+     "frame": {
+      "x": 69.0,
+      "y": 58.3,
+      "w": 23.0,
+      "h": 5.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_desc",
+     "frame": {
+      "x": 69.0,
+      "y": 65.0,
+      "w": 23.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "An ascending three-card skyline makes the phased sequence and accumulating savings legible at a glance, while the taller dark final card turns 38% into the unmistakable destination."
+  },
+  "marker": "provisional",
+  "serves": []
+ }
+}

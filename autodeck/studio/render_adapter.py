@@ -43,6 +43,7 @@ from autodeck.design.free_layout_qa import FreeLayoutFinding, check_free_layout
 from autodeck.design.theme.tokens import DesignTokens
 from autodeck.ir import models as v2
 from autodeck.studio.errors import MissingLayoutError
+from autodeck.studio.layout_rules import check_layout_rules
 from autodeck.studio.models import Block, DeckArtifact, Slide
 
 MISSING_LAYOUT = "missing_layout"
@@ -108,8 +109,10 @@ def to_render_slide(slide: Slide) -> v2.Slide:
 
 
 def check_slide(slide: Slide, tokens: DesignTokens) -> list[FreeLayoutFinding]:
-    """v2's free-layout QA on one base slide: `check_free_layout(to_render_slide(slide),
-    tokens)`. `[]` when the layout holds.
+    """v2's free-layout QA on one base slide, `check_free_layout(to_render_slide(slide),
+    tokens)`, followed by the studio's own layout rules (`layout_rules.check_layout_rules`:
+    a line through text or a chart, text or a line straddling a card's edge). `[]` when the
+    layout holds.
 
     A slide with no layout returns one finding, `FreeLayoutFinding(slide.id, "",
     MISSING_LAYOUT, "slide has no layout yet")`, instead of raising, so a deck-wide check
@@ -117,7 +120,7 @@ def check_slide(slide: Slide, tokens: DesignTokens) -> list[FreeLayoutFinding]:
     """
     if slide.layout is None:
         return [FreeLayoutFinding(slide.id, "", MISSING_LAYOUT, "slide has no layout yet")]
-    return check_free_layout(to_render_slide(slide), tokens)
+    return [*check_free_layout(to_render_slide(slide), tokens), *check_layout_rules(slide, tokens)]
 
 
 def check_deck(deck: DeckArtifact, tokens: DesignTokens) -> dict[str, list[FreeLayoutFinding]]:

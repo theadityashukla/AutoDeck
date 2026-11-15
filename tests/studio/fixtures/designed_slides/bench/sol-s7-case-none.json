@@ -1,0 +1,342 @@
+{
+ "source": "slide bench round 1, sol, s7-case, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s7-case",
+  "intent": "Make the business case read as a simple left-to-right equation, with the annual return dominating the one-off cost and two-month payback.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "What it costs and what it returns",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-label",
+    "kind": "text",
+    "text": "ONE-OFF COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-figure",
+    "kind": "text",
+    "text": "$310k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-detail",
+    "kind": "text",
+    "text": "engineering $240k\nevaluation $70k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return-label",
+    "kind": "text",
+    "text": "SAVED PER YEAR",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return-figure",
+    "kind": "text",
+    "text": "$1.9M",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "monthly-saving",
+    "kind": "text",
+    "text": "$157k a month\nfrom the first full month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback-label",
+    "kind": "text",
+    "text": "TO PAY BACK",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback-figure",
+    "kind": "text",
+    "text": "2 months",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 24.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 31.0,
+      "w": 25.0,
+      "h": 56.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 32.8,
+      "y": 27.0,
+      "w": 34.4,
+      "h": 64.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 69.4,
+      "y": 31.0,
+      "w": 25.0,
+      "h": 56.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 8.5,
+      "y": 48.5,
+      "w": 19.2,
+      "h": 0.2
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.25,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 72.3,
+      "y": 48.5,
+      "w": 19.2,
+      "h": 0.2
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.25,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 38.2,
+      "y": 68.5,
+      "w": 23.6,
+      "h": 0.2
+     },
+     "fill": null,
+     "line": "lt1",
+     "line_pt": 1.25,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.8,
+      "w": 88.8,
+      "h": 12.0
+     },
+     "role": "title",
+     "size_pt": 38.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-label",
+     "frame": {
+      "x": 8.5,
+      "y": 35.0,
+      "w": 19.2,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-figure",
+     "frame": {
+      "x": 8.5,
+      "y": 40.0,
+      "w": 19.2,
+      "h": 15.0
+     },
+     "role": "display",
+     "size_pt": 56.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-detail",
+     "frame": {
+      "x": 8.5,
+      "y": 56.0,
+      "w": 19.2,
+      "h": 17.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return-label",
+     "frame": {
+      "x": 38.2,
+      "y": 32.5,
+      "w": 23.6,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return-figure",
+     "frame": {
+      "x": 36.0,
+      "y": 38.0,
+      "w": 28.0,
+      "h": 20.0
+     },
+     "role": "display",
+     "size_pt": 78.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "monthly-saving",
+     "frame": {
+      "x": 38.2,
+      "y": 72.5,
+      "w": 23.6,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback-label",
+     "frame": {
+      "x": 72.3,
+      "y": 35.0,
+      "w": 19.2,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback-figure",
+     "frame": {
+      "x": 72.3,
+      "y": 41.0,
+      "w": 19.2,
+      "h": 24.0
+     },
+     "role": "display",
+     "size_pt": 46.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    }
+   ],
+   "rationale": "A raised, dark center card makes the $1.9M annual return the unmistakable focal point, while two quieter side cards preserve the requested cost-return-payback reading order."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

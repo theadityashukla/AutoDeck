@@ -142,6 +142,15 @@ class TextPair(StudioModel):
         return self
 
 
+class PaletteAttempt(StudioModel):
+    """One call of the system layer's `set_palette` loop: its number (1-based), whether it
+    was accepted, and, when it was not, its findings (the measured ratios, clipped)."""
+
+    attempt: int = Field(ge=1)
+    accepted: bool
+    findings: list[str] = Field(default_factory=list)
+
+
 class DesignDraft(StudioModel):
     """A direction made concrete by the system layer (L2): palette, roles, background and
     the text pairs the roles allow. Not yet stored; not yet checked unless it came from
@@ -160,6 +169,11 @@ class DesignDraft(StudioModel):
     background: ColorToken = Field(description="The slot every slide's background uses.")
     text_pairs: list[TextPair] = Field(min_length=1)
     made_by: str = Field(min_length=1, description="The model id that made it, or 'default'.")
+    palette_attempts: list[PaletteAttempt] = Field(
+        default_factory=list,
+        description="Every attempt the system layer made, in order, with the findings of the "
+        "refused ones (empty for the default and for drafts made without the loop).",
+    )
 
     @model_validator(mode="after")
     def _structure(self) -> DesignDraft:
@@ -206,6 +220,9 @@ class DesignSystem(StudioModel):
     text_pairs: list[TextPair] = Field(min_length=1)
     made_by: str = Field(min_length=1)
     created_at: AwareDatetime | None = None
+    palette_attempts: list[PaletteAttempt] = Field(default_factory=list)
+    """How the palette was reached: one entry per system-layer attempt, the refused ones
+    with their findings. Empty on versions stored before this was recorded."""
 
     @property
     def is_default(self) -> bool:
@@ -229,6 +246,7 @@ class DesignSystem(StudioModel):
             background=self.background,
             text_pairs=list(self.text_pairs),
             made_by=self.made_by,
+            palette_attempts=list(self.palette_attempts),
         )
 
 
@@ -486,6 +504,7 @@ class DesignSystemStore:
             text_pairs=list(draft.text_pairs),
             made_by=draft.made_by,
             created_at=now,
+            palette_attempts=list(draft.palette_attempts),
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, dump_model(system))

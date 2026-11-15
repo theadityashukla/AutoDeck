@@ -174,6 +174,10 @@ class ComposedSlide:
     model_id: str
     seconds: float
     entry_id: str | None
+    failed_earlier: int = 0
+    """How many times this slide already failed to compose earlier in the same turn (read
+    from the ledger when the result is recorded); `compose_text` states it, so a clean
+    retry cannot be mistaken for a clean first attempt."""
 
 
 @dataclass
@@ -485,9 +489,10 @@ def run_compose_slides(ctx: ToolContext, a: tool_args.ComposeSlidesArgs) -> Tool
 
 def run_propose_design(ctx: ToolContext, a: tool_args.ProposeDesignArgs) -> ToolResult:
     """`propose_design`: `compose.propose_design(ctx, store, a)` → `(record, lines)`.
-    Text: `Recorded proposal <id> with <k> design directions, each rendered on <sample slide
-    ids joined by ", ">. Nothing has changed; the owner will pick one or dismiss them.`
-    then the lines (one per direction, from `compose`). Summary
+    Text: `Recorded proposal <id> with <k> design directions, sampled on <sample slide ids
+    joined by ", ">. Nothing has changed; the owner will pick one or dismiss them.` then, when
+    any direction has a failed sample, a line telling the lead to say so, then the lines (one
+    per direction, from `compose`: samples rendered and failed with reasons, the palette note). Summary
     `proposed <id>: <k> design directions`."""
     from autodeck.studio import compose
 
@@ -500,10 +505,18 @@ def run_propose_design(ctx: ToolContext, a: tool_args.ProposeDesignArgs) -> Tool
                 samples.append(candidate.replaces)
     k = len(record.options)
     head = (
-        f"Recorded proposal {record.id} with {k} design directions, each rendered on "
+        f"Recorded proposal {record.id} with {k} design directions, sampled on "
         f"{', '.join(samples)}. Nothing has changed; the owner will pick one or dismiss them."
     )
-    return ToolResult("\n".join([head, *lines]), f"proposed {record.id}: {k} design directions")
+    extra: list[str] = []
+    if any(not o.clean for option in record.options for o in option.samples):
+        extra.append(
+            "Some samples failed: tell the owner which directions are incomplete and why; "
+            "do not present them as equal to the complete ones."
+        )
+    return ToolResult(
+        "\n".join([head, *extra, *lines]), f"proposed {record.id}: {k} design directions"
+    )
 
 
 def run_apply_design(ctx: ToolContext, a: tool_args.ApplyDesignArgs) -> ToolResult:
@@ -512,8 +525,8 @@ def run_apply_design(ctx: ToolContext, a: tool_args.ApplyDesignArgs) -> ToolResu
     the proposal's artifact for the option form, else `resolve_artifact(ctx,
     a.artifact_id)`. Text: `Adopted the design "<name>" (<id> v<version>) as the deck's
     decided design system.`, then `change_text(store, entry)`, then `Now stale: <ids joined
-    by ", ">. Call compose_slides to redesign them.` or `No slide was designed yet.`.
-    Summary `adopted design <id> v<version>; <k> slides stale`."""
+    by ", ">. Call compose_slides to redesign them.` or `No slide was designed yet.`, then,
+    when the palette needed more than one attempt, `compose.palette_note`. Summary `adopted design <id> v<version>; <k> slides stale`."""
     from autodeck.studio import compose
 
     if a.proposal_id is not None:
@@ -532,6 +545,9 @@ def run_apply_design(ctx: ToolContext, a: tool_args.ApplyDesignArgs) -> ToolResu
             else "No slide was designed yet."
         ),
     ]
+    note = compose.palette_note(system.draft())
+    if note:
+        lines.append(note)
     return ToolResult(
         "\n".join(lines),
         f"adopted design {system.id} v{system.version}; {len(stale)} slides stale",
@@ -876,8 +892,11 @@ def build_toolbox(ctx: ToolContext, *, names: tuple[str, ...] | None = None) -> 
         "propose_design": (
             tool_args.ProposeDesignArgs,
             bind(run_propose_design),
-            "Offer two or three design directions (name, concept, rules), each turned into a "
-            "checked palette and rendered on up to three of this deck's slides. Changes "
+            "Offer design directions (name, concept, rules), each turned into a checked "
+            "palette and rendered on sample slides. Costly: by default offer two directions "
+            "and let the default two samples be chosen (the opening and the slide that best "
+            "shows a figure); offer a third direction or name up to three sample slides only "
+            "when the owner asks. Reports which samples rendered and which failed. Changes "
             "nothing until the owner picks.",
         ),
         "apply_design": (

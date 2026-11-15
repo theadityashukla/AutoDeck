@@ -339,6 +339,18 @@ class CandidateSlide(StudioModel):
     insert_at: int | None = Field(default=None, ge=1)
 
 
+class SampleOutcome(StudioModel):
+    """What happened to one sample slide of a design option (Phase 2-3 fixes): the slide it
+    was for, whether the designer rendered it clean, how many attempts it took, and, for a
+    failure, its first findings (clipped). Recorded for every sample asked of a direction, so
+    a sample that failed leaves a trace next to the ones that rendered."""
+
+    slide_id: str = Field(min_length=1)
+    clean: bool
+    attempts: int = Field(ge=0)
+    findings: list[str] = Field(default_factory=list)
+
+
 class ProposalOption(StudioModel):
     """One option of a proposal: a label, a description, and optionally candidate slides.
 
@@ -358,6 +370,12 @@ class ProposalOption(StudioModel):
     text: str = Field(min_length=1)
     candidates: list[CandidateSlide] = Field(default_factory=list)
     legacy: bool = False
+    samples: list[SampleOutcome] = Field(
+        default_factory=list,
+        description="A design option: the outcome of every sample slide asked of it, in "
+        "order (the clean ones are its candidates). Empty for other options and for "
+        "records made before this was recorded.",
+    )
     design: DesignDraft | None = Field(
         default=None,
         description="Phase 2-3: a design direction made concrete (`propose_design`). Its "

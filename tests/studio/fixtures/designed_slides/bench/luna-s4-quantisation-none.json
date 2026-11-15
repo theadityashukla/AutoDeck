@@ -1,0 +1,252 @@
+{
+ "source": "slide bench round 1, luna, s4-quantisation, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s4-quantisation",
+  "intent": "Make the 38% saving unmistakably dominant, with the 8-bit before/after cost comparison serving as quiet proof and the unchanged answer quality as reassurance.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Quantisation alone cuts serving cost by 38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "saving-label",
+    "kind": "text",
+    "text": "LOWER MONTHLY SERVING COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "saving",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point-weights",
+    "kind": "text",
+    "text": "8-bit weights instead of 16-bit",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point-quality",
+    "kind": "text",
+    "text": "Same answer quality on 2,000 test questions",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "bar",
+     "title": null,
+     "categories": [
+      "Before",
+      "After"
+     ],
+     "series": [
+      {
+       "name": "Monthly serving cost ($k)",
+       "values": [
+        412.0,
+        255.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart-label",
+    "kind": "text",
+    "text": "MONTHLY SERVING COST ($K)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 56.0,
+      "y": 17.0,
+      "w": 39.0,
+      "h": 73.0
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 5.8,
+      "y": 78.5,
+      "w": 1.4,
+      "h": 2.5
+     },
+     "fill": "accent3",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 5.8,
+      "y": 87.5,
+      "w": 1.4,
+      "h": 2.5
+     },
+     "fill": "accent6",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.5,
+      "w": 47.0,
+      "h": 20.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "saving-label",
+     "frame": {
+      "x": 5.6,
+      "y": 31.0,
+      "w": 43.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "saving",
+     "frame": {
+      "x": 5.6,
+      "y": 35.5,
+      "w": 43.0,
+      "h": 36.0
+     },
+     "role": "display",
+     "size_pt": 132.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point-weights",
+     "frame": {
+      "x": 9.0,
+      "y": 76.5,
+      "w": 43.0,
+      "h": 6.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point-quality",
+     "frame": {
+      "x": 9.0,
+      "y": 85.5,
+      "w": 43.0,
+      "h": 6.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "lt2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart-label",
+     "frame": {
+      "x": 59.0,
+      "y": 21.0,
+      "w": 33.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "cost-chart",
+     "frame": {
+      "x": 59.0,
+      "y": 27.0,
+      "w": 33.0,
+      "h": 57.0
+     },
+     "accent": "accent3",
+     "emphasis": [
+      "After"
+     ]
+    }
+   ],
+   "rationale": "A dark field turns the oversized 38% into the visual anchor, while a pale side panel isolates the before/after chart as supporting evidence rather than a competing headline."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

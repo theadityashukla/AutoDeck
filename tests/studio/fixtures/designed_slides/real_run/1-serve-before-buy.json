@@ -1,0 +1,469 @@
+{
+ "source": "first real-model run (task 23.17), final deck, slide 1",
+ "palette": {
+  "dk1": "0B1117",
+  "lt1": "F2F5F4",
+  "dk2": "B8C2C8",
+  "lt2": "16232B",
+  "accent1": "62F6B5",
+  "accent2": "FFC857",
+  "accent3": "FF746C",
+  "accent4": "7DB7FF",
+  "accent5": "536875",
+  "accent6": "81919A"
+ },
+ "slide": {
+  "id": "serve-before-buy",
+  "intent": "Establish the decision: Northwind should first test serving-efficiency techniques, not infer that additional capacity is the first answer. The opening must be candid that Northwind\u2019s own bottleneck and savings remain unmeasured.",
+  "blocks": [
+   {
+    "id": "header",
+    "kind": "text",
+    "text": "Serve better before buying more GPUs",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "decision_label",
+    "kind": "text",
+    "text": "DECISION GATE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "unmeasured",
+    "kind": "text",
+    "text": "UNMEASURED",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "bottleneck_point",
+    "kind": "text",
+    "text": "Northwind has not supplied GPU-utilisation telemetry, so its bottleneck is unmeasured",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "measure_heading",
+    "kind": "text",
+    "text": "Measure before procurement",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "measure_point",
+    "kind": "text",
+    "text": "Measure throughput per GPU, P95 latency, quality and cost per conversation before procurement",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_point",
+    "kind": "text",
+    "text": "Serving cost per conversation constrains expansion of the shopping assistant",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "example_label",
+    "kind": "text",
+    "text": "PUBLISHED CONTEXT \u00b7 AUTHORS\u2019 13B / 40GB A100 EXAMPLE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "weights_figure",
+    "kind": "text",
+    "text": "~65%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": {
+     "doc_id": "Kwon et al. (2023)",
+     "page": null,
+     "note": "Published example; memory share for weights."
+    }
+   },
+   {
+    "id": "weights_label",
+    "kind": "text",
+    "text": "memory for weights",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "kv_figure",
+    "kind": "text",
+    "text": "~30%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": {
+     "doc_id": "Kwon et al. (2023)",
+     "page": null,
+     "note": "Published example; memory share for KV cache."
+    }
+   },
+   {
+    "id": "kv_label",
+    "kind": "text",
+    "text": "memory for KV cache",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 7.8,
+      "w": 88.8,
+      "h": 16.5
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 28.0,
+      "w": 46.0,
+      "h": 35.0
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 55.0,
+      "y": 28.0,
+      "w": 39.4,
+      "h": 35.0
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 68.0,
+      "w": 46.0,
+      "h": 23.0
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 28.3,
+      "y": 76.0,
+      "w": 0.1,
+      "h": 10.0
+     },
+     "fill": null,
+     "line": "accent5",
+     "line_pt": 1.2,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 7.0,
+      "y": 39.0,
+      "w": 43.0,
+      "h": 0.1
+     },
+     "fill": null,
+     "line": "accent5",
+     "line_pt": 1.2,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "header",
+     "frame": {
+      "x": 7.0,
+      "y": 10.0,
+      "w": 78.0,
+      "h": 9.5
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "decision_label",
+     "frame": {
+      "x": 57.0,
+      "y": 30.5,
+      "w": 34.0,
+      "h": 3.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "unmeasured",
+     "frame": {
+      "x": 7.0,
+      "y": 32.0,
+      "w": 43.0,
+      "h": 14.0
+     },
+     "role": "display",
+     "size_pt": 54.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "bottleneck_point",
+     "frame": {
+      "x": 7.0,
+      "y": 47.0,
+      "w": 42.0,
+      "h": 11.0
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "measure_heading",
+     "frame": {
+      "x": 57.0,
+      "y": 34.5,
+      "w": 34.0,
+      "h": 7.0
+     },
+     "role": "heading",
+     "size_pt": 24.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "measure_point",
+     "frame": {
+      "x": 57.0,
+      "y": 42.5,
+      "w": 34.0,
+      "h": 16.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_point",
+     "frame": {
+      "x": 57.0,
+      "y": 69.5,
+      "w": 36.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "example_label",
+     "frame": {
+      "x": 7.0,
+      "y": 70.0,
+      "w": 42.0,
+      "h": 3.5
+     },
+     "role": "label",
+     "size_pt": 10.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "weights_figure",
+     "frame": {
+      "x": 8.0,
+      "y": 75.0,
+      "w": 18.0,
+      "h": 10.0
+     },
+     "role": "display",
+     "size_pt": 38.0,
+     "bold": true,
+     "color": "accent4",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "weights_label",
+     "frame": {
+      "x": 8.0,
+      "y": 86.0,
+      "w": 18.0,
+      "h": 4.0
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "kv_figure",
+     "frame": {
+      "x": 30.5,
+      "y": 75.0,
+      "w": 18.0,
+      "h": 10.0
+     },
+     "role": "display",
+     "size_pt": 38.0,
+     "bold": true,
+     "color": "accent4",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "kv_label",
+     "frame": {
+      "x": 30.5,
+      "y": 86.0,
+      "w": 18.0,
+      "h": 4.0
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark control-room layout makes the unmeasured Northwind bottleneck the primary signal, while a green measurement gate and restrained published memory context keep the procurement decision evidence-led."
+  },
+  "marker": "provisional",
+  "serves": [
+   "p1"
+  ],
+  "brief": {
+   "header": "Serve better before buying more GPUs",
+   "intent": "Establish the decision: Northwind should first test serving-efficiency techniques, not infer that additional capacity is the first answer. The opening must be candid that Northwind\u2019s own bottleneck and savings remain unmeasured.",
+   "content": {
+    "points": [
+     "Serving cost per conversation constrains expansion of the shopping assistant",
+     "Northwind has not supplied GPU-utilisation telemetry, so its bottleneck is unmeasured",
+     "In authors\u2019 13B / 40GB A100 example: weights use roughly 65% of memory; KV cache nearly 30%",
+     "Measure throughput per GPU, P95 latency, quality and cost per conversation before procurement"
+    ],
+    "figures": [
+     {
+      "value": "~65%",
+      "label": "memory for weights"
+     },
+     {
+      "value": "~30%",
+      "label": "memory for KV cache"
+     }
+    ],
+    "chart": null
+   },
+   "notes": "The decision and data gap are the hero. The two memory figures are published context from Kwon et al. (2023), not Northwind measurements."
+  },
+  "composed": {
+   "brief_digest": "b36af249208347d67247e94a82a0f5394e69b2efce363ae4a487527ae697201f",
+   "system_id": "serving-control-room",
+   "system_version": 1,
+   "model_id": "openai/gpt-5.6-luna"
+  },
+  "compose_failure": null
+ }
+}

@@ -1,0 +1,280 @@
+{
+ "source": "slide bench round 1, sol, s4-quantisation, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s4-quantisation",
+  "intent": "Make 38% the unmistakable hero, with the quieter before/after cost bars and quality check proving that 8-bit quantisation delivers the saving without changing answers.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Quantisation alone cuts serving cost by 38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero-label",
+    "kind": "text",
+    "text": "lower monthly serving cost",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "method",
+    "kind": "text",
+    "text": "8-bit weights instead of 16-bit",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart-label",
+    "kind": "text",
+    "text": "MONTHLY SERVING COST ($K)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "bar",
+     "title": null,
+     "categories": [
+      "Before",
+      "After"
+     ],
+     "series": [
+      {
+       "name": "Monthly serving cost ($k)",
+       "values": [
+        412.0,
+        255.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quality",
+    "kind": "text",
+    "text": "Same answer quality on 2,000 test questions",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 44.0,
+      "h": 100.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 47.0,
+      "y": 5.5,
+      "w": 49.0,
+      "h": 89.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 51.0,
+      "y": 26.5,
+      "w": 40.0,
+      "h": 0.5
+     },
+     "fill": null,
+     "line": "lt2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 50.0,
+      "y": 77.0,
+      "w": 43.0,
+      "h": 12.5
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.86
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 52.0,
+      "y": 81.0,
+      "w": 1.8,
+      "h": 3.2
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.8,
+      "y": 8.0,
+      "w": 33.5,
+      "h": 27.0
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero",
+     "frame": {
+      "x": 5.8,
+      "y": 37.0,
+      "w": 33.5,
+      "h": 30.0
+     },
+     "role": "display",
+     "size_pt": 105.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "hero-label",
+     "frame": {
+      "x": 6.2,
+      "y": 70.0,
+      "w": 32.5,
+      "h": 6.5
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "method",
+     "frame": {
+      "x": 51.0,
+      "y": 10.0,
+      "w": 40.5,
+      "h": 12.0
+     },
+     "role": "heading",
+     "size_pt": 24.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart-label",
+     "frame": {
+      "x": 51.0,
+      "y": 28.5,
+      "w": 39.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "cost-chart",
+     "frame": {
+      "x": 51.0,
+      "y": 34.0,
+      "w": 41.0,
+      "h": 37.0
+     },
+     "accent": "accent2",
+     "emphasis": [
+      "After"
+     ]
+    },
+    {
+     "type": "text",
+     "block_id": "quality",
+     "frame": {
+      "x": 55.5,
+      "y": 79.0,
+      "w": 34.5,
+      "h": 8.5
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    }
+   ],
+   "rationale": "A full-height dark field gives the 38% figure billboard scale, while a single white evidence card keeps the before/after bars and unchanged-quality proof visibly secondary."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

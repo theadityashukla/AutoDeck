@@ -41,7 +41,7 @@ from autodeck.studio.conversation import (
     TurnEndLine,
     UserLine,
 )
-from autodeck.studio.design import DesignDraft, DesignSystem, TextPair
+from autodeck.studio.design import DesignDraft, DesignSystem, PaletteAttempt, TextPair
 from autodeck.studio.models import (
     COLOR_SLOTS,
     Block,
@@ -259,11 +259,20 @@ def composition_view(deck: DeckArtifact) -> dict[str, Any]:
     return out
 
 
+def _attempts_view(attempts: list[PaletteAttempt]) -> list[dict[str, Any]]:
+    return [
+        {"attempt": a.attempt, "accepted": a.accepted, "findings": list(a.findings)}
+        for a in attempts
+    ]
+
+
 def design_system_view(system: DesignSystem) -> dict[str, Any]:
     """Phase 2-3: the Design tab's data: `{"id", "version", "name", "concept", "rules",
     "marker", "is_default", "background", "made_by", "created_at" (ISO or None),
     "palette": [{"slot", "hex": "#RRGGBB", "role": role or ""}] one per slot in
-    `models.COLOR_SLOTS` order, "text_pairs": [{"text", "ground", "large_only"}]}`."""
+    `models.COLOR_SLOTS` order, "text_pairs": [{"text", "ground", "large_only"}], "palette_attempts": [{"attempt",
+    "accepted", "findings": [str]}]}` (the system layer's attempts; empty for the default and
+    for versions stored before they were recorded)."""
     return {
         "id": system.id,
         "version": system.version,
@@ -277,12 +286,14 @@ def design_system_view(system: DesignSystem) -> dict[str, Any]:
         "created_at": _iso(system.created_at) if system.created_at is not None else None,
         "palette": _palette_view(system.palette, system.roles),
         "text_pairs": _text_pairs_view(system.text_pairs),
+        "palette_attempts": _attempts_view(system.palette_attempts),
     }
 
 
 def design_draft_view(draft: DesignDraft) -> dict[str, Any]:
     """Phase 2-3: a proposal option's design: `{"name", "concept", "rules", "background",
-    "made_by", "palette": [...as design_system_view...], "text_pairs": [...]}`."""
+    "made_by", "palette": [...as design_system_view...], "text_pairs": [...], "palette_attempts":
+    [...as design_system_view...]}`."""
     return {
         "name": draft.name,
         "concept": draft.concept,
@@ -291,6 +302,7 @@ def design_draft_view(draft: DesignDraft) -> dict[str, Any]:
         "made_by": draft.made_by,
         "palette": _palette_view(draft.palette, draft.roles),
         "text_pairs": _text_pairs_view(draft.text_pairs),
+        "palette_attempts": _attempts_view(draft.palette_attempts),
     }
 
 
@@ -587,6 +599,28 @@ def _option_effect(option: ProposalOption, deck: DeckArtifact | None) -> str:
     return "; ".join(parts)
 
 
+def _slide_label(slide_id: str, ids: list[str]) -> str:
+    return f"slide {ids.index(slide_id) + 1}" if slide_id in ids else f"slide {slide_id}"
+
+
+def samples_summary(option: ProposalOption, deck: DeckArtifact | None) -> str:
+    """For a design option that recorded its samples, one sentence the owner can read:
+    `<k> of <n> samples rendered` and, per failed sample, `; slide <number> could not be
+    designed: <first finding>`. "" for any other option or an old record without samples.
+    Slide numbers come from `deck` (ids when it is not given or the slide is gone)."""
+    if option.design is None or not option.samples:
+        return ""
+    ids = [s.id for s in deck.slides] if deck is not None else []
+    n = len(option.samples)
+    k = sum(1 for o in option.samples if o.clean)
+    text = f"{k} of {n} sample{'s' if n != 1 else ''} rendered"
+    for o in option.samples:
+        if not o.clean:
+            why = clip(flat(o.findings[0]), 160) if o.findings else "no reason recorded"
+            text += f"; {_slide_label(o.slide_id, ids)} could not be designed: {why}"
+    return text
+
+
 def proposal_view(
     record: ProposalRecord,
     *,
@@ -599,7 +633,9 @@ def proposal_view(
     "replaces": slide id or None, "insert_at": position or None}] one per candidate,
     "applies": what applying it does in words (`_option_effect`; "" without candidates),
     "previews": (previews or {}).get(option id, []), "design": design_draft_view(design) or
-    None (Phase 2-3)}]}`. `previews` maps an option id to
+    None (Phase 2-3), "samples": [{"slide_id", "clean", "attempts", "findings": [str]}] (a
+    design option's per-sample outcomes; [] otherwise), "samples_summary":
+    `samples_summary(option, deck)`}]}`. `previews` maps an option id to
     its image URLs (built by the API); `deck` is the proposal's deck now, if it can be
     read, and gives the number of a replaced slide."""
     chosen_previews = previews or {}
@@ -627,6 +663,16 @@ def proposal_view(
                 "applies": _option_effect(o, deck),
                 "previews": list(chosen_previews.get(o.id, [])),
                 "design": design_draft_view(o.design) if o.design is not None else None,
+                "samples": [
+                    {
+                        "slide_id": x.slide_id,
+                        "clean": x.clean,
+                        "attempts": x.attempts,
+                        "findings": list(x.findings),
+                    }
+                    for x in o.samples
+                ],
+                "samples_summary": samples_summary(o, deck),
             }
             for o in record.options
         ],

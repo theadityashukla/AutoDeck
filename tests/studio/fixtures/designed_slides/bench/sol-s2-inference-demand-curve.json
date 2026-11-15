@@ -1,0 +1,295 @@
+{
+ "source": "slide bench round 1, sol, s2-inference, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s2-inference",
+  "intent": "Show that inference has overtaken training as the dominant AI cost by making the 2026 endpoint and its 79% share the unmistakable destination of a four-year rise.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Inference, not training, is now most of the bill",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_logic",
+    "kind": "text",
+    "text": "Training is paid once; every shopper question is paid for every time",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart_label",
+    "kind": "text",
+    "text": "INFERENCE SHARE OF AI SPEND (%)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "share_chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "column",
+     "title": null,
+     "categories": [
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026"
+     ],
+     "series": [
+      {
+       "name": "Inference share of AI spend (%)",
+       "values": [
+        30.0,
+        36.0,
+        42.0,
+        63.0,
+        79.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": {
+     "doc_id": "Northwind finance, FY2026 forecast",
+     "page": null,
+     "note": ""
+    }
+   },
+   {
+    "id": "hero_value",
+    "kind": "text",
+    "text": "79%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_label",
+    "kind": "text",
+    "text": "of AI spend goes on inference in 2026",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "old_state",
+    "kind": "text",
+    "text": "42% in 2024",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "volume",
+    "kind": "text",
+    "text": "The assistant answers 98 million questions a month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "source",
+    "kind": "text",
+    "text": "Source: Northwind finance, FY2026 forecast",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 5.6,
+      "y": 68.5,
+      "w": 88.8,
+      "h": 0.4
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.25
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.8,
+      "w": 88.8,
+      "h": 9.5
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_logic",
+     "frame": {
+      "x": 5.6,
+      "y": 20.2,
+      "w": 73.5,
+      "h": 6.2
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart_label",
+     "frame": {
+      "x": 5.6,
+      "y": 29.6,
+      "w": 55.5,
+      "h": 4.1
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "share_chart",
+     "frame": {
+      "x": 5.6,
+      "y": 34.5,
+      "w": 57.5,
+      "h": 54.5
+     },
+     "accent": "accent1",
+     "emphasis": [
+      "2026"
+     ]
+    },
+    {
+     "type": "text",
+     "block_id": "hero_value",
+     "frame": {
+      "x": 69.2,
+      "y": 32.8,
+      "w": 25.2,
+      "h": 22.8
+     },
+     "role": "display",
+     "size_pt": 84.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_label",
+     "frame": {
+      "x": 69.2,
+      "y": 56.2,
+      "w": 25.2,
+      "h": 10.2
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "old_state",
+     "frame": {
+      "x": 69.2,
+      "y": 71.7,
+      "w": 25.2,
+      "h": 7.2
+     },
+     "role": "heading",
+     "size_pt": 25.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "volume",
+     "frame": {
+      "x": 69.2,
+      "y": 81.1,
+      "w": 25.2,
+      "h": 8.9
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "source",
+     "frame": {
+      "x": 5.6,
+      "y": 92.1,
+      "w": 55.5,
+      "h": 3.1
+     },
+     "role": "caption",
+     "size_pt": 10.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A rising five-column history runs into a large endpoint callout hung from the slide\u2019s single horizontal demand line, with peach reserved for the 2026 inference destination and blue for the 2024 before-state."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

@@ -1,0 +1,325 @@
+{
+ "source": "slide bench round 1, luna, s3-techniques, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s3-techniques",
+  "intent": "Make the audience see three distinct techniques side by side, with quantisation unmistakably the largest saving and each technique paired with its practical effect and value.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Three techniques account for most of the saving",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant_name",
+    "kind": "text",
+    "text": "Quantisation",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant_desc",
+    "kind": "text",
+    "text": "smaller numbers inside the model, same answers",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant_value",
+    "kind": "text",
+    "text": "\u221238%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache_name",
+    "kind": "text",
+    "text": "Context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache_desc",
+    "kind": "text",
+    "text": "reuse the part every request repeats",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache_value",
+    "kind": "text",
+    "text": "\u221221%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch_name",
+    "kind": "text",
+    "text": "Request batching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch_desc",
+    "kind": "text",
+    "text": "answer shoppers in groups at peak",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch_value",
+    "kind": "text",
+    "text": "2.3\u00d7",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 39.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 45.5,
+      "w": 28.5,
+      "h": 47.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 36.6,
+      "y": 45.5,
+      "w": 28.5,
+      "h": 47.0
+     },
+     "fill": "lt1",
+     "line": "accent6",
+     "line_pt": 1.2,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 67.6,
+      "y": 45.5,
+      "w": 26.8,
+      "h": 47.0
+     },
+     "fill": "lt1",
+     "line": "accent6",
+     "line_pt": 1.2,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 10.0,
+      "w": 88.8,
+      "h": 17.0
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "quant_value",
+     "frame": {
+      "x": 7.8,
+      "y": 51.5,
+      "w": 24.1,
+      "h": 20.5
+     },
+     "role": "display",
+     "size_pt": 78.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant_name",
+     "frame": {
+      "x": 7.8,
+      "y": 73.5,
+      "w": 24.1,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant_desc",
+     "frame": {
+      "x": 7.8,
+      "y": 80.0,
+      "w": 24.1,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache_value",
+     "frame": {
+      "x": 38.8,
+      "y": 53.0,
+      "w": 24.1,
+      "h": 15.5
+     },
+     "role": "display",
+     "size_pt": 58.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache_name",
+     "frame": {
+      "x": 38.8,
+      "y": 70.5,
+      "w": 24.1,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache_desc",
+     "frame": {
+      "x": 38.8,
+      "y": 77.5,
+      "w": 24.1,
+      "h": 11.5
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch_value",
+     "frame": {
+      "x": 69.8,
+      "y": 53.0,
+      "w": 22.4,
+      "h": 15.5
+     },
+     "role": "display",
+     "size_pt": 58.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch_name",
+     "frame": {
+      "x": 69.8,
+      "y": 70.5,
+      "w": 22.4,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch_desc",
+     "frame": {
+      "x": 69.8,
+      "y": 77.5,
+      "w": 22.4,
+      "h": 11.5
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark headline band establishes the claim, while three deliberately unequal cards turn the techniques into a glanceable comparison; the filled quantisation card and oversized \u221238% make the primary saving unmistakable."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

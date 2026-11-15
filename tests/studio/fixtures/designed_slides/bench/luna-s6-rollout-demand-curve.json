@@ -1,0 +1,286 @@
+{
+ "source": "slide bench round 1, luna, s6-rollout, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s6-rollout",
+  "intent": "Show a reversible three-phase timeline across Jan\u2013Jun 2027, with savings stepping from 15% to 30% and landing at the full 38% run rate in June.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "A phased rollout over two quarters keeps risk low while the savings build",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "runrate-label",
+    "kind": "text",
+    "text": "SAVINGS RUN RATE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "saving-pilot",
+    "kind": "text",
+    "text": "15%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "saving-scale",
+    "kind": "text",
+    "text": "30%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "saving-full",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase-pilot",
+    "kind": "text",
+    "text": "Pilot, Jan\u2013Feb 2027:\nquantised model on 5% of traffic",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase-scale",
+    "kind": "text",
+    "text": "Scale, Mar\u2013Apr 2027:\nall traffic, plus context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase-optimise",
+    "kind": "text",
+    "text": "Optimise, May\u2013Jun 2027:\nbatching at peak, full run rate",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 9.0,
+      "y": 58.5,
+      "w": 82.0,
+      "h": 0.5
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 2.25,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 15.1,
+      "y": 57.4,
+      "w": 1.8,
+      "h": 2.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 49.1,
+      "y": 57.4,
+      "w": 1.8,
+      "h": 2.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 83.1,
+      "y": 57.4,
+      "w": 1.8,
+      "h": 2.0
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 7.5,
+      "w": 76.0,
+      "h": 18.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "runrate-label",
+     "frame": {
+      "x": 6.0,
+      "y": 30.0,
+      "w": 25.0,
+      "h": 3.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "saving-pilot",
+     "frame": {
+      "x": 9.0,
+      "y": 35.0,
+      "w": 15.0,
+      "h": 15.0
+     },
+     "role": "display",
+     "size_pt": 48.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "saving-scale",
+     "frame": {
+      "x": 43.0,
+      "y": 33.5,
+      "w": 15.0,
+      "h": 16.5
+     },
+     "role": "display",
+     "size_pt": 48.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "saving-full",
+     "frame": {
+      "x": 76.0,
+      "y": 28.0,
+      "w": 17.0,
+      "h": 22.0
+     },
+     "role": "display",
+     "size_pt": 72.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase-pilot",
+     "frame": {
+      "x": 6.0,
+      "y": 65.0,
+      "w": 25.0,
+      "h": 15.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase-scale",
+     "frame": {
+      "x": 38.0,
+      "y": 65.0,
+      "w": 25.0,
+      "h": 15.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase-optimise",
+     "frame": {
+      "x": 70.0,
+      "y": 65.0,
+      "w": 25.0,
+      "h": 15.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single cool horizontal demand line carries three reversible rollout points, while the enlarged peach 38% destination makes the cumulative savings build unmistakable."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

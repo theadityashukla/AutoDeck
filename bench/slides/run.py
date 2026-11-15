@@ -918,6 +918,384 @@ def _validation_message(exc: ValidationError) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The reviewer
+# ---------------------------------------------------------------------------
+
+REVIEW_TOOL_NAME = "report"
+REVIEW_IMAGE_WIDTH = 1600
+REVIEW_PROMPT_NAME = "review.md"
+REVIEW_NUDGE_TEXT = (
+    "You did not call report. Review the slide by calling report exactly once, with the "
+    "verdict, the findings and a one-sentence summary; do not answer in prose."
+)
+PALETTE_SLOTS = (
+    "dk1",
+    "lt1",
+    "dk2",
+    "lt2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+)
+
+
+class ReviewFinding(ToolArgs):
+    severity: Literal["blocking", "minor"] = Field(
+        description="blocking: the slide must not go out like this. minor: worth fixing."
+    )
+    where: str = Field(description="Where on the slide, in words a designer can find.")
+    problem: str = Field(description="What is wrong, as seen in the image.")
+    fix: str = Field(description="What to change, specific enough to act on.")
+
+
+class ReportArgs(ToolArgs):
+    """`report`: the reviewer's one answer."""
+
+    verdict: Literal["pass", "revise"] = Field(
+        description="pass if the slide can go out; revise if it needs another pass."
+    )
+    findings: list[ReviewFinding] = Field(
+        default_factory=list,
+        description="Empty for a pass. A revise needs at least one blocking finding.",
+    )
+    summary: str = Field(default="", description="One sentence.")
+
+
+REPORT_TOOL = ToolSpec(
+    name=REVIEW_TOOL_NAME,
+    description=(
+        "Report your review of the slide. Call it exactly once: your verdict, your findings "
+        "and a one-sentence summary."
+    ),
+    args_model=ReportArgs,
+)
+
+
+def build_review_user_text(
+    case: Case, concept: Concept, tokens_path: Path = DEFAULT_TOKENS_PATH
+) -> str:
+    """The text half of the reviewer's user message: the slide's brief, then the design
+    concept, with the brief author's notes after the content. A stable, plain format; no
+    layout, no JSON."""
+    content = case.content
+    lines = ["# Slide brief", f"Talking header: {case.title}"]
+    lines += ["", "Intent (what the slide must make the audience conclude):"]
+    lines.append(case.intent.strip() or "(none given)")
+    lines += ["", "Content:"]
+    empty = True
+    if content.points:
+        empty = False
+        lines += ["Points:", *[f"- {p}" for p in content.points]]
+    if content.figures:
+        empty = False
+        lines += ["Key figures:", *[f"- {f.value}: {f.label}" for f in content.figures]]
+    if content.chart is not None:
+        empty = False
+        chart = content.chart
+        lines.append(f"Chart ({chart.kind}), categories: " + ", ".join(chart.categories))
+        for series in chart.series:
+            lines.append(f"- {series.name}: " + ", ".join(f"{v:g}" for v in series.values))
+        if chart.emphasis:
+            lines.append("Emphasised: " + ", ".join(chart.emphasis))
+    if empty:
+        lines.append("(none)")
+    if case.notes.strip():
+        lines += ["", "Notes from the brief's author:", case.notes.strip()]
+    lines += ["", "# Design concept"]
+    has_concept = bool(
+        concept.concept.strip() or concept.rules or concept.palette or concept.name.strip()
+    )
+    if concept.id == "none" or not has_concept:
+        lines.append("None given.")
+    else:
+        if concept.name.strip():
+            lines.append(f"Name: {concept.name.strip()}")
+        if concept.concept.strip():
+            lines.append(f"Concept: {concept.concept.strip()}")
+        if concept.rules:
+            lines += ["Rules:", *[f"- {r}" for r in concept.rules]]
+        if concept.palette or concept.roles:
+            scheme = tokens_for_concept(concept, tokens_path).palette.as_scheme()
+            lines.append("Palette (slot, colour, role):")
+            for slot in PALETTE_SLOTS:
+                role = concept.roles.get(slot, "")
+                lines.append(f"- {slot} #{scheme[slot]}" + (f": {role}" if role else ""))
+    lines += [
+        "",
+        "# The rendered slide",
+        f"The image below is the rendered slide, {REVIEW_IMAGE_WIDTH} pixels wide. Review it "
+        f"and call {REVIEW_TOOL_NAME}.",
+    ]
+    return "\n".join(lines)
+
+
+def load_review_prompt(bench_dir: Path) -> str:
+    """`prompts/review.md`, exactly as written (no placeholders)."""
+    path = bench_dir / "prompts" / REVIEW_PROMPT_NAME
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise BenchInputError(f"reviewer prompt not readable: {path}: {exc}") from exc
+
+
+def review_image(path: Path) -> tuple[ImageInput, dict[str, int]]:
+    """The slide render as the reviewer sees it: a PNG, 1600 pixels wide."""
+    import io
+
+    from PIL import Image
+
+    with Image.open(path) as opened:
+        image = opened.convert("RGB")
+        if image.width != REVIEW_IMAGE_WIDTH:
+            height = max(1, round(image.height * REVIEW_IMAGE_WIDTH / image.width))
+            image = image.resize((REVIEW_IMAGE_WIDTH, height), Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+    data = buffer.getvalue()
+    return ImageInput(data=data), {
+        "width": image.width,
+        "height": image.height,
+        "bytes": len(data),
+    }
+
+
+def review_feedback_text(report: dict[str, Any]) -> str:
+    """The designer's next instruction after a `revise`: the blocking findings, then the
+    minor ones marked optional, each quoted as the reviewer wrote it."""
+
+    def block(title: str, items: list[dict[str, str]]) -> list[str]:
+        out = [title]
+        for n, f in enumerate(items, 1):
+            out += [
+                f"{n}. Where: {f['where']}",
+                f"   Problem: {f['problem']}",
+                f"   Fix: {f['fix']}",
+            ]
+        return out
+
+    findings = report["findings"]
+    blocking = [f for f in findings if f["severity"] == "blocking"]
+    minor = [f for f in findings if f["severity"] == "minor"]
+    lines = [
+        "A reviewer looked at the rendered slide and asked for a revision. Its findings "
+        "follow, verbatim. Fix every blocking finding. The minor findings are optional. "
+        f"Then call {TOOL_NAME} with the whole corrected slide.",
+    ]
+    if report.get("summary"):
+        lines += ["", f"Reviewer's summary: {report['summary']}"]
+    lines += ["", *block("BLOCKING findings (fix these):", blocking)]
+    if minor:
+        lines += ["", *block("MINOR findings (optional):", minor)]
+    return "\n".join(lines)
+
+
+@dataclass
+class ReviewItem:
+    """One slide to review: a render, its brief and its concept."""
+
+    label: str
+    image: Path
+    case: Case
+    concept: Concept
+    source: str = ""
+    designer_model: str = ""
+
+
+class Reviewer:
+    """The reviewer model: one call per slide, one tool, one nudge."""
+
+    def __init__(
+        self,
+        name: str,
+        model: ConverseModel,
+        system: str,
+        price: Price | None,
+        ledger: Ledger,
+        *,
+        reasoning: str = "default",
+        tokens_path: Path = DEFAULT_TOKENS_PATH,
+    ) -> None:
+        self.name = name
+        self.model = model
+        self.system = system
+        self.price = price
+        self.ledger = ledger
+        self.reasoning = reasoning
+        self.tokens_path = tokens_path
+
+    def review(self, item: ReviewItem, image_path: Path | None = None) -> dict[str, Any]:
+        """Review one render. Returns the review record (never raises for model or budget
+        trouble); the record carries a private `_messages` list for the transcript."""
+        path = image_path or item.image
+        started = time.perf_counter()
+        record: dict[str, Any] = {
+            "slide": item.label,
+            "case": item.case.id,
+            "concept": item.concept.id,
+            "reviewer": self.name,
+            "status": "failed",
+            "verdict": None,
+            "raw_verdict": None,
+            "downgraded": False,
+            "pass_with_blocking": False,
+            "findings": [],
+            "summary": "",
+            "error": "",
+            "calls": 0,
+            "nudged": False,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "seconds": 0.0,
+            "cost_usd": 0.0,
+            "priced": self.price is not None,
+            "reasoning": self.reasoning,
+            "raw_tool_call": None,
+            "image_sent": {},
+        }
+        messages: list[Message] = []
+        record["_messages"] = messages
+        try:
+            image, sent = review_image(path)
+            record["image_sent"] = sent
+            messages.append(
+                ImageMessage(
+                    role="user",
+                    content=build_review_user_text(item.case, item.concept, self.tokens_path),
+                    images=(image,),
+                )
+            )
+            self._converse(record, messages)
+        except BudgetStop as exc:
+            record["status"] = "budget_stopped"
+            record["error"] = str(exc)
+        except Exception as exc:
+            record["status"] = "failed"
+            record["error"] = scrub(f"{type(exc).__name__}: {exc}")
+        record["seconds"] = round(time.perf_counter() - started, 2)
+        record["cost_usd"] = round(record["cost_usd"], 6)
+        return record
+
+    def _converse(self, record: dict[str, Any], messages: list[Message]) -> None:
+        for attempt in (1, 2):
+            self.ledger.check()
+            started = time.perf_counter()
+            turn = self.model.converse(list(messages), [REPORT_TOOL], system=self.system)
+            elapsed = time.perf_counter() - started
+            usage = turn.usage
+            record["calls"] += 1
+            record["input_tokens"] += usage.input_tokens
+            record["output_tokens"] += usage.output_tokens
+            record["reasoning_tokens"] += getattr(usage, "reasoning_tokens", 0)
+            if self.price is not None:
+                cost = estimate_cost(self.price, usage.input_tokens, usage.output_tokens)
+                record["cost_usd"] += cost
+                self.ledger.add(cost)
+            messages.append(
+                Message(role="assistant", content=turn.text, tool_calls=list(turn.tool_calls))
+            )
+            reports = [c for c in turn.tool_calls if c.name == REVIEW_TOOL_NAME]
+            problem = ""
+            if reports:
+                call = reports[0]
+                record["raw_tool_call"] = {
+                    "id": call.id,
+                    "name": call.name,
+                    "arguments": call.arguments,
+                }
+                if "__invalid__" in call.arguments:
+                    problem = "The arguments were not valid JSON."
+                else:
+                    try:
+                        args = ReportArgs.model_validate(call.arguments)
+                    except ValidationError as exc:
+                        problem = _validation_message(exc)
+                    else:
+                        self._accept(record, args)
+                        return
+            record["seconds_last_call"] = round(elapsed, 2)
+            if attempt == 2:
+                record["error"] = scrub(
+                    f"the reviewer did not call {REVIEW_TOOL_NAME} correctly (after one nudge)"
+                    + (f": {problem}" if problem else "")
+                )
+                return
+            record["nudged"] = True
+            text = REVIEW_NUDGE_TEXT
+            if problem:
+                text = f"The report call was rejected:\n{problem}\n{REVIEW_NUDGE_TEXT}"
+            if turn.tool_calls:
+                for call in turn.tool_calls:
+                    messages.append(Message(role="tool", content=text, tool_call_id=call.id))
+            else:
+                messages.append(Message(role="user", content=text))
+
+    @staticmethod
+    def _accept(record: dict[str, Any], args: ReportArgs) -> None:
+        findings = [f.model_dump() for f in args.findings]
+        blocking = any(f["severity"] == "blocking" for f in findings)
+        record["raw_verdict"] = args.verdict
+        record["findings"] = findings
+        record["summary"] = args.summary.strip()
+        record["status"] = "ok"
+        if args.verdict == "revise" and not blocking:
+            record["verdict"] = "pass"
+            record["downgraded"] = True
+        else:
+            record["verdict"] = args.verdict
+        if args.verdict == "pass" and blocking:
+            record["pass_with_blocking"] = True
+
+
+def write_review_files(
+    directory: Path, stem: str, record: dict[str, Any], image_name: str
+) -> None:
+    """`<stem>.json` (the record) and `<stem>.transcript.json` (the messages, the image
+    replaced by its file name)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    messages: list[Message] = record.get("_messages", [])
+    public = {k: v for k, v in record.items() if not k.startswith("_")}
+    public["image_file"] = image_name
+    (directory / f"{stem}.json").write_text(
+        scrub(json.dumps(public, indent=2, ensure_ascii=False)), encoding="utf-8"
+    )
+    transcript = {
+        "system": "(the contents of prompts/review.md)",
+        "messages": _serialise_messages(messages, [image_name]),
+    }
+    (directory / f"{stem}.transcript.json").write_text(
+        scrub(json.dumps(transcript, indent=2, ensure_ascii=False)), encoding="utf-8"
+    )
+
+
+def review_summary_fields(record: dict[str, Any] | None) -> dict[str, Any] | None:
+    """What trial.json and the summaries keep of one review."""
+    if record is None:
+        return None
+    findings = record["findings"]
+    return {
+        "status": record["status"],
+        "verdict": record["verdict"],
+        "raw_verdict": record["raw_verdict"],
+        "downgraded": record["downgraded"],
+        "pass_with_blocking": record["pass_with_blocking"],
+        "n_blocking": sum(f["severity"] == "blocking" for f in findings),
+        "n_minor": sum(f["severity"] == "minor" for f in findings),
+        "findings": findings,
+        "summary": record["summary"],
+        "error": record["error"],
+        "nudged": record["nudged"],
+        "input_tokens": record["input_tokens"],
+        "output_tokens": record["output_tokens"],
+        "seconds": record["seconds"],
+        "cost_usd": record["cost_usd"],
+    }
+
+
+# ---------------------------------------------------------------------------
 # One trial
 # ---------------------------------------------------------------------------
 
@@ -985,6 +1363,7 @@ class TrialContext:
     qa: Callable[[Slide, DesignTokens], list[Finding]] = qa_findings
     render: Callable[..., str] = render_slide
     reasoning: str = "default"
+    reviewer: Reviewer | None = None
 
 
 class Trial:
@@ -1009,6 +1388,7 @@ class Trial:
         self.error = ""
         self.status: Status = "unclean"
         self.image_names: list[str] = []
+        self.reviews: dict[str, dict[str, Any] | None] = {"first": None, "second": None}
 
     # -- model calls ---------------------------------------------------------
 
@@ -1088,6 +1468,8 @@ class Trial:
                 self._render_final()
                 if self.spec.feedback == "visual" and self.rendered:
                     self._visual()
+                elif self.spec.feedback == "review" and self.rendered:
+                    self._review()
             self.status = "clean" if self.clean else "unclean"
         except BudgetStop as exc:
             self.status = "budget_stopped"
@@ -1155,20 +1537,55 @@ class Trial:
         self.messages.append(
             ImageMessage(role="user", content=VISUAL_QUESTION, images=(image,))
         )
+        self._revise(done_is_ok=True)
+
+    def _review(self) -> None:
+        """Review the clean slide; on `revise`, send the findings to the designer for one
+        revision (same validation and QA, one retry); review the revised slide once more."""
+        reviewer = self.ctx.reviewer
+        assert reviewer is not None and self.slide is not None
+        first = reviewer.review(self._review_item(), self.dir / "slide.png")
+        self.reviews["first"] = first
+        if first["status"] != "ok":
+            return
+        if first["verdict"] != "revise":
+            self.revision = {"state": "not_needed"}
+            return
+        self.messages.append(Message(role="user", content=review_feedback_text(first)))
+        self._revise(done_is_ok=False)
+        if self.revision["state"] == "revised":
+            self.reviews["second"] = reviewer.review(self._review_item(), self.dir / "slide.png")
+
+    def _review_item(self) -> ReviewItem:
+        return ReviewItem(
+            label=self.spec.key,
+            image=self.dir / "slide.png",
+            case=self.spec.case,
+            concept=self.spec.concept,
+            designer_model=self.spec.model,
+        )
+
+    def _revise(self, *, done_is_ok: bool) -> None:
+        """One revision call, with one retry if the slide fails validation or QA. The
+        revised slide replaces the earlier one only if it is clean and renders; otherwise
+        the earlier clean slide is kept."""
         calls: list[dict[str, Any]] = []
         self.revision = {"state": "kept_original", "calls": calls}
         before = self.slide
+        assert before is not None
         for k in (1, 2):
             try:
                 turn, info = self._call()
             except BudgetStop as exc:
+                self.slide = before
                 self.revision["state"] = "skipped_budget"
                 self.revision["note"] = str(exc)
                 return
             calls.append(info)
             writes = [c for c in turn.tool_calls if c.name == TOOL_NAME]
             if not writes:
-                info["outcome"] = "done" if k == 1 else "no_tool_call"
+                self.slide = before
+                info["outcome"] = "done" if (done_is_ok and k == 1) else "no_tool_call"
                 info["text"] = scrub(turn.text[:200])
                 self.revision["state"] = "kept_original" if k == 1 else "failed"
                 return
@@ -1230,6 +1647,14 @@ class Trial:
             ),
             encoding="utf-8",
         )
+        revised = self.revision["state"] == "revised"
+        for key, number, name in (
+            ("first", 1, "slide.before.png" if revised else "slide.png"),
+            ("second", 2, "slide.png"),
+        ):
+            review_record = self.reviews[key]
+            if review_record is not None:
+                write_review_files(self.dir, f"review-{number}", review_record, name)
         priced = self.ctx.price is not None
         cost = (
             estimate_cost(self.ctx.price, self.input_tokens, self.output_tokens)
@@ -1252,9 +1677,11 @@ class Trial:
             "reasoning_tokens": self.reasoning_tokens,
             "seconds": round(seconds, 2),
             "cost_usd": round(cost, 6),
+            **review_cost_fields(cost, self.reviews),
             "priced": priced,
             "reasoning": self.ctx.reasoning,
             "revision": self.revision,
+            "review": review_trial_fields(self.spec.feedback, self.revision, self.reviews),
             "rendered": self.rendered,
             "render_note": self.render_note,
             "findings": [] if self.clean else self.findings,
@@ -1266,6 +1693,43 @@ class Trial:
             json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         return record
+
+
+def review_cost_fields(
+    designer_cost: float, reviews: dict[str, dict[str, Any] | None]
+) -> dict[str, Any]:
+    """The reviewer's spend, kept apart from the designer's `cost_usd`, and the total."""
+    done = [v for v in reviews.values() if v is not None]
+    review_cost = sum(v["cost_usd"] for v in done)
+    return {
+        "review_calls": sum(v["calls"] for v in done),
+        "review_input_tokens": sum(v["input_tokens"] for v in done),
+        "review_output_tokens": sum(v["output_tokens"] for v in done),
+        "review_seconds": round(sum(v["seconds"] for v in done), 2),
+        "review_cost_usd": round(review_cost, 6),
+        "total_cost_usd": round(designer_cost + review_cost, 6),
+    }
+
+
+def review_trial_fields(
+    feedback: str, revision: dict[str, Any], reviews: dict[str, dict[str, Any] | None]
+) -> dict[str, Any] | None:
+    """The review story of one trial: first verdict, whether a revision happened and was
+    clean, second verdict."""
+    if feedback != "review":
+        return None
+    first = review_summary_fields(reviews["first"])
+    second = review_summary_fields(reviews["second"])
+    state = revision.get("state", "")
+    return {
+        "first": first,
+        "second": second,
+        "first_verdict": (first or {}).get("verdict"),
+        "revision": state,
+        "revised": state == "revised",
+        "revision_clean": state == "revised",
+        "second_verdict": (second or {}).get("verdict"),
+    }
 
 
 def _finding(check: str, message: str) -> Finding:
@@ -1291,9 +1755,11 @@ def skipped_record(spec: TrialSpec, out: Path, reason: str) -> dict[str, Any]:
         "reasoning_tokens": 0,
         "seconds": 0.0,
         "cost_usd": 0.0,
+        **review_cost_fields(0.0, {"first": None, "second": None}),
         "priced": True,
         "reasoning": "",
         "revision": {"state": "n/a"},
+        "review": None,
         "rendered": False,
         "render_note": "",
         "findings": [],
@@ -1328,8 +1794,14 @@ CSV_COLUMNS = [
     "reasoning_tokens",
     "seconds",
     "cost_usd",
+    "review_cost_usd",
+    "total_cost_usd",
     "reasoning",
     "revision",
+    "review_first",
+    "review_revised",
+    "review_revision_clean",
+    "review_second",
     "n_text",
     "n_shape",
     "n_chart",
@@ -1346,6 +1818,32 @@ CSV_COLUMNS = [
 
 def _mean(values: Sequence[float]) -> float | None:
     return round(sum(values) / len(values), 3) if values else None
+
+
+def review_counts(records: Sequence[dict[str, Any]]) -> dict[str, int]:
+    """How the reviewer's verdicts went, over the trials that used it."""
+    reviewed = [r for r in records if r.get("review")]
+    firsts = [r["review"]["first"] for r in reviewed if r["review"]["first"]]
+    seconds = [r["review"]["second"] for r in reviewed if r["review"]["second"]]
+
+    def n(items: list[dict[str, Any]], verdict: str) -> int:
+        return sum(1 for i in items if i["verdict"] == verdict)
+
+    return {
+        "trials_reviewed": len(reviewed),
+        "first_pass": n(firsts, "pass"),
+        "first_revise": n(firsts, "revise"),
+        "first_downgraded": sum(1 for i in firsts if i["downgraded"]),
+        "first_failed": sum(1 for i in firsts if i["status"] == "failed"),
+        "revisions": sum(1 for r in reviewed if r["review"]["revised"]),
+        "revisions_failed": sum(1 for r in reviewed if r["review"]["revision"] == "failed"),
+        "second_pass": n(seconds, "pass"),
+        "second_revise": n(seconds, "revise"),
+        "second_failed": sum(1 for i in seconds if i["status"] == "failed"),
+        "review_calls_budget_stopped": sum(
+            1 for i in [*firsts, *seconds] if i["status"] == "budget_stopped"
+        ),
+    }
 
 
 def aggregate(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
@@ -1365,6 +1863,13 @@ def aggregate(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "reasoning_tokens": sum(r["reasoning_tokens"] for r in ran),
         "cost_usd": round(sum(r["cost_usd"] for r in ran), 6),
         "mean_cost_usd": _mean([r["cost_usd"] for r in ran]),
+        "review_cost_usd": round(sum(r.get("review_cost_usd", 0.0) for r in ran), 6),
+        "total_cost_usd": round(
+            sum(r.get("total_cost_usd", r["cost_usd"]) for r in ran), 6
+        ),
+        "review_input_tokens": sum(r.get("review_input_tokens", 0) for r in ran),
+        "review_output_tokens": sum(r.get("review_output_tokens", 0) for r in ran),
+        "reviews": review_counts(ran),
         "mean_element_counts": {
             kind: _mean([r["element_counts"].get(kind, 0) for r in with_slide])
             for kind in COUNT_KINDS
@@ -1387,6 +1892,18 @@ def summarise(records: Sequence[dict[str, Any]], *, models: Sequence[str]) -> di
     return {
         "models": {m: aggregate(recs) for m, recs in by_model.items()},
         "groups": groups,
+    }
+
+
+def _review_csv(r: dict[str, Any]) -> dict[str, Any]:
+    review = r.get("review")
+    if not review:
+        return {}
+    return {
+        "review_first": review["first_verdict"] or "",
+        "review_revised": int(review["revised"]),
+        "review_revision_clean": int(review["revision_clean"]),
+        "review_second": review["second_verdict"] or "",
     }
 
 
@@ -1425,8 +1942,11 @@ def write_summary(
                     "reasoning_tokens": r["reasoning_tokens"],
                     "seconds": r["seconds"],
                     "cost_usd": r["cost_usd"],
+                    "review_cost_usd": r.get("review_cost_usd", 0.0),
+                    "total_cost_usd": r.get("total_cost_usd", r["cost_usd"]),
                     "reasoning": r.get("reasoning", ""),
                     "revision": r["revision"].get("state", ""),
+                    **_review_csv(r),
                     **{f"n_{k}": counts.get(k, 0) for k in COUNT_KINDS},
                     "findings": " | ".join(
                         f"[{f['check']}] {f['block']}: {f['message']}" for f in r["findings"]
@@ -1448,6 +1968,8 @@ def write_summary(
                     "output_tokens": agg["output_tokens"],
                     "reasoning_tokens": agg["reasoning_tokens"],
                     "cost_usd": agg["cost_usd"],
+                    "review_cost_usd": agg["review_cost_usd"],
+                    "total_cost_usd": agg["total_cost_usd"],
                     "reasoning": "/".join(agg["reasoning"]),
                     **{f"n_{k}": agg["mean_element_counts"][k] for k in COUNT_KINDS},
                 }
@@ -1528,6 +2050,14 @@ def _cell_text(r: dict[str, Any]) -> tuple[str, str]:
     detail = (
         f"{r['input_tokens']:,} in / {r['output_tokens']:,} out tokens  {r['seconds']:.0f}s"
     )
+    review = r.get("review")
+    if review:
+        story = [review["first_verdict"] or "no review"]
+        if review["revision"] not in ("not_needed", "not_attempted", "n/a"):
+            story.append(review["revision"])
+        if review["second_verdict"]:
+            story.append(review["second_verdict"])
+        detail += "  review: " + " > ".join(story)
     return headline, detail
 
 
@@ -1620,6 +2150,180 @@ def _draw_cell(
         lines = [*lines[: room - 1], "..."]
     for i, line in enumerate(lines):
         draw.text((x + 10, top + 6 + i * 15), line, font=f_small, fill=(120, 20, 20))
+
+
+# ---------------------------------------------------------------------------
+# Review contact sheets: slides beside what the reviewer said
+# ---------------------------------------------------------------------------
+
+REVIEW_IMG_W = 600
+REVIEW_TEXT_W = 780
+REVIEW_LINE_H = 20
+REVIEW_ROWS_PER_PAGE = 10
+_GREEN, _ORANGE, _RED, _GREY, _INK = (
+    (46, 125, 50),
+    (200, 110, 0),
+    (190, 40, 40),
+    (110, 110, 110),
+    (25, 25, 25),
+)
+
+
+@dataclass
+class SheetRow:
+    """One row of a review sheet: one or two captioned images, then text blocks."""
+
+    title: str
+    images: list[tuple[str, Path | None]]
+    blocks: list[tuple[str, tuple[int, int, int], bool]] = field(default_factory=list)
+
+
+def verdict_text(review: dict[str, Any] | None, label: str = "") -> tuple[str, tuple[int, ...]]:
+    """(headline, colour) for one review summary or record."""
+    prefix = f"{label}: " if label else ""
+    if review is None:
+        return f"{prefix}not reviewed", _GREY
+    status = review["status"]
+    if status == "budget_stopped":
+        return f"{prefix}NOT RUN (budget guard)", _GREY
+    if status != "ok":
+        return f"{prefix}REVIEW FAILED: {review['error']}", _RED
+    verdict = (review["verdict"] or "").upper()
+    note = ""
+    if review["downgraded"]:
+        note = "  (the reviewer said revise with no blocking finding: counted as pass)"
+    if review["pass_with_blocking"]:
+        note = "  (passed, yet lists a blocking finding)"
+    return f"{prefix}{verdict}{note}", _ORANGE if verdict == "REVISE" else _GREEN
+
+
+def review_blocks(
+    review: dict[str, Any] | None, label: str = ""
+) -> list[tuple[str, tuple[int, int, int], bool]]:
+    head, colour = verdict_text(review, label)
+    blocks: list[tuple[str, tuple[int, int, int], bool]] = [
+        (head, typing.cast(tuple[int, int, int], colour), True)
+    ]
+    if review is None or review["status"] != "ok":
+        return blocks
+    if review["summary"]:
+        blocks.append((review["summary"], _INK, False))
+    for n, f in enumerate(review["findings"], 1):
+        colour = _RED if f["severity"] == "blocking" else _GREY
+        blocks.append(
+            (
+                f"{n}. [{f['severity'].upper()}] {f['where']}\n"
+                f"Problem: {f['problem']}\nFix: {f['fix']}",
+                colour,
+                False,
+            )
+        )
+    if not review["findings"]:
+        blocks.append(("No findings.", _GREY, False))
+    return blocks
+
+
+def write_row_sheet(
+    out: Path, stem: str, title: str, subtitle: str, rows: Sequence[SheetRow]
+) -> list[Path]:
+    """Paginated sheets of rows (images left, wrapped text right). Text is never truncated:
+    a row grows to hold it."""
+    from PIL import Image, ImageDraw
+
+    if not rows:
+        return []
+    pages = [
+        rows[i : i + REVIEW_ROWS_PER_PAGE] for i in range(0, len(rows), REVIEW_ROWS_PER_PAGE)
+    ]
+    n_img = max(len(r.images) for r in rows)
+    text_x = CELL_PAD + n_img * (REVIEW_IMG_W + CELL_PAD) + CELL_PAD
+    width = text_x + REVIEW_TEXT_W + CELL_PAD
+    f_title, f_bold, f_text = _font(26, True), _font(16, True), _font(15)
+    f_cap = _font(13)
+    paths: list[Path] = []
+    for page_no, page in enumerate(pages, 1):
+        layouts = []
+        for row in page:
+            probe = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+            lines: list[tuple[str, tuple[int, int, int], bool]] = [
+                (row.title, _INK, True),
+            ]
+            for text, colour, bold in row.blocks:
+                for line in _wrap(probe, text, f_bold if bold else f_text, REVIEW_TEXT_W):
+                    lines.append((line, colour, bold))
+                lines.append(("", colour, False))
+            img_h = round(REVIEW_IMG_W * 9 / 16) + 24
+            height = max(img_h, len(lines) * REVIEW_LINE_H) + 2 * CELL_PAD
+            layouts.append((row, lines, height))
+        total_h = TITLE_H + sum(h + CELL_PAD for _, _, h in layouts) + CELL_PAD
+        sheet = Image.new("RGB", (width, total_h), (245, 245, 245))
+        draw = ImageDraw.Draw(sheet)
+        suffix = f"  (page {page_no} of {len(pages)})" if len(pages) > 1 else ""
+        draw.text((CELL_PAD, 12), title + suffix, font=f_title, fill=_INK)
+        draw.text((CELL_PAD, 50), subtitle, font=f_text, fill=(60, 60, 60))
+        y = TITLE_H
+        for row, lines, height in layouts:
+            draw.rectangle([CELL_PAD, y, width - CELL_PAD, y + height], fill=(255, 255, 255))
+            for i, (caption, path) in enumerate(row.images):
+                x = CELL_PAD * 2 + i * (REVIEW_IMG_W + CELL_PAD)
+                draw.text((x, y + CELL_PAD), caption, font=f_cap, fill=(90, 90, 90))
+                if path is not None and path.is_file():
+                    with Image.open(path) as image:
+                        image = image.convert("RGB")
+                        image.thumbnail((REVIEW_IMG_W, REVIEW_IMG_W))
+                        sheet.paste(image, (x, y + CELL_PAD + 20))
+                        draw.rectangle(
+                            [x, y + CELL_PAD + 20, x + image.width, y + CELL_PAD + 20 + image.height],
+                            outline=(200, 200, 200),
+                        )
+                else:
+                    draw.text((x, y + CELL_PAD + 24), "(no image)", font=f_text, fill=_GREY)
+            ty = y + CELL_PAD
+            for text, colour, bold in lines:
+                draw.text((text_x, ty), text, font=f_bold if bold else f_text, fill=colour)
+                ty += REVIEW_LINE_H
+            y += height + CELL_PAD
+        name = f"{stem}-p{page_no}.png" if len(pages) > 1 else f"{stem}.png"
+        path = out / name
+        sheet.save(path)
+        paths.append(path)
+    return paths
+
+
+def write_reviewed_sheet(out: Path, model: str, records: Sequence[dict[str, Any]]) -> list[Path]:
+    """For `--feedback review` trials: before and after side by side where a revision
+    happened, the findings that prompted it, and both verdicts."""
+    rows: list[SheetRow] = []
+    for r in records:
+        if r["model"] != model or not r.get("review") or not r["review"]["first"]:
+            continue
+        d = Path(r["dir"])
+        review = r["review"]
+        revised = review["revised"]
+        images: list[tuple[str, Path | None]] = (
+            [("before (reviewed)", d / "slide.before.png"), ("after (revised)", d / "slide.png")]
+            if revised
+            else [("reviewed", d / "slide.png")]
+        )
+        blocks = review_blocks(review["first"], "first review")
+        if revised or review["revision"] in ("failed", "kept_original", "skipped_budget"):
+            blocks.append(
+                (f"Designer revision: {review['revision']}", _INK, True),
+            )
+        if review["second"]:
+            blocks += review_blocks(review["second"], "second review")
+        cost = f"designer ${r['cost_usd']:.4f} + reviewer ${r['review_cost_usd']:.4f}"
+        rows.append(
+            SheetRow(f"{r['case']} | {r['concept']} | r{r['repeat']}   {cost}", images, blocks)
+        )
+    agg = aggregate([r for r in records if r["model"] == model])
+    sub = (
+        f"designer {model}   {agg['trials']} trials   designer ${agg['cost_usd']:.4f}  "
+        f"reviewer ${agg['review_cost_usd']:.4f}  total ${agg['total_cost_usd']:.4f} (assumed prices)"
+    )
+    return write_row_sheet(
+        out, f"sheet-reviewed-{model_dirname(model)}", f"Reviewed: {model}", sub, rows
+    )
 
 
 # ---------------------------------------------------------------------------

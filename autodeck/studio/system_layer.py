@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from autodeck.providers.base import Message, ToolSpec
 from autodeck.studio import design, prompt
 from autodeck.studio.bindings import BoundModel
-from autodeck.studio.design import DesignDirection, DesignDraft
+from autodeck.studio.design import DesignDirection, DesignDraft, PaletteAttempt
 from autodeck.studio.models import SlideBrief
 from autodeck.studio.tool_args import SetPaletteArgs
 
@@ -54,6 +54,8 @@ REJECTED_PREFIX = "set_palette was rejected. Fix these and call it again:\n"
 DEFAULT_ATTEMPTS = 3
 MAX_SAMPLE_BRIEFS = 3
 MAX_VALIDATION_LINES = 20
+MAX_ATTEMPT_FINDINGS = 8
+ATTEMPT_FINDING_CLIP = 160
 OTHER_CALL_TEXT = "Not run: only one set_palette call is read per turn."
 
 
@@ -72,6 +74,19 @@ class SystemResult:
     output_tokens: int
     seconds: float
     model_id: str
+    attempt_log: tuple[PaletteAttempt, ...] = ()
+    """Every call that reached a verdict, in order: accepted, or refused with its findings
+    (a contrast refusal's measured ratios, a rejected call's validation lines, or the
+    no-tool-call line). A call that raised is not in it (`findings` has the error). The
+    accepted draft carries the same list as `palette_attempts`."""
+
+
+def _attempt(number: int, accepted: bool, findings: Sequence[str]) -> PaletteAttempt:
+    clipped = [
+        f if len(f) <= ATTEMPT_FINDING_CLIP else f[: ATTEMPT_FINDING_CLIP - 1] + "…"
+        for f in findings[:MAX_ATTEMPT_FINDINGS]
+    ]
+    return PaletteAttempt(attempt=number, accepted=accepted, findings=clipped)
 
 
 def system_user_text(direction: DesignDirection, briefs: Sequence[SlideBrief]) -> str:
@@ -158,6 +173,7 @@ def make_design(
     input_tokens = output_tokens = calls = 0
     findings: tuple[str, ...] = ()
     draft: DesignDraft | None = None
+    log: list[PaletteAttempt] = []
     nudged = False
     no_call = f"[no_tool_call] the model did not call {TOOL_NAME} (after one nudge)"
 
@@ -171,6 +187,7 @@ def make_design(
             output_tokens=output_tokens,
             seconds=time.perf_counter() - started,
             model_id=model.model_id,
+            attempt_log=tuple(log),
         )
 
     while calls < attempts:
@@ -188,6 +205,7 @@ def make_design(
         primary = next((c for c in turn.tool_calls if c.name == TOOL_NAME), None)
         if primary is None:
             findings = (no_call,)
+            log.append(_attempt(calls, False, findings))
             if nudged:
                 return result()
             nudged = True
@@ -229,8 +247,14 @@ def make_design(
                 findings = tuple(body.split("\n"))
                 text = REFUSED_PREFIX + body
             else:
-                draft = candidate
                 text = ACCEPTED_TEXT
+        if candidate is None:
+            log.append(_attempt(calls, False, findings))
+        elif text == ACCEPTED_TEXT:
+            log.append(_attempt(calls, True, ()))
+            draft = candidate.model_copy(update={"palette_attempts": list(log)})
+        else:
+            log.append(_attempt(calls, False, findings))
         for call in turn.tool_calls:
             if call is primary:
                 answer = text

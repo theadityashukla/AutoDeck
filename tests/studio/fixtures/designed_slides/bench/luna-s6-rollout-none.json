@@ -1,0 +1,573 @@
+{
+ "source": "slide bench round 1, luna, s6-rollout, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s6-rollout",
+  "intent": "Show a reversible three-phase rollout across Jan\u2013Jun 2027, with the savings curve visibly building from 15% to the 38% full-run-rate destination.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "A phased rollout over two quarters keeps risk low while the savings build",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_label",
+    "kind": "text",
+    "text": "FULL RUN RATE \u00b7 JUNE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_value",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_context",
+    "kind": "text",
+    "text": "saving at full run rate, June",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart_label",
+    "kind": "text",
+    "text": "Savings run rate",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "savings_chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "line",
+     "title": null,
+     "categories": [
+      "Pilot",
+      "Scale",
+      "Optimise"
+     ],
+     "series": [
+      {
+       "name": "Saving %",
+       "values": [
+        15.0,
+        30.0,
+        38.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase1_label",
+    "kind": "text",
+    "text": "PILOT",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase1_date",
+    "kind": "text",
+    "text": "Jan\u2013Feb 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase1_detail",
+    "kind": "text",
+    "text": "quantised model on 5% of traffic",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase1_value",
+    "kind": "text",
+    "text": "15%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase2_label",
+    "kind": "text",
+    "text": "SCALE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase2_date",
+    "kind": "text",
+    "text": "Mar\u2013Apr 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase2_detail",
+    "kind": "text",
+    "text": "all traffic, plus context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase2_value",
+    "kind": "text",
+    "text": "30%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase3_label",
+    "kind": "text",
+    "text": "OPTIMISE",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase3_date",
+    "kind": "text",
+    "text": "May\u2013Jun 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase3_detail",
+    "kind": "text",
+    "text": "batching at peak, full run rate",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "phase3_value",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 2.2
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 6.2,
+      "w": 88.8,
+      "h": 18.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_label",
+     "frame": {
+      "x": 5.8,
+      "y": 28.5,
+      "w": 34.0,
+      "h": 4.2
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_value",
+     "frame": {
+      "x": 5.5,
+      "y": 34.0,
+      "w": 34.0,
+      "h": 30.0
+     },
+     "role": "display",
+     "size_pt": 112.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_context",
+     "frame": {
+      "x": 5.8,
+      "y": 64.5,
+      "w": 33.0,
+      "h": 6.4
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 43.2,
+      "y": 27.2,
+      "w": 51.2,
+      "h": 43.4
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "chart_label",
+     "frame": {
+      "x": 46.0,
+      "y": 30.0,
+      "w": 35.0,
+      "h": 4.2
+     },
+     "role": "heading",
+     "size_pt": 16.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "savings_chart",
+     "frame": {
+      "x": 45.4,
+      "y": 34.3,
+      "w": 47.5,
+      "h": 34.5
+     },
+     "accent": "accent2",
+     "emphasis": [
+      "Pilot",
+      "Scale",
+      "Optimise"
+     ]
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 74.2,
+      "w": 28.1,
+      "h": 19.1
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.03
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 35.9,
+      "y": 74.2,
+      "w": 28.1,
+      "h": 19.1
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.03
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 66.2,
+      "y": 74.2,
+      "w": 28.1,
+      "h": 19.1
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.03
+    },
+    {
+     "type": "text",
+     "block_id": "phase1_label",
+     "frame": {
+      "x": 7.1,
+      "y": 76.2,
+      "w": 18.5,
+      "h": 3.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase1_date",
+     "frame": {
+      "x": 7.1,
+      "y": 80.1,
+      "w": 18.5,
+      "h": 3.8
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase1_detail",
+     "frame": {
+      "x": 7.1,
+      "y": 84.2,
+      "w": 19.2,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase1_value",
+     "frame": {
+      "x": 27.1,
+      "y": 80.0,
+      "w": 5.1,
+      "h": 6.5
+     },
+     "role": "heading",
+     "size_pt": 22.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "right",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase2_label",
+     "frame": {
+      "x": 37.4,
+      "y": 76.2,
+      "w": 18.5,
+      "h": 3.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase2_date",
+     "frame": {
+      "x": 37.4,
+      "y": 80.1,
+      "w": 18.5,
+      "h": 3.8
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase2_detail",
+     "frame": {
+      "x": 37.4,
+      "y": 84.2,
+      "w": 19.2,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase2_value",
+     "frame": {
+      "x": 57.4,
+      "y": 80.0,
+      "w": 5.1,
+      "h": 6.5
+     },
+     "role": "heading",
+     "size_pt": 22.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "right",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase3_label",
+     "frame": {
+      "x": 67.7,
+      "y": 76.2,
+      "w": 18.5,
+      "h": 3.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase3_date",
+     "frame": {
+      "x": 67.7,
+      "y": 80.1,
+      "w": 18.5,
+      "h": 3.8
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase3_detail",
+     "frame": {
+      "x": 67.7,
+      "y": 84.2,
+      "w": 19.2,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "phase3_value",
+     "frame": {
+      "x": 87.7,
+      "y": 80.0,
+      "w": 5.1,
+      "h": 6.5
+     },
+     "role": "heading",
+     "size_pt": 22.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "right",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark open ground makes the 38% destination dominant, while a bright line chart and three compact phase cards make the ordered, reversible build legible in one glance."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}
