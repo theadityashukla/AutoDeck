@@ -2414,3 +2414,327 @@ the owner with options.
   - Step 13 (the real recording) can now run from the UI on the owner's Mac.
   - Next free id: **B84**.
 
+
+---
+
+## v3 decisions (V-series)
+
+v3 decisions use the prefix `V`, so that they match the decision numbers in
+`docs/AUTODECK_V3_PLAN.md` §3 (V1 to V10). B84 is therefore still the next free `B` id for any
+further v2 work. Entries V1 to V10 record decisions the owner settled in the v3 review
+conversation (2026-11-12); entries from V11 record what was decided while building. The
+detailed record of each phase is `docs/phases/V3-PHASE-0.md`, `V3-PHASE-1.md` and
+`V3-PHASE-2-3.md`. All v3 work is on the branch `claude/autodeck-principles-review-zp7nsm`,
+built on `v2/integration`.
+
+### V0 — v3 turns v2 round: the base is a plain deck built in conversation; strict is an overlay
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan (`claude/autodeck-principles-review-zp7nsm`)
+- **Status:** active
+- **Context:** v2 was built strict-first (A1 to A8, four approvals), and every later feature
+  (draft-first B43, `normal` provenance B55, free layout B69, the agent session B71, memory
+  B77, meeting notes B78 to B83) was strict with exemptions. The owner's use had moved to three
+  applications, in order of importance: co-creating a deck in conversation, meeting notes, and
+  fully traceable decks.
+- **Decision:** v3 is built around seven principles (plan §2): P1 the engagement is the
+  container (a run is no longer a concept); P2 chats are disposable threads that open from
+  state, never from a transcript; P3 the base is a plain deck and strict is an overlay; P4
+  every decision has a layer and each layer has the cheapest capable owner; P5 design is decided
+  before it is applied; P6 chat proposes and the owner disposes; P7 no stages, only state.
+- **Rationale:** the symptoms of strict-first (the run as the container for everything, the
+  transcript as state, every sentence paying for assurance, one model doing every layer, design
+  without direction, chat wrapping commands) cannot be fixed by adding more exemptions.
+- **Consequences:** v3 is built beside v2 in `autodeck/studio/`, without changing v2's code.
+  v2 stays whole and is the only route to traceable decks until the strict overlay (Phase 6)
+  is built. An interactive mock-up (`mockups/v3/`) was built first and accepted as the
+  direction before any phase began.
+
+### V1 — Chat is the centre of the product
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active
+- **Context:** v2's interface runs CLI chains (B42, B83); a chat message is `revise --say`.
+- **Decision:** chat is the centre. Comments and command chains are not.
+- **Rationale:** the owner builds decks by talking.
+- **Consequences:** `autodeck/studio/` is a conversation loop with tools and a web interface.
+
+### V2 — There is no planning mode and no revision mode
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active
+- **Context:** v2 separates planning, drafting and revising.
+- **Decision:** one conversation, one tool set.
+- **Rationale:** P7: no stages, only state.
+- **Consequences:** the lead has one vocabulary of tools for every kind of turn
+  (V3-PHASE-2-3.md lists 22).
+
+### V3 — Editing is automatic by default, with propose-first as the alternative
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active (the propose-first setting itself is not built)
+- **Context:** the model must judge whether to talk, propose or change the deck.
+- **Decision:** auto is the default: the model picks among talk, propose and change. A
+  propose-first setting is the alternative. Strict mode will force propose-first.
+- **Rationale:** safe because every edit is undoable (V4).
+- **Consequences:** built in Phase 1 as auto only; the propose-first setting is Phase 4 and
+  not built.
+
+### V4 — Every edit lands in the change log and can be undone
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan; built in Phase 0 and Phase 1
+- **Status:** active
+- **Context:** V3 is only safe if undo is exact.
+- **Decision:** the change log is append-only and a tree with a head; undo and redo restore
+  stored snapshots byte for byte and never invert diffs; each entry records the instruction,
+  the thread, the layer and the model.
+- **Rationale:** exactness by construction; the log is also thread context and the benchmark's
+  data (V5).
+- **Consequences:** undo is linear along the live chain. Undo of one change from the middle of
+  the history is not built (needs merge rules; carried).
+
+### V5 — Routing is automatic by layer, with a manual override, and every change records its model
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan; built in Phases 2 and 3
+- **Status:** active (the benchmark that judges it, Phase 7, is not built)
+- **Context:** the strongest model should not spend its time on slide ratios and colour choices
+  a cheaper model could settle.
+- **Decision:** routing is automatic by layer, with a manual override ("Lead" pins the lead for
+  a message), and will be benchmarked later. Every change log entry records its layer and model.
+- **Rationale:** the log is the benchmark's data.
+- **Consequences:** `routing.py` routes by rule, then a cheap router model, then the lead when
+  unsure (V3-PHASE-2-3.md). Phase 7 is not built.
+
+### V6 — Outside strict mode there is one confirmation, at export
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active (not built)
+- **Context:** v2 has four approvals per deck (A7).
+- **Decision:** one export confirmation outside strict; no other approvals.
+- **Rationale:** the base has no gates (P3).
+- **Consequences:** there is no export in the studio yet (Phase 4).
+
+### V7 — Reproducibility (A6) applies in strict mode only
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active
+- **Context:** v2's transcript-as-state and manifests mainly serve A6.
+- **Decision:** A6 applies in strict mode only. The change log is universal, as a product
+  feature (undo, thread context, benchmark data), not as an audit record.
+- **Rationale:** reproducibility is an audit property; the base needs undo, not an audit.
+- **Consequences:** the deck carries no timestamp or version, so its serialisation is a pure
+  function of its state; time lives in change log entries.
+
+### V8 — Outside strict mode there is no claim typing, citation or validation; a fact-check is a tool, never a gate
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan; built into the base model in Phase 0
+- **Status:** active (the fact-check tool is not built)
+- **Context:** in v2 every sentence is a claim or framing and pays for assurance.
+- **Decision:** the base has no claim typing, citation resolution or validation. A fact-check
+  is a tool the owner or the model may call; it never blocks. A block may carry an optional
+  source note that nothing reads.
+- **Rationale:** text is text.
+- **Consequences:** **a base v3 deck has no traceability.** A misquoted figure can reach a
+  client with nothing checking it; the owner accepted that trade (plan §13). The base model
+  has no claim, citation, verdict or approval anywhere (`autodeck/studio/models.py`).
+
+### V9 — Client isolation (A4) holds in every mode
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan; built in Phases 0 and 1
+- **Status:** active
+- **Context:** isolation protects confidentiality, not accuracy.
+- **Decision:** A4 is enforced in every mode, in both the knowledge tree (v2's guard) and the
+  workspace tree (the studio's path guard), and on every route and source read.
+- **Rationale:** a leak between clients is not excused by the absence of a validator.
+- **Consequences:** several symlink cases remain untested (V3-PHASE-0.md and V3-PHASE-1.md,
+  carried items).
+
+### V10 — Strict mode keeps A1 to A8 and its gates as written, as an overlay
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active (not built: Phase 6)
+- **Context:** a small group needs fully traceable decks.
+- **Decision:** strict is chosen when the artifact is created and cannot be removed; it runs on
+  the same engagement, change log and renderer; it adds the annotation overlay, `audit/`, four
+  approvals, the audit report and the manifest, and forces propose-first and document-only
+  sources.
+- **Rationale:** keeps the original product whole for the group that needs it.
+- **Consequences:** Phase 6's exit test is v2's own invariant suite. Until then, v2 is the route
+  to traceable decks.
+
+### V11 — D7 reversed; D9 and D13 re-scoped; the invariants scoped to strict mode
+- **Date:** 2026-11-12
+- **Phase / branch:** v3 plan
+- **Status:** active. Supersedes D7 for v3 (D7 stays true of v2). It is the owner's decision,
+  made in the review conversation.
+- **Context:** D7 (CLI/pipeline-first, UI deferred), D9 (invariants blocking) and D13 (balance by
+  lints) were written for the strict product. A reversal of a locked decision needs an `R<n>`
+  entry with explicit owner approval quoted; the owner's decision is recorded here and in plan
+  §3.2, but no quotation is available in the repository, so none is given.
+- **Decision:** D7 is reversed: the chat interface is the product, and a CLI remains for strict
+  runs and tests. D9 is scoped to strict mode. D13 is demoted to advisory findings, but the
+  deterministic layout checks (overflow, overlap, safe area, minimum size, contrast) run on every
+  slide in every mode. D4 is kept, reshaped; D1, D2, D3, D5, D6, D8, D10, D11, D12 are kept
+  (plan §3.2 has the table). A1, A2, A3, A5, A8 and A6 are not enforced in the base; A4 is; A7
+  becomes one export confirmation.
+- **Rationale:** see V0 and V8.
+- **Consequences:** v2's text of D7 and D9 is unchanged and still describes v2. Docs that state
+  the invariants (`README.md`, `docs/INVARIANTS.md`) now say where they are scoped.
+
+### V12 — Phases 2 and 3 of the plan were merged
+- **Date:** 2026-11-14
+- **Phase / branch:** `claude/autodeck-principles-review-zp7nsm`, document `V3-PHASE-2-3.md`
+- **Status:** active
+- **Context:** the plan had layers and routing (Phase 2) before the design layer (Phase 3), and
+  allowed Phase 3 to come first. The first real-model run showed one model doing everything
+  produced slides that passed layout QA and were generic; the slide bench showed the same models
+  design well when given one slide, a design concept and a prompt that teaches composition.
+- **Decision:** one phase, "Layers, routing and the design layer". The lead writes slide briefs
+  in words; a system layer makes a contrast-checked palette from a direction; a designer designs
+  each slide in its own call; a router and a mechanic handle small edits; staleness is computed
+  from what a slide was composed from; every turn records its layers, models and estimated cost.
+- **Rationale:** the bench showed the split of the work and the design decided once are one piece
+  of work.
+- **Consequences:** Phase 4's staleness and recomposition were pulled forward into this phase
+  (V15). The reviewer (plan §6.1) is not part of it (V19).
+
+### V13 — Design is tested at the level of one slide before the level of a deck
+- **Date:** 2026-11-14
+- **Phase / branch:** `bench/slides/`
+- **Status:** active
+- **Context:** not in the original plan; added at the owner's suggestion after the first real
+  run. Testing design through the studio's whole tool loop confounds research, storyline and
+  tool use with design.
+- **Decision:** a slide bench: one trial gives a model one slide brief (and optionally a design
+  concept) and returns one rendered slide, checked by the studio's layout QA. It is a measuring
+  tool, not product code.
+- **Rationale:** the slide is the unit: if a model cannot design one good slide, it cannot design
+  a deck.
+- **Consequences:** results (`bench/slides/results/README.md`): with a concept, separately
+  designed slides read as one deck; without one, each slide is good and they do not match; a
+  model shown its own render adds little; `gpt-5.4-mini` could not pass layout QA as a designer.
+  The design decision "decide the design once, then compose" follows from it (V14).
+
+### V14 — A design system is decided once, as a versioned artifact, and every palette is checked by code
+- **Date:** 2026-11-15
+- **Phase / branch:** `V3-PHASE-2-3.md`
+- **Status:** active
+- **Context:** plan P5 and §7.
+- **Decision:** a design system is an immutable, versioned record (name, concept, rules,
+  palette, roles, background, declared text pairs); the deck carries a copy of the palette on
+  its reference, so rendering and layout QA are a pure function of the deck and the base tokens.
+  The system layer declares its text pairs and code measures each with v2's contrast ratio (4.5:1,
+  3:1 for large-only pairs, plus `dk2` on the background for chart labels); a failing palette is
+  refused with measured ratios and the model corrects it. A new engagement is in a provisional
+  default design built in memory. The base slots `dk1` and `lt1` render as the palette says
+  because the studio rewrites them from system colours to explicit colours in its own copy of the
+  theme (v2's writer emits system colours and is unchanged).
+- **Rationale:** the bench's method, moved into the product; contrast is arithmetic, not taste.
+- **Consequences:** the proper fix for the two base theme colours belongs to a vocabulary phase
+  (not built).
+
+### V15 — Staleness is a pure function of fingerprints; nothing rebuilds by itself
+- **Date:** 2026-11-15
+- **Phase / branch:** `V3-PHASE-2-3.md`; plan §8.3 and Phase 4
+- **Status:** active
+- **Context:** the plan put markers and staleness in Phase 4.
+- **Decision:** pulled forward. A composed slide records the digest of its brief, the design
+  system id and version, and the designer's model. The deck computes `unbriefed`, `undesigned`,
+  `fresh`, `stale` (with reasons) or `failed` from these; nothing is stored as stale and
+  adopting a design only changes the deck's reference, so undo makes the slides fresh again. The
+  owner or the lead asks for recomposition. The `stale` marker value is never set by code.
+- **Rationale:** a design decided once must be able to change, and slides built from the old one
+  must say so.
+- **Consequences:** Phase 4's other items (selection as scope, propose-first, export
+  confirmation, several threads, undo from the middle) remain.
+
+### V16 — Provisional model tiers for the layers, from the bench
+- **Date:** 2026-11-14
+- **Phase / branch:** `config/studio.yaml`, environment `dev-openai`
+- **Status:** provisional
+- **Context:** real-model testing used OpenAI models through a `dev-openai` environment.
+- **Decision:** lead and system `gpt-5.6-terra`; designer `gpt-5.6-luna`; router and mechanic
+  `gpt-5.4-mini`. `gpt-5.6-sol` was tested on the bench as a designer and was the most polished
+  and the most expensive; `gpt-5.4-mini` could not pass layout QA as a designer, so it only
+  routes and makes small edits. The `gpt-5.6` models are called on the Responses endpoint (the
+  studio's own copy of the bench's adapter, `responses.py`). `dev-mistral`, `sit` and `prod`
+  bind one model to every role. The reviewer role is reserved and unbound.
+- **Rationale:** tiering means something only where the tiers differ; Luna designed 14 of 16
+  bench slides clean in two to four attempts at about a fifth of Sol's cost.
+- **Consequences:** `gpt-5.6-terra` as a lead driving 22 tools had not been tested before the
+  first layered run, which worked. **No Anthropic-model run has been done**; the `sit` and `prod`
+  bindings are untested against a live API.
+
+### V17 — Every cost figure is an estimate from assumed prices
+- **Date:** 2026-11-14
+- **Phase / branch:** `config/studio_prices.yaml`, `bench/slides/prices.yaml`
+- **Status:** active
+- **Context:** the real OpenAI price list was not confirmed.
+- **Decision:** prices were assumed, deliberately high (for example $3 and $15 per million tokens
+  for `gpt-5.4-mini`, $12 and $60 for `gpt-5.6-terra`). The studio labels every cost "est." and
+  a model missing from the price file is shown as unpriced, which makes a total unknown and not
+  wrong. The owner's spending limit for the session was 50 US dollars; the running estimate at
+  the end was about 39.50.
+- **Rationale:** an estimate should err toward looking expensive.
+- **Consequences:** no figure in any v3 document is a charge. The real price list must replace
+  both files before a number is read as fact.
+
+### V18 — Studio layout rules: a line through text or a chart, and straddling an edge
+- **Date:** 2026-11-15
+- **Phase / branch:** `autodeck/studio/layout_rules.py`; `V3-PHASE-2-3.md`
+- **Status:** active
+- **Context:** the first layered real run reported four slides clean that had visible flaws (a
+  rule through the word UNMEASURED like a strike-through; a timeline into a colour band).
+- **Decision:** three geometric rules run inside `render_adapter.check_slide`, after v2's checks,
+  so every caller gets them; v2 is unchanged. Text is measured by the extent of its ink, with
+  constants measured on LibreOffice renders. The designer prompt lost its advice that a line can
+  be drawn across text as a strike-through.
+- **Rationale:** measured on 34 designed slides: six findings, all true, none false, on five
+  slides; none sits near a threshold. The text half of `straddle` fired on none of the 34 and
+  rests on synthetic tests only.
+- **Consequences:** composition flaws that are not geometry (labels detached from figures, crowded
+  or uneven gaps, tight clearance) are not caught by rule; real strike-through belongs to a
+  vocabulary phase.
+
+### V19 — The reviewer is precise but weak on composition, and is not in the product
+- **Date:** 2026-11-15
+- **Phase / branch:** `bench/slides/prompts/review.md`; `bench/slides/results/README.md`
+- **Status:** active (the reviewer is not built as a layer)
+- **Context:** plan §6.1 names a reviewer, a different model from the one that made the work. A
+  model reviewing its own render added little (bench round 2).
+- **Decision:** a separate reviewer (`gpt-5.6-terra`, medium reasoning) was tested twice on the
+  bench and support for it was added to the harness. It is not a product layer; the binding is
+  reserved and unused.
+- **Rationale:** in 40 reviews it sent back no good slide and its findings were specific enough
+  that the designer fixed them in one revision; it costs about a third on top of the designer
+  (estimated). Its recall on composition flaws (uneven, scattered or crowded layouts) is weak.
+- **Consequences:** it is worth having as a cheap extra pass; the layout rules remain the main
+  defence and the owner still has to look. Remaining work.
+
+### V20 — Design proposals offer two directions by default, and say plainly when one is incomplete
+- **Date:** 2026-11-15
+- **Phase / branch:** `V3-PHASE-2-3.md`, "Fixes after the first real-model run"
+- **Status:** active
+- **Context:** the first layered run's design proposal cost about $3.63 (estimated) and three of
+  nine samples failed with nothing recorded.
+- **Decision:** two directions unless the owner asks for more (the schema allows three); two
+  sample slides per direction (the opening and the slide with the most showing power); each
+  option records the outcome of every sample; a direction with no clean sample is dropped, loudly,
+  and if every direction is dropped the call fails with all reasons; the lead must say so when a
+  direction is incomplete and must report any slide that failed to compose.
+- **Rationale:** the owner picks by looking; an option with nothing to see is a coin toss on a
+  palette; and a failure the lead does not report leaves the owner believing a deck is complete.
+- **Consequences:** the first-run cost figures predate this default; they were not re-measured.
+
+### V21 — Development is paused
+- **Date:** 2026-11-15
+- **Phase / branch:** `claude/autodeck-principles-review-zp7nsm`
+- **Status:** active
+- **Context:** the owner stopped development for now, at the end of the working session. Phases
+  0 to 3 and the post-run fixes are done; Phases 4 to 7, the reviewer, trimming the lead's
+  context and a vocabulary phase are not built.
+- **Decision:** nothing is in progress. The documents are to let someone resume cold (`README.md`,
+  `STATUS.md`, `docs/handovers/V3-STUDIO.md`).
+- **Rationale:** the owner's instruction.
+- **Consequences:** the branch name is the session's; the plan recommended a `v3/integration`
+  branch and that was not possible in the session that did the work, so the owner may want to
+  rename or rebase.

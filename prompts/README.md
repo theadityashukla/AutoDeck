@@ -1,5 +1,14 @@
 # Prompts
 
+> **v3 note (2026-11-16).** `prompts/studio/` holds the v3 studio's prompts, one per layer:
+> `lead.md`, `system.md`, `designer.md`, `mechanic.md` and `router.md` (a reviewer prompt is in
+> `bench/slides/prompts/review.md`, not in the product). They follow the same rule: prompts are
+> files, never inline in Python. The studio allows the lead only the skills `storyline` and
+> `writing-style` (`autodeck/studio/prompt.py`); the other skills in `prompts/skills/` are written
+> for v2's claim-and-citation model and are refused in the base. The rest of this file, and
+> everything else in `prompts/`, is v2's. Its "Status" section below is out of date (v2's prompts
+> were written long ago); the files themselves are the record.
+
 **Every LLM prompt in AutoDeck lives here as a versioned file. None are inlined in Python.**
 That is plan §0.5, and it is not a style preference — a prompt is product surface, and an
 undiffable prompt makes A3 and A8 regressions invisible.

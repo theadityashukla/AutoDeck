@@ -1,10 +1,100 @@
 # AutoDeck v3 — Plan
 
-**Status:** draft for owner review, 2026-11-12. Nothing here is built. This document records
-the principles and decisions agreed in the v3 review conversation and proposes the build
-order. It does not replace `docs/AUTODECK_V2_PLAN.md` until the owner accepts it.
+**Status (2026-11-16): partly built, development paused.** The mock-up and Phases 0, 1, 2 and 3
+are built and verified (Phases 2 and 3 as one merged phase), and a slide bench and a reviewer
+test were added. Phases 4 to 7, the reviewer as a product layer and a vocabulary phase are not
+built. The plan was written on 2026-11-12 as a draft for owner review; the original text below
+is kept so the intent stays readable, with dated status notes added where reality differs. **A
+note headed "Status" or "What actually happened" was added on 2026-11-16; everything else is the
+original plan.** Where the two disagree, the notes and the phase documents are right.
+It does not replace `docs/AUTODECK_V2_PLAN.md` for strict work: v2 remains the only route to
+traceable decks until Phase 6 is built.
 
-**Reading order:** §1 (why), §2 (principles), §3 (what was decided). The rest is how.
+**Reading order:** "What actually happened" (next), then §1 (why), §2 (principles), §3 (what was
+decided). The rest is how.
+
+---
+
+## What actually happened (added 2026-11-16)
+
+**Where the work is.** All v3 work is on the branch `claude/autodeck-principles-review-zp7nsm`,
+built on `v2/integration`. §14 question 1 recommended a `v3/integration` branch; that was not
+possible in the session that did the work, so the owner may want to rename or rebase. The code
+is in `autodeck/studio/` beside v2, and no v2 file was changed (the phase documents state this
+for each phase). The v2-only paths were not moved to `legacy/v2/`; all v2 code is still where it
+was.
+
+| Phase | Status | Record |
+|---|---|---|
+| First step: mock-up | **Done**, accepted as the direction | `mockups/v3/SPEC.md` |
+| 0 Foundations | **Done** 2026-11-13 | `docs/phases/V3-PHASE-0.md` |
+| 1 Conversation core | **Done** 2026-11-13; fixes after a real-model run 2026-11-14 | `docs/phases/V3-PHASE-1.md` |
+| (not in the plan) Slide bench | **Done**; added at the owner's suggestion | `bench/slides/SPEC.md`, `bench/slides/results/README.md` |
+| 2 Layers and routing, 3 The design layer | **Merged and done** 2026-11-15 | `docs/phases/V3-PHASE-2-3.md` |
+| (not in the plan) After the first layered run | **Done**: close-out fixes, studio layout rules, reviewer prompt and bench support | `V3-PHASE-2-3.md`, `bench/slides/results/README.md` |
+| 4 State and refinement | **Partly built**: staleness and recomposition were pulled forward; the rest is not built | below |
+| 5 Notes and sources | Not built | |
+| 6 The strict overlay | Not built | |
+| 7 Routing benchmark | Not built | |
+| (not in the plan) Vocabulary phase | Not built | `V3-PHASE-2-3.md`, "Layout vocabulary gaps" |
+| The reviewer (§6.1) | Not built as a layer; tested on the bench | `bench/slides/results/README.md` |
+
+**Phases 2 and 3 were merged, and why.** The first real-model run (Phase 1, `gpt-5.4-mini`)
+produced slides that passed layout QA and were generic. The slide bench, added at the owner's
+suggestion to test design at the level of one slide before the level of a deck, then showed that
+models produce designed slides when given one slide's brief, a design concept and a prompt that
+teaches composition, and generic ones when asked to do everything in one loop; and that a design
+decided once makes separately designed slides read as one deck. Layers (who does what) and the
+design layer (what is decided once) turned out to be one piece of work. The note in "On the
+order" that Phase 3 might move ahead of Phase 2 was in the spirit of this, but the outcome was a
+merge, not a reordering.
+
+**Phase 4 items pulled forward.** Staleness by fingerprint (§8.3) and recomposition of stale
+slides were built in Phases 2 and 3, because adopting a design makes every designed slide stale.
+Not pulled forward, so not built: selection as scope, the propose-first setting, the export
+confirmation, several threads on one artifact, and undo from the middle of the history. The
+`stale` marker value itself is still never set by code: staleness is computed and shown, and the
+stored markers remain `decided` and `provisional`.
+
+**Decisions that changed or were added.** Recorded in `DECISIONS.md` as V0 to V21 (V1 to V10 are
+the decisions of §3.1, unchanged). Those that go beyond this plan:
+
+- The slide bench, and testing design at the slide level first (V13).
+- The design system as an immutable, versioned record with a palette checked by code (V14).
+- Staleness as a pure function of fingerprints (V15).
+- **Provisional model tiers** for the layers (V16): lead and system `gpt-5.6-terra`, designer
+  `gpt-5.6-luna`, router and mechanic `gpt-5.4-mini`, in `config/studio.yaml`.
+- Costs are estimates from assumed prices, never charges (V17).
+- Layout rules for a line through text or a chart and for straddling an edge (V18).
+- The reviewer finding: precise, weak on composition, not in the product (V19).
+- **Two design directions by default**, two sample slides each, and incomplete directions
+  reported plainly (V20). §7.2 below says "two or three" directions and "a title slide and two
+  content slides"; the default is cheaper.
+- Development paused (V21).
+
+**What in the plan turned out different.**
+
+- **L3 and L4 are one call.** §6.1 and §6.3 separate composition (L3) from placement (L4). In
+  the build the designer does both for one slide, and `place` does not exist. The lead's tools
+  are `set_slide_brief`, `compose_slides`, `propose_design` and `apply_design` rather than
+  `design_system`, `compose_slides` and `place`. The bench found that `gpt-5.4-mini` could not pass
+  layout QA from a brief, so placement was not given to the low tier as §6.1 expected.
+- **The vocabulary review (§7.3) was not done** as the first step of Phase 3. Its gaps were
+  recorded from the bench instead and left for a vocabulary phase.
+- **Staleness fingerprints** cover the slide's brief and the design system id and version (and
+  record the designer's model), not the storyline points as §8.3 describes.
+- **Diagrams** were left out of the base model (v2's diagram nodes are typed claims); they are
+  still to be given a plain form.
+- **Streaming.** The provider layer returns whole turns, so the interface streams events at
+  step granularity and does not stream tokens (§12 Phase 1 says "streamed replies").
+- **The interface stack** (§14 question 2) was decided: a standard-library server on 127.0.0.1,
+  plain HTML, CSS and JavaScript with no build step, Server-Sent Events.
+- **Taste notes to owner memory** (§7.2, Phase 3) were not built; memory is read-only context.
+- **Conformance** (§7.2) is built for the mechanical part: contrast of every declared text pair,
+  layout checks and the three studio layout rules. The judgement part (the reviewer) is not.
+- **Cost per layer beside the Phase 1 single-model cost** (Phase 2's "done when"): the per-layer
+  cost is recorded on every turn; no like-for-like comparison with a single-model run was made,
+  because Phase 1's run used a different, smaller model.
 
 ---
 
@@ -286,7 +376,8 @@ It is an artifact with versions, and a client's slide master constrains it where
 
 **Rendered options.** When the direction is open, the lead states two or three concepts and
 the lower tiers render each as a title slide and two content slides using the deck's real
-content. The owner picks one, blends them, or describes something else.
+content. *(As built: two concepts by default, three on request, rendered on two sample slides
+each: the opening and the slide with most to show.)* The owner picks one, blends them, or describes something else.
 
 **Conformance.** Every composed slide is checked against the system by code where the rule
 is mechanical (colours, type steps, margins) and by the reviewer where it is judgement.
@@ -393,6 +484,12 @@ Notes are a second artifact type on the same core.
 
 ## 11. Carry-forward map
 
+> **Status (2026-11-16):** the verdicts were not acted on beyond Phase 0 to 3: v2 code marked
+> "Retire", "Demote" or "Replace" was left in place and still runs v2. v3 imports from the "Keep"
+> rows (knowledge, providers, theme, free layout and its QA, renderer, session mechanics) and
+> adds `autodeck/studio/` beside them. The studio uses a few private v2 names (listed in
+> `docs/phases/V3-PHASE-0.md`).
+
 Judged from module structure and interfaces. Each row is confirmed or corrected when its
 phase starts.
 
@@ -431,6 +528,9 @@ owner saying whether the phase did its job.
 
 ### First step — An interactive mock-up (before any phase)
 
+> **Status (2026-11-16): done.** Built 2026-11-12 in `mockups/v3/`; the owner used it and
+> accepted it as the direction. It is throwaway and kept as a visual reference.
+
 Nothing in Phases 0–7 starts until the owner has used a mock-up and this plan has been
 revised from what it showed. The plan describes a conversation; the cheapest way to find
 out where it is wrong is to click through one.
@@ -460,6 +560,9 @@ plan has been updated to match. Only then does Phase 0 begin.
 
 ### Phase 0 — Foundations
 
+> **Status (2026-11-16): done**, 2026-11-13. Record: `docs/phases/V3-PHASE-0.md`. Diagrams were
+> left out of the base model; undo of one change from the middle of the history was deferred.
+
 - Engagement container over the existing knowledge folders.
 - Plain base IR; layout, chart and diagram models carried over.
 - Change log with undo; id-keyed diff reused.
@@ -469,6 +572,10 @@ plan has been updated to match. Only then does Phase 0 begin.
 be made, listed and undone.
 
 ### Phase 1 — Conversation core
+
+> **Status (2026-11-16): done**, 2026-11-13, fixes 2026-11-14. Record:
+> `docs/phases/V3-PHASE-1.md`. The first real-model run was on `dev-openai` with `gpt-5.4-mini`.
+> Events stream at step granularity, not token by token.
 
 - Thread model; context built from state (§5.1); recap on a returning thread.
 - The lead loop with base tools: read state, read sources, edit, propose, undo.
@@ -480,6 +587,10 @@ thread picks up correctly with no transcript.
 
 ### Phase 2 — Layers and routing
 
+> **Status (2026-11-16): merged with Phase 3 and done**, 2026-11-15. Record:
+> `docs/phases/V3-PHASE-2-3.md`. The tool split is intent (the lead's slide briefs) and
+> composition and placement together (the designer).
+
 - The tool split of §6.2: intent, composition, placement.
 - Delegation tools, with slides composed in parallel.
 - Bindings per layer; routing of trivial edits; manual override.
@@ -489,6 +600,15 @@ thread picks up correctly with no transcript.
 the log shows the cost per layer beside the Phase 1 single-model cost.
 
 ### Phase 3 — The design layer
+
+> **Status (2026-11-16): merged with Phase 2 and done** except as follows. The layout
+> vocabulary review and extensions, taste notes to owner memory, and the reviewer seeing renders
+> are **not built**. Design concept and system as artifacts, rendered options in the
+> conversation, and conformance of palettes and layout are built. The "done when" (three
+> distinct directions, none a stock template, the chosen one holding across the deck) was
+> met on its own terms in the real-model run only partly: it offered three directions and the
+> chosen one held across four slides, but the owner's judgement of distinctness is not recorded
+> in the repository.
 
 - Layout vocabulary review and extensions (§7.3).
 - Design concept and design system as artifacts.
@@ -502,6 +622,11 @@ the whole deck.
 
 ### Phase 4 — State and refinement
 
+> **Status (2026-11-16): partly built.** Staleness by fingerprint and its markers in the
+> interface are built (in Phases 2 and 3, see "What actually happened"). Selection as scope,
+> several threads on one artifact, the propose-first setting and the export confirmation are
+> **not built**.
+
 - `decided`, `provisional` and `stale` markers; staleness by fingerprint.
 - Selection as scope in the interface.
 - Several threads on one artifact (§5.4).
@@ -512,6 +637,8 @@ affected slides marked stale, and rebuilds only those.
 
 ### Phase 5 — Notes and sources
 
+> **Status (2026-11-16): not built.** v2's meeting notes (B78 to B83) still exist, strict only.
+
 - Notes artifact; recording and transcript as sources in the conversation.
 - Notes to deck in one engagement, with no reseeding.
 - Source notes on blocks.
@@ -521,6 +648,9 @@ affected slides marked stale, and rebuilds only those.
 
 ### Phase 6 — The strict overlay
 
+> **Status (2026-11-16): not built.** Phase 0's base model keeps `slide_id:block_id` keys stable
+> so the overlay can attach, as planned.
+
 - Annotation set over the base IR; v2's claim, citation and verdict models moved in.
 - `audit/`, gates and manifest running against base plus overlay.
 - A1–A8 coverage re-established, with v2's invariant tests ported.
@@ -529,11 +659,27 @@ affected slides marked stale, and rebuilds only those.
 
 ### Phase 7 — Routing benchmark
 
+> **Status (2026-11-16): not built.** Every change log entry records its layer and model, so the
+> data is accumulating.
+
+### Added after the plan — remaining work
+
+- **The reviewer as a product layer.** Plan §6.1 and §13. Tested twice on the bench (precise, no
+  wrong send-backs in 40 reviews; weak on uneven, scattered or crowded layouts). The binding is
+  reserved in `config/studio.yaml` and unused.
+- **A vocabulary phase.** Styled charts, diagonal and curved lines, emphasis inside a line of
+  text, more fonts, strike-through, more shape kinds, images, and a proper fix for the two base
+  theme colours that v2's theme writer emits as system colours (the studio patches its own
+  copy). The gaps are listed in `docs/phases/V3-PHASE-2-3.md`.
+- **Trimming the lead's context.** The lead resends about 14k tokens per call.
+
 - Compare layer bindings on cost, time and the owner's judgement of quality, from the change
   log.
 - Adjust the default bindings.
 
 ### On the order
+
+> **What happened:** Phases 2 and 3 were merged (see "What actually happened").
 
 Phases 0–2 are sequential. Phase 3 is the one that addresses the generic-deck problem and
 could move ahead of Phase 2 if the owner would rather see design quality before cost
@@ -543,6 +689,11 @@ be scheduled whenever the strict group needs it.
 ---
 
 ## 13. Risks
+
+> **Status (2026-11-16):** preview speed was measured in Phase 0 (about 1.5 s for four slides at
+> 150 dpi, one LibreOffice start per render; whole-state reuse only, no parallel rendering).
+> Delegation losing the idea did not appear in the real run: the designers held the concept. The
+> reviewer is the open item.
 
 | Risk | Why it matters | What to do |
 |---|---|---|
@@ -556,6 +707,12 @@ be scheduled whenever the strict group needs it.
 ---
 
 ## 14. Open questions for the owner
+
+> **Status (2026-11-16):** 1: the work is on `claude/autodeck-principles-review-zp7nsm`, not
+> `v3/integration`; the owner may rename or rebase. 2: decided (standard-library server, plain
+> JavaScript, Server-Sent Events). 3: Phases 2 and 3 were merged. 4: no reference-deck review is
+> recorded; the bench used eight slide briefs and four concept files (one of them a no-concept control) instead. 5: not answered in the
+> repository; it sets where Phase 6 falls.
 
 1. **Where v3 is built.** Recommended: a `v3/integration` branch from `v2/integration`, new
    code beside the old, v2-only paths moved to `legacy/v2/` as they are replaced.

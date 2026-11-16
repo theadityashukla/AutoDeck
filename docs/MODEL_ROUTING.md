@@ -275,3 +275,43 @@ likely friction:
 Within an environment, do not cheapen `validation` to save money — it is the last automated
 line before GATE 2, and A3 is the invariant most likely to fail silently. If cost needs
 cutting, cut `ingest_vlm` batch size or `content` retry budget first.
+
+---
+
+# Part 3 — v3 runtime routing: layers (added 2026-11-16)
+
+Parts 1 and 2 describe v2 and are unchanged. v3 (`autodeck/studio/`) binds **layers**, not
+pipeline stages, in its own file, `config/studio.yaml`; v2's `config/models.yaml` is not read by
+the studio. Plan: `docs/AUTODECK_V3_PLAN.md` §6; record: `docs/phases/V3-PHASE-2-3.md`;
+decisions V5 and V16 in `DECISIONS.md`.
+
+| Role | Layer | Does |
+|---|---|---|
+| `lead` | L1 Direction | The argument, and for each slide a brief in words. Never a layout or a colour. |
+| `system` | L2 System | Turns a design direction into a palette and roles; code checks contrast and refuses a failing palette with measured ratios. |
+| `designer` | L3 and L4 together | Designs one slide from its brief, in its own call, in the chosen palette; layout checks feed back. |
+| `mechanic` | L5 Mechanics | Small local edits ("retitle slide 2 to ..."), without the lead; can hand back. |
+| `router` | | Decides whether a message is a small edit or needs the lead, when no rule decides. |
+| `reviewer` | Review | Reserved in the config, **unused**: not built as a layer. |
+
+Each binding may also set `reasoning`, `max_output_tokens` and `api` (`auto`, `chat`,
+`responses`); with `auto`, ids starting `gpt-5.6` use the Responses endpoint. Environments:
+
+| Environment | Binding | Status |
+|---|---|---|
+| `dev-openai` | lead and system `gpt-5.6-terra`; designer `gpt-5.6-luna`; router and mechanic `gpt-5.4-mini` | **Provisional**, from the slide bench. The only environment run live. `gpt-5.6-sol` was the most polished designer on the bench and the most expensive; `gpt-5.4-mini` could not pass layout QA as a designer. |
+| `dev-mistral` | `ministral-14b-2512` for every role | Never run live with the studio |
+| `sit`, `prod` | `claude-opus-5` for every role | **Never run against a live API.** No Anthropic-model run has been done |
+
+Routing is by rule where certain, a cheap router model otherwise, and the lead when unsure; the
+owner can pin the lead for a message. Every change log entry and every turn records the layer
+and model that did the work. As §6.5 of the plan warns, tiering only means something where the
+tiers differ, so routing quality can be judged only on bindings like `dev-openai`; the
+benchmark (Phase 7) is not built.
+
+**Costs are estimates.** Per-turn cost uses `config/studio_prices.yaml` (and the bench uses
+`bench/slides/prices.yaml`): assumed prices, deliberately high, never confirmed against the
+provider's real price list. Nothing in the studio or these documents is a charge.
+
+The build-time rules of Part 1 (tiers, guardrails, prompts at Opus tier) apply to v3 work too.
+

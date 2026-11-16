@@ -1,5 +1,15 @@
 # Branching, gates, and PR protocol
 
+> **v3 note (2026-11-16).** This file describes v2's topology and gates, which v3 does not use:
+> v3 has no build-time gates. All v3 work is on the single branch
+> `claude/autodeck-principles-review-zp7nsm`, built on top of `v2/integration` (merge base
+> `1b5e38c`); whether a PR exists for it is not recorded in the repository. `docs/AUTODECK_V3_PLAN.md` §14 recommended a
+> `v3/integration` branch with phase work merged into it; that was not possible in the session
+> that did the work, so the owner may want to rename the branch, rebase it, or cut a
+> `v3/integration` from it. Rule 1 and the PR conventions below are v2's. v3 commit prefixes
+> were `feat(studio)`, `fix(studio)`, `docs(studio)`, `feat(bench)` and `wip` for work in
+> progress.
+
 ## Topology
 
 ```

@@ -1,5 +1,14 @@
 # Knowledge folders
 
+> **v3 note (2026-11-16).** In the v3 studio a client and a project from these folders form an
+> *engagement*, the container for everything made for them; the studio's working state (decks,
+> change logs, threads, proposals, design systems) lives outside this tree, under the workspace
+> (`workspace/` by default, git-ignored). The studio reads the curated markdown here as context
+> and as sources, and client isolation (A4) is enforced on both trees. A client needs
+> `client.md` and `value_prop.md`; a project needs `project.md` and `claims.md`. In the v3 base
+> `claims.md` is a source the lead may read, not a cache of verified claims. Everything below
+> describes v2's use.
+
 Two tiers (D8): a **project** base holding evidence, and a **client** overlay holding
 context, framing and brand. One project serves several clients; a client's material never
 enters another client's build (A4).

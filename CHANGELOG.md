@@ -7,6 +7,77 @@ Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what chan
 
 ---
 
+## [v3, paused 2026-11-15] — The conversational studio: Phases 0 to 3, the slide bench, layout rules and a reviewer test (V0 to V21)
+
+v3 is built beside v2 in `autodeck/studio/` on the branch
+`claude/autodeck-principles-review-zp7nsm` (on top of `v2/integration`), without changing any
+v2 file. Plan: `docs/AUTODECK_V3_PLAN.md`. Detailed record: `docs/phases/V3-PHASE-0.md`,
+`V3-PHASE-1.md`, `V3-PHASE-2-3.md`. Development is paused; see `STATUS.md`. Every cost in these
+notes is an estimate from assumed prices.
+
+### Added: the mock-up (2026-11-12)
+- `mockups/v3/`: a clickable, scripted mock-up of the planned conversation, built before any
+  phase and accepted as the direction. Throwaway; a visual reference.
+
+### Added: Phase 0, foundations (2026-11-13)
+- The engagement container over the existing knowledge folders, with client isolation (A4)
+  enforced on both the knowledge tree and the workspace tree.
+- The plain base deck model (`autodeck/studio/models.py`): no claim, citation, verdict or
+  approval; blocks are text, chart, figure or icon.
+- The change log: a tree with a head, exact undo and redo by stored snapshot (the deck's
+  serialisation is byte-identical after an undo), id-keyed diffs reused from v2.
+- Rendering of the plain deck through v2's drawing code and layout checks, with no change to v2.
+- Result: a hand-written four-slide deck renders to PPTX and previews; an edit can be made, listed
+  and undone. Four slides at 150 dpi: about 0.07 s to build, about 1.5 s to rasterise.
+
+### Added: Phase 1, the conversation core (2026-11-13)
+- Threads that start from state (engagement context, memory, the deck's outline and recent change
+  log, proposals) and never from a transcript, with a recap on a returning thread.
+- A conversation loop that ends a turn on a text reply, with 19 tools, proposals with previews,
+  and per-turn classification (talk, proposal, change).
+- A local web interface, `python -m autodeck.studio`: standard-library server on 127.0.0.1,
+  Server-Sent Events, no build step; a scripted model for use without a key.
+- First real-model run on `dev-openai` (`gpt-5.4-mini`, 2026-11-14): the loop and tools worked;
+  the slides were generic. Three fixes followed: a chosen option applies as it was shown
+  (replace or insert), proposal status is unambiguous in context, and a slide's fields are named.
+
+### Added: the slide bench (2026-11-14, at the owner's suggestion)
+- `bench/slides/`: one slide brief in, one rendered slide out; two rounds on `gpt-5.6-luna` and
+  `gpt-5.6-sol` with and without a design concept. With a concept the slides read as one deck;
+  `gpt-5.4-mini` could not pass layout QA as a designer; a model shown its own render adds little.
+
+### Added: Phases 2 and 3 (merged), layers, routing and the design layer (2026-11-15)
+- The lead writes slide briefs in words and never a layout or a colour; a system layer makes a
+  contrast-checked palette; a designer designs each slide in its own call, in parallel; design
+  proposals with rendered samples; adopting a design makes slides stale (computed from
+  fingerprints), and recomposition redraws them.
+- A router and a mechanic: small edits skip the lead; a manual "Lead" override.
+- Per-layer bindings in `config/studio.yaml`; the studio's own Responses endpoint path; every turn
+  records its layers, models and an estimated cost (`config/studio_prices.yaml`).
+- Interface: a Design tab, stale and failed markers, a Recompose button, a routing and cost line.
+- Verified on scripted models; one real-model run on `dev-openai` (2026-11-15) ran end to end with
+  no API, adapter or schema error and produced designed slides.
+
+### Added: after the first layered real-model run (2026-11-15)
+- Failed design-proposal samples are recorded and reported; a palette retry leaves a record; the
+  lead must report a compose failure; the server writes each change in words (`summary`); two
+  directions and two samples by default.
+- Studio layout rules (`layout_rules.py`): a line through text, a line through a chart, and
+  straddling an edge. On 34 designed slides: six findings, all true.
+- Reviewer support in the bench (review-only mode and a review feedback loop) and two tests of a
+  separate reviewer model: precise, weak on composition flaws. Not in the product.
+
+### Documentation
+- `README.md`, `STATUS.md`, the v3 plan, `DECISIONS.md` (V-series), `docs/INVARIANTS.md` and
+  `docs/MODEL_ROUTING.md` (v3 notes), `docs/STUDIO-GUIDE.md` and `docs/handovers/V3-STUDIO.md`
+  brought up to date with v3.
+
+### Not built
+- The reviewer as a layer; trimming the lead's per-call context; Phases 4 to 7 of the plan; a
+  vocabulary phase. See `STATUS.md`.
+
+---
+
 ## Phase 3d (in progress): redesign an existing deck — .pptx ingested one element per bullet as a run-local source, redesign compose mode citing original slides, code-checked coverage of dropped lines, faithfulness validation, "client-supplied deck" audit label, upload route and UI (B41, B49, B50)
 
 ---

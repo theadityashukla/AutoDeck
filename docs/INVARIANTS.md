@@ -12,6 +12,24 @@ is untrustworthy.
 
 ---
 
+> **v3 note (2026-11-16).** This file describes v2. v3 (the conversational studio in
+> `autodeck/studio/`) re-scopes the invariants by owner decision (`DECISIONS.md` V8 to V11;
+> `docs/AUTODECK_V3_PLAN.md` §3.3):
+>
+> | Invariant | v3 base (what is built) | v3 strict overlay (not built) |
+> |---|---|---|
+> | A1, A2, A3, A5, A8 | **Not enforced.** The base deck has no claim typing, citation, numeric linter, validator or verdict. A fact-check is to be a tool, never a gate (not built). | As written; Phase 6 |
+> | **A4 client isolation** | **Enforced, in every mode.** v2's `ClientNamespace.guard` on the knowledge tree and the studio's `EngagementPaths.guard` on the workspace tree (`autodeck/studio/paths.py`, `engagement.py`), on every API route and every source read; errors raise v2's `ClientIsolationError`. Tests: `tests/studio/test_paths.py`, `test_engagement.py`, `test_sources.py`, `test_api.py`. Several symlink cases are untested (`docs/phases/V3-PHASE-0.md`, `V3-PHASE-1.md`). | Enforced |
+> | A6 reproducibility | Not required. The change log (exact undo and redo) is a product feature, not an audit record. | As written |
+> | A7 human gates | One export confirmation (not built; the studio has no export yet). | Four approvals |
+>
+> v2's code and tests are unchanged, so v2's rows below remain accurate for v2. **Layout checks**
+> (overflow, overlap, safe area, minimum size, contrast) are not invariants but run on every v3
+> slide in every mode, plus three studio rules (`autodeck/studio/layout_rules.py`). A base v3
+> deck is not traceable by design; the coverage tracker below says nothing about it.
+
+---
+
 ## Which invariants can be verified on the dev binding (decision B8)
 
 Development runs on small paid Mistral models (`dev-mistral`); SIT and production run on Claude. That split

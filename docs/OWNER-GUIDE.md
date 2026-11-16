@@ -1,5 +1,10 @@
 # Owner's guide to GATE 2 and GATE 3
 
+> **This guide is for v2, the strict, gated pipeline.** For v3, the conversational studio
+> (`python -m autodeck.studio`: build a deck by talking, ask for design directions, recompose,
+> undo), read `docs/STUDIO-GUIDE.md`. v3 has no gates and no approvals, and a v3 deck is not
+> traceable; use this guide whenever a deck must be.
+
 This is the step-by-step for the person who has to approve things. You do not need to have
 read the code. Every command below was checked against `--help` and the source, and every
 "example output" block is what the real program printed when run against scripted stand-in

@@ -1,311 +1,119 @@
 # Status
 
-**One screen: where the v2 build actually is right now.** Updated in the same commit as
-every phase handover. If this file disagrees with your memory, this file is right.
-
----
+**One screen: where things are right now.** Written 2026-11-16. If this file disagrees with
+your memory, this file is right; if it disagrees with the repository, say so and fix it.
 
 | | |
 |---|---|
-| **Current phase** | Phase 3c — draft-first build: **in progress (decisions B43–B48 recorded)** |
-| **Integration branch** | `v2/integration` — **carries Phases 2a–3b** (merged 2026-10-02, B39) |
-| **Active phase branch** | Phase 3c work on `v2/phase-3c-draft-first` |
-| **Last gate passed** | **GATE 1** — approved 2026-09-18 (DECISIONS.md G1), at the precision that entry records |
-| **Next gate** | **GATE 3c** (replaces separate GATE 2 / GATE 3 reviews, B46) — draft-first pipeline: in ≤3 calls (clarify, compose, validate), every claim resolved and verified, DRAFT previews, scoped revision, approvals on the draft (B43–B48) |
-| **Latest handovers** | `docs/handovers/PHASE-2B.md`, `docs/handovers/PHASE-3A.md` |
-| **Updated** | 2026-10-03 |
+| **State** | **Development is paused** (owner's instruction, end of the session of 2026-11-15). Nothing is in progress. |
+| **Direction** | v3, the conversational studio in `autodeck/studio/`. v2 (the strict pipeline) is complete as far as it goes and is the only route to traceable decks. |
+| **Branch** | `claude/autodeck-principles-review-zp7nsm`, built on `v2/integration` (merge base `1b5e38c`). The plan recommended `v3/integration`; that was not possible in the session that did the work, so the owner may want to rename or rebase. |
+| **Last verified** | 2026-11-16 (tests below); the layered flow in one real-model run on 2026-11-15 |
+| **Start reading** | `README.md`, `docs/handovers/V3-STUDIO.md`, `docs/AUTODECK_V3_PLAN.md` |
 
-## What the adversarial review found
+## v3 phases
 
-Phase 2b's handover was written from a green suite of 736 tests. An independent adversarial
-review then found holes those tests did not reach — 11 findings, 9 demonstrated by executing
-against the code, with 6 of those reproduced independently by the orchestrator before
-acting — and twelve commits fixed them. The review ran on Opus; the planned Fable 5.1
-returned HTTP 429, "requires usage credits". The suite on the phase branch stood at
-839 passed, 0 skipped, 10 live-marked and deselected at the time — the 13 font-dependent
-skips are gone because fonts are installed, and CI now installs the OFL dev fonts too,
-since `3cac30e` on the 3a branch. The suite at tip, including Phase 3a, was
-**1098 passed, 0 skipped, 10 live-marked and deselected**; with Phase 3b it is **1368 passed
-by default, plus 44 `render`-marked tests (they need LibreOffice and the fonts; all pass
-locally) — 54 deselected by default, 10 of them live**. See `docs/handovers/PHASE-2B.md`
-§6.9–§6.13 for what the review found and how it was closed.
-
-**The corrected coverage: A2 and A3 stay `tested`, corrected in place; A5 is downgraded from
-`tested` to `enforced`.** A5's fence is a closed list of factual phrasings — ordinary
-factual language outside that list passes uncited, demonstrated with "Quantisation halves
-serving cost" as an unfenced `section_header`. A2 and A3 keep their `tested` cells after the
-fixes, each with a named residual gap: A2 cannot see numbers written as words ("forty
-percent", "four times"); A3's `chart` blocks never receive a verdict.
-
-## Next action
-
-**Phase 3c — draft-first build is underway.** The plan is at `docs/phases/PHASE-3C.md`; decisions are recorded as B43–B48 in `DECISIONS.md`. The pipeline will produce a rendered draft from one prompt in ≤3 model calls (clarify, compose, validate), where the brief, outline and every slide are written in one compose call with citations as an output contract, and a separate validator judges the whole deck in one call.
-
-**Phase 3c is built, not yet live-tested (2026-10-03).** Draft-first works end to end in the
-CLI and the UI: describe the deck → checkpoint (assumptions + only questions that matter) →
-one compose call → citation/number checks → one validation call → DRAFT previews → review with
-verdicts and coverage → revise in the chat (only touched slides redone, verdicts reused) →
-approvals on the draft (weak messages must be carried as named risks) → final render. Verified
-in the browser with scripted stand-in models in place of Gemini (no API key on the build
-machine): every step, the 409 refusal for an unaccepted risk, and the final render's
-three-approval check. **Not yet run against a real model** — that, on `dev`, is the first
-GATE 3c action. The gate-first UI (B42) still works (`docs/OWNER-GUIDE.md` sections 2–6b);
-draft-first is section 2b.
-
-**Phase 3d (redesign) is built on top of it, also not yet live-tested.** Upload a .pptx, the deck becomes the run's own source (stored only in that run, B41), compose rebuilds it one-for-one citing original slides, code reports any line of the deck the redesign drops, validation checks faithfulness. Two provisional decisions need the owner: B49 (one-for-one by default; paper check opt-in) and B50 (one slide of the client's deck supports a message). Guide section 2c.
-
-**The gate-first flow (guide sections 3–6b) still works** alongside draft-first.
-
-Budget the quota: 20 requests per model per day, roughly one `content` call per slide and
-one `validation` call per six claims, spread across five models (B25).
-
-### Owner decisions waiting (four at GATE 2, two at GATE 3)
-
-- **B30 — a gate approval does not survive the machine.** Approvals live in
-  `runs/<id>/state.json`, which is derived data and not committed (B22). The human act
-  survives in `DECISIONS.md` only because we write it there by convention, and an approval
-  is the one thing in a run that cannot be reproduced. Since the A7 change `state.json` also
-  stores the sha256 of what was approved, so an approval no longer silently covers changed
-  content — but it is still only in the uncommitted file. Three options are set out in B30.
-- **Should A5 fence `section_header`?** A section header is framing by nature, and nothing
-  currently stops one carrying a fact. Input from the headers work: lean yes, narrowly — it
-  is where A5's closed list is weakest.
-- **Chart verdict / per-cell citations.** `chart` blocks never receive a verdict, and
-  `ChartSpec.source_citations` is not linked per data point, so "the source table cell is
-  the citation" is not literally satisfiable without an IR change.
-- **Which error for "does not fit"?** `split_rows`/`split_columns` raise `ValueError` where
-  `Box.reserve` raises `LayoutOverflowError`; making them consistent is a breaking change a
-  test pins (`docs/handovers/PHASE-3A.md`).
-- **GATE 3 — approve the finished deck?** The owner's call after the five PowerPoint checks
-  (`docs/OWNER-GUIDE.md` section 6b). Nothing in the code ticks those checks.
-- **GATE 3 — approve a deck with no native diagram, or hold?** Found while writing the guide
-  by running `render` and `gate3` on a plain deck: the content step can write charts but
-  cannot create diagrams (`ProposedBlock` kinds are `claim`/`framing`/`chart`/`section_header`),
-  and no art-direction action creates one, so a pipeline-made deck fails GATE 3 criterion 4
-  and PowerPoint check 1 has nothing to try. `PHASE-3B.md` requires a native diagram. The
-  guide tells the owner to hold; no decision on record yet.
-
-### Carried from GATE 0 — verification debt, not blockers
-
-- **Icon and theme behaviour in PowerPoint is unconfirmed.** Approved on the visual bar
-  (D5) only. **Phase 3a must check both before building on them** — see DECISIONS.md G0.
-- **Aptos is a hard prerequisite.** Spike 0.4 verified rather than assumed B11 check #4:
-  there is no metric-compatible open clone. Phase 2b's budgets are wrong-by-default on a
-  machine without it. Checks #1–#3 still need the owner's machine.
-- **The Claude adapter has never been called live.** The first `sit` run will be its first
-  real request.
-
-### New debt from Phase 3b (found while writing the owner's guide)
-
-- **A pipeline-made deck cannot satisfy GATE 3 criterion 4** (see the decision above).
-- The PowerPoint-only checks are untested on a real PowerPoint (above).
-
-### New debt from Phase 3a
-
-- **The PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — see
-  `docs/handovers/PHASE-3A.md` §7. There are now five; `autodeck gate3` prints them unticked
-  and `docs/OWNER-GUIDE.md` section 6b gives the click-by-click steps. The PowerPoint menu
-  paths in that guide were written from the file's contents and Microsoft's menu layout, not
-  from a PowerPoint session; the first real run is their test.
-- `check_overflow`'s sibling-floor gap: each slot's budget assumes siblings take one line;
-  nothing checks both can hold at once.
-- Diagram and chart labels are protected only at render, not by `check_overflow`.
-- The icon-adjacency threshold is uncalibrated — no component places icons yet.
-- Theme mode (a) is proven against a synthetic template only, not a real corporate one.
-
-### New debt from Phase 2b
-
-- **Nothing in this phase has met a real model or the real corpus.** Everything is
-  fixture-verified, including the full content → send-back → content cycle. The milestone
-  run above is what closes that.
-- **All four key messages in the GATE 1 brief were `unprobed`** — the evidence-gap
-  classifier hit the daily quota mid-run and has never completed on a full brief. The
-  validator is the next chance to catch what it would have found.
-- **The send-back check catches literal regeneration only.** A reworded rejected claim is
-  not recognised; that half of the defence is advisory prompt context, and `send_back.py`
-  says so rather than implying the check is complete.
-- **Numbers written as words are invisible to A2 and A5** ("forty percent", "four times",
-  "quadrupled", "a third") — the extractor sees only digits, so both linters pass vacuously
-  on them.
-- **Two spellings of one claim id**: `s1:b1:n1` in validation vs. `s1:b1/n1` in the report
-  and send-back — a send-back and a judgement about the same node cannot be joined across
-  rounds.
-- **No store re-verification of citations.** Nothing re-checks a stored citation against the
-  document store after construction; a hand-edited IR or a re-ingested corpus is not caught.
-- **`require_safe_to_render` must be called by Phase 3b's render stage.**
-- **`autodeck content` under-reports `incomplete_slots`** (landed on the 3a branch).
-
-### New debt from Phase 2a
-
-- **Nobody has typed into `autodeck plan`.** The session is exercised end to end against
-  live models programmatically, but the REPL's ergonomics are unknown.
-- **Dev capacity is ~20 planner turns a day.** The free tier allows 20 requests per model
-  per day; roles are spread across five models (B25) but a long session will still hit it.
-- **Model IDs go stale fast.** `gemini-2.5-pro` was retired inside a week (B23). Re-resolve
-  before any phase that calls a provider.
-
-### Debt from Phase 1
-
-- **The seed is synthetic.** Public papers, fictional clients — per the Q2 answer. Fine for
-  building; the first real deliverable needs real folders. The structure does not change.
-- **VLM figure descriptions have never run live.** The path is built and unit-tested against
-  a fake; the prompt has not met a real model.
-- **A5 is structured but not enforced.** `value_prop.md` is typed as framing, but nothing
-  yet stops a claim tracing to it. Phase 2b's validator owns that.
-
-## Invariant coverage — corrected after independent review
-
-**Four cells move up in Phase 2b — A1 (unchanged at `tested`), A2, A3 and A8 move to or stay
-`tested`; A5 moves to `enforced`, not `tested`** — leaving A4 and A7 where they were and A6
-deliberately at `partial`. The independent review found that A2, A3 and A5 being marked
-`tested` in the original handover was true of the tests and false of the code; A2 and A3
-are corrected in place and remain `tested`, each with a named residual gap, and **A5 is
-downgraded to `enforced`**.
-
-A2 and A5 gain linters that block rather than warn. A3 gains the behaviour that has no v1
-ancestor: independent re-retrieval with a separate contradiction pass, and a rule ordered so
-that a contradicting span elsewhere in the corpus outranks a perfectly valid citation. A8
-becomes `tested` — `open_risks` resurface in the report, conflicting sources appear with
-both spans rather than an average, and a provider failure returns `unverified` with a
-reason instead of a guess.
-
-**Read A1 and A5's cells with their trap attached:** a clean `Deck` is no longer sufficient
-evidence that either holds, because a demoted framing block and a failed validation pass
-both leave `Deck.blocking_blocks()` empty. The cells are `tested`/`enforced` on
-`require_safe_to_render`, the one function that knows what "safe" means.
-
-**A5 is downgraded from `tested` to `enforced`.** The fence is a closed list of factual
-phrasings, tested on what it lists; ordinary factual language outside the list passes.
-Demonstrated: "Quantisation halves serving cost" passes as uncited `section_header` text (no
-numeral, no superlative, "halves" not in the multiplier list) — headers are terse by
-construction, which is exactly what strips the patterns A5 matches.
-
-**A2 stays `tested`, with a named gap**: numbers written as words are invisible to the
-extractor ("forty percent", "four times", "quadrupled", "a third"), so A2 passes vacuously
-on them.
-
-**A6 is `enforced`.** Its headline promised "byte-comparable" output, which is not achievable
-for PPTX; the owner accepted the corrected wording on 2026-09-27 (B29) — normalised-comparable
-under a recorded normalisation. The manifest half is tested; the render-twice proof needs
-Phase 3b's renderer.
-
-See the tracker in `docs/INVARIANTS.md`.
-
-## Phase progress
-
-| Phase | Branch | Gate | Status |
+| Phase | What | Status | Verified |
 |---|---|---|---|
-| 0 — Foundations | `v2/phase-0-foundations` | GATE 0 | **merged — gate approved** |
-| 1 — Ingestion & knowledge | `v2/phase-1-ingest-knowledge` | GATE 1a | **merged — gate approved** |
-| 2a — Planning & outline | `v2/phase-2a-plan-outline` | GATE 1 | **gate approved (G1) — unmerged, stacked under 2b** |
-| 2b — Content & validation | `v2/phase-2b-content-validate` | GATE 2 | **code complete — gate open** |
-| 3a — Design system | `v2/phase-3a-design-system` | internal | **code complete, internal review pending** |
-| 3b — Renderer & QA | `v2/phase-3b-render-qa` | GATE 3 | **implemented (3b.1–3b.10) — gate open, awaiting owner review** |
-| 4 — Consulting workflow | `v2/phase-4-workflow` | GATE 4 | not started |
-| 5 — Evals & hardening | `v2/phase-5-evals-hardening` | — | not started |
+| Mock-up | Clickable, scripted, no engine (`mockups/v3/`) | Done, accepted as the direction | The owner used it |
+| 0 Foundations | Engagement, plain deck model, change log with exact undo and redo, rendering through v2's renderer | **Done** (2026-11-13) | Scripted; Phase 0 exit test |
+| 1 Conversation core | Threads from state, loop with tools, web interface, proposals | **Done** (2026-11-13), fixes after a real run (2026-11-14) | Scripted and browser walkthrough; one real-model run (`gpt-5.4-mini`) |
+| Slide bench | One-slide design tests (added at the owner's suggestion) | **Done**, 2026-11-14 and 2026-11-15 | Real models; results in `bench/slides/results/README.md` |
+| 2 and 3 (merged) | Layers, routing, design system, staleness, recomposition, cost record | **Done** (2026-11-15) | Scripted and browser walkthrough; one real-model run on `dev-openai` |
+| After the run | Close-out fixes; studio layout rules; reviewer prompt and bench support | **Done** | Rules measured on 34 designed slides; reviewer tested twice on the bench |
+| Reviewer as a layer | | **Not built** | |
+| 4 State and refinement | Selection as scope, propose-first, export confirmation, several threads, undo from the middle | **Not built** (staleness and recomposition were pulled forward into Phases 2 and 3) | |
+| 5 Notes and sources | Meeting notes on the new core, source notes, fact-check tool | **Not built** | |
+| 6 Strict overlay | Annotations, audit, gates, manifest over the base | **Not built** | |
+| 7 Routing benchmark | | **Not built** | |
+| Vocabulary phase | Styled charts, curves and diagonals, emphasis in a line of text, more fonts, a proper fix for the base theme colours | **Not built** (not in the original plan) | |
 
-## What exists today
+## Test results observed on 2026-11-16
 
-Phases 0 through 3b, on `v2/phase-3b-render-qa`. **1368 tests pass by default** (plus 44
-`render`-marked tests, which need LibreOffice and the fonts and also pass; 10 live-marked
-tests stay deselected). Ruff and pyright are clean at the Phase 3b tip.
+| Command | Result |
+|---|---|
+| `uv run pytest -q -p no:cacheprovider tests/studio` | 564 passed, 8 deselected |
+| `... -m render tests/studio` | 8 passed |
+| `... bench/slides/tests` | 70 passed, 1 deselected |
+| `... ` (full default suite) | 2696 passed, 1 failed, 6 skipped, 60 deselected |
 
-- **Deck IR** (`autodeck/ir/`) — models, three-dialect JSON-Schema export, versioned store
-  with an id-keyed diff.
-- **Providers** (`autodeck/providers/`) — protocol, repair-retry, 429 backoff, resumable
-  cache, Gemini/Groq/Claude adapters, `dev`/`sit`/`prod` registry.
-- **Design system** (`autodeck/design/`) — font resolution, glyph-metric budgets, OOXML
-  theme builder, `layout_kit`, 15 components, SVG→`custGeom` icon converter.
-- **Pipeline** (`autodeck/pipeline/`, `autodeck/audit/`, `autodeck/cli.py`) — run dirs,
-  resumable stages, blocking gates, A6 manifest, CLI.
-- **Spike artifacts** (`spikes/gate0/`) — the three PPTX files GATE 0 turns on.
-- Governance docs, the vendored spec, and frozen v1 under `legacy/v1/`.
+The one failure, `tests/test_design.py::test_a_missing_face_is_as_loud_as_a_missing_family`,
+predates v3 and is an environment font issue. 2696 minus the 564 studio tests is v2's 2132,
+unchanged since before v3 began: no v2 file was edited by the v3 work (stated in each phase
+document and consistent with these counts; not re-checked file by file for this document).
+Ruff and pyright were reported clean on the studio code in each phase's verification; not
+re-run for this document.
 
-### Added in Phase 1
+## What was last verified, and how
 
-- **Ingestion** (`autodeck/ingest/`) — Docling runner split at the ML seam, document store
-  as the A1 chokepoint, tolerant-not-approximate quote matching, table cells with their own
-  bboxes, VLM figure descriptions that are retrievable but structurally uncitable, and a
-  Grobid stub that raises on purpose.
-- **Knowledge** (`autodeck/knowledge/`) — two-tier folders (D8) and A4 isolation, with the
-  non-obvious leak paths covered: reference decks and cached retrieval indices.
-- **Retrieval** (`autodeck/retrieval/hybrid.py`) — BM25 + optional embeddings, RRF fusion.
-  No chunker: elements are the chunks, so a hit cannot lack provenance.
-- **Spot-check** (`autodeck/audit/spotcheck.py`) — GATE 1a evidence. Renders the box, emits
-  no verdict.
-- **CLI** — `autodeck knowledge validate | ingest | ask | spotcheck`.
-- **Seed corpus** (`knowledge/`) — five CC BY 4.0 papers, 16 hash-verified claims, two
-  fictional clients. Real evidence, not fixtures: prefer citing from it in tests.
+- **On scripted models:** the whole flow, including a browser walkthrough on the real server
+  (briefs, composition, design proposal with samples, pick, stale, recompose, a new thread's
+  recap, a rule-routed retitle). Re-checked on 2026-11-16 over the HTTP API with
+  `tests/studio/fixtures/scripts/design_flow.json`: each step behaved as `docs/STUDIO-GUIDE.md`
+  says.
+- **In one real-model run (2026-11-15, `dev-openai`):** the layered flow ran end to end with no
+  API, adapter or schema error. Four slides designed, four of four clean (three to four
+  attempts each); recomposition after picking a design, four of four clean; a rule-routed
+  retitle and a model-routed swap both done by the mechanic. Estimated cost $8.69 over seven
+  turns.
+- **Not run:** any Anthropic model (`sit` and `prod` are untested against a live API);
+  `dev-mistral` with the studio; any real client engagement; any deck over a larger knowledge
+  folder than the seed pair.
+- **All costs are estimates** from assumed, deliberately high prices that were never confirmed
+  (`config/studio_prices.yaml`, `bench/slides/prices.yaml`). The session limit was 50 US
+  dollars; the running estimate at the end was about 39.50.
 
-### Added in Phase 2a
+## What is next
 
-- **Planning** (`autodeck/agents/planner.py`, `prompts/planner.md`) — a conversation that
-  ends only on human sign-off, A7 approval 1 of 4. No flag approves a brief.
-- **Evidence gaps** (`autodeck/agents/evidence_gap.py`) — deterministic retrieval, model
-  judgement, and a ceiling applied to the judgement afterwards. The pattern the rest of the
-  system copies.
-- **Outline** (`autodeck/agents/outline.py`, `autodeck/audit/gate1.py`) — signed brief to IR
-  skeleton, no prose, pins honoured or flagged; GATE 1's mechanical half.
+Nothing is scheduled. In the order I would take it (the plan and the phase documents have the
+detail; the owner decides):
 
-### Added in Phase 2b
+1. Use the studio on a real engagement, on `dev-openai`, and write down what feels wrong.
+2. Trim the lead's per-call context (about 14k tokens resent on every call).
+3. The reviewer as a product layer, as an optional extra pass.
+4. A vocabulary phase, so designed slides stop being limited by the drawing primitives.
+5. Phase 4, then 5 and 6 as the strict group needs them; Phase 7 once there is enough change log
+   data to judge the bindings.
 
-- **Budgets** (`autodeck/design/budgets.py`, `budget_check.py`,
-  `design/components/catalog.py`) — per-slot budgets in points, `LINE_HEIGHT_FACTOR = 1.20`
-  measured rather than derived, over-budget text rejected before render.
-- **Prompts** (`prompts/content.md`, `prompts/validation.md`) — the writer and its
-  adversary. Both written to a model that might ignore them; every promise that matters is
-  also enforced in code.
-- **Linters** (`autodeck/audit/numeric_linter.py`, `framing_linter.py`) — A2 and A5. Every
-  numeral traces to a cited span or a re-executed derivation; a `framing` block carrying a
-  fact is demoted to `claim`, where the IR refuses to construct it.
-- **Validation** (`autodeck/audit/verdicts.py`, `autodeck/agents/validation.py`) — A3's rule
-  in a guardrail path, its plumbing outside one.
-- **The render guard** (`autodeck/pipeline/orchestrator.py`) — `require_safe_to_render`, the
-  single place that knows what safe means.
-- **Audit surface** (`autodeck/audit/report.py`, `manifest.py`) — the working shown for every
-  derivation, conflicts recorded without averaging, a canonical PPTX digest.
-- **GATE 2** (`autodeck/cli.py`, `autodeck/pipeline/send_back.py`) — `content`, `validate`,
-  `gate2`, `send-back`. Rejecting a named claim existed nowhere before this phase.
+## Known open problems
 
-### Added in Phase 3a
+| Problem | Where it is recorded |
+|---|---|
+| The reviewer's recall on composition flaws (uneven, scattered or crowded layouts) is weak, and it is not in the product | `bench/slides/results/README.md`, V19 |
+| The lead resends about 14k tokens per call; a one-line question cost about $0.17 (estimated) | `V3-PHASE-2-3.md`, defect 4 |
+| Design proposals are the most expensive action (about $3.63 estimated in the real run, before the two-direction default, which was not re-measured) | `V3-PHASE-2-3.md`, defect list and fixes |
+| Layout rules cannot catch detached labels, crowding or tight clearance; the text half of the `straddle` rule rests on synthetic tests only | `V3-PHASE-2-3.md`, "Studio layout rules" |
+| The studio depends on private v2 names (`ir.store._diff`, `render.renderer._BLANK_LAYOUT`, `SLIDE_TAG_PREFIX`) | `V3-PHASE-0.md`, risks |
+| Several client-isolation symlink cases are untested (a workspace client folder that is a symlink; a project folder symlinked into another client; listings that follow symlinks); v2's own guard may share the gap, not verified | `V3-PHASE-0.md`, carried items |
+| The store assumes a single process; there is no crash repair | `V3-PHASE-0.md`, `V3-PHASE-1.md` |
+| Undo of one change from the middle of the history is not built | `V3-PHASE-0.md` |
+| A turn that fails before it starts is only printed on the server; the interface is not told | `V3-PHASE-1.md`, carried forward |
+| A failed preview (LibreOffice missing) is stored and not retried until the deck changes | `V3-PHASE-1.md`, carried forward |
+| Two base theme colours (`dk1`, `lt1`) are emitted by v2's theme writer as system colours; the studio patches its own copy | `V3-PHASE-2-3.md`, V14 |
+| A base v3 deck has no traceability, by decision | V8 |
+| v2's one failing test, `test_a_missing_face_is_as_loud_as_a_missing_family` (fonts in this environment) | above |
 
-- `layout_kit.py` — composition layer: `Frame`, `Stack`, `Box.reserve`, `measure_block`;
-  nothing shrinks text, over-budget raises.
-- `components/catalog.py` — component registry: `register()`, variants,
-  `components_missing_previews()`.
-- `ir/models.py` — `DiagramSpec` type system; a node must be exactly one of `claim`/`framing`.
-- `components/preview.py` — golden-preview loop and `autodeck components preview`.
-- 15 components, each with a committed golden PNG.
-- Budgets resolve a real face per weight/style; exact integer prediction-vs-render line-count
-  cross-check.
-- `theme/` — mode (b) from tokens with inheritance proven; mode (a) against a synthetic
-  template only.
-- `icons/` — licence record, semantic library, deck consistency checker, `Frame.icon`.
-- `headers/` — profile loader, profile in the content prompt, `--header-style` flag on
-  `autodeck content`, horizontal-flow QA.
-- `charts.py` — native charts, data in an embedded workbook referenced by formula, no image
-  part ever.
-- `diagrams.py` + `draw.py` — process_flow, two_by_two, layered_stack as ungrouped native
-  shapes with theme colours.
-- `grammar.py` — D13 lints: word budget, ≤1 diagram, icon+chart+diagram pileup (blocking);
-  concept count (advisory); icon adjacency (blocking, uncalibrated).
+## v2: the state it was left in
 
-### Added in Phase 3b
+Taken from `DECISIONS.md`, `docs/handovers/AGENT-MEETING-1.md` (the latest v2 handover) and the
+code. The last v2 commit is `1b5e38c` (2026-11-05, B83, the meeting UI).
 
-- **Renderer and QA** (`autodeck/render/`) — IR → PPTX through the theme master with native
-  charts and diagrams; deterministic QA (overlap, safe area, minimum size, contrast);
-  headless LibreOffice rendering to PNGs.
-- **The bounded aesthetic loop** (`render/qa/aesthetic.py`, `prompts/aesthetic_critique.md`) —
-  a vision critic on true renders whose output is a closed action set; it cannot express a
-  text edit. Up to three looks, target score 8.
-- **Art direction** (`autodeck/agents/art_direction.py`, `prompts/art_direction.md`, B35/B36) —
-  communication modes by rule, taste by model, `AssignIcons` as the only way icons come to
-  exist; runs on the `outline` role's binding.
-- **Post-render audit and header flow** — the numeric linter re-run on text extracted from the
-  rendered file; header horizontal-flow QA.
-- **GATE 3** (`autodeck/audit/gate3.py`, `autodeck/cli.py`) — `autodeck render`,
-  `autodeck gate3` (writes `final_audit_report.md` and `build_manifest.json`), and
-  `approve … final_render`, which records the rendered deck's canonical digest.
-- **The claims approval is bound to the deck's facts** (`ir/actions.facts_digest`), not to an
-  IR file, so art direction and the critique write new IR versions without voiding it;
-  changing a claim, citation, verdict or sentence does.
+- **Gates:** GATE 0, GATE 1a and GATE 1 are approved (`DECISIONS.md` G0, G1a, G1). GATE 2
+  (claims table) and GATE 3 (finished deck, with five checks to make in PowerPoint) are open;
+  the owner's decisions waiting at them are in `docs/handovers/STATUS-V2-2026-10-03.md`.
+- **Built:** Phases 0 to 3b merged to `v2/integration` (B39); the review UI (B40, B42); the
+  draft-first build and redesign of an existing deck (3c and 3d, B43 to B52); deck craft and
+  skills, providers, free layout (B53 to B70); the deck agent session, advisor, transcript and
+  resume (B71 to B76); memory (B77); local meeting transcription, the transcript as a citable
+  source, notes written by an agent, the meeting deck, and the meeting UI (B78 to B83, meeting
+  plan steps 1 to 12 of 13).
+- **Not done, as far as the repository shows:** meeting plan step 13 (a live check on the real
+  recording, which is on the owner's Mac); the live check of step 9 on the test clip; v2's
+  roadmap Phases 4 and 5 (consulting workflow, evals and hardening); a Claude run of the deck
+  agent. **I could not confirm whether any of these happened off the repository after
+  2026-11-05**; no later v2 commit or document records them.
+- **Never confirmed:** the PowerPoint-only GATE 3 checks and the behaviour of icons and theme in
+  real PowerPoint (no PowerPoint in the build environment); the Claude adapter against a live
+  API.
+- **Known failure:** the one test above. The v2 suite is otherwise 2132 passed in the same run.
+- **Old status document:** `docs/handovers/STATUS-V2-2026-10-03.md`.
