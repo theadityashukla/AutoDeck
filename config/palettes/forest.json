@@ -1,0 +1,19 @@
+{
+  "name": "forest",
+  "description": "Ivory ground, deep forest green, muted gold; premium strategy.",
+  "dark": false,
+  "palette": {
+    "dk1": "14231C",
+    "lt1": "FBFAF6",
+    "dk2": "5E6B64",
+    "lt2": "F0EEE6",
+    "accent1": "0E7C5A",
+    "accent2": "0B3D2E",
+    "accent3": "C9A227",
+    "accent4": "6F9C82",
+    "accent5": "8A6510",
+    "accent6": "C8CEC6",
+    "hyperlink": "0E7C5A",
+    "followed_hyperlink": "0B3D2E"
+  }
+}

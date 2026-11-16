@@ -1,0 +1,19 @@
+{
+  "name": "plum",
+  "description": "White ground, plum structure, violet accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "24132E",
+    "lt1": "FFFFFF",
+    "dk2": "66566F",
+    "lt2": "F5F0F8",
+    "accent1": "9B51E0",
+    "accent2": "5B2A86",
+    "accent3": "F25F5C",
+    "accent4": "247BA0",
+    "accent5": "C2410C",
+    "accent6": "CFC6D6",
+    "hyperlink": "9B51E0",
+    "followed_hyperlink": "5B2A86"
+  }
+}

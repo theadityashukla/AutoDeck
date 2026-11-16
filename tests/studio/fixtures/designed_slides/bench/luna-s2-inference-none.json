@@ -1,0 +1,337 @@
+{
+ "source": "slide bench round 1, luna, s2-inference, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s2-inference",
+  "intent": "Show that AI cost has shifted decisively from one-time training to recurring inference, with the 2026 share as the visual proof point.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Inference, not training, is now most of the bill",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero79",
+    "kind": "text",
+    "text": "79%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_context",
+    "kind": "text",
+    "text": "of AI spend goes on inference in 2026",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "prior42",
+    "kind": "text",
+    "text": "42%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "prior_context",
+    "kind": "text",
+    "text": "in 2024",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "training_point",
+    "kind": "text",
+    "text": "Training is paid once; every shopper question is paid for every time",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "question_volume",
+    "kind": "text",
+    "text": "The assistant answers 98 million questions a month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart_label",
+    "kind": "text",
+    "text": "Inference share of AI spend (%)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "inference_chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "column",
+     "title": null,
+     "categories": [
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026"
+     ],
+     "series": [
+      {
+       "name": "Inference share of AI spend (%)",
+       "values": [
+        30.0,
+        36.0,
+        42.0,
+        63.0,
+        79.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "source",
+    "kind": "text",
+    "text": "Source: Northwind finance, FY2026 forecast",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": {
+     "doc_id": "Northwind finance",
+     "page": null,
+     "note": "FY2026 forecast"
+    }
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 42.0,
+      "y": 12.0,
+      "w": 55.0,
+      "h": 77.0
+     },
+     "fill": "lt2",
+     "line": "accent1",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 40.5,
+      "y": 12.0,
+      "w": 1.2,
+      "h": 77.0
+     },
+     "fill": "accent3",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.8,
+      "y": 8.0,
+      "w": 33.5,
+      "h": 27.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero79",
+     "frame": {
+      "x": 5.8,
+      "y": 36.5,
+      "w": 28.0,
+      "h": 33.5
+     },
+     "role": "display",
+     "size_pt": 128.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_context",
+     "frame": {
+      "x": 6.0,
+      "y": 69.5,
+      "w": 31.0,
+      "h": 6.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "prior42",
+     "frame": {
+      "x": 5.8,
+      "y": 77.0,
+      "w": 12.0,
+      "h": 8.5
+     },
+     "role": "heading",
+     "size_pt": 30.0,
+     "bold": true,
+     "color": "accent6",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "prior_context",
+     "frame": {
+      "x": 18.5,
+      "y": 79.0,
+      "w": 16.0,
+      "h": 5.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "training_point",
+     "frame": {
+      "x": 5.8,
+      "y": 86.0,
+      "w": 32.0,
+      "h": 6.2
+     },
+     "role": "body",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "question_volume",
+     "frame": {
+      "x": 5.8,
+      "y": 92.4,
+      "w": 33.0,
+      "h": 3.0
+     },
+     "role": "body",
+     "size_pt": 10.0,
+     "bold": false,
+     "color": "lt2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart_label",
+     "frame": {
+      "x": 45.5,
+      "y": 16.5,
+      "w": 47.0,
+      "h": 6.0
+     },
+     "role": "heading",
+     "size_pt": 20.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "inference_chart",
+     "frame": {
+      "x": 44.5,
+      "y": 25.0,
+      "w": 50.5,
+      "h": 59.0
+     },
+     "accent": "accent3",
+     "emphasis": [
+      "2026"
+     ]
+    },
+    {
+     "type": "text",
+     "block_id": "source",
+     "frame": {
+      "x": 45.5,
+      "y": 85.0,
+      "w": 48.0,
+      "h": 3.5
+     },
+     "role": "caption",
+     "size_pt": 10.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark, asymmetric field makes the 79% figure the first stop, while a light chart panel turns the four-year shift into the evidence and keeps supporting context quiet."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

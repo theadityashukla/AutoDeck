@@ -1,0 +1,300 @@
+{
+ "source": "slide bench round 1, luna, s1-title, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s1-title",
+  "intent": "Open the proposal with a clear promise: Northwind\u2019s shopping assistant can be served at 38% lower cost, with the proposed per-1,000-answer price made visually dominant over today\u2019s price.",
+  "blocks": [
+   {
+    "id": "deck_name",
+    "kind": "text",
+    "text": "Serving the assistant for less",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Northwind can serve its shopping assistant at 38% lower cost",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "byline",
+    "kind": "text",
+    "text": "A proposal to Northwind Retail \u00b7 November 2026",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed_label",
+    "kind": "text",
+    "text": "PROPOSED",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed_price",
+    "kind": "text",
+    "text": "$2.60",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "proposed_unit",
+    "kind": "text",
+    "text": "per 1,000 answers",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today_label",
+    "kind": "text",
+    "text": "TODAY",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today_price",
+    "kind": "text",
+    "text": "$4.20",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "today_unit",
+    "kind": "text",
+    "text": "per 1,000 answers",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 58.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 58.0,
+      "y": 0.0,
+      "w": 42.0,
+      "h": 100.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 58.0,
+      "y": 0.0,
+      "w": 1.2,
+      "h": 100.0
+     },
+     "fill": "accent3",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 67.0,
+      "y": 65.0,
+      "w": 25.0,
+      "h": 0.6
+     },
+     "fill": null,
+     "line": "lt1",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "deck_name",
+     "frame": {
+      "x": 7.0,
+      "y": 8.0,
+      "w": 42.0,
+      "h": 7.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 7.0,
+      "y": 21.0,
+      "w": 47.0,
+      "h": 36.0
+     },
+     "role": "title",
+     "size_pt": 42.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "byline",
+     "frame": {
+      "x": 7.0,
+      "y": 85.0,
+      "w": 47.0,
+      "h": 7.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed_label",
+     "frame": {
+      "x": 67.0,
+      "y": 13.0,
+      "w": 25.0,
+      "h": 7.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed_price",
+     "frame": {
+      "x": 66.0,
+      "y": 23.0,
+      "w": 29.0,
+      "h": 19.0
+     },
+     "role": "display",
+     "size_pt": 72.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "proposed_unit",
+     "frame": {
+      "x": 67.0,
+      "y": 44.0,
+      "w": 25.0,
+      "h": 7.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today_label",
+     "frame": {
+      "x": 67.0,
+      "y": 70.0,
+      "w": 25.0,
+      "h": 7.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today_price",
+     "frame": {
+      "x": 67.0,
+      "y": 78.0,
+      "w": 25.0,
+      "h": 12.0
+     },
+     "role": "heading",
+     "size_pt": 38.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "today_unit",
+     "frame": {
+      "x": 67.0,
+      "y": 90.0,
+      "w": 25.0,
+      "h": 5.0
+     },
+     "role": "caption",
+     "size_pt": 11.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "An unequal dark/light split turns the opening promise into a strong title field while the contrasting right-hand price field makes the proposed $2.60 unmistakably primary and keeps today\u2019s $4.20 as a quiet comparator."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

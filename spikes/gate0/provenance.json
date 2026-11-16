@@ -1,0 +1,26 @@
+{
+  "note": "Fonts recorded per artifact. A visual judgement is only valid for the family listed here; Aptos is the deliverable target (B11).",
+  "artifacts": [
+    {
+      "name": "theme",
+      "pptx": "spikes/gate0/theme.pptx",
+      "font_major": "Inter Display",
+      "font_minor": "Inter",
+      "build_seconds": 0.083
+    },
+    {
+      "name": "components",
+      "pptx": "spikes/gate0/components.pptx",
+      "font_major": "Inter Display",
+      "font_minor": "Inter",
+      "build_seconds": 0.044
+    },
+    {
+      "name": "icon",
+      "pptx": "spikes/gate0/icon.pptx",
+      "font_major": "Inter Display",
+      "font_minor": "Inter",
+      "build_seconds": 0.036
+    }
+  ]
+}

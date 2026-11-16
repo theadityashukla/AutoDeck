@@ -1,0 +1,19 @@
+{
+  "name": "signal",
+  "description": "Editorial black on white with a single signal red; serif-friendly.",
+  "dark": false,
+  "palette": {
+    "dk1": "111111",
+    "lt1": "FFFFFF",
+    "dk2": "5C5C5C",
+    "lt2": "F3F1EE",
+    "accent1": "E3120B",
+    "accent2": "111111",
+    "accent3": "8C8C8C",
+    "accent4": "F2A900",
+    "accent5": "B10E08",
+    "accent6": "BDBDBD",
+    "hyperlink": "E3120B",
+    "followed_hyperlink": "111111"
+  }
+}

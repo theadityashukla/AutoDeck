@@ -1,0 +1,1706 @@
+{
+  "model_id": "scripted/lead",
+  "model_ids": {
+    "system": "scripted/system",
+    "designer": "scripted/designer",
+    "mechanic": "scripted/mechanic",
+    "router": "scripted/router"
+  },
+  "description": "Phase 2-3 walk-through on northwind-retail / llm-inference-efficiency. Thread one: the lead writes three slide briefs and composes them (designer, default design); the owner says it looks generic; the lead proposes two design directions (system layer palettes, designer samples on slide 2); the owner picks B; the slides are stale and are recomposed in it. Thread two: a recap from state, then 'Retitle slide 2 to ...' goes by rule to the mechanic, without the lead. Owner messages, in order: anything (turn 1), anything (turn 2), pick B of p0001 with the button, anything (turn 4); new thread; 'Retitle slide 2 to Quantisation cuts the bill by 38%'.",
+  "steps": [
+    {
+      "label": "t1 u1: router",
+      "role": "router",
+      "tool_calls": [
+        {
+          "name": "route",
+          "arguments": {
+            "to": "lead",
+            "reason": "new content"
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u1: create the deck and write three briefs",
+      "role": "lead",
+      "tool_calls": [
+        {
+          "name": "create_deck",
+          "arguments": {
+            "artifact_id": "pilot-readout",
+            "title": "Serving costs: pilot readout"
+          }
+        },
+        {
+          "name": "set_slide_brief",
+          "arguments": {
+            "slide_id": "s1",
+            "brief": {
+              "header": "Northwind can serve its shopping assistant at 38% lower cost",
+              "intent": "The opening: before anyone speaks, the reader knows who the proposal is for and what it promises: the same assistant at 38% lower cost, $4.20 per 1,000 answers falling to $2.60.",
+              "content": {
+                "points": [
+                  "Serving the assistant for less",
+                  "A proposal to Northwind Retail · November 2026"
+                ],
+                "figures": [
+                  {
+                    "value": "$2.60",
+                    "label": "per 1,000 answers, proposed"
+                  },
+                  {
+                    "value": "$4.20",
+                    "label": "per 1,000 answers today"
+                  }
+                ]
+              },
+              "notes": "A title slide. $2.60 is the new state and matters more than $4.20."
+            }
+          }
+        },
+        {
+          "name": "set_slide_brief",
+          "arguments": {
+            "slide_id": "s2",
+            "brief": {
+              "header": "Quantisation alone cuts serving cost by 38%",
+              "intent": "The single biggest saving comes from one technique: 8-bit weights take monthly serving cost from $412k to $255k without changing the answers.",
+              "content": {
+                "points": [
+                  "8-bit weights instead of 16-bit",
+                  "Same answer quality on 2,000 test questions"
+                ],
+                "figures": [
+                  {
+                    "value": "38%",
+                    "label": "lower monthly serving cost"
+                  }
+                ],
+                "chart": {
+                  "kind": "bar",
+                  "categories": [
+                    "Before",
+                    "After"
+                  ],
+                  "series": [
+                    {
+                      "name": "Monthly serving cost ($k)",
+                      "values": [
+                        412,
+                        255
+                      ]
+                    }
+                  ],
+                  "emphasis": [
+                    "After"
+                  ]
+                }
+              },
+              "notes": "38% is the hero; the before and after is quieter evidence."
+            }
+          }
+        },
+        {
+          "name": "set_slide_brief",
+          "arguments": {
+            "slide_id": "s3",
+            "brief": {
+              "header": "What it costs and what it returns",
+              "intent": "The business case is simple: a one-off cost of $310k is repaid in about two months by a saving of $1.9M a year.",
+              "content": {
+                "points": [
+                  "Engineering $240k and evaluation $70k; the saving is $157k a month from the first full month"
+                ],
+                "figures": [
+                  {
+                    "value": "$310k",
+                    "label": "one-off cost"
+                  },
+                  {
+                    "value": "$1.9M",
+                    "label": "saved per year"
+                  },
+                  {
+                    "value": "2 months",
+                    "label": "to pay back"
+                  }
+                ]
+              },
+              "notes": "Read left to right as cost, return, payback; the return matters most."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u1: compose them",
+      "role": "lead",
+      "tool_calls": [
+        {
+          "name": "compose_slides",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "label": "designer: s1 in the default design",
+      "role": "designer",
+      "match": "Slide id: s1",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s1",
+              "blocks": [
+                {
+                  "id": "kicker",
+                  "kind": "text",
+                  "text": "Serving the assistant for less"
+                },
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "Northwind can serve its shopping assistant at 38% lower cost"
+                },
+                {
+                  "id": "byline",
+                  "kind": "text",
+                  "text": "A proposal to Northwind Retail · November 2026"
+                },
+                {
+                  "id": "new",
+                  "kind": "text",
+                  "text": "$2.60"
+                },
+                {
+                  "id": "new-label",
+                  "kind": "text",
+                  "text": "per 1,000 answers, proposed"
+                },
+                {
+                  "id": "old",
+                  "kind": "text",
+                  "text": "$4.20"
+                },
+                {
+                  "id": "old-label",
+                  "kind": "text",
+                  "text": "per 1,000 answers today"
+                }
+              ],
+              "layout": {
+                "background": "lt1",
+                "elements": [
+                  {
+                    "type": "shape",
+                    "shape": "rect",
+                    "frame": {
+                      "x": 0,
+                      "y": 0,
+                      "w": 40,
+                      "h": 100
+                    },
+                    "fill": "accent1"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "kicker",
+                    "frame": {
+                      "x": 5,
+                      "y": 10,
+                      "w": 31,
+                      "h": 6
+                    },
+                    "role": "label",
+                    "color": "lt1"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 5,
+                      "y": 20,
+                      "w": 31,
+                      "h": 50
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 32
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "byline",
+                    "frame": {
+                      "x": 5,
+                      "y": 82,
+                      "w": 31,
+                      "h": 8
+                    },
+                    "role": "caption",
+                    "color": "lt1"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "new",
+                    "frame": {
+                      "x": 48,
+                      "y": 18,
+                      "w": 44,
+                      "h": 30
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 110
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "new-label",
+                    "frame": {
+                      "x": 48,
+                      "y": 50,
+                      "w": 44,
+                      "h": 7
+                    },
+                    "role": "body",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "shape",
+                    "shape": "line",
+                    "frame": {
+                      "x": 48,
+                      "y": 62,
+                      "w": 40,
+                      "h": 0.5
+                    },
+                    "line": "accent6",
+                    "line_pt": 1
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "old",
+                    "frame": {
+                      "x": 48,
+                      "y": 66,
+                      "w": 30,
+                      "h": 12
+                    },
+                    "role": "heading",
+                    "color": "dk2",
+                    "size_pt": 36
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "old-label",
+                    "frame": {
+                      "x": 48,
+                      "y": 80,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  }
+                ],
+                "rationale": "A colour field holds the header; the figure that matters is the largest thing on the slide."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "designer: s2 in the default design",
+      "role": "designer",
+      "match": "Slide id: s2",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s2",
+              "blocks": [
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "Quantisation alone cuts serving cost by 38%"
+                },
+                {
+                  "id": "hero",
+                  "kind": "text",
+                  "text": "38%"
+                },
+                {
+                  "id": "hero-label",
+                  "kind": "text",
+                  "text": "lower monthly serving cost"
+                },
+                {
+                  "id": "p1",
+                  "kind": "text",
+                  "text": "8-bit weights instead of 16-bit"
+                },
+                {
+                  "id": "p2",
+                  "kind": "text",
+                  "text": "Same answer quality on 2,000 test questions"
+                },
+                {
+                  "id": "chart",
+                  "kind": "chart",
+                  "chart": {
+                    "chart_type": "bar",
+                    "categories": [
+                      "Before",
+                      "After"
+                    ],
+                    "series": [
+                      {
+                        "name": "Monthly serving cost ($k)",
+                        "values": [
+                          412,
+                          255
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "layout": {
+                "background": "lt1",
+                "elements": [
+                  {
+                    "type": "shape",
+                    "shape": "rect",
+                    "frame": {
+                      "x": 0,
+                      "y": 0,
+                      "w": 36,
+                      "h": 100
+                    },
+                    "fill": "accent1"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 5,
+                      "y": 10,
+                      "w": 27,
+                      "h": 40
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 30
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p1",
+                    "frame": {
+                      "x": 5,
+                      "y": 62,
+                      "w": 27,
+                      "h": 10
+                    },
+                    "role": "body",
+                    "color": "lt1",
+                    "size_pt": 16
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p2",
+                    "frame": {
+                      "x": 5,
+                      "y": 74,
+                      "w": 27,
+                      "h": 14
+                    },
+                    "role": "body",
+                    "color": "lt1",
+                    "size_pt": 16
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero",
+                    "frame": {
+                      "x": 42,
+                      "y": 6,
+                      "w": 50,
+                      "h": 38
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 140
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero-label",
+                    "frame": {
+                      "x": 42,
+                      "y": 45,
+                      "w": 50,
+                      "h": 7
+                    },
+                    "role": "body",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "chart",
+                    "block_id": "chart",
+                    "frame": {
+                      "x": 42,
+                      "y": 56,
+                      "w": 52,
+                      "h": 38
+                    },
+                    "accent": "accent1",
+                    "emphasis": [
+                      "After"
+                    ]
+                  }
+                ],
+                "rationale": "A colour field holds the header; the figure that matters is the largest thing on the slide."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "designer: s3 in the default design",
+      "role": "designer",
+      "match": "Slide id: s3",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s3",
+              "blocks": [
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "What it costs and what it returns"
+                },
+                {
+                  "id": "f1",
+                  "kind": "text",
+                  "text": "$310k"
+                },
+                {
+                  "id": "f1-label",
+                  "kind": "text",
+                  "text": "one-off cost"
+                },
+                {
+                  "id": "f2",
+                  "kind": "text",
+                  "text": "$1.9M"
+                },
+                {
+                  "id": "f2-label",
+                  "kind": "text",
+                  "text": "saved per year"
+                },
+                {
+                  "id": "f3",
+                  "kind": "text",
+                  "text": "2 months"
+                },
+                {
+                  "id": "f3-label",
+                  "kind": "text",
+                  "text": "to pay back"
+                },
+                {
+                  "id": "note",
+                  "kind": "text",
+                  "text": "Engineering $240k and evaluation $70k; the saving is $157k a month from the first full month"
+                }
+              ],
+              "layout": {
+                "background": "lt1",
+                "elements": [
+                  {
+                    "type": "shape",
+                    "shape": "rect",
+                    "frame": {
+                      "x": 0,
+                      "y": 0,
+                      "w": 100,
+                      "h": 34
+                    },
+                    "fill": "accent1"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 6,
+                      "y": 10,
+                      "w": 80,
+                      "h": 16
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 36
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f1",
+                    "frame": {
+                      "x": 6,
+                      "y": 44,
+                      "w": 26,
+                      "h": 16
+                    },
+                    "role": "display",
+                    "color": "dk1",
+                    "size_pt": 48
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f1-label",
+                    "frame": {
+                      "x": 6,
+                      "y": 62,
+                      "w": 26,
+                      "h": 6
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f2",
+                    "frame": {
+                      "x": 37,
+                      "y": 40,
+                      "w": 30,
+                      "h": 22
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 72
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f2-label",
+                    "frame": {
+                      "x": 37,
+                      "y": 63,
+                      "w": 26,
+                      "h": 6
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f3",
+                    "frame": {
+                      "x": 70,
+                      "y": 44,
+                      "w": 26,
+                      "h": 16
+                    },
+                    "role": "display",
+                    "color": "dk1",
+                    "size_pt": 48
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f3-label",
+                    "frame": {
+                      "x": 70,
+                      "y": 62,
+                      "w": 26,
+                      "h": 6
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "shape",
+                    "shape": "line",
+                    "frame": {
+                      "x": 6,
+                      "y": 74,
+                      "w": 88,
+                      "h": 0.5
+                    },
+                    "line": "accent6",
+                    "line_pt": 1
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "note",
+                    "frame": {
+                      "x": 6,
+                      "y": 78,
+                      "w": 88,
+                      "h": 10
+                    },
+                    "role": "body",
+                    "color": "dk2",
+                    "size_pt": 16
+                  }
+                ],
+                "rationale": "A colour field holds the header; the figure that matters is the largest thing on the slide."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u1: reply",
+      "role": "lead",
+      "text": "I have written three slides: the promise, quantisation, and the business case. All three are designed in the provisional default look."
+    },
+    {
+      "label": "t1 u2: router",
+      "role": "router",
+      "tool_calls": [
+        {
+          "name": "route",
+          "arguments": {
+            "to": "lead",
+            "reason": "about the look"
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u2: propose two directions",
+      "role": "lead",
+      "tool_calls": [
+        {
+          "name": "propose_design",
+          "arguments": {
+            "summary": "Two directions for the look of the deck",
+            "directions": [
+              {
+                "name": "Itemised",
+                "concept": "Every slide reads like a till receipt for its claim: the evidence itemised line by line, and the one total that matters marked in carbon blue.",
+                "rules": [
+                  "The background is receipt paper; a carbon-blue field may carry the header.",
+                  "Carbon blue marks exactly one figure per slide.",
+                  "No icons, no rounded cards: fields, rules and type do the work."
+                ]
+              },
+              {
+                "name": "Demand curve",
+                "concept": "The assistant's traffic over a day is what the bill follows, so each slide is built along one line on a night-blue ground, with peach marking the one thing to look at.",
+                "rules": [
+                  "The background is night blue; each slide has one dominant horizontal line.",
+                  "Peach marks exactly one thing per slide; everything else is cool grey or blue.",
+                  "No boxes around text; at least a third of the slide stays empty."
+                ]
+              }
+            ],
+            "sample_slide_ids": [
+              "s2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "system: Itemised",
+      "role": "system",
+      "match": "Name: Itemised",
+      "tool_calls": [
+        {
+          "name": "set_palette",
+          "arguments": {
+            "palette": {
+              "dk1": "#20252B",
+              "lt1": "#FCFCF9",
+              "dk2": "#4A525C",
+              "lt2": "#D3DCCF",
+              "accent1": "#3446C9",
+              "accent2": "#F1E05A",
+              "accent3": "#9AA796",
+              "accent4": "#6E7C8C",
+              "accent5": "#E6EBE3",
+              "accent6": "#8C958C"
+            },
+            "roles": {
+              "dk1": "print: figures and secondary text. Safe on lt1 and lt2.",
+              "lt1": "receipt paper: the slide background; also text on accent1.",
+              "dk2": "faded print: body text and labels; charts label in it. Safe on lt1.",
+              "lt2": "counter: a quiet panel. Text on it in dk1.",
+              "accent1": "carbon blue: the header field and the one figure that matters. Safe as text on lt1.",
+              "accent2": "highlighter: a stripe behind one total. Never text.",
+              "accent3": "receipt edge: rules. Never text.",
+              "accent4": "slate: a second chart series. Not for text.",
+              "accent5": "pale paper: a quiet panel. Not for text.",
+              "accent6": "printed grey: chart neutral and thin rules. Not for text."
+            },
+            "background": "lt1",
+            "text_pairs": [
+              {
+                "text": "dk1",
+                "ground": "lt1"
+              },
+              {
+                "text": "dk2",
+                "ground": "lt1"
+              },
+              {
+                "text": "accent1",
+                "ground": "lt1"
+              },
+              {
+                "text": "lt1",
+                "ground": "accent1"
+              },
+              {
+                "text": "dk1",
+                "ground": "lt2"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "system: Demand curve",
+      "role": "system",
+      "match": "Name: Demand curve",
+      "tool_calls": [
+        {
+          "name": "set_palette",
+          "arguments": {
+            "palette": {
+              "dk1": "#0B1420",
+              "lt1": "#FFFFFF",
+              "dk2": "#A8B8CF",
+              "lt2": "#0F1D30",
+              "accent1": "#F2A57E",
+              "accent2": "#7FA6D8",
+              "accent3": "#2B4466",
+              "accent4": "#1A2E4A",
+              "accent5": "#24395A",
+              "accent6": "#5A7396"
+            },
+            "roles": {
+              "dk1": "ink: not readable on the night ground; unused for text here.",
+              "lt1": "paper: headers and large figures. Safe on lt2 and accent4.",
+              "dk2": "mist, a light colour: body text and labels; charts label in it. Safe on lt2.",
+              "lt2": "night: the slide background. A ground, not a text colour.",
+              "accent1": "curve peach: the line and the one figure that matters. Safe on lt2.",
+              "accent2": "before blue: the old state in a comparison. Safe on lt2.",
+              "accent3": "faint rule: the dominant line and ticks. Never text.",
+              "accent4": "dusk: a faint band. Text on it in lt1.",
+              "accent5": "deep dusk: a stronger band. Not for text.",
+              "accent6": "slate: chart neutral. Not for text."
+            },
+            "background": "lt2",
+            "text_pairs": [
+              {
+                "text": "lt1",
+                "ground": "lt2"
+              },
+              {
+                "text": "dk2",
+                "ground": "lt2"
+              },
+              {
+                "text": "accent1",
+                "ground": "lt2"
+              },
+              {
+                "text": "accent2",
+                "ground": "lt2"
+              },
+              {
+                "text": "lt1",
+                "ground": "accent4"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "designer: s2 sample in Itemised",
+      "role": "designer",
+      "match": "Name: Itemised",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s2",
+              "blocks": [
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "Quantisation alone cuts serving cost by 38%"
+                },
+                {
+                  "id": "hero",
+                  "kind": "text",
+                  "text": "38%"
+                },
+                {
+                  "id": "hero-label",
+                  "kind": "text",
+                  "text": "lower monthly serving cost"
+                },
+                {
+                  "id": "p1",
+                  "kind": "text",
+                  "text": "8-bit weights instead of 16-bit"
+                },
+                {
+                  "id": "p2",
+                  "kind": "text",
+                  "text": "Same answer quality on 2,000 test questions"
+                },
+                {
+                  "id": "chart",
+                  "kind": "chart",
+                  "chart": {
+                    "chart_type": "bar",
+                    "categories": [
+                      "Before",
+                      "After"
+                    ],
+                    "series": [
+                      {
+                        "name": "Monthly serving cost ($k)",
+                        "values": [
+                          412,
+                          255
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "layout": {
+                "background": "lt1",
+                "elements": [
+                  {
+                    "type": "shape",
+                    "shape": "rect",
+                    "frame": {
+                      "x": 0,
+                      "y": 0,
+                      "w": 36,
+                      "h": 100
+                    },
+                    "fill": "accent1"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 5,
+                      "y": 10,
+                      "w": 27,
+                      "h": 40
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 30
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p1",
+                    "frame": {
+                      "x": 5,
+                      "y": 62,
+                      "w": 27,
+                      "h": 10
+                    },
+                    "role": "body",
+                    "color": "lt1",
+                    "size_pt": 16
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p2",
+                    "frame": {
+                      "x": 5,
+                      "y": 74,
+                      "w": 27,
+                      "h": 14
+                    },
+                    "role": "body",
+                    "color": "lt1",
+                    "size_pt": 16
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero",
+                    "frame": {
+                      "x": 42,
+                      "y": 6,
+                      "w": 50,
+                      "h": 38
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 140
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero-label",
+                    "frame": {
+                      "x": 42,
+                      "y": 45,
+                      "w": 50,
+                      "h": 7
+                    },
+                    "role": "body",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "chart",
+                    "block_id": "chart",
+                    "frame": {
+                      "x": 42,
+                      "y": 56,
+                      "w": 52,
+                      "h": 38
+                    },
+                    "accent": "accent1",
+                    "emphasis": [
+                      "After"
+                    ]
+                  }
+                ],
+                "rationale": "A colour field holds the header; the figure that matters is the largest thing on the slide."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "designer: s2 sample in Demand curve",
+      "role": "designer",
+      "match": "Name: Demand curve",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s2",
+              "blocks": [
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "Quantisation alone cuts serving cost by 38%"
+                },
+                {
+                  "id": "hero",
+                  "kind": "text",
+                  "text": "38%"
+                },
+                {
+                  "id": "hero-label",
+                  "kind": "text",
+                  "text": "lower monthly serving cost"
+                },
+                {
+                  "id": "p1",
+                  "kind": "text",
+                  "text": "8-bit weights instead of 16-bit"
+                },
+                {
+                  "id": "p2",
+                  "kind": "text",
+                  "text": "Same answer quality on 2,000 test questions"
+                },
+                {
+                  "id": "chart",
+                  "kind": "chart",
+                  "chart": {
+                    "chart_type": "bar",
+                    "categories": [
+                      "Before",
+                      "After"
+                    ],
+                    "series": [
+                      {
+                        "name": "Monthly serving cost ($k)",
+                        "values": [
+                          412,
+                          255
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "layout": {
+                "background": "lt2",
+                "elements": [
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 6,
+                      "y": 9,
+                      "w": 60,
+                      "h": 10
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 30
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero",
+                    "frame": {
+                      "x": 6,
+                      "y": 23,
+                      "w": 40,
+                      "h": 38
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 140
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero-label",
+                    "frame": {
+                      "x": 6,
+                      "y": 62,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "body",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "shape",
+                    "shape": "line",
+                    "frame": {
+                      "x": 6,
+                      "y": 72,
+                      "w": 88,
+                      "h": 0.5
+                    },
+                    "line": "accent3",
+                    "line_pt": 2
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p1",
+                    "frame": {
+                      "x": 6,
+                      "y": 77,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p2",
+                    "frame": {
+                      "x": 6,
+                      "y": 85,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "chart",
+                    "block_id": "chart",
+                    "frame": {
+                      "x": 52,
+                      "y": 26,
+                      "w": 42,
+                      "h": 42
+                    },
+                    "accent": "accent1",
+                    "emphasis": [
+                      "After"
+                    ]
+                  }
+                ],
+                "rationale": "One line carries the slide; the figure that matters is peach."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u2: reply",
+      "role": "lead",
+      "text": "Here are two directions, each shown on slide 2: Itemised, light like a receipt, and Demand curve, a night-blue deck built along one line."
+    },
+    {
+      "label": "t1 u3: adopt Demand curve",
+      "role": "lead",
+      "tool_calls": [
+        {
+          "name": "apply_design",
+          "arguments": {
+            "proposal_id": "p0001",
+            "option_id": "B"
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u3: reply",
+      "role": "lead",
+      "text": "Demand curve is now the deck's design. Slides 1 to 3 are stale: they still show the default look. Shall I recompose them?"
+    },
+    {
+      "label": "t1 u4: router",
+      "role": "router",
+      "tool_calls": [
+        {
+          "name": "route",
+          "arguments": {
+            "to": "lead",
+            "reason": "recomposition"
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u4: recompose the stale slides",
+      "role": "lead",
+      "tool_calls": [
+        {
+          "name": "compose_slides",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "label": "designer: s1 in Demand curve",
+      "role": "designer",
+      "match": "Slide id: s1",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s1",
+              "blocks": [
+                {
+                  "id": "kicker",
+                  "kind": "text",
+                  "text": "Serving the assistant for less"
+                },
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "Northwind can serve its shopping assistant at 38% lower cost"
+                },
+                {
+                  "id": "byline",
+                  "kind": "text",
+                  "text": "A proposal to Northwind Retail · November 2026"
+                },
+                {
+                  "id": "new",
+                  "kind": "text",
+                  "text": "$2.60"
+                },
+                {
+                  "id": "new-label",
+                  "kind": "text",
+                  "text": "per 1,000 answers, proposed"
+                },
+                {
+                  "id": "old",
+                  "kind": "text",
+                  "text": "$4.20"
+                },
+                {
+                  "id": "old-label",
+                  "kind": "text",
+                  "text": "per 1,000 answers today"
+                }
+              ],
+              "layout": {
+                "background": "lt2",
+                "elements": [
+                  {
+                    "type": "text",
+                    "block_id": "kicker",
+                    "frame": {
+                      "x": 6,
+                      "y": 10,
+                      "w": 50,
+                      "h": 6
+                    },
+                    "role": "label",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 6,
+                      "y": 18,
+                      "w": 50,
+                      "h": 36
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 32
+                  },
+                  {
+                    "type": "shape",
+                    "shape": "line",
+                    "frame": {
+                      "x": 6,
+                      "y": 62,
+                      "w": 88,
+                      "h": 0.5
+                    },
+                    "line": "accent3",
+                    "line_pt": 2
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "old",
+                    "frame": {
+                      "x": 6,
+                      "y": 66,
+                      "w": 24,
+                      "h": 12
+                    },
+                    "role": "heading",
+                    "color": "accent2",
+                    "size_pt": 36
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "old-label",
+                    "frame": {
+                      "x": 6,
+                      "y": 80,
+                      "w": 24,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "new",
+                    "frame": {
+                      "x": 60,
+                      "y": 40,
+                      "w": 34,
+                      "h": 20
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 72
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "new-label",
+                    "frame": {
+                      "x": 60,
+                      "y": 66,
+                      "w": 34,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "byline",
+                    "frame": {
+                      "x": 6,
+                      "y": 90,
+                      "w": 60,
+                      "h": 5
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  }
+                ],
+                "rationale": "One line carries the slide; the figure that matters is peach."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "designer: s2 in Demand curve",
+      "role": "designer",
+      "match": "Slide id: s2",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s2",
+              "blocks": [
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "Quantisation alone cuts serving cost by 38%"
+                },
+                {
+                  "id": "hero",
+                  "kind": "text",
+                  "text": "38%"
+                },
+                {
+                  "id": "hero-label",
+                  "kind": "text",
+                  "text": "lower monthly serving cost"
+                },
+                {
+                  "id": "p1",
+                  "kind": "text",
+                  "text": "8-bit weights instead of 16-bit"
+                },
+                {
+                  "id": "p2",
+                  "kind": "text",
+                  "text": "Same answer quality on 2,000 test questions"
+                },
+                {
+                  "id": "chart",
+                  "kind": "chart",
+                  "chart": {
+                    "chart_type": "bar",
+                    "categories": [
+                      "Before",
+                      "After"
+                    ],
+                    "series": [
+                      {
+                        "name": "Monthly serving cost ($k)",
+                        "values": [
+                          412,
+                          255
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "layout": {
+                "background": "lt2",
+                "elements": [
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 6,
+                      "y": 9,
+                      "w": 60,
+                      "h": 10
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 30
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero",
+                    "frame": {
+                      "x": 6,
+                      "y": 23,
+                      "w": 40,
+                      "h": 38
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 140
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "hero-label",
+                    "frame": {
+                      "x": 6,
+                      "y": 62,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "body",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "shape",
+                    "shape": "line",
+                    "frame": {
+                      "x": 6,
+                      "y": 72,
+                      "w": 88,
+                      "h": 0.5
+                    },
+                    "line": "accent3",
+                    "line_pt": 2
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p1",
+                    "frame": {
+                      "x": 6,
+                      "y": 77,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "p2",
+                    "frame": {
+                      "x": 6,
+                      "y": 85,
+                      "w": 40,
+                      "h": 7
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "chart",
+                    "block_id": "chart",
+                    "frame": {
+                      "x": 52,
+                      "y": 26,
+                      "w": 42,
+                      "h": 42
+                    },
+                    "accent": "accent1",
+                    "emphasis": [
+                      "After"
+                    ]
+                  }
+                ],
+                "rationale": "One line carries the slide; the figure that matters is peach."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "designer: s3 in Demand curve",
+      "role": "designer",
+      "match": "Slide id: s3",
+      "tool_calls": [
+        {
+          "name": "write_slide",
+          "arguments": {
+            "slide": {
+              "id": "s3",
+              "blocks": [
+                {
+                  "id": "header",
+                  "kind": "text",
+                  "text": "What it costs and what it returns"
+                },
+                {
+                  "id": "f1",
+                  "kind": "text",
+                  "text": "$310k"
+                },
+                {
+                  "id": "f1-label",
+                  "kind": "text",
+                  "text": "one-off cost"
+                },
+                {
+                  "id": "f2",
+                  "kind": "text",
+                  "text": "$1.9M"
+                },
+                {
+                  "id": "f2-label",
+                  "kind": "text",
+                  "text": "saved per year"
+                },
+                {
+                  "id": "f3",
+                  "kind": "text",
+                  "text": "2 months"
+                },
+                {
+                  "id": "f3-label",
+                  "kind": "text",
+                  "text": "to pay back"
+                },
+                {
+                  "id": "note",
+                  "kind": "text",
+                  "text": "Engineering $240k and evaluation $70k; the saving is $157k a month from the first full month"
+                }
+              ],
+              "layout": {
+                "background": "lt2",
+                "elements": [
+                  {
+                    "type": "text",
+                    "block_id": "header",
+                    "frame": {
+                      "x": 6,
+                      "y": 10,
+                      "w": 80,
+                      "h": 12
+                    },
+                    "role": "title",
+                    "color": "lt1",
+                    "size_pt": 34
+                  },
+                  {
+                    "type": "shape",
+                    "shape": "line",
+                    "frame": {
+                      "x": 6,
+                      "y": 55,
+                      "w": 88,
+                      "h": 0.5
+                    },
+                    "line": "accent3",
+                    "line_pt": 2
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f1",
+                    "frame": {
+                      "x": 6,
+                      "y": 38,
+                      "w": 26,
+                      "h": 14
+                    },
+                    "role": "display",
+                    "color": "lt1",
+                    "size_pt": 44
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f1-label",
+                    "frame": {
+                      "x": 6,
+                      "y": 59,
+                      "w": 26,
+                      "h": 6
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f2",
+                    "frame": {
+                      "x": 37,
+                      "y": 34,
+                      "w": 30,
+                      "h": 18
+                    },
+                    "role": "display",
+                    "color": "accent1",
+                    "size_pt": 64
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f2-label",
+                    "frame": {
+                      "x": 37,
+                      "y": 59,
+                      "w": 26,
+                      "h": 6
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f3",
+                    "frame": {
+                      "x": 70,
+                      "y": 38,
+                      "w": 26,
+                      "h": 14
+                    },
+                    "role": "display",
+                    "color": "lt1",
+                    "size_pt": 44
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "f3-label",
+                    "frame": {
+                      "x": 70,
+                      "y": 59,
+                      "w": 26,
+                      "h": 6
+                    },
+                    "role": "caption",
+                    "color": "dk2"
+                  },
+                  {
+                    "type": "text",
+                    "block_id": "note",
+                    "frame": {
+                      "x": 6,
+                      "y": 80,
+                      "w": 88,
+                      "h": 10
+                    },
+                    "role": "body",
+                    "color": "dk2",
+                    "size_pt": 16
+                  }
+                ],
+                "rationale": "One line carries the slide; the figure that matters is peach."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "t1 u4: reply",
+      "role": "lead",
+      "text": "All three slides are recomposed in Demand curve."
+    },
+    {
+      "label": "t2 recap",
+      "role": "lead",
+      "text": "The deck has three slides in the decided Demand curve design, all designed. You picked option B of p0001 (accepted). Anything to change?"
+    },
+    {
+      "label": "mechanic: retitle slide 2",
+      "role": "mechanic",
+      "tool_calls": [
+        {
+          "name": "retitle_slide",
+          "arguments": {
+            "slide_id": "s2",
+            "header": "Quantisation cuts the bill by 38%"
+          }
+        }
+      ]
+    },
+    {
+      "label": "mechanic: reply",
+      "role": "mechanic",
+      "text": "Slide 2 is now titled 'Quantisation cuts the bill by 38%'."
+    }
+  ]
+}

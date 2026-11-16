@@ -1,0 +1,283 @@
+{
+ "source": "slide bench round 1, luna, s7-case, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s7-case",
+  "intent": "Make the payback logic instantly legible as a simple sequence: one-off cost, annual return, then two-month recovery, with the annual saving as the focal proof.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "What it costs and what it returns",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_value",
+    "kind": "text",
+    "text": "$310k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_label",
+    "kind": "text",
+    "text": "ONE-OFF COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_detail",
+    "kind": "text",
+    "text": "engineering $240k\nevaluation $70k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return_value",
+    "kind": "text",
+    "text": "$1.9M",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return_label",
+    "kind": "text",
+    "text": "SAVED PER YEAR",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "monthly_saving",
+    "kind": "text",
+    "text": "$157k a month from the first full month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback_value",
+    "kind": "text",
+    "text": "2 months",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback_label",
+    "kind": "text",
+    "text": "TO PAY BACK",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 7.0,
+      "y": 60.0,
+      "w": 86.0,
+      "h": 0.2
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 49.1,
+      "y": 58.9,
+      "w": 1.8,
+      "h": 1.8
+     },
+     "fill": "accent1",
+     "line": "accent1",
+     "line_pt": 0.5,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 9.0,
+      "w": 50.0,
+      "h": 9.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_value",
+     "frame": {
+      "x": 8.0,
+      "y": 30.0,
+      "w": 25.0,
+      "h": 14.0
+     },
+     "role": "display",
+     "size_pt": 54.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_label",
+     "frame": {
+      "x": 8.0,
+      "y": 46.0,
+      "w": 25.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_detail",
+     "frame": {
+      "x": 8.0,
+      "y": 66.0,
+      "w": 25.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return_value",
+     "frame": {
+      "x": 36.0,
+      "y": 23.0,
+      "w": 29.0,
+      "h": 20.0
+     },
+     "role": "display",
+     "size_pt": 76.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return_label",
+     "frame": {
+      "x": 36.0,
+      "y": 44.0,
+      "w": 29.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "monthly_saving",
+     "frame": {
+      "x": 36.0,
+      "y": 66.0,
+      "w": 29.0,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 14.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback_value",
+     "frame": {
+      "x": 73.0,
+      "y": 34.0,
+      "w": 20.0,
+      "h": 13.0
+     },
+     "role": "heading",
+     "size_pt": 48.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback_label",
+     "frame": {
+      "x": 73.0,
+      "y": 48.0,
+      "w": 20.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single quiet demand-curve line turns the three figures into a left-to-right business case, while the lone peach return figure makes the annual saving the unmistakable focal point."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

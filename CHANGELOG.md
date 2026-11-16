@@ -1,0 +1,535 @@
+# Changelog
+
+Notable changes to AutoDeck. Newest first.
+
+Maintained per plan §0.6 alongside `DECISIONS.md`. This file records *what changed*;
+`DECISIONS.md` records *why*, and the two cross-reference by decision id.
+
+---
+
+## [v3, paused 2026-11-15] — The conversational studio: Phases 0 to 3, the slide bench, layout rules and a reviewer test (V0 to V21)
+
+v3 is built beside v2 in `autodeck/studio/` on the branch
+`claude/autodeck-principles-review-zp7nsm` (on top of `v2/integration`), without changing any
+v2 file. Plan: `docs/AUTODECK_V3_PLAN.md`. Detailed record: `docs/phases/V3-PHASE-0.md`,
+`V3-PHASE-1.md`, `V3-PHASE-2-3.md`. Development is paused; see `STATUS.md`. Every cost in these
+notes is an estimate from assumed prices.
+
+### Added: the mock-up (2026-11-12)
+- `mockups/v3/`: a clickable, scripted mock-up of the planned conversation, built before any
+  phase and accepted as the direction. Throwaway; a visual reference.
+
+### Added: Phase 0, foundations (2026-11-13)
+- The engagement container over the existing knowledge folders, with client isolation (A4)
+  enforced on both the knowledge tree and the workspace tree.
+- The plain base deck model (`autodeck/studio/models.py`): no claim, citation, verdict or
+  approval; blocks are text, chart, figure or icon.
+- The change log: a tree with a head, exact undo and redo by stored snapshot (the deck's
+  serialisation is byte-identical after an undo), id-keyed diffs reused from v2.
+- Rendering of the plain deck through v2's drawing code and layout checks, with no change to v2.
+- Result: a hand-written four-slide deck renders to PPTX and previews; an edit can be made, listed
+  and undone. Four slides at 150 dpi: about 0.07 s to build, about 1.5 s to rasterise.
+
+### Added: Phase 1, the conversation core (2026-11-13)
+- Threads that start from state (engagement context, memory, the deck's outline and recent change
+  log, proposals) and never from a transcript, with a recap on a returning thread.
+- A conversation loop that ends a turn on a text reply, with 19 tools, proposals with previews,
+  and per-turn classification (talk, proposal, change).
+- A local web interface, `python -m autodeck.studio`: standard-library server on 127.0.0.1,
+  Server-Sent Events, no build step; a scripted model for use without a key.
+- First real-model run on `dev-openai` (`gpt-5.4-mini`, 2026-11-14): the loop and tools worked;
+  the slides were generic. Three fixes followed: a chosen option applies as it was shown
+  (replace or insert), proposal status is unambiguous in context, and a slide's fields are named.
+
+### Added: the slide bench (2026-11-14, at the owner's suggestion)
+- `bench/slides/`: one slide brief in, one rendered slide out; two rounds on `gpt-5.6-luna` and
+  `gpt-5.6-sol` with and without a design concept. With a concept the slides read as one deck;
+  `gpt-5.4-mini` could not pass layout QA as a designer; a model shown its own render adds little.
+
+### Added: Phases 2 and 3 (merged), layers, routing and the design layer (2026-11-15)
+- The lead writes slide briefs in words and never a layout or a colour; a system layer makes a
+  contrast-checked palette; a designer designs each slide in its own call, in parallel; design
+  proposals with rendered samples; adopting a design makes slides stale (computed from
+  fingerprints), and recomposition redraws them.
+- A router and a mechanic: small edits skip the lead; a manual "Lead" override.
+- Per-layer bindings in `config/studio.yaml`; the studio's own Responses endpoint path; every turn
+  records its layers, models and an estimated cost (`config/studio_prices.yaml`).
+- Interface: a Design tab, stale and failed markers, a Recompose button, a routing and cost line.
+- Verified on scripted models; one real-model run on `dev-openai` (2026-11-15) ran end to end with
+  no API, adapter or schema error and produced designed slides.
+
+### Added: after the first layered real-model run (2026-11-15)
+- Failed design-proposal samples are recorded and reported; a palette retry leaves a record; the
+  lead must report a compose failure; the server writes each change in words (`summary`); two
+  directions and two samples by default.
+- Studio layout rules (`layout_rules.py`): a line through text, a line through a chart, and
+  straddling an edge. On 34 designed slides: six findings, all true.
+- Reviewer support in the bench (review-only mode and a review feedback loop) and two tests of a
+  separate reviewer model: precise, weak on composition flaws. Not in the product.
+
+### Documentation
+- `README.md`, `STATUS.md`, the v3 plan, `DECISIONS.md` (V-series), `docs/INVARIANTS.md` and
+  `docs/MODEL_ROUTING.md` (v3 notes), `docs/STUDIO-GUIDE.md` and `docs/handovers/V3-STUDIO.md`
+  brought up to date with v3.
+
+### Not built
+- The reviewer as a layer; trimming the lead's per-call context; Phases 4 to 7 of the plan; a
+  vocabulary phase. See `STATUS.md`.
+
+---
+
+## Phase 3d (in progress): redesign an existing deck — .pptx ingested one element per bullet as a run-local source, redesign compose mode citing original slides, code-checked coverage of dropped lines, faithfulness validation, "client-supplied deck" audit label, upload route and UI (B41, B49, B50)
+
+---
+
+## Phase 3c (in progress): draft-first build — evidence pack, clarify checkpoint, one-call compose with citations as output contract, whole-deck validation with verdict reuse, DRAFT previews, scoped revise, approvals on the draft (B43–B48)
+
+---
+
+## [Unreleased] — Review UI covers the whole flow (B42)
+
+The UI now runs every step end to end: planning chat, outline, content and claims review (with send-back), render, and final audit with all four approvals. The run screen shows each step's progress and log.
+
+### Added
+- Run screen with step progress, logs, and state display for all deck-building steps
+- Outline review screen with "Approve & proceed"
+- Claims review screen with individual claim selection, send-back, and "Rewrite claims"
+- Final render review screen with five PowerPoint checks (user ticks them, code does not verify)
+- "Approve & proceed" and "Approve final deck" record approvals under the admin name from Settings › Profile
+- Settings › Profile to set the approver name (defaults to git `user.name`; persists in `~/.autodeck/profile.json`)
+- Provider keys status display in Settings
+- Knowledge library accessible from the UI
+- Subprocess-based step running with chain control: `outline`; `content` → `validate` → `gate2`; `render` → `gate3`
+- Gate bypass tests extended to cover UI approval routes
+
+---
+
+## [Unreleased] — Review UI (B40)
+
+The `autodeck ui` command launches a local web front end in a native window (or browser
+fallback) for planning and setup workflows. Phases 2a–3b merged to `v2/integration`
+(B39) to support this. See `docs/OWNER-GUIDE.md` section 2.
+
+### Added
+- `autodeck/ui/` — local HTTP server binding to 127.0.0.1, JSON API, static
+  HTML/CSS/JS. `pywebview` (optional extra `ui`) opens it in OS web view (WebView2 on
+  Windows, WKWebView on macOS), with default-browser fallback.
+- Home screen: recent runs and a "Ready to build" checklist (API keys, fonts, LibreOffice,
+  papers ingested, with fix commands).
+- Planning screen: chat with planner, live draft brief, sign-off with name entry (approval
+  1 of 4).
+- New client screen: writes `client.md` and `value_prop.md`, lints the positioning text
+  for A5 as you type, refuses text naming another client (A4).
+- Runs screen: each run's state and the exact CLI command for next steps.
+- Settings screen: choose dev/sit/prod, show each role's model.
+- `autodeck ui --env dev|sit|prod --port N --browser --knowledge-root … --corpus-root …
+  --runs-root …`
+
+---
+
+## [Unreleased] — Phase 3a: design system
+
+All of Phase 3a's shipped work. **PHASE-3A has no owner gate of its own** — the owner
+reviews this work in a rendered deck at GATE 3, and gate status is **pending**; "What the
+owner actually checked" is nothing yet. Suite at tip: **1098 passed, 0 skipped, 10 live
+deselected**, which requires the three environment dependencies in **B34**. See
+`docs/handovers/PHASE-3A.md`.
+
+### Added
+- `layout_kit.py` — composition layer: `Frame`, `Stack`, `Box.reserve`, `measure_block`;
+  nothing shrinks text, over-budget raises. Renderers 186→115 and 208→154 lines.
+- `components/catalog.py` — registry: `register()` with name, roles, slots, renderer,
+  content class, preview together; variants; `components_missing_previews()`.
+- `ir/models.py` — `DiagramSpec` type system: relationship declared before geometry, typed
+  payloads, `GEOMETRIES`; a node must be exactly one of `claim`/`framing`
+  (unconstructible otherwise, mutation-tested).
+- Merge of the 2b accuracy fixes, including an identity check that verdicts written through
+  a `ClaimSite` reach the stored node; later A2 noun fix.
+- `components/preview.py` — golden-preview loop and `autodeck components preview`.
+- 15 components, each with a committed golden PNG: big_number, two_column_compare (spike);
+  quote, bullets_supporting, callout_takeaway; title, section_divider, agenda, closing_cta,
+  before_after, evidence_with_figure, data_card_grid; framework_diagram, timeline,
+  chart_focus.
+- Budgets resolve a real face per weight/style; exact integer prediction-vs-render
+  line-count cross-check.
+- `theme/` — mode (b) from tokens with inheritance proven; mode (a) extraction against a
+  synthetic template only.
+- `icons/` — licence record first (ISC + MIT carve-out, suitable); semantic library, deck
+  consistency checker, `Frame.icon`.
+- `headers/` — profile loader, profile in the content prompt, `--header-style` one-flag
+  switch on `autodeck content`, horizontal-flow QA.
+- `charts.py` — native charts, data in an embedded workbook referenced by formula, no image
+  part ever.
+- `diagrams.py` + `draw.py` — process_flow, two_by_two, layered_stack as ungrouped native
+  shapes with theme colours.
+- `grammar.py` — D13 lints: word budget, ≤1 diagram, icon+chart+diagram pileup (blocking);
+  concept count (advisory); icon adjacency (blocking, uncalibrated).
+- `ContentResult.incomplete_slots` split from `rejections`.
+- `scripts/install-dev-fonts.sh`; CI fonts; vendored geometry reference — infra: installs
+  dev fonts; CI installs fonts; `ISOSCELES` correction to the vendored geometry reference.
+
+### Fixed
+- **Bold budgets were under-predicted by 3–8.5%** (Inter Display 6.1%, Inter 2.8%,
+  Liberation Sans 8.5%), because face resolution always returned the regular file. Caught
+  only by looking at a golden PNG — a rule struck through a wrapped headline — while every
+  automated check stayed green, because `check_overflow` compares a prediction with itself.
+  The flag was dropped in two places (`measure_block`, `ComponentSlot`). Fixed, plus an
+  **exact integer prediction-vs-render cross-check**. `RENDER_TOLERANCE` was the wrong
+  *shape* (1/N of total height: 36% at one line, 3.3% at six) — replaced by a fraction of
+  one line box.
+- `overflow_width` was discarded by `Canvas.measure`: an unbreakable word measured as one
+  line and rendered past the edge. `big_number`'s supporting points had no overflow check.
+- Chevron labels were centred on the bounding box, but the preset's filled region starts at
+  the notch tip: white text landed in the unfilled notch, invisible on white. Caught only by
+  rendering.
+- The vendored authority was wrong: `ISOCELES_TRIANGLE` is not a python-pptx member —
+  corrected to `ISOSCELES_TRIANGLE`.
+- Registering seven components broke seven citation tests, because those names had been
+  unregistered so budgets had been skipped for them — `ContentResult.rejections` mixed "the
+  writer produced something that does not fit" with "the writer produced nothing for this
+  slot"; split into `incomplete_slots` (B33).
+- CI had no fonts: fresh containers lacked Inter, `libreoffice-impress` and
+  `poppler-utils`, so 32 render tests could not run while CI stayed green (B34).
+
+### Changed
+- Opus writes the scaffold; Sonnet writes the code, in guardrail paths too — superseding
+  B28's "guardrail paths hold their tier" for code (**B32**).
+- A missing required slot is its own finding kind, `ContentResult.incomplete_slots`,
+  separate from `rejections` (**B33**).
+- `scripts/setup-dev-env.sh` installs fonts, `libreoffice-impress` and `poppler-utils`; CI
+  installs the fonts only (**B34**).
+
+### Open
+- **The four PowerPoint-only GATE 3 checks** (no PowerPoint in this environment) — theme,
+  icons, charts, diagrams — each a numbered procedure the owner can run in one sitting. See
+  `docs/handovers/PHASE-3A.md` §7.
+- `check_overflow`'s sibling-floor policy passes content the renderer then refuses: each
+  slot's budget assumes siblings take one line, and nothing checks both can hold at once.
+- A dated-axis timeline: `timeline` renders the sequence as chevrons and refuses any
+  non-sequence geometry.
+- Theme mode (a) against a real corporate template — Q5 unanswered; synthetic only proves
+  the path runs.
+
+---
+
+## [Unreleased] — Phase 2b: content, linters, validation
+
+All eleven Phase 2b tasks. **GATE 2 is not closed** — it asks the owner to read the claims
+table and approve or send claims back, and no claims table has been put to them. **No live
+milestone run exists either**: `autodeck content` refuses to run without an approved
+outline, and no flag anywhere approves a gate. See `docs/handovers/PHASE-2B.md` §3 and §10.
+
+### Added
+- `autodeck/audit/numeric_linter.py` — **A2**. Every numeral in deck text traces to a cited
+  span or to a derivation that re-executes to its stated result. Normalisation is
+  declarative (each row carries a `why`, and import fails if two rules claim the same
+  surface form), arithmetic is `Decimal`, and formulas are re-executed by AST walk rather
+  than `eval` — they are model-generated text, so that is a security property.
+- `autodeck/audit/framing_linter.py` — **A5**. A `framing` block carrying a fact is
+  **demoted** to `claim`, and the demotion's `materialise()` raises from `Claim.citations`.
+  The IR's refusal to construct the block *is* the A1 failure; nothing re-implements it.
+- `autodeck/audit/verdicts.py` — **A3**'s rule, in a guardrail path. Four ordered bounds
+  applied to the model's answer after the fact, so a model that ignores its instructions
+  still cannot produce `supported` with no evidence. `ValidatorEvidence` refuses at
+  construction any citation not marked `retrieved_by="validator"`.
+- `autodeck/agents/content.py` — one `content` call per slide. The model picks a verbatim
+  quote; the **code** resolves it into a citation with a real page, bbox and hash. A quote
+  that does not resolve drops the claim rather than producing an uncited block.
+- `autodeck/agents/validation.py` — independent re-retrieval, a separate contradiction
+  pass, six claims per `validation` call. A provider failure returns `unverified` with a
+  reason, never a guess.
+- `autodeck/audit/report.py` — the working shown for every derivation, per-input
+  traceability, and conflicts recorded with **both** spans. A test asserts the averaged
+  figure is absent: averaging two disagreeing sources invents a number nobody measured.
+- `autodeck/audit/manifest.py` — `canonical_pptx_digest`, `knowledge_commit`,
+  `knowledge_dirty`, `Manifest.reproducible()`. Nothing is named `bytes_match` (B29).
+- `autodeck/design/budget_check.py` and per-slot budgets in
+  `autodeck/design/components/catalog.py` — over-budget text is rejected **before** render.
+- `autodeck/pipeline/send_back.py` and four CLI commands — `content`, `validate`, `gate2`,
+  `send-back`. Rejecting a named claim existed nowhere before this phase.
+- `prompts/content.md`, `prompts/validation.md` — the writer and its adversary.
+
+### Fixed
+- **`budgets.py` under-predicted line height by ~7.4%, in the direction that overflows.**
+  Pitch was derived from hhea `ascent + descent` (1.1172 for Liberation Sans); LibreOffice
+  renders **1.20** for every family tested, whose own metrics range 1.059–1.200. It is an
+  engine convention, not a value read from the font, so `LINE_HEIGHT_FACTOR` is now measured
+  rather than derived.
+- **The LibreOffice cross-check could not have caught that**, and read as agreement while
+  being two errors cancelling: it compared rendered *ink* against a predicted *line box*.
+  It now measures line pitch, the quantity the prediction is actually about.
+- **A derivation could cite real spans and still invent its inputs.** B13 required a value
+  *and* a citation, but never that the value appear in the quote — reproduced with inputs
+  900/300 against spans reading 671/412, which passed every check and traced to itself.
+  `check_derivation_inputs` closes it.
+- **A clean `Deck` was no longer sufficient evidence that A1 and A5 hold.** A demoted
+  framing block, and a validation pass that failed outright, both leave
+  `Deck.blocking_blocks()` empty. `require_safe_to_render` is now the single place that
+  knows what "safe to render" means.
+- `prompts/validation.md` asked the model for citation objects with pages and hashes, which
+  no model can compute. It asks for verbatim quotes; the system resolves them, and an
+  unmatched quote is dropped.
+- Two component slots had no budget coverage at all — `big_number.supporting_points` (whose
+  presence also switches the renderer to two columns, halving the *other* slots' widths) and
+  multi-point `two_column_compare` columns.
+
+### Changed
+- Phase branches 2b–3b stack on each other and **merge nothing** until the owner works each
+  gate (**B27**) — BRANCHING rule 3 derives from A7, rule 1 is a topology convention, so the
+  convention yields.
+- Guardrail paths hold their model tier regardless of a task's tag (**B28**). A3's rule and
+  the aesthetic action set were *split* out of their agents so the invariant sits inside a
+  guardrail path rather than being de-tiered with its plumbing.
+- Five invariant cells move to `tested`; **A6 deliberately does not** (see below).
+
+### Fixed (after independent review)
+
+`docs/handovers/PHASE-2B.md` was written from a green suite of 736 tests. An independent
+adversarial review then found holes those tests did not reach — 11 findings, 9 demonstrated
+by executing against the code, 6 of those reproduced independently by the orchestrator
+before acting (run on Opus; the planned Fable 5.1 returned HTTP 429, "requires usage
+credits") — and these twelve commits fixed them. The suite now stands at **839 passed, 0
+skipped, 10 live-marked and deselected**.
+
+- `9ca17d1` — A2 verbatim match was a substring search; branch **dropped** not fenced.
+  `40%` used to source to a span saying `140%`; `12` inside `3,120`; `29` in `1029`; `3x` in
+  `13x`.
+- `a29138c` — A2 derivation rounding had no bound. A computed `0.51×` used to print as `1×`
+  (+96%).
+- `b154ad6` — A2 derivation-input match discarded the unit. `40 ms` used to print as `40%`,
+  `40×`, `$40`.
+- `0864101` — A2/A8 averaging laundered through a derivation, now blocking when the formula
+  re-executes to the exact mean of inputs citing different documents that differ materially
+  (other in-between formulas stay advisory). 412 and 671 from two papers used to average to
+  541.5 and show as audited working with green ticks.
+- `382aed9` — A2 an unrecognised unit word was treated as no unit. `3.2 million requests`
+  used to match `3.2 million dollars` in the bare-numeral tier.
+- `8632609` — A3 a claim on a diagram node was invisible to every blocking check. A
+  `contradicted` node claim used to render while GATE 2 printed `[PASS]` beside a claims row
+  reading `contradicted`.
+- `e8fa666` — A3 a test derived from the pydantic model graph now fails if any place that
+  can hold a `Claim` is not visited by the blocking walk (regression insurance; verified it
+  bites by adding a field).
+- `cacb5d2` — A3/A5 render guard now takes only the deck and recomputes the linters itself;
+  `require_safe_to_render` had no production caller and `cli._gate2_checks` re-implemented 3
+  of its 4 conditions — now one `assess_render_safety` both use. Passing empty reports, or
+  another deck's clean reports, used to clear the guard.
+- `f4a2649` — A5 fence now applies to any block's free text.
+  `"The fastest stack available, proven to outperform every competitor."` used to pass as
+  `text` on a `claim` block.
+- `86ae385` — A2 test pins the linter's own deck walk to the IR claim-site walk.
+- `b555a5f` + `06b54c4` — A2 same number, different noun: a `QUALIFIER_TABLE` of quantity
+  nouns; both listed and different → blocking; unlisted → advisory; stop words → bare.
+  Scaffolded by Opus, implemented by Sonnet (B32 on the 3a branch). `412 requests per
+  second` used to source to `412 tokens per second`; `13B parameters` to `13B tokens`;
+  `40 GPUs` to `40 layers`.
+
+Corpus check on the A2 noun fix: all 16 curated claims → 0 mismatches, 1 advisory ("76%
+model-FLOPS utilisation" vs source "MFU" — same quantity, abbreviated; correctly reported
+not blocked; no table row added from one occurrence).
+
+**Corrected coverage: A5 downgraded `tested` → `enforced`.** The fence is a closed list of
+factual phrasings, tested on what it lists; ordinary factual language outside the list
+passes — demonstrated with "Quantisation halves serving cost" as an uncited
+`section_header`. A2 and A3 are corrected in place and remain `tested`, each with a named
+residual gap (numbers written as words for A2; `chart` blocks never receiving a verdict for
+A3). See `docs/handovers/PHASE-2B.md` §5 and §6.9–§6.13.
+
+### Open
+- **B29 — A6 promises "byte-comparable" PPTX output, which is measurably impossible.** Two
+  identical saves two seconds apart differ in bytes from four causes outside our control,
+  while the canonical digest matches; A6's own "watch for" line contradicts its headline.
+  `docs/INVARIANTS.md` is deliberately unedited — changing what an invariant says is the
+  owner's call, not the implementer's.
+- **A gate approval does not survive the machine.** Approvals live in
+  `runs/<id>/state.json`, which is derived data and not committed (B22).
+
+---
+
+## [Unreleased] — Phase 2a: planning agent & outline
+
+All nine Phase 2a tasks. **GATE 1 is not closed** — it asks the owner whether an outline
+delivers the brief's argument, and no outline has been put to them. See
+`docs/handovers/PHASE-2A.md`.
+
+### Added
+- `DeckBrief` with `KeyMessage`, `OpenRisk` and `LayoutPin`. **A8 lands structurally**: a
+  key message the evidence check calls `thin` or `unsupported` cannot reach a signed brief
+  without a matching `OpenRisk` naming who accepted it. Deliberately not a block on weak
+  messages — blocking would push the planner toward marking things `supported` to get past
+  the validator, which is the failure A8 is about.
+- `autodeck/agents/evidence_gap.py` — the phase's reason for existing (§6.13). Deterministic
+  retrieval, model judgement, and a **ceiling on the judgement**: zero citable spans is
+  `unsupported` with the classifier never called; a single non-curated hit is capped to
+  `thin`. Applied to the model's answer rather than requested in the prompt.
+- `autodeck/agents/planner.py` — the planning session. Ends only on human sign-off, which is
+  A7 approval 1 of 4. `ready_for_signoff` is a suggestion the code never reads.
+- `autodeck/agents/outline.py` — signed brief → IR skeleton, with nowhere to put prose.
+- `autodeck/audit/gate1.py` — GATE 1's mechanical checks. Reports; decides and fixes nothing.
+- `prompts/planner.md`, `prompts/outline.md`; `autodeck plan` and `autodeck outline`.
+- `Slide.intent`, `.message_ids`, `.pin_deviation`; briefs versioned as YAML.
+
+### Fixed
+- **Gemini silently dropped every nullable nested array** (B26). Live sessions produced good
+  briefs in prose and recorded nothing — no error, and non-deterministic. The `gemini` schema
+  flavor now emits `nullable: true` rather than `anyOf: [X, null]`, and the planner's core
+  fields are required.
+- `ModelRegistry.provider_for(role, model=...)` raised `TypeError` — `model` was pinned
+  ahead of `**overrides`, so the only useful override could not be used.
+- Dev bindings pointed at the retired `gemini-2.5-pro` (B23).
+- GATE 1 blocked on a missing `must_include`, which is weak evidence at outline stage. Now
+  advisory; `must_avoid` appearing stays blocking.
+
+### Changed
+- Dev roles spread across five Gemini models (B25) — daily quota is per model, and a
+  validator on a different model from the writer is better for A3.
+- Evidence spans truncated to 500 chars for classification (B24).
+
+---
+
+## [Unreleased] — Phase 1: ingestion & knowledge
+
+All ten Phase 1 tasks. **GATE 1a approved** 2026-08-02 (DECISIONS.md G1a) — the owner
+reviewed the spot-check worksheet and four of the ten rendered pages. See
+`docs/handovers/PHASE-1.md`.
+
+### Added
+- `autodeck/ingest/` — the provenance chain (A1). `document_store.py` is the chokepoint:
+  verbatim `text` and generated `description` are separate fields because a single
+  `content` field would eventually be searched by something that did not know the
+  difference. `provenance.py` matches tolerantly (ligatures, curly quotes, line-break
+  hyphens) but never approximately, returning offsets into the verbatim string.
+  `docling_runner.py` splits at the ML seam so every provenance decision sits in a pure
+  function testable without model weights.
+- `autodeck/ingest/figure_describer.py` — VLM figure descriptions via the `ingest_vlm`
+  role. Descriptions are retrievable and **structurally cannot be cited**: they are written
+  to `description` only, and the invariant is re-asserted after each write rather than
+  assumed.
+- `autodeck/ingest/grobid.py` — a deliberate stub that raises, documenting the three
+  triggers that would justify implementing it (plan §6.3).
+- `autodeck/knowledge/` — two-tier folders (D8) and **A4 client isolation**. One namespace
+  per build, bound at construction; every read goes through it, including the non-obvious
+  leak paths — reference decks and cached retrieval indices.
+- `autodeck/retrieval/hybrid.py` — BM25 + optional embeddings fused by reciprocal rank.
+  **There is no chunker**: elements are the chunks, so a hit cannot exist without
+  resolvable provenance.
+- `autodeck/audit/spotcheck.py` — renders a citation's bbox onto its source page for
+  GATE 1a. Emits no verdict, and says in as many words that a passing hash is not evidence
+  the box is right.
+- `autodeck knowledge validate | ingest | ask | spotcheck`, plus the first CLI tests.
+- `knowledge/` — the seed corpus: five CC BY 4.0 papers on LLM inference efficiency, 16
+  curated claims all hash-verified, and two fictional clients (two, because A4 is not
+  demonstrable with one). See B20, B21.
+
+### Fixed
+- **Docling bboxes were vertically mirrored.** The conversion swapped `t` and `b` instead of
+  computing `page_height - y`, producing well-formed rectangles still in bottom-left space.
+  Nothing crashed and a mirrored bbox hash-verifies perfectly; it was caught only by
+  rendering a real page and looking at the box.
+- **A cross-client reference in the seed corpus**, caught by `check_text` on its author:
+  `contoso-health/client.md` named the other client while explaining its own purpose, in a
+  file loaded into prompts.
+- **`knowledge ask --client` accepted a client that did not exist.** `use_index` checks the
+  index's namespace, not the client's existence, so a typo passed silently.
+
+### Changed
+- `run_docling` takes `generate_picture_images`; `ingest_pdf` takes a `vision_provider`.
+- `corpus/` and `spikes/gate1a/` are gitignored as derived data (B22).
+
+---
+
+## [Unreleased] — Phase 0: foundations & de-risking
+
+All seven Phase 0 tasks. **GATE 0 is not closed** — its criteria require the owner to open
+the spike files in PowerPoint, which no headless environment can do. See
+`docs/handovers/PHASE-0.md` §10.
+
+### Added
+- `autodeck/ir/` — **Deck IR v1** (D4). `models.py` finalises the §6.1 sketch; `schema.py`
+  exports JSON Schema in three provider dialects; `store.py` versions IR immutably under
+  `runs/<id>/` and diffs two versions by object id so an inserted slide reads as one
+  addition rather than a cascade.
+- **A1 enforced structurally**: `Claim.citations` has `min_length=1`, so a claim carrying no
+  evidence cannot be constructed — speaker notes included.
+- `autodeck/providers/` — provider protocol with schema-enforced `complete_structured`,
+  repair-retry that hard-fails rather than returning a partial object, 429-aware backoff,
+  and a resumable on-disk response cache. Gemini, Groq and Claude adapters over one shared
+  httpx transport (B14); environment-tiered registry with `--env` (B8).
+- `autodeck/design/` — font resolution that raises rather than substituting (B11);
+  glyph-metric text budgets (§6.7); OOXML theme and slide-master generation (D1);
+  `layout_kit` v0; `big_number` and `two_column_compare`; SVG→DrawingML `custGeom` icon
+  converter with ten vendored Lucide icons under ISC (D11).
+- `autodeck/render/qa/libreoffice.py` — headless render to PNG that **refuses to render**
+  when a declared font is absent, rather than producing a silently substituted preview.
+- `autodeck/pipeline/orchestrator.py` — run directories, resumable stages, and A7 gate
+  stubs that raise `GateBlocked`. A test asserts no CLI flag can bypass a gate.
+- `autodeck/audit/manifest.py` — A6 build manifest recording environment, resolved model
+  IDs, prompt hashes and IR hash; compares two builds excluding timestamps.
+- `autodeck/cli.py` — `run --stub`, `approve`, `status`, `models`, `ir`, `fonts`, `spike`.
+- `config/models.yaml`, `config/tokens/{aptos,dev}.json`, `.github/workflows/ci.yml`,
+  `pyproject.toml`, `fonts/README.md`, `prompts/README.md`.
+- `spikes/gate0/` — the three GATE 0 artifacts, their previews, and `provenance.json`
+  recording which font family each was rendered in.
+- `docs/handovers/PHASE-0.md`.
+
+### Changed
+- `.gitignore` — comment clarifying that `tokens/` is v1's *secrets* directory, which is
+  why v2 design tokens live in `config/tokens/` (B18).
+- `STATUS.md`, `docs/INVARIANTS.md` coverage tracker, `docs/handovers/README.md` index.
+
+### Findings
+- **Spike 0.5 supports D5.** Two components reach a high visual bar authored natively, and
+  the edit→preview loop runs at **2.25s median** — fast enough for a 15-component library.
+- **Spike 0.6 supports D11** at the geometry level: ten icons round-trip to native
+  theme-recolourable vector strokes, arcs and compound paths included.
+- **B11 check #4 answered by verification, not assumption: Aptos has no metric-compatible
+  open clone.** "Aptos installed on the build machine" is a hard prerequisite for Phase 2b.
+- Groq serves no multimodal model, so it cannot relieve Gemini's free-tier pressure on
+  `ingest_vlm` (B16).
+
+### Decisions
+B13 (derivation inputs carry values), B14 (one HTTP transport), B15 (resolved model IDs),
+B16 (Groq text-only), B17 (`TextStyle` unifies measurement and rendering), B18 (token path).
+
+---
+
+## [Unreleased] — v2 scaffold
+
+Planning scaffold for the v2 rewrite. No v2 package code — see `STATUS.md`.
+
+### Added
+- `README.md` — v2 durable context: v1 post-mortem, locked decisions D1–D13, accuracy
+  invariants A1–A8 in full, target architecture, roadmap, model routing summary.
+- `STATUS.md` — current build state and next action.
+- `DECISIONS.md` — append-only log seeded with D1–D13 and build decisions B1–B9.
+- `CHANGELOG.md` — this file.
+- `docs/AUTODECK_V2_PLAN.md` — vendored specification, the source of truth.
+- `docs/BRANCHING.md` — branch topology, gate protocol, PR and commit conventions.
+  Distinguishes the six build-time GATEs from the four runtime approvals (A7).
+- `docs/MODEL_ROUTING.md` — dev-time tiers with path guardrails, escalation and
+  de-escalation rules, the docstring-delegation pattern, and environment-tiered runtime
+  bindings.
+- `docs/INVARIANTS.md` — A1–A8 as checkable items with enforcer, owning phase, proving
+  test, and a coverage tracker.
+- `docs/phases/PHASE-{0,1,2A,2B,3A,3B,4,5}.md` — eight phase briefs, every task tagged
+  with a model tier, human-checkable gate criteria, and named escalation triggers.
+- `docs/handovers/TEMPLATE.md` and index — per-phase handover format.
+- `docs/reference/slide-geometry/` — vendored skill seeding the diagram engine (§6.11.2),
+  with a note that the python-pptx column of `construction.md` is authoritative (B6).
+- `legacy/v1/LEGACY.md` — salvage and retire map with function-level pointers.
+
+### Changed
+- v1 moved to `legacy/v1/` via `git mv`, history preserved (B2). The tree is frozen;
+  nothing in `autodeck/` may import from it.
+- Runtime provider strategy is environment-tiered — Gemini + Groq for `dev`, Claude for
+  `sit`/`prod` (B8). Phase 0 now builds three provider adapters rather than two.
+
+### Removed
+- `.DS_Store` (tracked by accident, already in `.gitignore`).
+- `generated_decks/temp_slide_{0..4}.pptx` (render artifacts). Both recoverable from
+  `main` and from history.
+
+### Notes
+- Plan §8 lists v1's validation agent as salvage. Inspection shows it is mostly
+  *image-quality* checking; A3's independent re-retrieval and contradiction search have no
+  v1 ancestor. Recorded in `legacy/v1/LEGACY.md` so Phase 2b is scoped as new construction.

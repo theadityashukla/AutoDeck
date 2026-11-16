@@ -1,0 +1,396 @@
+{
+ "source": "slide bench round 1, sol, s5-caching, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s5-caching",
+  "intent": "Show that the repeated 68% of a request is the cacheable core, with the 21% net compute reduction as the unmistakable focal result and the request composition as evidence.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Caching repeated context removes a fifth of the compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_value",
+    "kind": "text",
+    "text": "21%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_label",
+    "kind": "text",
+    "text": "less compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "repeat_value",
+    "kind": "text",
+    "text": "68%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "repeat_label",
+    "kind": "text",
+    "text": "of each request is repeated",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart_label",
+    "kind": "text",
+    "text": "SHARE OF A 2,400-TOKEN REQUEST (%)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "request_chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "bar",
+     "title": null,
+     "categories": [
+      "Instructions",
+      "Catalogue",
+      "Chat",
+      "Ask"
+     ],
+     "series": [
+      {
+       "name": "Share of a 2,400-token request (%)",
+       "values": [
+        18.0,
+        50.0,
+        22.0,
+        10.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point_1",
+    "kind": "text",
+    "text": "68% of every request repeats: the same instructions and catalogue",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point_2",
+    "kind": "text",
+    "text": "That shared part is computed once an hour, then reused",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point_3",
+    "kind": "text",
+    "text": "Net compute falls 21% after misses and refreshes",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point_4",
+    "kind": "text",
+    "text": "Answers are unchanged; the cache resets when prices change",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 5.6,
+      "y": 58.0,
+      "w": 88.8,
+      "h": 0.4
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 26.2,
+      "y": 56.8,
+      "w": 1.4,
+      "h": 2.5
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 28.3,
+      "y": 63.5,
+      "w": 0.2,
+      "h": 24.5
+     },
+     "fill": null,
+     "line": "accent3",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 51.2,
+      "y": 63.5,
+      "w": 0.2,
+      "h": 24.5
+     },
+     "fill": null,
+     "line": "accent3",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 74.1,
+      "y": 63.5,
+      "w": 0.2,
+      "h": 24.5
+     },
+     "fill": null,
+     "line": "accent3",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.8,
+      "y": 7.5,
+      "w": 49.0,
+      "h": 18.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_value",
+     "frame": {
+      "x": 5.8,
+      "y": 28.0,
+      "w": 27.0,
+      "h": 24.0
+     },
+     "role": "display",
+     "size_pt": 92.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_label",
+     "frame": {
+      "x": 6.2,
+      "y": 53.0,
+      "w": 20.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "repeat_value",
+     "frame": {
+      "x": 35.0,
+      "y": 30.5,
+      "w": 18.0,
+      "h": 15.0
+     },
+     "role": "display",
+     "size_pt": 54.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "repeat_label",
+     "frame": {
+      "x": 35.3,
+      "y": 46.3,
+      "w": 19.0,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart_label",
+     "frame": {
+      "x": 59.5,
+      "y": 8.5,
+      "w": 34.5,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "request_chart",
+     "frame": {
+      "x": 59.5,
+      "y": 14.5,
+      "w": 34.5,
+      "h": 39.5
+     },
+     "accent": "accent2",
+     "emphasis": [
+      "Instructions",
+      "Catalogue"
+     ]
+    },
+    {
+     "type": "text",
+     "block_id": "point_1",
+     "frame": {
+      "x": 5.8,
+      "y": 64.5,
+      "w": 20.5,
+      "h": 24.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point_2",
+     "frame": {
+      "x": 30.4,
+      "y": 64.5,
+      "w": 18.8,
+      "h": 24.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point_3",
+     "frame": {
+      "x": 53.3,
+      "y": 64.5,
+      "w": 18.8,
+      "h": 24.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point_4",
+     "frame": {
+      "x": 76.2,
+      "y": 64.5,
+      "w": 18.0,
+      "h": 24.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single cool demand line divides proof from operating detail: the peach 21% result dominates, the blue request-composition chart explains what is cached, and four compact notes hang below in a deliberate reading sequence."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

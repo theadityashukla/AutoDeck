@@ -1,0 +1,442 @@
+{
+ "source": "slide bench round 1, luna, s8-decision, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s8-decision",
+  "intent": "Make the closing ask unmistakable: approve the six-week, 5%-traffic pilot for $85k by 30 November, with a visible sequence of what follows.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Decision needed: approve the pilot by 30 November",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "ask",
+    "kind": "text",
+    "text": "Approve a six-week pilot on 5% of assistant traffic",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "decision_label",
+    "kind": "text",
+    "text": "DECISION BY",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "decision_date",
+    "kind": "text",
+    "text": "30 Nov",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "budget_label",
+    "kind": "text",
+    "text": "PILOT BUDGET",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "budget",
+    "kind": "text",
+    "text": "$85k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "next_steps",
+    "kind": "text",
+    "text": "NEXT STEPS",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "date_1",
+    "kind": "text",
+    "text": "2 Dec",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step_1",
+    "kind": "text",
+    "text": "kick-off with the platform team",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "date_2",
+    "kind": "text",
+    "text": "9 Dec",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step_2",
+    "kind": "text",
+    "text": "quantised model in shadow mode",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "date_3",
+    "kind": "text",
+    "text": "13 Jan",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step_3",
+    "kind": "text",
+    "text": "first savings report",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 40.0,
+      "y": 0.0,
+      "w": 60.0,
+      "h": 100.0
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 40.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 51.0,
+      "y": 31.0,
+      "w": 0.4,
+      "h": 55.0
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 2.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 50.3,
+      "y": 35.0,
+      "w": 1.4,
+      "h": 2.6
+     },
+     "fill": "accent3",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 50.3,
+      "y": 49.0,
+      "w": 1.4,
+      "h": 2.6
+     },
+     "fill": "accent6",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 50.3,
+      "y": 63.0,
+      "w": 1.4,
+      "h": 2.6
+     },
+     "fill": "accent6",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 50.3,
+      "y": 77.0,
+      "w": 1.4,
+      "h": 2.6
+     },
+     "fill": "accent6",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.8,
+      "w": 31.5,
+      "h": 23.0
+     },
+     "role": "title",
+     "size_pt": 30.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "ask",
+     "frame": {
+      "x": 5.6,
+      "y": 34.0,
+      "w": 31.2,
+      "h": 13.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": false,
+     "color": "lt2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "decision_label",
+     "frame": {
+      "x": 5.6,
+      "y": 51.0,
+      "w": 27.0,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "decision_date",
+     "frame": {
+      "x": 5.6,
+      "y": 55.0,
+      "w": 31.5,
+      "h": 17.0
+     },
+     "role": "display",
+     "size_pt": 60.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "budget_label",
+     "frame": {
+      "x": 5.6,
+      "y": 76.0,
+      "w": 27.0,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "lt2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "budget",
+     "frame": {
+      "x": 5.6,
+      "y": 81.0,
+      "w": 31.5,
+      "h": 10.0
+     },
+     "role": "heading",
+     "size_pt": 38.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "next_steps",
+     "frame": {
+      "x": 55.0,
+      "y": 8.0,
+      "w": 35.0,
+      "h": 6.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "date_1",
+     "frame": {
+      "x": 54.5,
+      "y": 32.0,
+      "w": 11.0,
+      "h": 6.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "right",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step_1",
+     "frame": {
+      "x": 68.0,
+      "y": 31.0,
+      "w": 27.0,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "date_2",
+     "frame": {
+      "x": 54.5,
+      "y": 46.0,
+      "w": 11.0,
+      "h": 6.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "right",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step_2",
+     "frame": {
+      "x": 68.0,
+      "y": 45.0,
+      "w": 27.0,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "date_3",
+     "frame": {
+      "x": 54.5,
+      "y": 60.0,
+      "w": 11.0,
+      "h": 6.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "right",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step_3",
+     "frame": {
+      "x": 68.0,
+      "y": 59.0,
+      "w": 27.0,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark ask field gives the decision date and budget maximum visual weight, while an offset light field turns the three dated follow-ups into a clear approval-to-action timeline."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

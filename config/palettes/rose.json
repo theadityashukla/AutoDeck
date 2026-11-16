@@ -1,0 +1,19 @@
+{
+  "name": "rose",
+  "description": "Blush ground, burgundy, rose accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "2D1A1F",
+    "lt1": "FFF7F8",
+    "dk2": "6E5A60",
+    "lt2": "FBEBEE",
+    "accent1": "C92A62",
+    "accent2": "8E2442",
+    "accent3": "D6336C",
+    "accent4": "F59F00",
+    "accent5": "9A5B00",
+    "accent6": "DCC8CD",
+    "hyperlink": "C92A62",
+    "followed_hyperlink": "8E2442"
+  }
+}

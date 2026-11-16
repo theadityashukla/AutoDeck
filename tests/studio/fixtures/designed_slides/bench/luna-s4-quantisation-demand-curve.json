@@ -1,0 +1,249 @@
+{
+ "source": "slide bench round 1, luna, s4-quantisation, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s4-quantisation",
+  "intent": "Make the 38% reduction unmistakable as the primary proof, with a quiet before/after cost comparison and the two supporting facts arranged along a single demand-curve line.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Quantisation alone cuts serving cost by 38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_label",
+    "kind": "text",
+    "text": "LOWER MONTHLY SERVING COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero_38",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point_weights",
+    "kind": "text",
+    "text": "8-bit weights instead of 16-bit",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point_quality",
+    "kind": "text",
+    "text": "Same answer quality on 2,000 test questions",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart_label",
+    "kind": "text",
+    "text": "MONTHLY SERVING COST ($K)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "bar",
+     "title": null,
+     "categories": [
+      "Before",
+      "After"
+     ],
+     "series": [
+      {
+       "name": "Monthly serving cost ($k)",
+       "values": [
+        412.0,
+        255.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 6.0,
+      "y": 61.0,
+      "w": 88.0,
+      "h": 0.6
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 53.4,
+      "y": 59.9,
+      "w": 2.2,
+      "h": 2.2
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 8.0,
+      "w": 58.0,
+      "h": 17.0
+     },
+     "role": "title",
+     "size_pt": 30.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_label",
+     "frame": {
+      "x": 7.0,
+      "y": 28.0,
+      "w": 38.0,
+      "h": 4.8
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero_38",
+     "frame": {
+      "x": 7.0,
+      "y": 33.5,
+      "w": 38.0,
+      "h": 27.0
+     },
+     "role": "display",
+     "size_pt": 104.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point_weights",
+     "frame": {
+      "x": 58.0,
+      "y": 30.0,
+      "w": 34.0,
+      "h": 6.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point_quality",
+     "frame": {
+      "x": 58.0,
+      "y": 40.0,
+      "w": 34.0,
+      "h": 8.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chart_label",
+     "frame": {
+      "x": 58.0,
+      "y": 65.0,
+      "w": 34.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 10.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "cost_chart",
+     "frame": {
+      "x": 57.0,
+      "y": 69.0,
+      "w": 36.0,
+      "h": 24.0
+     },
+     "accent": "accent1",
+     "emphasis": [
+      "After"
+     ]
+    }
+   ],
+   "rationale": "A single cool demand line organizes the slide: the oversized peach percentage is the focal proof, while the comparison chart and supporting facts hang quietly from the same trajectory."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

@@ -1,0 +1,411 @@
+{
+ "source": "slide bench round 1, sol, s6-rollout, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s6-rollout",
+  "intent": "Show a reversible three-stage timeline across H1 2027, with the savings run rate visibly building from 15% to the full 38% by June.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "A phased rollout over two quarters keeps risk low while the savings build",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_phase",
+    "kind": "text",
+    "text": "PILOT\nJAN\u2013FEB 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_action",
+    "kind": "text",
+    "text": "Quantised model\non 5% of traffic",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_value",
+    "kind": "text",
+    "text": "15%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "pilot_caption",
+    "kind": "text",
+    "text": "Saving at the end\nof the pilot",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_phase",
+    "kind": "text",
+    "text": "SCALE\nMAR\u2013APR 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_action",
+    "kind": "text",
+    "text": "All traffic, plus\ncontext caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_value",
+    "kind": "text",
+    "text": "30%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "scale_caption",
+    "kind": "text",
+    "text": "Saving at the end\nof scale-up",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_phase",
+    "kind": "text",
+    "text": "OPTIMISE\nMAY\u2013JUN 2027",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_action",
+    "kind": "text",
+    "text": "Batching at peak,\nfull run rate",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_value",
+    "kind": "text",
+    "text": "38%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "optimise_caption",
+    "kind": "text",
+    "text": "Saving at full run rate\nJune",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 8.0,
+      "y": 54.0,
+      "w": 84.0,
+      "h": 0.6
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 18.1,
+      "y": 52.6,
+      "w": 1.7,
+      "h": 3.2
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 48.1,
+      "y": 52.6,
+      "w": 1.7,
+      "h": 3.2
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 78.1,
+      "y": 52.6,
+      "w": 1.7,
+      "h": 3.2
+     },
+     "fill": "lt1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 7.8,
+      "w": 78.0,
+      "h": 18.5
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_phase",
+     "frame": {
+      "x": 9.0,
+      "y": 31.0,
+      "w": 20.0,
+      "h": 7.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_action",
+     "frame": {
+      "x": 9.0,
+      "y": 40.0,
+      "w": 22.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_phase",
+     "frame": {
+      "x": 39.0,
+      "y": 31.0,
+      "w": 20.0,
+      "h": 7.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_action",
+     "frame": {
+      "x": 39.0,
+      "y": 40.0,
+      "w": 22.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_phase",
+     "frame": {
+      "x": 69.0,
+      "y": 31.0,
+      "w": 21.0,
+      "h": 7.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_action",
+     "frame": {
+      "x": 69.0,
+      "y": 40.0,
+      "w": 22.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_value",
+     "frame": {
+      "x": 9.0,
+      "y": 60.0,
+      "w": 22.0,
+      "h": 15.0
+     },
+     "role": "display",
+     "size_pt": 54.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "pilot_caption",
+     "frame": {
+      "x": 9.0,
+      "y": 79.0,
+      "w": 22.0,
+      "h": 8.0
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_value",
+     "frame": {
+      "x": 39.0,
+      "y": 60.0,
+      "w": 22.0,
+      "h": 15.0
+     },
+     "role": "display",
+     "size_pt": 54.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "scale_caption",
+     "frame": {
+      "x": 39.0,
+      "y": 79.0,
+      "w": 22.0,
+      "h": 8.0
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_value",
+     "frame": {
+      "x": 69.0,
+      "y": 57.5,
+      "w": 25.0,
+      "h": 20.5
+     },
+     "role": "display",
+     "size_pt": 76.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "optimise_caption",
+     "frame": {
+      "x": 69.0,
+      "y": 79.0,
+      "w": 25.0,
+      "h": 8.0
+     },
+     "role": "caption",
+     "size_pt": 12.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single cool timeline carries three evenly spaced, reversible phases, while the progressively larger savings figures culminate in one peach 38% destination."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

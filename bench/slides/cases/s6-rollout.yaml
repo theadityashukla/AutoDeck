@@ -1,0 +1,17 @@
+id: s6-rollout
+title: A phased rollout over two quarters keeps risk low while the savings build
+intent: >
+  The change is introduced in three phases across the first half of 2027, each one small
+  enough to reverse, and the saving builds phase by phase to the full 38% by June.
+content:
+  points:
+    - "Pilot, Jan–Feb 2027: quantised model on 5% of traffic"
+    - "Scale, Mar–Apr 2027: all traffic, plus context caching"
+    - "Optimise, May–Jun 2027: batching at peak, full run rate"
+  figures:
+    - {value: "15%", label: "saving at the end of the pilot"}
+    - {value: "30%", label: "saving at the end of scale-up"}
+    - {value: "38%", label: "saving at full run rate, June"}
+notes: >
+  A timeline of three phases in order. Each phase's figure is the savings run rate it reaches;
+  the build from 15% to 38% is the point, with 38% the destination.

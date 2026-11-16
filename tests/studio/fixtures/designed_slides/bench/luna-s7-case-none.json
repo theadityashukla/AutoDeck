@@ -1,0 +1,314 @@
+{
+ "source": "slide bench round 1, luna, s7-case, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s7-case",
+  "intent": "Make the business case feel immediate: the annual saving dominates the composition, while cost and payback read as simple supporting proof from left to right.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "What it costs and what it returns",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-label",
+    "kind": "text",
+    "text": "ONE-OFF COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-value",
+    "kind": "text",
+    "text": "$310k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost-detail",
+    "kind": "text",
+    "text": "engineering $240k\nevaluation $70k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return-label",
+    "kind": "text",
+    "text": "SAVED PER YEAR",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return-value",
+    "kind": "text",
+    "text": "$1.9M",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return-detail",
+    "kind": "text",
+    "text": "The saving is $157k a month from the first full month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback-label",
+    "kind": "text",
+    "text": "TO PAY BACK",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback-value",
+    "kind": "text",
+    "text": "2 months",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 6.0,
+      "y": 22.0,
+      "w": 88.0,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 33.0,
+      "y": 29.0,
+      "w": 39.0,
+      "h": 59.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 7.0,
+      "y": 65.0,
+      "w": 20.0,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 76.0,
+      "y": 65.0,
+      "w": 17.0,
+      "h": 0.3
+     },
+     "fill": null,
+     "line": "accent3",
+     "line_pt": 2.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 6.0,
+      "y": 8.0,
+      "w": 88.0,
+      "h": 11.0
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-label",
+     "frame": {
+      "x": 7.0,
+      "y": 31.0,
+      "w": 20.0,
+      "h": 6.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent6",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-value",
+     "frame": {
+      "x": 7.0,
+      "y": 39.0,
+      "w": 24.0,
+      "h": 16.0
+     },
+     "role": "display",
+     "size_pt": 52.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost-detail",
+     "frame": {
+      "x": 7.0,
+      "y": 69.0,
+      "w": 24.0,
+      "h": 14.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "lt2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return-label",
+     "frame": {
+      "x": 37.0,
+      "y": 35.0,
+      "w": 31.0,
+      "h": 6.0
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return-value",
+     "frame": {
+      "x": 36.0,
+      "y": 42.0,
+      "w": 33.0,
+      "h": 23.0
+     },
+     "role": "display",
+     "size_pt": 82.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return-detail",
+     "frame": {
+      "x": 37.0,
+      "y": 71.0,
+      "w": 31.0,
+      "h": 13.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback-label",
+     "frame": {
+      "x": 76.0,
+      "y": 31.0,
+      "w": 18.0,
+      "h": 6.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback-value",
+     "frame": {
+      "x": 76.0,
+      "y": 40.0,
+      "w": 19.0,
+      "h": 17.0
+     },
+     "role": "display",
+     "size_pt": 42.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark, editorial ground turns the return into a high-contrast central card; the cost and payback flank it as quieter bookends so the eye reads the business case in the intended order."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

@@ -1,0 +1,10 @@
+row_type,model,case,concept,feedback,repeat,status,clean,attempts,model_calls,input_tokens,output_tokens,reasoning_tokens,seconds,cost_usd,review_cost_usd,total_cost_usd,reasoning,revision,review_first,review_revised,review_revision_clean,review_second,n_text,n_shape,n_chart,n_icon,n_figure,trials,clean_rate,mean_attempts,mean_attempts_to_clean,findings,error
+trial,openai:gpt-5.6-luna,s1-title,demand-curve,review,1,clean,1,2,3,28191,4028,1563,45.79,0.241655,0.164388,0.406043,medium,revised,revise,1,1,pass,7,1,0,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s2-inference,demand-curve,review,1,clean,1,2,2,18058,3088,962,30.93,0.16749,0.0774,0.24489,medium,not_needed,pass,0,0,,8,1,1,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s3-techniques,demand-curve,review,1,clean,1,3,3,28347,3986,1177,35.8,0.241385,0.074712,0.316097,medium,not_needed,pass,0,0,,10,1,0,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s4-quantisation,demand-curve,review,1,clean,1,3,3,27686,3147,970,30.89,0.217105,0.078216,0.295321,medium,not_needed,pass,0,0,,5,2,1,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s5-caching,demand-curve,review,1,clean,1,4,4,42418,6565,1114,54.3,0.376215,0.080736,0.456951,medium,not_needed,pass,0,0,,9,5,1,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s6-rollout,demand-curve,review,1,clean,1,1,1,8440,2662,1147,25.81,0.10875,0.07434,0.18309,medium,not_needed,pass,0,0,,13,4,0,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s7-case,demand-curve,review,1,clean,1,3,3,28964,4295,830,36.44,0.252195,0.072732,0.324927,medium,not_needed,pass,0,0,,9,4,0,0,0,,,,,,
+trial,openai:gpt-5.6-luna,s8-decision,demand-curve,review,1,clean,1,4,5,55809,7437,1127,98.07,0.46497,0.161316,0.626286,medium,revised,revise,1,1,pass,12,4,0,0,0,,,,,,
+model_total,openai:gpt-5.6-luna,,,,,,8,,,237913,35208,8890,,2.069765,0.78384,2.853605,medium,,,,,,9.125,2.75,0.375,0.0,0.0,8,1.0,2.75,2.75,,

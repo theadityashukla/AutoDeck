@@ -1,0 +1,17 @@
+id: s8-decision
+title: "Decision needed: approve the pilot by 30 November"
+intent: >
+  The reader leaves knowing exactly what is being asked of them, by when and for how much: a
+  six-week pilot on 5% of traffic for $85k, approved by 30 November, and what happens next.
+content:
+  points:
+    - "Approve a six-week pilot on 5% of assistant traffic"
+    - "2 Dec: kick-off with the platform team"
+    - "9 Dec: quantised model in shadow mode"
+    - "13 Jan: first savings report"
+  figures:
+    - {value: "$85k", label: "pilot budget"}
+    - {value: "30 Nov", label: "decision needed by"}
+notes: >
+  The closing ask. The first point is the ask itself; the other three are the next steps, in
+  date order. The decision date and the budget are what the reader must remember.

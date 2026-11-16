@@ -1,0 +1,386 @@
+{
+ "source": "slide bench round 1, luna, s8-decision, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s8-decision",
+  "intent": "Make the closing ask unmistakable: approve a six-week pilot on 5% of assistant traffic for $85k by 30 November, with the next three dated steps visible along a single demand-curve line.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Decision needed: approve the pilot by 30 November",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "budget_label",
+    "kind": "text",
+    "text": "PILOT BUDGET",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "budget",
+    "kind": "text",
+    "text": "$85k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "decision_label",
+    "kind": "text",
+    "text": "DECISION NEEDED BY",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "decision_date",
+    "kind": "text",
+    "text": "30 Nov",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "ask",
+    "kind": "text",
+    "text": "Approve a six-week pilot on 5% of assistant traffic",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step1_date",
+    "kind": "text",
+    "text": "2 Dec",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step1",
+    "kind": "text",
+    "text": "kick-off with the platform team",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step2_date",
+    "kind": "text",
+    "text": "9 Dec",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step2",
+    "kind": "text",
+    "text": "quantised model in shadow mode",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step3_date",
+    "kind": "text",
+    "text": "13 Jan",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "step3",
+    "kind": "text",
+    "text": "first savings report",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 6.5,
+      "y": 56.0,
+      "w": 87.0,
+      "h": 0.1
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 21.8,
+      "y": 54.7,
+      "w": 1.8,
+      "h": 2.8
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 48.3,
+      "y": 54.7,
+      "w": 1.8,
+      "h": 2.8
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 76.5,
+      "y": 54.7,
+      "w": 1.8,
+      "h": 2.8
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.6,
+      "y": 7.8,
+      "w": 57.0,
+      "h": 18.0
+     },
+     "role": "title",
+     "size_pt": 34.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "budget_label",
+     "frame": {
+      "x": 68.0,
+      "y": 9.0,
+      "w": 22.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "budget",
+     "frame": {
+      "x": 65.0,
+      "y": 14.0,
+      "w": 27.0,
+      "h": 28.0
+     },
+     "role": "display",
+     "size_pt": 108.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "decision_label",
+     "frame": {
+      "x": 6.0,
+      "y": 31.0,
+      "w": 25.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "decision_date",
+     "frame": {
+      "x": 6.0,
+      "y": 35.0,
+      "w": 25.0,
+      "h": 8.0
+     },
+     "role": "heading",
+     "size_pt": 30.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "ask",
+     "frame": {
+      "x": 36.0,
+      "y": 31.0,
+      "w": 25.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step1_date",
+     "frame": {
+      "x": 14.0,
+      "y": 62.5,
+      "w": 18.0,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step1",
+     "frame": {
+      "x": 14.0,
+      "y": 69.0,
+      "w": 22.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step2_date",
+     "frame": {
+      "x": 41.0,
+      "y": 62.5,
+      "w": 18.0,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step2",
+     "frame": {
+      "x": 41.0,
+      "y": 69.0,
+      "w": 23.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step3_date",
+     "frame": {
+      "x": 69.0,
+      "y": 62.5,
+      "w": 18.0,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "step3",
+     "frame": {
+      "x": 69.0,
+      "y": 69.0,
+      "w": 22.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single cool-grey demand line turns the three next steps into a calm sequence, while the lone peach figure makes the $85k commitment the visual focal point and leaves generous night-blue space around the ask."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

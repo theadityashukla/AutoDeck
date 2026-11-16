@@ -1,0 +1,326 @@
+{
+ "source": "slide bench round 1, sol, s2-inference, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s2-inference",
+  "intent": "Show that inference has become the dominant and rapidly growing share of AI spend, making serving-cost reduction the priority.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Inference, not training, is now most of the bill",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "paid-logic",
+    "kind": "text",
+    "text": "Training is paid once; every shopper question is paid for every time",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "questions-number",
+    "kind": "text",
+    "text": "98 million",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "questions-label",
+    "kind": "text",
+    "text": "questions a month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero-79",
+    "kind": "text",
+    "text": "79%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero-context",
+    "kind": "text",
+    "text": "of AI spend goes on inference in 2026",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "compare-42",
+    "kind": "text",
+    "text": "42% in 2024",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "share-chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "column",
+     "title": null,
+     "categories": [
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026"
+     ],
+     "series": [
+      {
+       "name": "Inference share of AI spend (%)",
+       "values": [
+        30.0,
+        36.0,
+        42.0,
+        63.0,
+        79.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": {
+     "doc_id": "Northwind finance, FY2026 forecast",
+     "page": null,
+     "note": ""
+    }
+   },
+   {
+    "id": "source",
+    "kind": "text",
+    "text": "Source: Northwind finance, FY2026 forecast",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 34.0,
+      "h": 100.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 33.2,
+      "y": 0.0,
+      "w": 0.8,
+      "h": 100.0
+     },
+     "fill": "accent4",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 39.0,
+      "y": 34.5,
+      "w": 55.0,
+      "h": 0.4
+     },
+     "fill": null,
+     "line": "lt2",
+     "line_pt": 2.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 5.5,
+      "y": 66.0,
+      "w": 23.0,
+      "h": 0.4
+     },
+     "fill": null,
+     "line": "lt1",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.5,
+      "y": 8.0,
+      "w": 24.5,
+      "h": 37.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "paid-logic",
+     "frame": {
+      "x": 5.5,
+      "y": 48.0,
+      "w": 24.5,
+      "h": 16.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "questions-number",
+     "frame": {
+      "x": 5.5,
+      "y": 69.0,
+      "w": 25.0,
+      "h": 12.0
+     },
+     "role": "display",
+     "size_pt": 44.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "questions-label",
+     "frame": {
+      "x": 5.5,
+      "y": 82.0,
+      "w": 24.5,
+      "h": 6.0
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero-79",
+     "frame": {
+      "x": 39.0,
+      "y": 7.0,
+      "w": 23.0,
+      "h": 27.0
+     },
+     "role": "display",
+     "size_pt": 104.0,
+     "bold": true,
+     "color": "accent4",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "hero-context",
+     "frame": {
+      "x": 64.5,
+      "y": 10.0,
+      "w": 29.5,
+      "h": 12.0
+     },
+     "role": "heading",
+     "size_pt": 22.0,
+     "bold": true,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "compare-42",
+     "frame": {
+      "x": 64.5,
+      "y": 24.0,
+      "w": 29.5,
+      "h": 7.0
+     },
+     "role": "body",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "chart",
+     "block_id": "share-chart",
+     "frame": {
+      "x": 39.0,
+      "y": 39.0,
+      "w": 55.0,
+      "h": 47.0
+     },
+     "accent": "accent4",
+     "emphasis": [
+      "2026"
+     ]
+    },
+    {
+     "type": "text",
+     "block_id": "source",
+     "frame": {
+      "x": 39.0,
+      "y": 90.0,
+      "w": 55.0,
+      "h": 4.0
+     },
+     "role": "caption",
+     "size_pt": 10.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "bottom"
+    }
+   ],
+   "rationale": "A dark editorial rail explains the recurring-cost mechanism and monthly scale, while the open field makes 79% the dominant proof and the chart shows the four-year shift with 2026 alone in red."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

@@ -1,0 +1,23 @@
+id: s2-inference
+title: Inference, not training, is now most of the bill
+intent: >
+  The cost of AI at Northwind has moved: inference, paid on every shopper question, has grown
+  from 42% to 79% of AI spend in four years, so the cost of serving answers is where a saving
+  has to come from.
+content:
+  points:
+    - "Training is paid once; every shopper question is paid for every time"
+    - "The assistant answers 98 million questions a month"
+    - "Source: Northwind finance, FY2026 forecast"
+  figures:
+    - {value: "79%", label: "of AI spend goes on inference in 2026"}
+    - {value: "42%", label: "in 2024"}
+  chart:
+    kind: column
+    categories: ["2022", "2023", "2024", "2025", "2026"]
+    series:
+      - {name: "Inference share of AI spend (%)", values: [30, 36, 42, 63, 79]}
+    emphasis: ["2026"]
+notes: >
+  The comparison is 2024 against 2026, and 2026 is the year that matters. The source line is
+  small print, not a point to argue.

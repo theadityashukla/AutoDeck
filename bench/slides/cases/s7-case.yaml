@@ -1,0 +1,16 @@
+id: s7-case
+title: What it costs and what it returns
+intent: >
+  The business case is simple: a one-off cost of $310k is repaid in about two months by a
+  saving of $1.9M a year.
+content:
+  points:
+    - "One-off cost: engineering $240k, evaluation $70k"
+    - "The saving is $157k a month from the first full month"
+  figures:
+    - {value: "$310k", label: "one-off cost"}
+    - {value: "$1.9M", label: "saved per year"}
+    - {value: "2 months", label: "to pay back"}
+notes: >
+  Three figures side by side, read left to right as cost, return, payback. The return
+  ($1.9M a year) is the one that matters most.

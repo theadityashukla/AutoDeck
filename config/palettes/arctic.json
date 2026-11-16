@@ -1,0 +1,19 @@
+{
+  "name": "arctic",
+  "description": "White ground, ink navy, ice-blue accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "0B2135",
+    "lt1": "FFFFFF",
+    "dk2": "52677A",
+    "lt2": "EEF4F9",
+    "accent1": "0090CC",
+    "accent2": "0B2135",
+    "accent3": "00A6E8",
+    "accent4": "7FCBE8",
+    "accent5": "C2410C",
+    "accent6": "C4D2DE",
+    "hyperlink": "0090CC",
+    "followed_hyperlink": "0B2135"
+  }
+}

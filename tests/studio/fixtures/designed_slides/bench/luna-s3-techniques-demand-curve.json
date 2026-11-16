@@ -1,0 +1,336 @@
+{
+ "source": "slide bench round 1, luna, s3-techniques, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s3-techniques",
+  "intent": "Show three distinct techniques hanging off one demand-curve line, with quantisation visibly carrying the largest saving.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Three techniques account for most of the saving",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant_name",
+    "kind": "text",
+    "text": "Quantisation",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant_desc",
+    "kind": "text",
+    "text": "smaller numbers inside the model, same answers",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "quant_value",
+    "kind": "text",
+    "text": "\u221238%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache_name",
+    "kind": "text",
+    "text": "Context caching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache_desc",
+    "kind": "text",
+    "text": "reuse the part every request repeats",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cache_value",
+    "kind": "text",
+    "text": "\u221221%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch_name",
+    "kind": "text",
+    "text": "Request batching",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch_desc",
+    "kind": "text",
+    "text": "answer shoppers in groups at peak",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "batch_value",
+    "kind": "text",
+    "text": "2.3\u00d7",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 8.0,
+      "y": 55.0,
+      "w": 84.0,
+      "h": 0.1
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 18.6,
+      "y": 53.7,
+      "w": 1.8,
+      "h": 2.6
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 50.1,
+      "y": 53.7,
+      "w": 1.8,
+      "h": 2.6
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 80.1,
+      "y": 53.7,
+      "w": 1.8,
+      "h": 2.6
+     },
+     "fill": "dk2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 7.0,
+      "y": 8.0,
+      "w": 68.0,
+      "h": 18.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant_value",
+     "frame": {
+      "x": 9.0,
+      "y": 29.0,
+      "w": 25.0,
+      "h": 28.0
+     },
+     "role": "display",
+     "size_pt": 100.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant_name",
+     "frame": {
+      "x": 9.0,
+      "y": 58.0,
+      "w": 24.0,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "quant_desc",
+     "frame": {
+      "x": 9.0,
+      "y": 66.0,
+      "w": 25.0,
+      "h": 12.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache_name",
+     "frame": {
+      "x": 36.0,
+      "y": 29.0,
+      "w": 25.0,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache_value",
+     "frame": {
+      "x": 36.0,
+      "y": 35.0,
+      "w": 22.0,
+      "h": 16.0
+     },
+     "role": "display",
+     "size_pt": 56.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cache_desc",
+     "frame": {
+      "x": 36.0,
+      "y": 61.0,
+      "w": 25.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch_value",
+     "frame": {
+      "x": 67.0,
+      "y": 29.0,
+      "w": 22.0,
+      "h": 16.0
+     },
+     "role": "display",
+     "size_pt": 56.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch_name",
+     "frame": {
+      "x": 67.0,
+      "y": 46.5,
+      "w": 25.0,
+      "h": 5.0
+     },
+     "role": "heading",
+     "size_pt": 18.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "batch_desc",
+     "frame": {
+      "x": 67.0,
+      "y": 61.0,
+      "w": 25.0,
+      "h": 10.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single quiet demand-curve line creates the organizing spine, while the peach quantisation figure is the only colour accent and the staggered placements keep the three techniques distinct without boxing them in."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

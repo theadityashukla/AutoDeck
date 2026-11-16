@@ -1,0 +1,34 @@
+id: shelf-price
+name: Shelf price
+concept: >
+  Each slide states its number the way a supermarket shelf states a price: one large figure on
+  a yellow ticket, the old value small beside it and struck through with a red line, and the
+  reasoning in small print on a darker shelf edge that runs along the foot of the slide.
+rules:
+  - "The slide background is aisle green (lt2). One ticket per slide: an accent1 rectangle carrying the slide's number in very large dk1 type, with a small label above it naming what is priced."
+  - "A previous value, when the slide has one, sits small beside the ticket figure in a quieter colour, with a short accent3 line drawn across it as the strike-through. Red is only ever that line."
+  - "A shelf edge runs along the foot of every slide: a full-width accent2 band, bleeding to the left, right and bottom edges, carrying the fine print in dk2 inside the safe area."
+  - "The headline is large, white (lt1), top left, in two or three lines; everything that is not the ticket or the headline is quieter (dk2 small print)."
+  - "Charts stand on the green: the key category in accent1 through emphasis, the rest in the muted neutral."
+palette:
+  dk1: "#10241B"
+  lt1: "#FFFFFF"
+  dk2: "#A9DCC6"
+  lt2: "#0E5A43"
+  accent1: "#FFD43B"
+  accent2: "#0A4433"
+  accent3: "#D9363E"
+  accent4: "#FFF1B8"
+  accent5: "#13704F"
+  accent6: "#6CB096"
+roles:
+  dk1: "ticket ink: text on accent1 and accent4. Not readable on the green."
+  lt1: "white: headlines and large figures on the green. Safe for text on lt2, accent2 and accent5."
+  dk2: "shelf mint, a light colour despite its slot name: small print and labels on the green; charts draw their labels in it. Safe for text on lt2 and accent2 (on accent5 only at 24pt and above)."
+  lt2: "aisle green: use it as the slide background. A ground, not a text colour."
+  accent1: "ticket yellow: the price ticket and the key chart category, with dk1 text on it. As a text colour it is safe on lt2 and accent2 too."
+  accent2: "the shelf edge, a darker green: a band along the foot of the slide. Text on it in lt1, dk2 or accent1."
+  accent3: "markdown red: only the strike-through line across an old value. Never text, never a fill."
+  accent4: "pale ticket: a secondary, smaller ticket. Text on it in dk1."
+  accent5: "lighter aisle green: a quiet panel on the ground. Text on it in lt1."
+  accent6: "muted green: charts draw non-emphasised categories in it. Not for text."

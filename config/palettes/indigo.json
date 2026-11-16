@@ -1,0 +1,19 @@
+{
+  "name": "indigo",
+  "description": "Cool white, indigo structure, coral accent.",
+  "dark": false,
+  "palette": {
+    "dk1": "1B1B3A",
+    "lt1": "F7F7FB",
+    "dk2": "5B5B7A",
+    "lt2": "EDEDF6",
+    "accent1": "E0614E",
+    "accent2": "2E2A85",
+    "accent3": "43AA8B",
+    "accent4": "F6C445",
+    "accent5": "B23A48",
+    "accent6": "C9C9DB",
+    "hyperlink": "E0614E",
+    "followed_hyperlink": "2E2A85"
+  }
+}

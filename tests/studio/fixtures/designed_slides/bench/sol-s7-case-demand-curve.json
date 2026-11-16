@@ -1,0 +1,311 @@
+{
+ "source": "slide bench round 1, sol, s7-case, concept demand-curve",
+ "palette": {
+  "dk1": "0B1420",
+  "lt1": "FFFFFF",
+  "dk2": "A8B8CF",
+  "lt2": "0F1D30",
+  "accent1": "F2A57E",
+  "accent2": "7FA6D8",
+  "accent3": "2B4466",
+  "accent4": "1A2E4A",
+  "accent5": "24395A",
+  "accent6": "5A7396"
+ },
+ "slide": {
+  "id": "s7-case",
+  "intent": "Make the business case read as a simple left-to-right equation: modest one-off cost, dominant annual return, and rapid payback.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "What it costs and what it returns",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_value",
+    "kind": "text",
+    "text": "$310k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_label",
+    "kind": "text",
+    "text": "ONE-OFF COST",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "cost_detail",
+    "kind": "text",
+    "text": "engineering $240k\nevaluation $70k",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return_value",
+    "kind": "text",
+    "text": "$1.9M",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return_label",
+    "kind": "text",
+    "text": "SAVED PER YEAR",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "return_detail",
+    "kind": "text",
+    "text": "The saving is $157k a month\nfrom the first full month",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback_value",
+    "kind": "text",
+    "text": "2 months",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "payback_label",
+    "kind": "text",
+    "text": "TO PAY BACK",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "lt2",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 6.0,
+      "y": 53.0,
+      "w": 88.0,
+      "h": 0.5
+     },
+     "fill": null,
+     "line": "dk2",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 19.1,
+      "y": 51.7,
+      "w": 1.5,
+      "h": 2.7
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 51.8,
+      "y": 51.7,
+      "w": 1.5,
+      "h": 2.7
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "ellipse",
+     "frame": {
+      "x": 81.7,
+      "y": 51.7,
+      "w": 1.5,
+      "h": 2.7
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.8,
+      "y": 7.8,
+      "w": 62.0,
+      "h": 10.0
+     },
+     "role": "title",
+     "size_pt": 32.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_value",
+     "frame": {
+      "x": 6.0,
+      "y": 29.0,
+      "w": 28.0,
+      "h": 20.0
+     },
+     "role": "display",
+     "size_pt": 58.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "bottom"
+    },
+    {
+     "type": "text",
+     "block_id": "return_value",
+     "frame": {
+      "x": 36.0,
+      "y": 22.5,
+      "w": 34.0,
+      "h": 27.0
+     },
+     "role": "display",
+     "size_pt": 86.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "center",
+     "anchor": "bottom"
+    },
+    {
+     "type": "text",
+     "block_id": "payback_value",
+     "frame": {
+      "x": 70.0,
+      "y": 29.0,
+      "w": 25.0,
+      "h": 20.0
+     },
+     "role": "display",
+     "size_pt": 54.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "center",
+     "anchor": "bottom"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_label",
+     "frame": {
+      "x": 6.0,
+      "y": 58.0,
+      "w": 28.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "cost_detail",
+     "frame": {
+      "x": 6.0,
+      "y": 65.0,
+      "w": 28.0,
+      "h": 11.0
+     },
+     "role": "body",
+     "size_pt": 16.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return_label",
+     "frame": {
+      "x": 36.0,
+      "y": 58.0,
+      "w": 34.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "return_detail",
+     "frame": {
+      "x": 36.0,
+      "y": 65.0,
+      "w": 34.0,
+      "h": 11.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "payback_label",
+     "frame": {
+      "x": 70.0,
+      "y": 58.0,
+      "w": 25.0,
+      "h": 4.5
+     },
+     "role": "label",
+     "size_pt": 12.0,
+     "bold": true,
+     "color": "dk2",
+     "align": "center",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A single demand-curve line turns the three figures into a left-to-right business-case journey, while the oversized peach annual saving makes the return unmistakably dominant and preserves generous open space."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

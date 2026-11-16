@@ -1,0 +1,35 @@
+id: itemised
+name: Itemised
+concept: >
+  Every slide is a till receipt for the claim it makes: a tall paper-white receipt standing
+  on a sage counter holds the evidence, itemised line by line with the figures in a right-hand
+  column, and the one total that matters sits on a highlighter stripe. The claim itself stands
+  beside the receipt, on the counter, in large type.
+rules:
+  - "The slide background is the counter (lt2). The receipt is one tall lt1 rectangle, never full height or full width, usually on the left; a thin accent3 strip along its foot or edge stands in for the torn edge."
+  - "Inside the receipt, each line item is a label on the left and its figure right-aligned at the receipt's right edge, both in dk1; thin dk2 rules (line shapes) separate the groups, the way a till prints dashes."
+  - "Exactly one total per slide sits on a highlighter stripe: an accent2 rectangle placed behind that one line, with the figure in dk1 or accent1. Never more than one stripe."
+  - "Carbon blue (accent1) marks the figure that matters and the emphasised chart category; everything else is print (dk1) and faded print (dk2). A chart, if any, lives on the receipt paper."
+  - "No icons, no rounded cards, no ellipses: the receipt, rules and the stripe are the whole kit."
+palette:
+  dk1: "#20252B"
+  lt1: "#FCFCF9"
+  dk2: "#4A525C"
+  lt2: "#D3DCCF"
+  accent1: "#3446C9"
+  accent2: "#F1E05A"
+  accent3: "#9AA796"
+  accent4: "#6E7C8C"
+  accent5: "#E6EBE3"
+  accent6: "#8C958C"
+roles:
+  dk1: "print: headlines, line items and figures. Safe for text on lt1, lt2, accent2 and accent5."
+  lt1: "the receipt paper, a panel on the counter. Not a text colour here."
+  dk2: "faded print: secondary lines, small print, rules; charts draw their labels in it. Safe for text on lt1, lt2, accent2 and accent5."
+  lt2: "the counter: use it as the slide background."
+  accent1: "carbon blue: the one figure that matters and the emphasised chart category. Safe for text on lt1, lt2, accent2 and accent5."
+  accent2: "highlighter: a fill behind exactly one total per slide, with dk1 or accent1 text on it. Never a text colour."
+  accent3: "receipt edge: a thin strip or rule along the receipt's foot or side. Never a text colour."
+  accent4: "slate: a second chart series if one is ever needed. Not for text."
+  accent5: "pale paper: a quiet panel or a second, smaller slip. Text on it as on lt1."
+  accent6: "printed grey: charts draw non-emphasised categories in it. Not for text."

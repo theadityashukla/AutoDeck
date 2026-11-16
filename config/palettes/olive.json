@@ -1,0 +1,19 @@
+{
+  "name": "olive",
+  "description": "Linen ground, olive and ochre.",
+  "dark": false,
+  "palette": {
+    "dk1": "22251A",
+    "lt1": "F6F4EC",
+    "dk2": "5F6352",
+    "lt2": "ECE9DC",
+    "accent1": "6B7A22",
+    "accent2": "4A5523",
+    "accent3": "7A8B2E",
+    "accent4": "A3471B",
+    "accent5": "A3471B",
+    "accent6": "C9C6B4",
+    "hyperlink": "6B7A22",
+    "followed_hyperlink": "4A5523"
+  }
+}

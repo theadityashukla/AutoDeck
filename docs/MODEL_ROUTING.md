@@ -1,0 +1,317 @@
+# Model routing
+
+Two independent layers, both governed here (decision B3):
+
+- **Dev-time** — which model implements which build task.
+- **Runtime** — which model AutoDeck itself calls for each agent role (plan §6.2).
+
+Do not confuse them. A Sonnet-implemented module can bind an Opus-class runtime role.
+
+---
+
+# Part 1 — Dev-time routing
+
+## The tiers
+
+| Tier | Owns | Why this tier |
+|---|---|---|
+| **Opus** | Architecture, contracts, and anything whose error propagates across phases | A wrong IR field or a loose invariant costs weeks and may ship an inaccurate deck |
+| **Sonnet** | Implementation against a settled interface — the bulk of the build | Interface is fixed, so the work is competent execution with tests |
+| **Haiku** | Mechanical, high-volume, low-judgment work | Repetitive, verifiable by inspection or by a test that already exists |
+
+## What lands where
+
+**Opus**
+- Deck IR schema and versioning (§6.1) — every downstream contract derives from it
+- Provider protocol and structured-output repair semantics (§6.2)
+- Invariant enforcement design; anything under `autodeck/audit/`
+- **All files under `prompts/`** — prompts are product surface, not glue
+- The three Phase 0 spikes' design and their go/no-go readouts
+- `layout_kit` API shape; the `DiagramSpec` type system
+- Gate reviews, `DECISIONS.md` entries, phase handovers
+- Cross-cutting refactors; any change to a public interface already in use
+
+**Sonnet**
+- Docling runner, document store, provenance helpers
+- Knowledge loader, context assembler, retrieval
+- Agent implementations against prompts Opus has written
+- Component renderers (after the first two establish the pattern)
+- Linters, CLI commands, chart and theme builders
+- Tests for specified behaviour
+
+**Haiku**
+- Fixture and test-data generation; golden-file regeneration
+- Docstring and type-hint passes
+- Batch renames, moves, mechanical refactors with a green test suite
+- Dependency pinning; config file scaffolding
+- Eval batch execution and result tabulation (Phase 5)
+- Log triage and failure summarisation
+- Repetitive per-component / per-diagram-type scaffolding once the pattern exists
+
+## Enforcement
+
+Routing that relies on per-task judgment decays within a week. It is made structural:
+
+**1. Task tags.** Every task row in every `docs/phases/PHASE-*.md` carries a `model`
+column. **A task without a model tag is not ready to start.**
+
+**2. Dispatch.** Delegated work goes through the `Agent` tool with an explicit `model`
+parameter matching the tag.
+
+**3. Path guardrails.** Independent of any tag:
+
+| Path | Minimum tier |
+|---|---|
+| `autodeck/ir/` | Opus |
+| `autodeck/audit/` | Opus |
+| `prompts/` | Opus |
+| `DECISIONS.md`, `docs/handovers/` | Opus |
+| any test asserting an invariant (A1–A8) | Sonnet |
+| `legacy/v1/` | frozen — no edits |
+
+Haiku never edits the first four. Sonnet does not author or amend `prompts/` or the IR
+schema.
+
+**4. Escalation.** A task escalates a tier when it turns out to require:
+- changing an interface other code already depends on,
+- touching an accuracy invariant,
+- relitigating a locked decision (D1–D13),
+- resolving genuine ambiguity in the plan.
+
+Escalate rather than improvise, and log it in handover §8. A Haiku task needing a
+judgment call escalates to Sonnet.
+
+**5. De-escalation.** Once a pattern is established, remaining instances drop a tier:
+the third component renderer, the fourth `DiagramSpec` type, the fifth ingestion fixture.
+This is where most of the build's cost saving lives — it is an expectation, not an option.
+Record de-escalations in handover §8 too, so the ratio is visible.
+
+**6. Audit.** Each handover reports planned vs actual routing. Systematic deviation means
+the tags are wrong; fix the tags.
+
+## The docstring-delegation pattern
+
+A named sub-pattern within Sonnet work: **Sonnet writes the signature, docstring, and
+contract; Haiku fills the body.** Adopted deliberately — it is where the largest share of
+routine implementation cost sits.
+
+**Scope it by specification completeness, not by function length.** The instinct to send
+*lengthy* functions to Haiku gets the axis wrong: length correlates with branching, and
+branching is exactly where a cheaper model's errors hide inside a plausible-looking body.
+A short function with an ambiguous contract is the riskier delegation.
+
+Delegate the body when the docstring **fully determines** behaviour:
+
+- pure transformation, clear input/output types, no hidden state
+- error cases named in the docstring, not left to judgment
+- edge-case behaviour specified (empty input, boundary values, unicode, locale)
+- a test already exists, or the docstring is precise enough for Haiku to write one
+
+Keep the body with Sonnet when the function carries judgment: retry and repair semantics,
+anything where "reasonable behaviour" is doing load-bearing work in the spec, or anything
+whose failure mode is silent rather than loud.
+
+**The path guardrails still apply and are not negotiable.** No body under `autodeck/ir/`,
+`autodeck/audit/`, or `prompts/` is delegated to Haiku regardless of docstring quality —
+in the numeric linter the invariant *lives in* the edge cases, so a docstring that reads
+complete is precisely the trap.
+
+### A note on Clean Code and this pattern
+
+The project follows Clean Code, and that discipline is what makes this delegation safe —
+but it also cuts against the framing. "Extract till you drop" means a well-factored
+codebase should not contain many lengthy functions to hand off. The decomposition does the
+work: small, single-purpose functions with honest names and complete contracts are exactly
+what a cheaper model executes reliably.
+
+So the pattern's real unit is **a small, fully-specified function**, and the payoff is
+volume — dozens of them per phase — rather than length. If a function looks long enough to
+be worth delegating on size alone, the first move is to extract it, not to route it.
+
+## Judgment call when tags conflict
+
+If a task's tag and the path guardrail disagree, **the guardrail wins**. If a task
+plausibly belongs to two tiers, take the higher one — the cost of over-tiering is money,
+the cost of under-tiering is a defect in an accuracy-critical path.
+
+---
+
+# Part 2 — Runtime routing (AutoDeck's provider registry)
+
+Per plan §6.2 and D6. Bindings live in config, **never hardcoded in code**; resolved model
+IDs are recorded in the build manifest (A6).
+
+## Environment tiers (decision B8)
+
+Three environments, because the cost profile of development and the accuracy requirement
+of production pull in opposite directions:
+
+| Env | Providers | Purpose |
+|---|---|---|
+| **dev-mistral** | Mistral (small paid models) | Day-to-day build and iteration. Low cost, low risk, high call volume |
+| **sit / uat** | Claude | Pre-production verification on the bindings production actually uses |
+| **prod** | Claude | Real client deliverables |
+
+Nebius and OpenAI adapters exist but no environment binds them yet.
+
+### The accuracy consequence — read this before relying on a dev-environment result
+
+Two invariants are **model-sensitive**: A3 (independent re-retrieval, contradiction
+search) and A8 (honest uncertainty). Both are judgment, not arithmetic, so a weaker model
+fails them *plausibly* rather than loudly.
+
+That means **an accuracy result obtained on the dev binding does not transfer to prod.**
+A validator that catches every planted contradiction on a Mistral dev model tells you nothing certain
+about Claude, and vice versa. The deterministic invariants — A1 citation structure, A2
+numeric linting and derivation re-execution, A4 isolation, A5 framing lints, A6 manifest
+reproducibility — are model-independent and *do* transfer; they are code, not judgment.
+
+Two rules follow, and the SIT tier exists to serve them:
+
+1. **Phase 5 eval numbers are only meaningful on the binding they were measured on.** The
+   eval harness records the environment; a faithfulness score from dev is a dev score.
+   Headline metrics (faithfulness, numeric accuracy) must be measured on **sit** before
+   any production use.
+2. **GATE 2's claims table should be produced on the sit binding** at least once before a
+   deck ships, even if development iterated on dev. The gate is the last automated line
+   before a client sees the deck.
+
+This is what the SIT/UAT stage buys, and it is why the instinct to add one is right.
+
+## Role bindings
+
+Tier is the *capability class* the role needs; the concrete model per environment is
+resolved in config.
+
+| Role | Capability needed | dev-mistral | sit / prod |
+|---|---|---|---|
+| `planner` | Strong interactive judgment; evidence-gap probe (§6.13) | Mistral (ministral-14b) | Claude strong-tier |
+| `outline` | Structural reasoning; runs once per deck | Mistral (ministral-14b) | Claude strong-tier |
+| `composer` | Draft-first (B45): one long-context call writes brief, outline and slides with citations; also the clarifying questions (B47/B48) and scoped revisions. Long context budget. dev-mistral: ministral-14b-2512; sit/prod: claude-sonnet-5, deliberately not the validation model (B44). | Mistral (ministral-14b) | Claude mid-tier |
+| `content` | High volume, tightly constrained by budgets and citations | Mistral (ministral-14b) | Claude mid-tier |
+| `validation` | **Judgment-critical** (A3) | Mistral (ministral-14b) | Claude strong-tier |
+| `aesthetic` | Vision over true renders (§6.9) | Mistral (ministral-14b) | Claude vision-tier |
+| `ingest_vlm` | High-volume figure description; **metadata only, never citable** | Mistral (ministral-14b) | Mistral (ministral-14b), interim |
+| `advisor` | The deck agent's fresh-context second reader (B73): reads attached slides cold and answers one question in text. **Never the validation model**; the registry refuses that binding. | Mistral (ministral-14b) | Claude mid-tier (claude-sonnet-5) |
+
+`composer` is deliberately not the validation model in sit/prod (B44).
+`ingest_vlm` is on Mistral (`ministral-14b-2512`, vision-capable) in every environment as an
+interim choice until Nebius/OpenAI keys and verified model ids exist — its output is metadata that can never
+back a claim (enforced structurally in the document store), so there is no accuracy reason
+to pay for it.
+
+Shape of `config/models.yaml`:
+
+```yaml
+default_env: dev-mistral
+
+environments:
+  dev-mistral:
+    planner:    {provider: mistral, model: <resolved-at-P0>}
+    outline:    {provider: mistral, model: <resolved-at-P0>}
+    composer:   {provider: mistral, model: <resolved-at-P0>}
+    content:    {provider: mistral, model: <resolved-at-P0>}
+    validation: {provider: mistral, model: <resolved-at-P0>}
+    aesthetic:  {provider: mistral, model: <resolved-at-P0>}
+    ingest_vlm: {provider: mistral, model: <resolved-at-P0>}
+    advisor:    {provider: mistral, model: <not validation's model, B73>}
+  sit:
+    # same role keys, Claude bindings (composer on claude-sonnet-5, validation on claude-opus-5)
+  prod:
+    # same role keys, Claude bindings (composer on claude-sonnet-5, validation on claude-opus-5)
+```
+
+Selected with `--env`, defaulting to `dev`. **The manifest records the environment and
+every resolved model ID** (A6) — so an audit report always states which bindings produced
+it, and a dev-built deck is never mistaken for a production one.
+
+**Model IDs are looked up at implementation time, not recalled from training.** Plan §6.2
+is explicit about this and §9 lists model API change as a live risk. Phase 0 resolves the
+actual IDs and records them in `DECISIONS.md`.
+
+## Provider layer, Phase 4b
+
+Adapters live in `autodeck/providers/`, all on the one shared httpx transport (B14, no
+vendor SDKs):
+
+| Provider | Adapter | Key | Status |
+|---|---|---|---|
+| Mistral | `mistral.py` (on `openai_compat.py`) | `MISTRAL_API_KEY` | Dev (`dev-mistral`), small paid models |
+| Nebius | `nebius.py` (on `openai_compat.py`) | `NEBIUS_API_KEY` | Available; schema is also given in the system prompt |
+| OpenAI | `openai.py` (on `openai_compat.py`) | `OPENAI_API_KEY` | Available; output cap is `max_completion_tokens` |
+| Claude | `claude.py` | `ANTHROPIC_API_KEY` | `sit` and `prod` |
+
+`OpenAICompatProvider` implements Chat Completions once; a new compatible vendor is a
+subclass with `base_url`, key variable and the few differing knobs.
+
+**Tool calling.** `BaseProvider.converse(messages, tools, system=...)` runs one turn of a
+tool-calling conversation and returns an `AssistantTurn` (text and `ToolCall`s). The caller
+owns the loop: append the assistant turn and `tool` messages, call again. Invalid JSON in a
+tool call's arguments comes back as `{"__invalid__": raw}` so the caller can feed an error
+back. Converse replies are cached on (provider, model, temperature, system, the full message
+list, and a digest of every tool's name, description and schema).
+
+**Interim `ingest_vlm` note.** `ingest_vlm` in every environment is
+`mistral/ministral-14b-2512` (vision-capable) until Nebius or OpenAI keys and verified model
+ids exist.
+
+## What this adds to Phase 0
+
+Task 0.3 built the provider adapters (originally Gemini, Groq and Claude; Gemini and Groq were
+replaced by Mistral, OpenAI and Nebius in Phase 4b) and the
+environment-tier config above. Two things to verify in that task, because they are the
+likely friction:
+
+- **Structured output parity.** `complete_structured` must work on all three. JSON-mode
+  and tool-use support varies by provider and by model within a provider. Where a provider is weaker, the repair-retry path carries
+  more load — test it deliberately rather than discovering it in Phase 2b.
+- **Free-tier rate limits.** They will bite first at Phase 1 ingestion (`ingest_vlm` over a
+  full corpus) and Phase 5 eval batches. Build backoff and resumability into the provider
+  layer in Phase 0 rather than retrofitting under a rate limit.
+
+## Cost posture
+
+`content` and `ingest_vlm` dominate token volume; `validation` dominates cost per call.
+Within an environment, do not cheapen `validation` to save money — it is the last automated
+line before GATE 2, and A3 is the invariant most likely to fail silently. If cost needs
+cutting, cut `ingest_vlm` batch size or `content` retry budget first.
+
+---
+
+# Part 3 — v3 runtime routing: layers (added 2026-11-16)
+
+Parts 1 and 2 describe v2 and are unchanged. v3 (`autodeck/studio/`) binds **layers**, not
+pipeline stages, in its own file, `config/studio.yaml`; v2's `config/models.yaml` is not read by
+the studio. Plan: `docs/AUTODECK_V3_PLAN.md` §6; record: `docs/phases/V3-PHASE-2-3.md`;
+decisions V5 and V16 in `DECISIONS.md`.
+
+| Role | Layer | Does |
+|---|---|---|
+| `lead` | L1 Direction | The argument, and for each slide a brief in words. Never a layout or a colour. |
+| `system` | L2 System | Turns a design direction into a palette and roles; code checks contrast and refuses a failing palette with measured ratios. |
+| `designer` | L3 and L4 together | Designs one slide from its brief, in its own call, in the chosen palette; layout checks feed back. |
+| `mechanic` | L5 Mechanics | Small local edits ("retitle slide 2 to ..."), without the lead; can hand back. |
+| `router` | | Decides whether a message is a small edit or needs the lead, when no rule decides. |
+| `reviewer` | Review | Reserved in the config, **unused**: not built as a layer. |
+
+Each binding may also set `reasoning`, `max_output_tokens` and `api` (`auto`, `chat`,
+`responses`); with `auto`, ids starting `gpt-5.6` use the Responses endpoint. Environments:
+
+| Environment | Binding | Status |
+|---|---|---|
+| `dev-openai` | lead and system `gpt-5.6-terra`; designer `gpt-5.6-luna`; router and mechanic `gpt-5.4-mini` | **Provisional**, from the slide bench. The only environment run live. `gpt-5.6-sol` was the most polished designer on the bench and the most expensive; `gpt-5.4-mini` could not pass layout QA as a designer. |
+| `dev-mistral` | `ministral-14b-2512` for every role | Never run live with the studio |
+| `sit`, `prod` | `claude-opus-5` for every role | **Never run against a live API.** No Anthropic-model run has been done |
+
+Routing is by rule where certain, a cheap router model otherwise, and the lead when unsure; the
+owner can pin the lead for a message. Every change log entry and every turn records the layer
+and model that did the work. As §6.5 of the plan warns, tiering only means something where the
+tiers differ, so routing quality can be judged only on bindings like `dev-openai`; the
+benchmark (Phase 7) is not built.
+
+**Costs are estimates.** Per-turn cost uses `config/studio_prices.yaml` (and the bench uses
+`bench/slides/prices.yaml`): assumed prices, deliberately high, never confirmed against the
+provider's real price list. Nothing in the studio or these documents is a charge.
+
+The build-time rules of Part 1 (tiers, guardrails, prompts at Opus tier) apply to v3 work too.
+

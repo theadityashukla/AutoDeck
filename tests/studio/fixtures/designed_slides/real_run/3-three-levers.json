@@ -1,0 +1,476 @@
+{
+ "source": "first real-model run (task 23.17), final deck, slide 3",
+ "palette": {
+  "dk1": "0B1117",
+  "lt1": "F2F5F4",
+  "dk2": "B8C2C8",
+  "lt2": "16232B",
+  "accent1": "62F6B5",
+  "accent2": "FFC857",
+  "accent3": "FF746C",
+  "accent4": "7DB7FF",
+  "accent5": "536875",
+  "accent6": "81919A"
+ },
+ "slide": {
+  "id": "three-levers",
+  "intent": "Show that credible published levers exist, but their results are distinct and must not be multiplied into a single savings claim.",
+  "blocks": [
+   {
+    "id": "kicker",
+    "kind": "text",
+    "text": "PUBLISHED LEVERS / DISTINCT STUDIES",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "header",
+    "kind": "text",
+    "text": "Three levers, three separate studies",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "memory-label",
+    "kind": "text",
+    "text": "LLM.int8()",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "memory-hero",
+    "kind": "text",
+    "text": "\u00bd",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "memory-body",
+    "kind": "text",
+    "text": "inference memory\nAuthors report halving inference memory while retaining full-precision performance",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "throughput-label",
+    "kind": "text",
+    "text": "PAGEDATTENTION / vLLM",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "throughput-hero",
+    "kind": "text",
+    "text": "2\u20134\u00d7",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "throughput-body",
+    "kind": "text",
+    "text": "throughput\nAuthors report 2\u20134\u00d7 versus prior state-of-the-art systems, with gains varying by workload",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "latency-label",
+    "kind": "text",
+    "text": "SPECULATIVE DECODING",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "latency-hero",
+    "kind": "text",
+    "text": "2\u20133\u00d7",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "latency-body",
+    "kind": "text",
+    "text": "latency improvement\nOn 11B T5-XXL versus T5X, with no change to outputs",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "warning-head",
+    "kind": "text",
+    "text": "DO NOT COMBINE THESE FIGURES",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "warning-body",
+    "kind": "text",
+    "text": "The papers did not measure these levers together.",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 100.0,
+      "h": 100.0
+     },
+     "fill": "dk1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 5.6,
+      "y": 23.0,
+      "w": 27.2,
+      "h": 58.0
+     },
+     "fill": "lt2",
+     "line": "accent5",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 36.4,
+      "y": 23.0,
+      "w": 27.2,
+      "h": 58.0
+     },
+     "fill": "lt2",
+     "line": "accent1",
+     "line_pt": 1.5,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rounded_rect",
+     "frame": {
+      "x": 67.2,
+      "y": 23.0,
+      "w": 27.2,
+      "h": 58.0
+     },
+     "fill": "lt2",
+     "line": "accent5",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 5.6,
+      "y": 85.0,
+      "w": 88.8,
+      "h": 7.8
+     },
+     "fill": "accent2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.78
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 5.6,
+      "y": 18.7,
+      "w": 88.8,
+      "h": 0.5
+     },
+     "fill": null,
+     "line": "accent5",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "kicker",
+     "frame": {
+      "x": 5.6,
+      "y": 6.2,
+      "w": 55.0,
+      "h": 3.6
+     },
+     "role": "label",
+     "size_pt": 10.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "header",
+     "frame": {
+      "x": 5.6,
+      "y": 10.5,
+      "w": 88.8,
+      "h": 7.8
+     },
+     "role": "title",
+     "size_pt": 30.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "memory-label",
+     "frame": {
+      "x": 7.4,
+      "y": 26.5,
+      "w": 22.8,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent4",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "memory-hero",
+     "frame": {
+      "x": 7.2,
+      "y": 32.5,
+      "w": 22.5,
+      "h": 22.5
+     },
+     "role": "display",
+     "size_pt": 86.0,
+     "bold": true,
+     "color": "accent4",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "memory-body",
+     "frame": {
+      "x": 7.4,
+      "y": 57.0,
+      "w": 22.6,
+      "h": 18.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "throughput-label",
+     "frame": {
+      "x": 38.2,
+      "y": 26.5,
+      "w": 22.8,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "throughput-hero",
+     "frame": {
+      "x": 38.0,
+      "y": 32.5,
+      "w": 22.5,
+      "h": 22.5
+     },
+     "role": "display",
+     "size_pt": 86.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "throughput-body",
+     "frame": {
+      "x": 38.2,
+      "y": 57.0,
+      "w": 22.6,
+      "h": 20.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "latency-label",
+     "frame": {
+      "x": 69.0,
+      "y": 26.5,
+      "w": 24.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "latency-hero",
+     "frame": {
+      "x": 68.8,
+      "y": 32.5,
+      "w": 22.5,
+      "h": 22.5
+     },
+     "role": "display",
+     "size_pt": 86.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "latency-body",
+     "frame": {
+      "x": 69.0,
+      "y": 57.0,
+      "w": 22.6,
+      "h": 18.0
+     },
+     "role": "body",
+     "size_pt": 15.0,
+     "bold": false,
+     "color": "dk2",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "warning-head",
+     "frame": {
+      "x": 7.2,
+      "y": 86.2,
+      "w": 31.0,
+      "h": 3.2
+     },
+     "role": "label",
+     "size_pt": 10.0,
+     "bold": true,
+     "color": "accent2",
+     "align": "left",
+     "anchor": "middle"
+    },
+    {
+     "type": "text",
+     "block_id": "warning-body",
+     "frame": {
+      "x": 40.0,
+      "y": 86.05,
+      "w": 51.8,
+      "h": 3.8
+     },
+     "role": "body",
+     "size_pt": 13.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "right",
+     "anchor": "middle"
+    }
+   ],
+   "rationale": "A dark control-room field turns three published measurements into separate operational signals, with throughput as the selected decision signal and a caution band preventing any compound-savings reading."
+  },
+  "marker": "provisional",
+  "serves": [
+   "p2"
+  ],
+  "brief": {
+   "header": "Three levers, three separate studies",
+   "intent": "Show that credible published levers exist, but their results are distinct and must not be multiplied into a single savings claim.",
+   "content": {
+    "points": [
+     "LLM.int8(): authors report halving inference memory while retaining full-precision performance",
+     "PagedAttention / vLLM: authors report 2\u20134\u00d7 throughput versus prior state-of-the-art systems, with gains varying by workload",
+     "Speculative decoding: authors report 2\u20133\u00d7 latency improvement on 11B T5-XXL versus T5X, with no change to outputs",
+     "Do not combine these figures: the papers did not measure them together"
+    ],
+    "figures": [
+     {
+      "value": "\u00bd",
+      "label": "inference memory with LLM.int8(), authors\u2019 report"
+     },
+     {
+      "value": "2\u20134\u00d7",
+      "label": "throughput with vLLM, authors\u2019 report"
+     },
+     {
+      "value": "2\u20133\u00d7",
+      "label": "latency improvement on 11B T5-XXL with speculative decoding"
+     }
+    ],
+    "chart": null
+   },
+   "notes": "The three figures are heroes but must read as separate studies. Carry authorship and configurations in the text; no compounded multiplier."
+  },
+  "composed": {
+   "brief_digest": "afa63a927fa69c120755536ca1bc9932bd05e85c84f4109c2a6a7f5d818d5117",
+   "system_id": "serving-control-room",
+   "system_version": 1,
+   "model_id": "openai/gpt-5.6-luna"
+  },
+  "compose_failure": null
+ }
+}

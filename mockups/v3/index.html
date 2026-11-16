@@ -1,0 +1,2720 @@
+<title>AutoDeck v3 Mock-up</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&amp;family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap">
+<style>
+/* AutoDeck v3 mock-up. All colours are tokens. */
+:root {
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --surface-2: #f6f8fb;
+  --surface-3: #eceff5;
+  --stage: #dfe4ec;
+  --line: #dde2ea;
+  --line-strong: #c3cad7;
+  --text: #19202e;
+  --text-2: #4f596d;
+  --text-3: #727c90;
+  --accent: #0a64d8;
+  --accent-text: #0a5bc4;
+  --on-accent: #ffffff;
+  --accent-soft: #e5effd;
+  --accent-wash: rgba(10, 100, 216, 0.1);
+  --accent-ring: rgba(10, 100, 216, 0.35);
+  --warn-text: #8a5700;
+  --warn-bg: #fcf0d4;
+  --warn-line: #d6a032;
+  --stale-text: #b23a0d;
+  --stale-bg: #fde9de;
+  --stale-line: #e08a63;
+  --t-lead: #0a64d8;
+  --t-lead-ink: #ffffff;
+  --t-senior: #75a8f0;
+  --t-senior-ink: #0a2750;
+  --t-mid: #b0cdf8;
+  --t-mid-ink: #0a2750;
+  --t-low: #dbe8fc;
+  --t-low-ink: #0a2750;
+  --seg-bg: #e6e9f0;
+  --frost: rgba(246, 248, 252, 0.78);
+  --scrim: rgba(24, 31, 46, 0.38);
+  --toast-bg: #1d2535;
+  --toast-ink: #f3f6fb;
+  --shadow-s: 0 1px 2px rgba(25, 32, 46, 0.08), 0 0 0 1px rgba(25, 32, 46, 0.04);
+  --shadow-m: 0 4px 14px rgba(25, 32, 46, 0.1), 0 1px 3px rgba(25, 32, 46, 0.08);
+  --shadow-slide: 0 10px 30px rgba(25, 32, 46, 0.22), 0 2px 6px rgba(25, 32, 46, 0.14);
+  --focus: #0a64d8;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e121a;
+    --surface: #171c27;
+    --surface-2: #1b212d;
+    --surface-3: #212837;
+    --stage: #0a0d13;
+    --line: #272f3f;
+    --line-strong: #394357;
+    --text: #e8ecf4;
+    --text-2: #a4aec1;
+    --text-3: #7c869b;
+    --accent: #2f7be5;
+    --accent-text: #6cb0ff;
+    --on-accent: #ffffff;
+    --accent-soft: #182a47;
+    --accent-wash: rgba(76, 154, 255, 0.14);
+    --accent-ring: rgba(76, 154, 255, 0.5);
+    --warn-text: #f0c26a;
+    --warn-bg: #31270f;
+    --warn-line: #8a6a24;
+    --stale-text: #ff9f74;
+    --stale-bg: #3a2119;
+    --stale-line: #a4573a;
+    --t-lead: #2f7be5;
+    --t-lead-ink: #ffffff;
+    --t-senior: #2b5fa8;
+    --t-senior-ink: #e5efff;
+    --t-mid: #234878;
+    --t-mid-ink: #d3e4ff;
+    --t-low: #1c3557;
+    --t-low-ink: #bdd4f5;
+    --seg-bg: #0f131c;
+    --frost: rgba(20, 25, 36, 0.78);
+    --scrim: rgba(3, 5, 10, 0.6);
+    --toast-bg: #e8ecf4;
+    --toast-ink: #141a26;
+    --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    --shadow-m: 0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-slide: 0 10px 34px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+    --focus: #6cb0ff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e121a;
+  --surface: #171c27;
+  --surface-2: #1b212d;
+  --surface-3: #212837;
+  --stage: #0a0d13;
+  --line: #272f3f;
+  --line-strong: #394357;
+  --text: #e8ecf4;
+  --text-2: #a4aec1;
+  --text-3: #7c869b;
+  --accent: #2f7be5;
+  --accent-text: #6cb0ff;
+  --on-accent: #ffffff;
+  --accent-soft: #182a47;
+  --accent-wash: rgba(76, 154, 255, 0.14);
+  --accent-ring: rgba(76, 154, 255, 0.5);
+  --warn-text: #f0c26a;
+  --warn-bg: #31270f;
+  --warn-line: #8a6a24;
+  --stale-text: #ff9f74;
+  --stale-bg: #3a2119;
+  --stale-line: #a4573a;
+  --t-lead: #2f7be5;
+  --t-lead-ink: #ffffff;
+  --t-senior: #2b5fa8;
+  --t-senior-ink: #e5efff;
+  --t-mid: #234878;
+  --t-mid-ink: #d3e4ff;
+  --t-low: #1c3557;
+  --t-low-ink: #bdd4f5;
+  --seg-bg: #0f131c;
+  --frost: rgba(20, 25, 36, 0.78);
+  --scrim: rgba(3, 5, 10, 0.6);
+  --toast-bg: #e8ecf4;
+  --toast-ink: #141a26;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-m: 0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-slide: 0 10px 34px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+  --focus: #6cb0ff;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+[hidden] { display: none !important; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent-text); }
+h1, h2, h3, p, ul, ol, dl, dd, blockquote { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--text-3); font-size: 13px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+[aria-disabled="true"], button:disabled { cursor: not-allowed; }
+
+/* ---------- shell ---------- */
+.wrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 100%;
+}
+.topbar {
+  flex: none;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
+  padding: 10px 0;
+  position: relative; z-index: 5;
+}
+.brand { display: inline-flex; align-items: center; gap: 7px; font-weight: 650; font-size: 15px; color: var(--text); text-decoration: none; letter-spacing: -0.01em; }
+.brand svg { color: var(--accent); }
+.switcher { position: relative; min-width: 0; }
+.sw-btn {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 10px; box-shadow: var(--shadow-s); color: var(--text-2); font-size: 13px;
+}
+.sw-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10; width: min(360px, calc(100vw - 32px));
+  background: var(--frost); backdrop-filter: saturate(1.5) blur(18px); -webkit-backdrop-filter: saturate(1.5) blur(18px);
+  border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: var(--shadow-m);
+}
+.menu-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 9px; font-size: 13px; }
+.menu-item.current { background: var(--accent-soft); color: var(--accent-text); }
+.menu-item:disabled { color: var(--text-3); }
+.menu-note { color: var(--text-3); font-size: 12px; padding: 6px 9px 4px; }
+.note { margin-left: auto; color: var(--text-3); font-size: 12px; }
+#main { flex: 1; min-height: 0; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+.view { height: 100%; }
+.home, .notes, .strict, .history { overflow-y: auto; overflow-x: hidden; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 5px 12px; font-size: 13px; font-weight: 500; color: var(--text); text-decoration: none; box-shadow: var(--shadow-s);
+  min-height: 30px;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { filter: brightness(1.07); background: var(--accent); }
+.btn[aria-disabled="true"] { opacity: 0.5; box-shadow: none; }
+.btn[aria-disabled="true"]:hover { background: var(--surface); }
+.btn.primary[aria-disabled="true"]:hover { background: var(--accent); filter: none; }
+.linkbtn { background: none; border: 0; padding: 2px 0; color: var(--accent-text); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
+
+.tag { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 7px; border-radius: 99px; border: 1px solid var(--line-strong); color: var(--text-2); white-space: nowrap; font-weight: 500; }
+.tag-prov { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.tag-stale { color: var(--stale-text); background: var(--stale-bg); border-color: var(--stale-line); }
+.tag-ok { color: var(--accent-text); background: var(--accent-soft); border-color: transparent; }
+.tag-strict { color: var(--on-accent); background: var(--text); border-color: var(--text); letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; }
+.tag-plain { background: var(--surface-3); border-color: transparent; }
+
+.pane-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.pane-head h1, .pane-title { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back { font-size: 13px; color: var(--text-2); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.back::before { content: ""; width: 7px; height: 7px; border-left: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: rotate(45deg); margin-right: 2px; }
+.back:hover { color: var(--text); }
+h1:focus { outline: none; }
+
+/* ---------- home ---------- */
+.home-inner, .strict-inner, .hist-inner { max-width: 1180px; margin: 0 auto; padding: 14px 0 40px; }
+.home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.home-head h1, .strict-title h1, .notes-doc > h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; }
+.lede { color: var(--text-2); margin-top: 4px; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.col { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 6px 8px; box-shadow: var(--shadow-s); min-width: 0; }
+.col-h { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding: 10px 10px 6px; display: flex; gap: 8px; align-items: center; }
+.count { font-weight: 500; background: var(--surface-3); border-radius: 99px; padding: 0 7px; letter-spacing: 0; }
+.row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 9px; text-decoration: none; color: var(--text); width: 100%; text-align: left; background: none; border: 0; }
+.row.link:hover { background: var(--surface-2); }
+.ico { flex: none; color: var(--text-3); margin-top: 3px; display: inline-flex; }
+.row-b { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row-t { font-size: 13.5px; font-weight: 500; overflow-wrap: anywhere; }
+.row-m { font-size: 12px; color: var(--text-3); }
+.row .tag { flex: none; margin-top: 2px; }
+
+/* ---------- thread ---------- */
+.thread { display: flex; flex-direction: column; overflow: hidden; }
+.thread-tabs { display: none; }
+.thread-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 2fr) minmax(0, 3fr); gap: 14px; }
+.chat, .panel { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s); overflow: hidden; }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.msg { display: flex; flex-direction: column; gap: 5px; max-width: 100%; }
+.msg.user { align-items: flex-end; }
+.msg.user .bubble { background: var(--accent); color: var(--on-accent); border-radius: 14px 14px 4px 14px; padding: 7px 12px; max-width: 88%; overflow-wrap: anywhere; }
+.u-about { font-size: 11.5px; color: var(--text-3); }
+.msg.assistant .bubble { background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px; padding: 10px 13px; display: flex; flex-direction: column; gap: 9px; overflow-wrap: anywhere; }
+.msg-meta { display: flex; gap: 8px; align-items: center; }
+.kind { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+.kind::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--text-3); }
+.kind-proposal { color: var(--warn-text); }
+.kind-proposal::before { border-color: var(--warn-text); border-style: dashed; }
+.kind-change { color: var(--accent-text); }
+.kind-change::before { background: var(--accent); border-color: var(--accent); }
+.pstat { font-size: 11.5px; color: var(--text-3); }
+.items { padding-left: 16px; list-style: disc; display: flex; flex-direction: column; gap: 2px; color: var(--text-2); font-size: 13px; }
+.items li::marker { color: var(--text-3); }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.typing .bubble { padding: 12px 14px; width: fit-content; }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); animation: blink 1.1s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+
+/* routing trace */
+.route { font-size: 12px; color: var(--text-3); }
+.route.plain { display: flex; gap: 8px; padding: 0 2px; }
+.route-l { font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; padding-top: 1px; }
+.route > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; padding: 0 2px; border-radius: 6px; }
+.route > summary::-webkit-details-marker { display: none; }
+.route > summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin-left: 2px; align-self: center; flex: none; }
+.route[open] > summary::after { transform: rotate(-135deg); }
+.route-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.route-t { margin-left: auto; font-family: var(--mono); font-size: 11px; flex: none; }
+.route:not([open]) > summary .route-t { margin-left: 0; }
+.trace { margin-top: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.tr { display: grid; grid-template-columns: 6.4rem auto 1fr auto 64px; gap: 2px 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tr:last-child { border-bottom: 0; }
+.tr-layer { color: var(--text); font-weight: 550; }
+.tr-note { grid-column: 1 / -1; color: var(--text-2); }
+.tr-time { font-family: var(--mono); font-size: 11px; grid-column: 4; grid-row: 1; text-align: right; }
+.tr .bar { grid-column: 5; grid-row: 1; }
+.tr.skip { opacity: 0.7; }
+.tr.skip .tr-note { color: var(--text-3); }
+.tier { font-size: 11px; line-height: 16px; padding: 0 8px; border-radius: 99px; font-weight: 600; width: fit-content; }
+.t-lead { background: var(--t-lead); color: var(--t-lead-ink); }
+.t-senior { background: var(--t-senior); color: var(--t-senior-ink); }
+.t-mid { background: var(--t-mid); color: var(--t-mid-ink); }
+.t-low { background: var(--t-low); color: var(--t-low-ink); }
+.tier.off { background: transparent; color: var(--text-3); border: 1px dashed var(--line-strong); line-height: 14px; }
+.bar { display: block; height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.bar.big { height: 8px; flex: 1; }
+.pin-lead .bar { height: 9px; }
+.pin-lead .bar.big { height: 13px; }
+.trace-foot { margin-top: 6px; padding: 0 2px; color: var(--text-2); }
+.trace-foot.pinned { color: var(--accent-text); font-weight: 550; }
+.trace-total { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 0 2px; font-family: var(--mono); font-size: 11px; }
+.trace-total span:first-child { flex: none; }
+.trace-total span:last-child { flex: none; }
+
+/* direction cards, previews, check */
+.dir-cards { display: grid; gap: 10px; }
+.dir-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.dir-card-h { font-size: 14px; }
+.dir-concept { color: var(--text-2); font-size: 13px; }
+.samples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.sample { border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-s); background: var(--stage); }
+.preview { display: flex; flex-direction: column; gap: 8px; }
+.pv-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pv { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pv-l { font-size: 11px; color: var(--text-3); }
+.pv-s { border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-s); }
+.pv-more { font-size: 12px; color: var(--text-3); }
+.check { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 6px; }
+.check-h { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0 4px; }
+.check li { display: grid; grid-template-columns: 4.6rem 1fr; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.ck-s { font-size: 11px; font-weight: 600; color: var(--accent-text); }
+.check li.no .ck-s { color: var(--stale-text); }
+.ck-t { display: flex; flex-direction: column; font-size: 13px; }
+.ck-src { color: var(--text-2); font-size: 12.5px; }
+.check li.no { background: var(--stale-bg); margin: 0 -12px; padding: 7px 12px; border-radius: 0 0 11px 11px; }
+
+/* composer */
+.composer { flex: none; border-top: 1px solid var(--line); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { background: var(--accent-soft); color: var(--accent-text); border: 1px solid transparent; border-radius: 99px; padding: 4px 11px; font-size: 12.5px; text-align: left; }
+.chip:hover { border-color: var(--accent-ring); }
+.chip[aria-disabled="true"] { opacity: 0.5; }
+.chip-hint { color: var(--text-3); font-size: 12.5px; }
+.about { min-height: 22px; }
+.about-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); background: var(--surface-3); border-radius: 99px; padding: 1px 10px; }
+.about-chip.active { background: var(--accent-soft); color: var(--accent-text); padding-right: 4px; }
+.about-chip .x { background: none; border: 0; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: inherit; padding: 0; }
+.about-chip .x:hover { background: var(--accent-wash); }
+.cform { display: flex; gap: 8px; }
+.cinput { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 9px; padding: 6px 11px; }
+.cinput::placeholder { color: var(--text-3); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.ctl { display: flex; align-items: center; gap: 8px; }
+.ctl-l { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); }
+.seg { display: inline-flex; background: var(--seg-bg); border-radius: 8px; padding: 2px; gap: 1px; }
+.seg button { background: none; border: 0; border-radius: 6px; padding: 2px 9px; font-size: 12px; color: var(--text-2); min-height: 24px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-s); font-weight: 550; }
+.seg.locked { opacity: 0.8; }
+.seg.locked button { cursor: not-allowed; }
+
+/* panel */
+.panel-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.ptabs { display: flex; gap: 2px; background: var(--seg-bg); border-radius: 9px; padding: 2px; overflow-x: auto; min-width: 0; }
+.ptabs button { background: none; border: 0; border-radius: 7px; padding: 3px 11px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.ptabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-s); font-weight: 550; }
+.panel-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+.strip { display: flex; gap: 10px; overflow-x: auto; padding: 6px 4px 8px; margin: 0 -4px; flex: none; }
+.thumb { flex: none; width: 124px; background: none; border: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; text-align: left; border-radius: 6px; }
+.th-frame { display: block; border-radius: 4px; overflow: hidden; box-shadow: var(--shadow-s); background: var(--stage); }
+.th-slide { display: block; pointer-events: none; }
+.thumb.mk-provisional .th-frame { outline: 1.5px dashed var(--warn-line); outline-offset: 2px; }
+.thumb.mk-stale .th-frame { outline: 1.5px solid var(--stale-line); outline-offset: 2px; }
+.mk-stale .th-slide, .stage.mk-stale .stage-slide > .ms-slide { filter: saturate(0.45) contrast(0.95); }
+.thumb.cur .th-frame { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.thumb.flash .th-frame { animation: flash 1.6s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 var(--accent-ring), 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 12px transparent, 0 0 0 0 var(--accent); } }
+.th-meta { display: flex; align-items: center; gap: 6px; min-height: 18px; }
+.th-n { font-family: var(--mono); font-size: 11px; color: var(--text-3); width: 14px; }
+.th-sel { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.thumb .tag { font-size: 10px; line-height: 15px; padding: 0 6px; }
+
+.stage-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex: none; }
+.stage-title { display: flex; flex-direction: column; min-width: 0; }
+.stage-title .mono { color: var(--text-3); }
+.stage-head { font-weight: 600; font-size: 14px; }
+.stage-tags { display: flex; gap: 8px; align-items: center; flex: none; }
+.dir-name { font-size: 12px; color: var(--text-3); }
+.stage { background: var(--stage); border-radius: 12px; padding: clamp(12px, 3vw, 28px); flex: none; }
+.stage.mk-provisional { outline: 1.5px dashed var(--warn-line); outline-offset: -6px; }
+.stage.mk-stale { outline: 1.5px solid var(--stale-line); outline-offset: -6px; }
+.stage-slide { position: relative; max-width: 860px; margin: 0 auto; border-radius: 3px; overflow: hidden; box-shadow: var(--shadow-slide); }
+.stage-slide[data-stage] { cursor: pointer; }
+.sel { position: absolute; left: 0; right: 0; pointer-events: none; box-shadow: inset 0 0 0 3px var(--accent); background: var(--accent-wash); }
+.sel-slide { top: 0; bottom: 0; }
+.sel-header { top: 0; height: 26%; }
+.sel-body { top: 26%; bottom: 0; }
+.pick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
+.pick-l { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-right: 2px; }
+.pickbtn { background: var(--surface-2); border: 1px solid var(--line); border-radius: 99px; padding: 2px 11px; font-size: 12.5px; color: var(--text-2); }
+.pickbtn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-ring); }
+.narrow-only { display: none; }
+.gochat { align-items: center; justify-content: space-between; gap: 10px; background: var(--accent-soft); color: var(--accent-text); border-radius: 10px; padding: 8px 10px; font-size: 13px; flex: none; }
+.stale-note { color: var(--stale-text); font-size: 13px; flex: none; }
+
+.story { display: flex; flex-direction: column; }
+.story-i { display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line); align-items: start; }
+.story-i:last-child { border-bottom: 0; }
+.story-n { color: var(--text-3); padding-top: 2px; }
+.story-h { font-weight: 600; }
+.story-int { color: var(--text-2); font-size: 13px; }
+.story-note { color: var(--stale-text); font-size: 12.5px; margin-top: 2px; }
+.story-t { padding-top: 1px; }
+
+.design { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.design-top { display: flex; align-items: center; gap: 10px; }
+.design h2 { font-size: 20px; letter-spacing: -0.01em; }
+.status-line { color: var(--text-2); }
+.concept { font-size: 15px; }
+.mini-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin-top: 6px; }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.swatches li { display: grid; grid-template-columns: 32px 1fr; grid-template-rows: auto auto auto; column-gap: 10px; align-items: center; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.sw { grid-row: 1 / 3; width: 32px; height: 32px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.sw-n { font-weight: 550; font-size: 13px; }
+.sw-h { color: var(--text-3); }
+.sw-r { grid-column: 1 / -1; font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.type { display: grid; grid-template-columns: 5rem 1fr; gap: 4px 10px; }
+.type dt { color: var(--text-3); }
+.rules { list-style: disc; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; color: var(--text-2); }
+
+.changes { display: flex; flex-direction: column; gap: 8px; }
+.chg { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.chg-main { min-width: 0; }
+.chg-what { font-weight: 550; }
+.chg-meta { display: flex; flex-direction: column; font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+.chg.undone .chg-what { text-decoration: line-through; color: var(--text-3); }
+.chg.undone .chg-what .tag { text-decoration: none; display: inline-block; }
+.empty { padding: 28px 8px; color: var(--text-2); }
+.empty strong { color: var(--text); }
+
+/* ---------- notes ---------- */
+.notes { padding: 0; }
+.notes-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 14px; height: 100%; }
+.notes-doc { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s); overflow-y: auto; padding: 0 28px 28px; min-width: 0; }
+.notes-doc .pane-head { margin: 0 -28px 18px; }
+.n-sec { margin-top: 22px; }
+.n-sec h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.n-item { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.n-item:last-child { border-bottom: 0; }
+.n-line { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+.n-text { min-width: 0; overflow-wrap: anywhere; }
+.time { flex: none; background: var(--surface-3); border: 0; border-radius: 6px; padding: 1px 7px; color: var(--accent-text); }
+.time[aria-expanded="true"] { background: var(--accent-soft); }
+.quote { margin-top: 7px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; color: var(--text-2); font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.q-l { color: var(--text-3); }
+.notes-chat .pane-head { padding: 12px 14px; }
+
+/* ---------- strict ---------- */
+.strict-title { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding-top: 14px; }
+.strict-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.why { font-size: 12.5px; color: var(--stale-text); }
+.strict .pane-head { border-bottom: 0; padding-left: 0; }
+.approvals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
+.ap { display: grid; grid-template-columns: 14px 1fr; column-gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.ap-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-strong); margin-top: 4px; }
+.ap.done .ap-dot { background: var(--accent); border-color: var(--accent); }
+.ap.now .ap-dot { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.ap.now { border-color: var(--accent-ring); }
+.ap-t { font-weight: 600; }
+.ap-s { grid-column: 2; font-size: 12.5px; color: var(--text-3); }
+.ap.todo { color: var(--text-3); }
+.strict-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.strict-slide .cap { color: var(--text-3); font-size: 12.5px; margin-top: 8px; }
+.claims { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 14px 10px; box-shadow: var(--shadow-s); }
+.claims .col-h { padding-left: 0; }
+.claim { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.claim-top { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; width: 100%; }
+.claim-t { font-weight: 500; }
+.verdict { flex: none; font-size: 11.5px; font-weight: 600; padding: 0 8px; line-height: 18px; border-radius: 99px; }
+.v-ok { background: var(--accent-soft); color: var(--accent-text); }
+.v-part { background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--warn-line); line-height: 16px; }
+.src { width: 100%; }
+.src-doc { font-size: 12.5px; color: var(--text-2); font-weight: 550; }
+.strict-mode { margin-top: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------- history ---------- */
+.hist-inner { max-width: 760px; }
+.hist-inner .pane-head { padding-left: 0; padding-right: 0; }
+.banner { background: var(--surface-3); color: var(--text-2); border-radius: 10px; padding: 8px 12px; margin: 10px 0 4px; font-size: 13px; }
+.hist-msgs { overflow: visible; padding: 14px 0; }
+
+/* ---------- toast and dialog ---------- */
+.toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-ink); padding: 9px 16px; border-radius: 10px; box-shadow: var(--shadow-m); font-size: 13px; z-index: 40; max-width: calc(100vw - 32px); }
+.scrim { position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 30; }
+.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-m); padding: 20px; width: min(460px, 100%); max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.dialog h2 { font-size: 17px; letter-spacing: -0.01em; }
+.dialog p { color: var(--text-2); }
+.dlg-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 900px) {
+  .cols, .strict-grid { grid-template-columns: minmax(0, 1fr); }
+  .thread-tabs { display: flex; gap: 2px; background: var(--seg-bg); border-radius: 9px; padding: 2px; margin-bottom: 10px; flex: none; }
+  .thread-tabs button { flex: 1; background: none; border: 0; border-radius: 7px; padding: 5px 10px; color: var(--text-2); font-weight: 500; }
+  .thread-tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-s); }
+  .thread-grid { grid-template-columns: minmax(0, 1fr); }
+  .thread[data-tab="chat"] .panel, .thread[data-tab="deck"] .chat { display: none; }
+  .narrow-only { display: flex; }
+  .notes { overflow-y: auto; }
+  .notes-grid { display: block; height: auto; }
+  .notes-doc { overflow: visible; padding: 0 16px 20px; }
+  .notes-doc .pane-head { margin: 0 -16px 14px; }
+  .notes-chat { height: 440px; margin-top: 14px; }
+  .composer .chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .chip { white-space: nowrap; flex: none; }
+  .approvals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-head h1, .strict-title h1, .notes-doc > h1 { font-size: 22px; }
+}
+@media (max-width: 700px) {
+  .topbar { gap: 6px 10px; padding: 8px 0; }
+  .brand { order: 1; }
+  .note { order: 2; flex: 1 1 auto; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .switcher { order: 3; flex: 1 1 220px; }
+  .sw-btn { width: 100%; justify-content: space-between; }
+  #restart { order: 4; }
+  .tr-layer { font-size: 12.5px; }
+}
+@media (max-width: 480px) {
+  .pv-row { grid-template-columns: minmax(0, 1fr); }
+  .composer { padding: 8px 10px 10px; gap: 6px; }
+  .about-chip:not(.active) { display: none; }
+  .about { min-height: 0; }
+  .msgs { padding: 12px; }
+  .tr { grid-template-columns: 5.6rem auto 1fr auto 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+#dlg-body { display: flex; flex-direction: column; gap: 10px; }
+
+</style>
+<div class="wrap" id="app">
+  <header class="topbar">
+    <a class="brand" href="#home" aria-label="AutoDeck, engagement home">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="1.5" y="3" width="15" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>AutoDeck</span>
+    </a>
+    <div class="switcher">
+      <button type="button" id="sw-btn" class="sw-btn" aria-haspopup="true" aria-expanded="false" aria-controls="sw-menu">
+        <span class="sw-label">Northwind Retail · Inference efficiency</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="sw-menu" class="menu" hidden>
+        <button type="button" class="menu-item current" data-action="close-menu">Northwind Retail · Inference efficiency</button>
+        <button type="button" class="menu-item" disabled>Contoso Health · locked to its own engagement</button>
+        <p class="menu-note">Each engagement keeps its own sources, threads and preferences. Nothing is shared across clients.</p>
+      </div>
+    </div>
+    <span class="note">Scripted mock-up, fictional data</span>
+    <button type="button" id="restart" class="btn">Restart</button>
+  </header>
+
+  <main id="main">
+    <!-- Engagement home -->
+    <section id="home" class="view home" aria-labelledby="home-h" hidden>
+      <div class="home-inner">
+        <div class="home-head">
+          <div>
+            <h1 id="home-h" tabindex="-1">Northwind Retail</h1>
+            <p class="lede">Inference efficiency. Everything here belongs to this engagement only.</p>
+          </div>
+          <a class="btn primary" href="#thread">Continue: Design and refinement</a>
+        </div>
+        <div class="cols">
+          <section class="col" aria-labelledby="h-src">
+            <h2 id="h-src" class="col-h">Sources <span class="count">8</span></h2>
+            <ul class="list" id="home-sources"></ul>
+          </section>
+          <section class="col" aria-labelledby="h-art">
+            <h2 id="h-art" class="col-h">Artifacts <span class="count" id="art-count">3</span></h2>
+            <ul class="list" id="home-artifacts"></ul>
+          </section>
+          <section class="col" aria-labelledby="h-thr">
+            <h2 id="h-thr" class="col-h">Threads <span class="count">3</span></h2>
+            <ul class="list" id="home-threads"></ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Thread: Design and refinement -->
+    <section id="thread" class="view thread" aria-label="Design and refinement thread" data-tab="chat" hidden>
+      <div class="thread-tabs" role="tablist" aria-label="Thread panes">
+        <button type="button" role="tab" id="ttab-chat" data-ttab="chat" aria-selected="true">Chat</button>
+        <button type="button" role="tab" id="ttab-deck" data-ttab="deck" aria-selected="false">Deck</button>
+      </div>
+      <div class="thread-grid">
+        <section class="chat" id="chat-pane" aria-label="Conversation">
+          <div class="pane-head">
+            <a class="back" href="#home">Engagement</a>
+            <h1 id="thread-h" tabindex="-1">Design and refinement</h1>
+            <span class="muted">Today</span>
+          </div>
+          <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages"></div>
+          <div class="composer" data-scope="thread"></div>
+        </section>
+        <section class="panel" id="panel" aria-label="Artifact: Serving the assistant for less">
+          <div class="panel-head">
+            <div class="ptabs" role="tablist" aria-label="Artifact views" id="ptabs"></div>
+            <button type="button" class="btn primary" id="export-btn" data-action="export">Export</button>
+          </div>
+          <div class="panel-body" id="panel-body"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Notes -->
+    <section id="notes" class="view notes" aria-labelledby="notes-h" hidden>
+      <div class="notes-grid">
+        <article class="notes-doc">
+          <div class="pane-head">
+            <a class="back" href="#home">Engagement</a>
+            <span class="tag tag-plain">Notes</span>
+          </div>
+          <h1 id="notes-h" tabindex="-1">Scoping call notes</h1>
+          <p class="lede">14 July, 42 minutes. Select a time to see the line in the transcript each item came from.</p>
+          <div id="notes-body"></div>
+        </article>
+        <aside class="chat notes-chat" aria-label="Notes chat">
+          <div class="pane-head"><h2 class="pane-title">Chat</h2></div>
+          <div class="msgs" id="notes-msgs" role="log" aria-live="polite" aria-label="Messages"></div>
+          <div class="composer" data-scope="notes"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Strict -->
+    <section id="strict" class="view strict" aria-labelledby="strict-h" hidden>
+      <div class="strict-inner">
+        <div class="pane-head">
+          <a class="back" href="#home">Engagement</a>
+          <span class="tag tag-strict">Strict</span>
+        </div>
+        <div class="strict-title">
+          <div>
+            <h1 id="strict-h" tabindex="-1">Board evidence pack</h1>
+            <p class="lede">Strict mode: every claim needs a source, and nothing is exported until it has been approved.</p>
+          </div>
+          <div class="strict-actions">
+            <button type="button" class="btn primary" id="strict-export" aria-disabled="true" aria-describedby="strict-export-why">Export</button>
+            <span class="why" id="strict-export-why">Two approvals outstanding</span>
+          </div>
+        </div>
+        <ol class="approvals" aria-label="Approvals">
+          <li class="ap done"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Brief approved</span><span class="ap-s">Done</span></li>
+          <li class="ap done"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Outline approved</span><span class="ap-s">Done</span></li>
+          <li class="ap now"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Claims pending</span><span class="ap-s">Waiting for you</span></li>
+          <li class="ap todo"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Final render locked</span><span class="ap-s">After claims</span></li>
+        </ol>
+        <div class="strict-grid">
+          <div class="strict-slide">
+            <div class="stage" id="strict-stage"></div>
+            <p class="cap">Slide 4 as it would be exported. Claims on it are checked below.</p>
+          </div>
+          <div class="claims">
+            <h2 class="col-h">Claims</h2>
+            <div id="claims-list"></div>
+          </div>
+        </div>
+        <div class="strict-mode">
+          <div class="ctl">
+            <span class="ctl-l">Editing</span>
+            <div class="seg locked" role="group" aria-label="Editing mode, locked">
+              <button type="button" aria-pressed="false" aria-disabled="true">Auto</button>
+              <button type="button" aria-pressed="true" aria-disabled="true">Propose first</button>
+            </div>
+          </div>
+          <p class="muted">Locked to Propose first. In strict mode an edit can change a claim, so nothing is applied until you have seen it.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Earlier thread, read only -->
+    <section id="history" class="view history" aria-labelledby="hist-h" hidden>
+      <div class="hist-inner">
+        <div class="pane-head">
+          <a class="back" href="#home">Engagement</a>
+          <h1 id="hist-h" tabindex="-1">Storyline and first draft</h1>
+          <span class="muted">Yesterday</span>
+        </div>
+        <p class="banner">This thread is closed. It is read-only. Your decisions from it are in the deck's change log.</p>
+        <div class="msgs hist-msgs" id="hist-msgs"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="dialog" class="scrim" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-h">
+      <h2 id="dlg-h">Export Serving the assistant for less</h2>
+      <div id="dlg-body"></div>
+      <div class="dlg-foot">
+        <button type="button" class="btn" data-action="close-dialog">Cancel</button>
+        <button type="button" class="btn primary" id="dlg-export" data-action="do-export">Export .pptx</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* FONT_LINKS
+https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=IBM+Plex+Mono:wght@400;500;600&display=swap
+*/
+/*
+ * AutoDeck v3 mock-up: slide content, four design directions, rendering.
+ * Contract: SPEC.md section 3. Plain script, defines window.MockSlides.
+ * Every size inside a slide is in cqw or %, so a slide renders the same at
+ * thumbnail and full size. All content is fictional.
+ */
+(function () {
+  'use strict';
+
+  var IDS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
+
+  /* ------------------------------------------------------------------ */
+  /* Content                                                             */
+  /* ------------------------------------------------------------------ */
+
+  function norm(state) {
+    state = state || {};
+    return {
+      lead: state.lead === 'latency' ? 'latency' : 'cost',
+      s4Hero: !!state.s4Hero,
+      s6Short: !!state.s6Short
+    };
+  }
+
+  function headerText(id, st) {
+    var lat = st.lead === 'latency';
+    switch (id) {
+      case 's1': return lat ? "Northwind's shopping assistant can answer in under a second"
+                            : 'Northwind can serve its shopping assistant at 38% lower cost';
+      case 's2': return lat ? 'Shoppers leave when an answer takes more than two seconds'
+                            : 'Inference, not training, is now most of the bill';
+      case 's3': return lat ? 'Three techniques cut response time and cost together'
+                            : 'Three techniques account for most of the saving';
+      case 's4': return 'Quantisation alone cuts serving cost by 38%';
+      case 's5': return 'Caching repeated context removes a fifth of the compute';
+      case 's6': return st.s6Short ? 'Two quarters, three phases'
+                                   : 'A phased rollout over two quarters keeps risk low while the savings build';
+      case 's7': return lat ? 'What faster answers are worth' : 'What it costs and what it returns';
+      case 's8': return 'Decision needed: approve the pilot by 30 November';
+    }
+    return '';
+  }
+
+  function intentText(id, st) {
+    var lat = st.lead === 'latency';
+    switch (id) {
+      case 's1': return lat ? 'Title: open on the speed result' : 'Title: open on the cost result';
+      case 's2': return lat ? 'Why it matters: slow answers lose shoppers' : 'Why it matters: the bill has moved to inference';
+      case 's3': return 'Overview: the three techniques';
+      case 's4': return 'Evidence: the largest single saving';
+      case 's5': return 'Evidence: how caching saves compute';
+      case 's6': return 'Plan: a low-risk, phased rollout';
+      case 's7': return lat ? 'Business case: the value of speed' : 'Business case: cost and return';
+      case 's8': return 'Close: the decision and next steps';
+    }
+    return '';
+  }
+
+  var TECH = {
+    cost: [
+      { n: '01', name: 'Quantisation', what: 'Smaller numbers inside the model, same answers', fig: '&minus;38%', unit: 'serving cost' },
+      { n: '02', name: 'Context caching', what: 'Reuse the part every request repeats', fig: '&minus;21%', unit: 'compute' },
+      { n: '03', name: 'Request batching', what: 'Answer shoppers in groups at peak', fig: '2.3&times;', unit: 'peak capacity' }
+    ],
+    latency: [
+      { n: '01', name: 'Quantisation', what: 'Smaller numbers inside the model, same answers', fig: '&minus;0.9 s', unit: 'and 38% cheaper' },
+      { n: '02', name: 'Context caching', what: 'Reuse the part every request repeats', fig: '&minus;0.7 s', unit: 'and 21% less compute' },
+      { n: '03', name: 'Request batching', what: 'Answer shoppers in groups at peak', fig: '&minus;0.2 s', unit: 'and no queue at peak' }
+    ]
+  };
+
+  var FIGS7 = {
+    cost: [
+      { fig: '$310k', label: 'one-off cost' },
+      { fig: '$1.9M', label: 'saved per year' },
+      { fig: '2 mo', label: 'to pay back' }
+    ],
+    latency: [
+      { fig: '+4.1%', label: 'conversion in assistant chats' },
+      { fig: '$6.2M', label: 'added revenue a year' },
+      { fig: '&minus;27%', label: 'abandoned chats' }
+    ]
+  };
+
+  var POINTS5 = [
+    '68% of every request repeats: the same instructions and catalogue.',
+    'That shared part is computed once an hour, then reused.',
+    'Net compute falls 21% after misses and refreshes.',
+    'Answers are unchanged; the cache resets when prices change.'
+  ];
+
+  var REQ5 = [
+    { label: 'Instructions', pct: 18, cached: true },
+    { label: 'Catalogue', pct: 50, cached: true },
+    { label: 'Chat', pct: 22, cached: false },
+    { label: 'Ask', pct: 10, cached: false }
+  ];
+
+  var PHASES = [
+    { name: 'Pilot', when: 'Jan&ndash;Feb', what: 'Quantised model on 5% of traffic', save: '15%' },
+    { name: 'Scale', when: 'Mar&ndash;Apr', what: 'All traffic, plus context caching', save: '30%' },
+    { name: 'Optimise', when: 'May&ndash;Jun', what: 'Batching at peak, full run rate', save: '38%' }
+  ];
+
+  var STEPS8 = [
+    { when: '2 Dec', what: 'Kick-off with the platform team' },
+    { when: '9 Dec', what: 'Quantised model in shadow mode' },
+    { when: '13 Jan', what: 'First savings report' }
+  ];
+
+  var ABANDON = [
+    { t: 'under 1 s', v: 6 }, { t: '1&ndash;2 s', v: 9 }, { t: '2&ndash;3 s', v: 21 }, { t: 'over 3 s', v: 34 }
+  ];
+
+  function pg(id) { return '0' + id.slice(1) + ' / 08'; }
+
+  function hdr(cls, id, st, inner) {
+    return '<h2 class="' + cls + '" data-part="header">' + (inner || headerText(id, st)) + '</h2>';
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Direction: default (the "before")                                   */
+  /* ------------------------------------------------------------------ */
+
+  function dShell(id, st, body) {
+    return '<div class="ms-in">' + hdr('d-h', id, st) + '<div class="d-bar"></div>' +
+      '<div class="d-body" data-part="body">' + body + '</div>' +
+      '<div class="d-foot"><span>Northwind Retail&nbsp;&nbsp;|&nbsp;&nbsp;Serving the assistant for less</span><span>' + id.slice(1) + '</span></div></div>';
+  }
+  function dUl(items, cls) {
+    return '<ul class="d-ul ' + (cls || '') + '">' + items.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>';
+  }
+
+  var D = {
+    s1: function (st) {
+      var lat = st.lead === 'latency';
+      return '<div class="ms-in d-title"><div class="d-kick">PROPOSAL</div>' + hdr('d-th', 's1', st) +
+        '<div class="d-sub" data-part="body">Serving the assistant for less<br><span>' +
+        (lat ? 'Median answer time: 2.6 s today, 0.8 s proposed' : 'Cost per 1,000 answers: $4.20 today, $2.60 proposed') +
+        '</span></div><div class="d-band"><span>Northwind Retail&nbsp;&nbsp;|&nbsp;&nbsp;November 2026</span><span>Confidential</span></div></div>';
+    },
+    s2: function (st) {
+      if (st.lead === 'latency') {
+        return dShell('s2', st, '<div class="d-two">' +
+          dUl(['Chat abandonment more than doubles past two seconds', 'Median answer today: 2.6 seconds', 'Source: Northwind assistant logs, Q3 2026']) +
+          '<div class="d-chart"><div class="d-ctitle">Abandoned chats by wait time</div><div class="d-vbars">' +
+          ABANDON.map(function (a) { return '<div class="d-vb"><div class="d-vbf" style="height:' + (a.v / 34 * 100) + '%"><span>' + a.v + '%</span></div><em>' + a.t + '</em></div>'; }).join('') +
+          '</div></div></div>');
+      }
+      return dShell('s2', st, '<div class="d-two">' +
+        dUl(['Inference is 79% of AI spend in 2026, up from 42% in 2024', 'Every shopper question adds cost; training is a one-off', 'Source: Northwind finance, FY2026 forecast']) +
+        '<div class="d-chart"><div class="d-ctitle">Share of AI spend</div><div class="d-vbars d-stk">' +
+        [['2024', 42], ['2026', 79]].map(function (y) {
+          return '<div class="d-vb"><div class="d-col"><div class="d-c2" style="height:' + (100 - y[1]) + '%">' + (100 - y[1]) + '%</div><div class="d-c1" style="height:' + y[1] + '%">' + y[1] + '%</div></div><em>' + y[0] + '</em></div>';
+        }).join('') + '</div><div class="d-leg"><i class="k1"></i>Inference <i class="k2"></i>Training</div></div></div>');
+    },
+    s3: function (st) {
+      var t = TECH[st.lead];
+      return dShell('s3', st, '<div class="d-three">' + t.map(function (x, i) {
+        return '<div class="d-c"><div class="d-num">' + (i + 1) + '</div><h3>' + x.name + '</h3><p>' + x.what + '</p><p class="d-m">' + x.fig + ' ' + x.unit + '</p></div>';
+      }).join('') + '</div>');
+    },
+    s4: function (st) {
+      if (st.s4Hero) {
+        return dShell('s4', st, '<div class="d-hero"><div class="d-big">38%</div><div class="d-bigt">lower monthly serving cost with 8-bit weights</div></div>' +
+          '<div class="d-fn">Monthly serving cost: $412k before, $255k after. Same answer quality on 2,000 test questions.</div>');
+      }
+      return dShell('s4', st, '<div class="d-two">' + dUl(['8-bit weights instead of 16-bit', 'Same answer quality on 2,000 test questions', 'Monthly cost falls by $157k']) +
+        '<div class="d-chart"><div class="d-ctitle">Monthly serving cost</div>' +
+        '<div class="d-hb"><em>Before</em><div class="d-hbt"><div class="d-hbf k2" style="width:100%"></div></div><span>$412k</span></div>' +
+        '<div class="d-hb"><em>After</em><div class="d-hbt"><div class="d-hbf" style="width:62%"></div></div><span>$255k</span></div></div></div>');
+    },
+    s5: function (st) {
+      return dShell('s5', st, '<div class="d-two d-dense"><div class="d-chart"><div class="d-ctitle">One request (2,400 tokens)</div><div class="d-req">' +
+        REQ5.map(function (r) { return '<div class="' + (r.cached ? 'k1' : 'k2') + '" style="width:' + r.pct + '%">' + r.pct + '%</div>'; }).join('') +
+        '</div><div class="d-reql">' + REQ5.map(function (r) { return '<span style="width:' + r.pct + '%">' + r.label + '</span>'; }).join('') +
+        '</div><div class="d-leg"><i class="k1"></i>Cached <i class="k2"></i>Computed each time</div></div>' + dUl(POINTS5, 'd-sm') + '</div>');
+    },
+    s6: function (st) {
+      return dShell('s6', st, '<div class="d-tl"><div class="d-line"></div>' + PHASES.map(function (p, i) {
+        return '<div class="d-ph"><div class="d-dot">' + (i + 1) + '</div><h3>' + p.name + '</h3><p class="d-m">' + p.when + ' 2027</p><p>' + p.what + '</p><p>Savings: ' + p.save + '</p></div>';
+      }).join('') + '</div>');
+    },
+    s7: function (st) {
+      return dShell('s7', st, '<div class="d-three">' + FIGS7[st.lead].map(function (f) {
+        return '<div class="d-kpi"><div class="d-kv">' + f.fig + '</div><p>' + f.label + '</p></div>';
+      }).join('') + '</div>');
+    },
+    s8: function (st) {
+      return dShell('s8', st, '<div class="d-two"><div class="d-ask"><h3>The ask</h3><p>Approve a six-week pilot on 5% of assistant traffic.</p><p>Budget: $85k</p></div>' +
+        '<div><h3 class="d-h3">Next steps</h3>' + dUl(STEPS8.map(function (s) { return s.when + ': ' + s.what; })) + '</div></div>');
+    }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Direction a: Itemised (the receipt)                                 */
+  /* ------------------------------------------------------------------ */
+
+  var ZIG = (function () {
+    var p = ['0% 0%', '100% 0%'];
+    var n = 24;
+    for (var i = n; i >= 0; i--) {
+      var x = (i / n * 100).toFixed(3);
+      p.push(x + '% ' + (i % 2 === 0 ? '100%' : 'calc(100% - 1.1cqw)'));
+    }
+    return 'polygon(' + p.join(',') + ')';
+  })();
+
+  function aLi(l, v, cls) {
+    return '<div class="a-li ' + (cls || '') + '"><span class="l">' + l + '</span><span class="dots"></span><span class="v">' + v + '</span></div>';
+  }
+  function aRc(inner, cls) {
+    return '<div class="a-rcw ' + (cls || '') + '"><div class="a-rc" data-part="body">' + inner + '</div></div>';
+  }
+  function aTop(title, meta) {
+    return '<div class="a-shop">' + title + '</div><div class="a-meta">' + meta + '</div><div class="a-sep"></div>';
+  }
+  function aSide(id, st, kicker, below, hcls) {
+    return '<div class="a-side"><div class="a-k">' + pg(id) + '&nbsp;&nbsp;&middot;&nbsp;&nbsp;' + kicker + '</div>' +
+      hdr('a-h ' + (hcls || ''), id, st) + (below || '') + '</div>';
+  }
+  function aBar(pct, cls) {
+    return '<div class="a-bar ' + (cls || '') + '"><i style="width:' + pct + '%"></i></div>';
+  }
+
+  var A = {
+    s1: function (st) {
+      var lat = st.lead === 'latency';
+      var rc = lat
+        ? aTop('NORTHWIND RETAIL', 'Shopping assistant &middot; median answer') +
+          aLi('Today', '2.6 s') + aLi('Quantised model', '&minus;0.9 s') + aLi('Cached context', '&minus;0.7 s') + aLi('Batched queue', '&minus;0.2 s') +
+          '<div class="a-sep"></div>' + aLi('NEW ANSWER TIME', '<b class="a-hl">0.8 s</b>', 'a-tot')
+        : aTop('NORTHWIND RETAIL', 'Shopping assistant &middot; per 1,000 answers') +
+          aLi('Answers a month', '3.1M') + aLi('Cost today', '$4.20') + aLi('Quantised model', '&minus;$1.60') + aLi('New cost', '$2.60') +
+          '<div class="a-sep"></div>' + aLi('SAVING', '<b class="a-hl">38%</b>', 'a-tot');
+      rc += '<div class="a-sep"></div><div class="a-meta">PROPOSAL NW-2611 &middot; NOV 2026<br>THANK YOU FOR READING</div>';
+      return '<div class="ms-in">' + aRc(rc) + aSide('s1', st, 'Proposal', '<div class="a-note"><b>Serving the assistant for less</b><br>For Northwind Retail &middot; November 2026</div>', 'a-h1') + '</div>';
+    },
+    s2: function (st) {
+      var rc;
+      if (st.lead === 'latency') {
+        rc = aTop('ABANDONED CHATS', 'by wait for an answer &middot; Q3 2026') +
+          ABANDON.map(function (a, i) {
+            return (i === 2 ? '<div class="a-cut">&mdash; 2 s &mdash;</div>' : '') + aLi(a.t, a.v + '%', i > 1 ? 'a-em' : '') + aBar(a.v / 34 * 100, i > 1 ? 'a-bar-hl' : '');
+          }).join('') + '<div class="a-sep"></div>' + aLi('TODAY, MEDIAN', '<b class="a-hl">2.6 s</b>', 'a-tot');
+        return '<div class="ms-in">' + aRc(rc) + aSide('s2', st, 'Why now', '<div class="a-note">Past two seconds, one chat in five is abandoned. The assistant answers in 2.6 s today.</div>') + '</div>';
+      }
+      rc = aTop('AI SPEND, NORTHWIND', 'share by type &middot; FY2024 vs FY2026') +
+        '<div class="a-yr">FY2024</div>' + aLi('Training', '58%') + aBar(58) + aLi('Inference', '42%') + aBar(42, 'a-bar-hl') +
+        '<div class="a-yr">FY2026</div>' + aLi('Training', '21%') + aBar(21) + aLi('Inference', '79%', 'a-em') + aBar(79, 'a-bar-hl') +
+        '<div class="a-sep"></div>' + aLi('INFERENCE', '<b class="a-hl">79%</b>', 'a-tot');
+      return '<div class="ms-in">' + aRc(rc) + aSide('s2', st, 'Why now', '<div class="a-note">Training is paid once. Every shopper question is paid every time: 3.1M of them a month.</div>') + '</div>';
+    },
+    s3: function (st) {
+      var t = TECH[st.lead];
+      var rc = aTop('THREE TECHNIQUES', st.lead === 'latency' ? 'seconds saved per answer' : 'what each one removes') +
+        t.map(function (x) {
+          return '<div class="a-item">' + aLi(x.n + ' ' + x.name, '<b>' + x.fig + '</b>') + '<div class="a-sub">' + x.unit + '</div></div>';
+        }).join('') + '<div class="a-sep"></div>' +
+        (st.lead === 'latency' ? aLi('TOTAL', '<b class="a-hl">&minus;1.8 s</b>', 'a-tot') : aLi('LARGEST', '<b class="a-hl">38%</b>', 'a-tot'));
+      var below = '<ol class="a-list">' + t.map(function (x) { return '<li><span>' + x.n + '</span>' + x.what + '</li>'; }).join('') + '</ol>';
+      return '<div class="ms-in">' + aRc(rc) + aSide('s3', st, 'The method', below) + '</div>';
+    },
+    s4: function (st) {
+      if (st.s4Hero) {
+        var stub = aTop('MONTHLY SERVING', 'before and after') + aLi('Before', '$412k') + aLi('After', '$255k');
+        return '<div class="ms-in">' + aRc(stub, 'a-stub') +
+          aSide('s4', st, 'Quantisation', '<div class="a-hero">&minus;38%</div><div class="a-note">8-bit weights. Same answer quality on 2,000 test questions.</div>', 'a-hs') + '</div>';
+      }
+      var rc = aTop('MONTHLY SERVING', '3.1M answers &middot; 16-bit vs 8-bit') +
+        aLi('Before', '$412,000') + aBar(100, 'a-bar-tall') + aLi('After', '$255,000') + aBar(62, 'a-bar-tall a-bar-hl') +
+        '<div class="a-sep"></div>' + aLi('Saved a month', '$157,000') + aLi('SAVING', '<b class="a-hl">38%</b>', 'a-tot');
+      return '<div class="ms-in">' + aRc(rc) + aSide('s4', st, 'Quantisation', '<div class="a-note">8-bit weights instead of 16-bit. Same answer quality on 2,000 test questions.</div>') + '</div>';
+    },
+    s5: function (st) {
+      var rc = aTop('ONE REQUEST', '2,400 tokens &middot; what is in it') +
+        '<div class="a-req">' + REQ5.map(function (r) { return '<i class="' + (r.cached ? 'c' : '') + '" style="width:' + r.pct + '%"></i>'; }).join('') + '</div>' +
+        '<div class="a-brace"><span style="width:68%">cached, reused</span><span style="width:32%">fresh</span></div>' +
+        REQ5.map(function (r) { return aLi(r.label + (r.cached ? ' *' : ''), r.pct + '%'); }).join('') +
+        '<div class="a-sep"></div>' + aLi('Repeated', '68%') + aLi('COMPUTE SAVED', '<b class="a-hl">21%</b>', 'a-tot') +
+        '<div class="a-meta">* refreshed hourly</div>';
+      var below = '<ol class="a-list a-list-sm">' + POINTS5.map(function (p, i) { return '<li><span>0' + (i + 1) + '</span>' + p + '</li>'; }).join('') + '</ol>';
+      return '<div class="ms-in">' + aRc(rc) + aSide('s5', st, 'Context caching', below, 'a-hsm') + '</div>';
+    },
+    s6: function (st) {
+      var rc = aTop('ROLLOUT', 'Q1&ndash;Q2 2027 &middot; savings run rate') +
+        PHASES.map(function (p, i) {
+          return (i === 2 ? '<div class="a-yr">Q2 2027</div>' : (i === 0 ? '<div class="a-yr">Q1 2027</div>' : '')) +
+            '<div class="a-item">' + aLi(p.when + ' ' + p.name, '<b>' + p.save + '</b>') + '<div class="a-sub">' + p.what + '</div></div>';
+        }).join('') + '<div class="a-sep"></div>' + aLi('RUN RATE, JUN', '<b class="a-hl">38%</b>', 'a-tot');
+      var steps = '<div class="a-steps">' + PHASES.map(function (p, i) {
+        return '<div class="a-step" style="height:' + [40, 70, 100][i] + '%"><b>' + p.save + '</b><span>' + p.name + '</span></div>';
+      }).join('') + '</div>';
+      return '<div class="ms-in">' + aRc(rc) + aSide('s6', st, 'The plan', steps) + '</div>';
+    },
+    s7: function (st) {
+      var lat = st.lead === 'latency';
+      var rc = lat
+        ? aTop('WORTH OF SPEED', 'per year &middot; assistant chats') +
+          aLi('Chats a year', '37M') + aLi('Conversion', '3.20%') + aLi('Faster, measured', '3.33%') + aLi('Extra orders', '48,000') + aLi('Avg basket', '$129') +
+          '<div class="a-sep"></div>' + aLi('ADDED REVENUE', '<b class="a-hl">$6.2M</b>', 'a-tot')
+        : aTop('THE BILL', 'one-off and recurring') +
+          aLi('Engineering', '$240,000') + aLi('Evaluation', '$70,000') + aLi('One-off cost', '$310,000') +
+          '<div class="a-sep"></div>' + aLi('Saved a month', '$157,000') + aLi('SAVED A YEAR', '<b class="a-hl">$1.9M</b>', 'a-tot');
+      var figs = '<div class="a-figs">' + FIGS7[st.lead].map(function (f) {
+        return '<div><b>' + f.fig + '</b><span>' + f.label + '</span></div>';
+      }).join('') + '</div>';
+      return '<div class="ms-in">' + aRc(rc) + aSide('s7', st, 'The case', figs) + '</div>';
+    },
+    s8: function (st) {
+      var rc = aTop('PILOT ORDER', 'for approval &middot; NW-2611') +
+        aLi('Scope', '6 weeks') + aLi('Traffic', '5%') + aLi('Budget', '$85,000') +
+        '<div class="a-sep"></div>' + aLi('APPROVE BY', '<b class="a-hl">30 NOV</b>', 'a-tot') +
+        '<div class="a-sign"><span></span>Approved, Northwind Retail</div>';
+      var below = '<div class="a-next">' + STEPS8.map(function (s) {
+        return '<div><b>' + s.when + '</b><span>' + s.what + '</span></div>';
+      }).join('') + '</div>';
+      return '<div class="ms-in">' + aRc(rc) + aSide('s8', st, 'The ask', below) + '</div>';
+    }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Direction b: Shelf price (the price ticket)                         */
+  /* ------------------------------------------------------------------ */
+
+  function bShelf(id, note) {
+    return '<div class="b-shelf"><span class="b-bc"></span><span>Northwind Retail</span><span class="b-fine">' + (note || 'Serving the assistant for less') + '</span><span class="b-pg">' + pg(id) + '</span></div>';
+  }
+  function bTag(inner, cls, style) {
+    return '<div class="b-tag ' + (cls || '') + '"' + (style ? ' style="' + style + '"' : '') + '>' + inner + '</div>';
+  }
+
+  var B = {
+    s1: function (st) {
+      var lat = st.lead === 'latency';
+      var tag = lat
+        ? '<div class="b-tl">Median answer</div><div class="b-was">was 2.6 s</div><div class="b-big">0.8<small>s</small></div><div class="b-tf">even at the 8 pm peak</div>'
+        : '<div class="b-tl">Per 1,000 answers</div><div class="b-was">was $4.20</div><div class="b-big">$2.60</div><div class="b-tf">38% lower serving cost</div>';
+      return '<div class="ms-in">' + hdr('b-h b-h1', 's1', st) +
+        '<div data-part="body">' + bTag(tag, 'b-tag-r') + '<div class="b-meta">A proposal to Northwind Retail<br>November 2026</div></div>' + bShelf('s1') + '</div>';
+    },
+    s2: function (st) {
+      if (st.lead === 'latency') {
+        return '<div class="ms-in">' + hdr('b-h', 's2', st) + '<div data-part="body">' +
+          bTag('<div class="b-tl">Wait limit</div><div class="b-big">2<small>s</small></div><div class="b-tf">after that, 1 in 5 chats ends</div>', 'b-tag-r') +
+          '<div class="b-vbars"><div class="b-lim"><span>2 s</span></div>' + ABANDON.map(function (a, i) {
+            return '<div class="b-vb"><div class="b-vbf' + (i > 1 ? ' hot' : '') + '" style="height:' + (a.v / 34 * 100) + '%"><b>' + a.v + '%</b></div><span>' + a.t + '</span></div>';
+          }).join('') + '</div></div>' + bShelf('s2', 'Abandoned chats by wait, Q3 2026') + '</div>';
+      }
+      return '<div class="ms-in">' + hdr('b-h', 's2', st) + '<div data-part="body">' +
+        bTag('<div class="b-tl">Inference share</div><div class="b-was">was 42%</div><div class="b-big">79%</div><div class="b-tf">of AI spend in 2026</div>', 'b-tag-r') +
+        '<div class="b-rows">' + [['2024', 42], ['2026', 79]].map(function (y) {
+          return '<div class="b-row"><span class="b-yr">' + y[0] + '</span><div class="b-track"><div class="b-tr" style="width:' + (100 - y[1]) + '%">Training ' + (100 - y[1]) + '%</div><div class="b-inf" style="width:' + y[1] + '%">Inference ' + y[1] + '%</div></div></div>';
+        }).join('') + '</div></div>' + bShelf('s2', 'Share of AI spend, Northwind finance') + '</div>';
+    },
+    s3: function (st) {
+      return '<div class="ms-in">' + hdr('b-h b-hw', 's3', st) + '<div class="b-rail" data-part="body">' +
+        TECH[st.lead].map(function (x, i) {
+          return bTag('<div class="b-tl">' + x.n + ' &middot; ' + x.name + '</div><div class="b-mid">' + x.fig + '</div><div class="b-tf"><b>' + x.unit + '</b><br>' + x.what + '</div>', 'b-tag-s' + (i === 0 ? ' b-lead' : ''));
+        }).join('') + '</div>' + bShelf('s3') + '</div>';
+    },
+    s4: function (st) {
+      if (st.s4Hero) {
+        return '<div class="ms-in">' + hdr('b-h b-hn', 's4', st) +
+          '<div data-part="body"><div class="b-hero">38<small>%</small></div><div class="b-herot">less to serve,<br>every month</div></div>' +
+          bShelf('s4', '$412k &rarr; $255k a month &middot; 8-bit weights &middot; same answers') + '</div>';
+      }
+      return '<div class="ms-in">' + hdr('b-h', 's4', st) + '<div data-part="body">' +
+        bTag('<div class="b-tl">Monthly serving</div><div class="b-was">was $412k</div><div class="b-big">$255k</div><div class="b-tf">8-bit weights, same answers</div>', 'b-tag-r') +
+        '<div class="b-hbars"><div class="b-hb"><span>Before</span><div class="b-hbt"><div class="b-hbf old" style="width:100%"></div></div><b class="strike">$412k</b></div>' +
+        '<div class="b-hb"><span>After</span><div class="b-hbt"><div class="b-hbf" style="width:62%"></div><em>&minus;38%</em></div><b>$255k</b></div></div></div>' +
+        bShelf('s4', 'Monthly serving cost, 3.1M answers') + '</div>';
+    },
+    s5: function (st) {
+      return '<div class="ms-in">' + hdr('b-h', 's5', st) + '<div data-part="body">' +
+        bTag('<div class="b-tl">Compute</div><div class="b-was">was 100%</div><div class="b-big">79%</div><div class="b-tf">after caching</div>', 'b-tag-r') +
+        '<div class="b-diag"><div class="b-dl">One request, 2,400 tokens</div><div class="b-req">' + REQ5.map(function (r) {
+          return '<div class="' + (r.cached ? 'c' : '') + '" style="width:' + r.pct + '%"><b>' + r.pct + '%</b><span>' + r.label + '</span></div>';
+        }).join('') + '</div><div class="b-brk"><span style="width:68%">cached, computed once an hour</span></div></div>' +
+        '<ol class="b-pts">' + POINTS5.map(function (p, i) { return '<li><b>' + (i + 1) + '</b>' + p + '</li>'; }).join('') + '</ol></div>' +
+        bShelf('s5', 'Context caching') + '</div>';
+    },
+    s6: function (st) {
+      return '<div class="ms-in">' + hdr('b-h' + (st.s6Short ? ' b-hn' : ' b-h6'), 's6', st) + '<div class="b-stairs" data-part="body">' +
+        PHASES.map(function (p, i) {
+          return '<div class="b-st" style="height:' + [52, 76, 100][i] + '%">' + bTag('<div class="b-tl">' + p.when + ' 2027</div><div class="b-mid">' + p.save + '</div><div class="b-tf"><b>' + p.name + '</b><br>' + p.what + '</div>', 'b-tag-s' + (i === 2 ? ' b-lead' : '')) + '</div>';
+        }).join('') + '</div>' + bShelf('s6', 'Savings run rate by phase &middot; Q1 and Q2 2027') + '</div>';
+    },
+    s7: function (st) {
+      return '<div class="ms-in">' + hdr('b-h b-hw', 's7', st) + '<div class="b-rail b-rail7" data-part="body">' +
+        FIGS7[st.lead].map(function (f, i) {
+          return bTag('<div class="b-mid">' + f.fig + '</div><div class="b-tf"><b>' + f.label + '</b></div>', 'b-tag-s' + (i === 1 ? ' b-lead' : ''));
+        }).join('') + '</div>' + bShelf('s7', st.lead === 'latency' ? 'Measured on a 5% test group, Q3 2026' : 'Payback from the monthly saving of $157k') + '</div>';
+    },
+    s8: function (st) {
+      return '<div class="ms-in">' + hdr('b-h b-hw', 's8', st) + '<div data-part="body">' +
+        bTag('<div class="b-tl">The ask</div><div class="b-mid">$85k</div><div class="b-tf"><b>six-week pilot</b><br>on 5% of assistant traffic</div>', 'b-tag-ask') +
+        '<div class="b-next"><div class="b-dl">Next steps</div>' + STEPS8.map(function (s) { return '<div><b>' + s.when + '</b><span>' + s.what + '</span></div>'; }).join('') + '</div></div>' +
+        bShelf('s8', 'Approve by 30 November 2026') + '</div>';
+    }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Direction c: Demand curve (one line through the day)                */
+  /* ------------------------------------------------------------------ */
+
+  var VB_W = 160, VB_H = 90;
+  function X(x) { return (x / VB_W * 100).toFixed(2) + '%'; }
+  function Y(y) { return (y / VB_H * 100).toFixed(2) + '%'; }
+  function f2(n) { return Math.round(n * 100) / 100; }
+
+  function smooth(pts) {
+    var d = 'M' + f2(pts[0][0]) + ' ' + f2(pts[0][1]);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      d += ' C' + f2(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + f2(p1[1] + (p2[1] - p0[1]) / 6) + ' ' +
+        f2(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + f2(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + f2(p2[0]) + ' ' + f2(p2[1]);
+    }
+    return d;
+  }
+  var DAY = [0.12, 0.08, 0.06, 0.05, 0.06, 0.1, 0.2, 0.32, 0.42, 0.5, 0.58, 0.72, 0.86, 0.8, 0.66, 0.6, 0.62, 0.7, 0.84, 0.96, 1, 0.82, 0.5, 0.25, 0.14];
+  function dayPts(x0, x1, base, amp, scale) {
+    return DAY.map(function (v, i) { return [x0 + (x1 - x0) * i / (DAY.length - 1), base - amp * v * (scale || 1)]; });
+  }
+  function svg(inner) {
+    return '<svg class="c-svg" viewBox="0 0 160 90" aria-hidden="true">' + inner + '</svg>';
+  }
+  function cLab(x, y, inner, cls, align) {
+    var st = 'top:' + Y(y) + ';';
+    if (align === 'right') st += 'right:' + X(VB_W - x) + ';text-align:right;';
+    else st += 'left:' + X(x) + ';';
+    return '<div class="c-l ' + (cls || '') + '" style="' + st + '">' + inner + '</div>';
+  }
+  var EMPH = {
+    s1c: '38% lower cost', s1l: 'under a second', s2c: 'Inference', s2l: 'two seconds', s3c: 'Three techniques', s3l: 'Three techniques',
+    s4: '38%', s5: 'a fifth', s6: 'two quarters', s6s: 'Two quarters', s7c: 'returns', s7l: 'worth', s8: '30 November'
+  };
+  function cHead(id, st, cls) {
+    var lat = st.lead === 'latency';
+    var key = id;
+    if (id === 's1' || id === 's2' || id === 's3' || id === 's7') key = id + (lat ? 'l' : 'c');
+    if (id === 's6' && st.s6Short) key = 's6s';
+    var t = headerText(id, st), p = EMPH[key];
+    if (p && t.indexOf(p) >= 0) t = t.replace(p, '<em>' + p + '</em>');
+    return hdr('c-h ' + (cls || ''), id, st, t);
+  }
+  function cKick(id, label) {
+    return '<div class="c-k">' + pg(id) + '&nbsp;&nbsp;&mdash;&nbsp;&nbsp;' + label + '</div>';
+  }
+
+  var Cd = {
+    s1: function (st) {
+      var lat = st.lead === 'latency';
+      var demand = dayPts(0, 160, 80, 30);
+      var g = '<path d="' + smooth(demand) + ' L160 90 L0 90 Z" class="c-fill"/>' +
+        '<path d="' + smooth(demand) + '" class="' + (lat ? 'c-line' : 'c-line2') + '"/>';
+      var labs = '';
+      if (lat) {
+        g += '<circle cx="133.33" cy="50" r="1.3" class="c-dot"/>';
+        labs = cLab(130, 37.5, '<b>0.8 s</b> median answer,<br>even at the 8 pm peak', 'c-ann', 'right');
+      } else {
+        var after = dayPts(0, 160, 80, 30, 0.62);
+        g += '<path d="' + smooth(after) + '" class="c-line"/>';
+        g += '<line x1="133.33" y1="50" x2="133.33" y2="61.4" class="c-gap"/>';
+        labs = cLab(130, 39.5, '<b>&minus;38%</b> serving cost,<br>hour by hour', 'c-ann', 'right');
+      }
+      return '<div class="ms-in">' + svg(g) + cKick('s1', 'A proposal to Northwind Retail') + cHead('s1', st, 'c-h1') +
+        '<div data-part="body">' + labs + cLab(11, 82.5, 'Serving the assistant for less&nbsp;&nbsp;&middot;&nbsp;&nbsp;November 2026', 'c-meta') + '</div></div>';
+    },
+    s2: function (st) {
+      if (st.lead === 'latency') {
+        var xs = [24, 62, 100, 138];
+        var pts = ABANDON.map(function (a, i) { return [xs[i], 82 - a.v * 1.05]; });
+        var g = '<line x1="12" y1="82" x2="150" y2="82" class="c-axis"/>' +
+          '<path d="' + smooth([[12, 82 - 5 * 1.05]].concat(pts).concat([[150, 82 - 36 * 1.05]])) + '" class="c-line"/>' +
+          '<line x1="81" y1="40" x2="81" y2="82" class="c-gap"/>' +
+          pts.map(function (p) { return '<circle cx="' + p[0] + '" cy="' + f2(p[1]) + '" r="1.1" class="c-dot"/>'; }).join('');
+        var labs = ABANDON.map(function (a, i) {
+          return cLab(xs[i] - 2, pts[i][1] - 8.5, a.v + '%', 'c-v') + cLab(xs[i] - 4, 84, a.t, 'c-ax');
+        }).join('') + cLab(83, 40, '2 s: abandonment<br>more than doubles', 'c-ann2');
+        return '<div class="ms-in">' + svg(g) + cKick('s2', 'Why speed matters') + cHead('s2', st) + '<div data-part="body">' + labs + '</div></div>';
+      }
+      var yrs = [['2022', 30], ['2023', 36], ['2024', 42], ['2025', 63], ['2026', 79]];
+      var xs2 = [12, 46.5, 81, 115.5, 150];
+      var top = yrs.map(function (y, i) { return [xs2[i], 82 - 42 * y[1] / 100]; });
+      var g2 = '<rect x="12" y="40" width="138" height="42" class="c-band"/>' +
+        '<path d="' + smooth(top) + ' L150 82 L12 82 Z" class="c-area"/>' +
+        '<path d="' + smooth(top) + '" class="c-line"/>' +
+        [2, 4].map(function (i) { return '<circle cx="' + xs2[i] + '" cy="' + f2(top[i][1]) + '" r="1.2" class="c-dot"/>'; }).join('');
+      var labs2 = yrs.map(function (y, i) { return cLab(xs2[i] - (i === 4 ? 6 : i === 0 ? 0 : 3), 84, y[0], 'c-ax'); }).join('') +
+        cLab(16, 43, 'Training', 'c-ax c-in') + cLab(16, 74, 'Inference', 'c-ax c-dark') +
+        cLab(83, top[2][1] - 6.5, '42%', 'c-v') + cLab(146, top[4][1] - 6.5, '79%', 'c-v', 'right');
+      return '<div class="ms-in">' + svg(g2) + cKick('s2', 'Where the money goes') + cHead('s2', st) + '<div data-part="body">' + labs2 + '</div></div>';
+    },
+    s3: function (st) {
+      var pts = [[0, 38], [24, 44], [70, 55], [114, 64], [160, 70]];
+      var g = '<path d="' + smooth(pts) + '" class="c-line"/>' +
+        [1, 2, 3].map(function (i) { return '<circle cx="' + pts[i][0] + '" cy="' + pts[i][1] + '" r="1.3" class="c-dot"/>'; }).join('');
+      var labs = TECH[st.lead].map(function (x, i) {
+        var p = pts[i + 1];
+        return cLab(p[0] - 1.5, p[1] + 3, '<div class="c-fig3">' + x.fig + '</div><div class="c-n">' + x.name + '</div><div class="c-d">' + x.unit + '</div>', 'c-blk');
+      }).join('');
+      return '<div class="ms-in">' + svg(g) + cKick('s3', 'The method') + cHead('s3', st) + '<div data-part="body">' + labs + '</div></div>';
+    },
+    s4: function (st) {
+      if (st.s4Hero) {
+        var dip = [[0, 70], [40, 71], [80, 76], [120, 82], [160, 83]];
+        var g = '<path d="' + smooth(dip) + '" class="c-line"/>';
+        return '<div class="ms-in">' + svg(g) + cKick('s4', 'Quantisation') + cHead('s4', st, 'c-hs') +
+          '<div data-part="body"><div class="c-hero">38%</div>' +
+          cLab(11, 79, 'Monthly serving cost: $412k before, $255k after. 8-bit weights; same answers on 2,000 test questions.', 'c-meta') + '</div></div>';
+      }
+      var g2 = '<line x1="12" y1="47" x2="132" y2="47" class="c-bar1"/><line x1="12" y1="64" x2="86.4" y2="64" class="c-bar2"/>' +
+        '<line x1="86.4" y1="64" x2="132" y2="64" class="c-ghost"/><line x1="132" y1="49" x2="132" y2="62" class="c-gap"/>';
+      var labs = cLab(12, 37.5, 'Before &middot; 16-bit', 'c-ax') + cLab(12, 54.5, 'After &middot; 8-bit', 'c-ax') +
+        cLab(135, 44.4, '$412k', 'c-v') + cLab(86.4, 67, '$255k', 'c-v', 'right') + cLab(112, 66.5, '&minus;38%', 'c-fig4') +
+        cLab(11, 82.5, 'Monthly serving cost, 3.1M answers. Same answer quality on 2,000 test questions.', 'c-meta');
+      return '<div class="ms-in">' + svg(g2) + cKick('s4', 'Quantisation') + cHead('s4', st) + '<div data-part="body">' + labs + '</div></div>';
+    },
+    s5: function (st) {
+      var x = 11, w = 76, g = '', labs = '';
+      REQ5.forEach(function (r) {
+        var ww = w * r.pct / 100;
+        g += '<rect x="' + f2(x + 0.3) + '" y="48" width="' + f2(ww - 0.6) + '" height="6" class="' + (r.cached ? 'c-seg1' : 'c-seg2') + '"/>';
+        labs += cLab(x + 0.3, 56, r.pct + '%<br><span>' + r.label + '</span>', 'c-segl');
+        x += ww;
+      });
+      g += '<path d="M11.3 45 L11.3 43 L62.4 43 L62.4 45" class="c-brk"/>';
+      labs += cLab(11.3, 36.5, 'computed once an hour, reused', 'c-ann3') + cLab(11, 69, 'One request, 2,400 tokens', 'c-ax');
+      var bot = dayPts(0, 160, 88, 8);
+      g += '<path d="' + smooth(bot) + '" class="c-faint"/><path d="' + smooth(dayPts(0, 160, 88, 8, 0.79)) + '" class="c-line c-thin"/>';
+      var pts = '<ol class="c-pts" style="left:' + X(95) + ';top:' + Y(34) + '">' + POINTS5.map(function (p, i) { return '<li><b>' + (i + 1) + '</b>' + p + '</li>'; }).join('') + '</ol>';
+      return '<div class="ms-in">' + svg(g) + cKick('s5', 'Context caching') + cHead('s5', st) + '<div data-part="body">' + labs + pts + '</div></div>';
+    },
+    s6: function (st) {
+      var pts = [[12, 80], [35, 78], [58, 70], [81, 64], [104, 57], [127, 50], [150, 46]];
+      var g = '<line x1="12" y1="80" x2="150" y2="80" class="c-axis"/>' +
+        '<path d="' + smooth(pts) + ' L150 80 L12 80 Z" class="c-fill"/><path d="' + smooth(pts) + '" class="c-line"/>' +
+        [58, 104].map(function (x) { return '<line x1="' + x + '" y1="80" x2="' + x + '" y2="82" class="c-axis"/>'; }).join('') +
+        [[58, 70], [104, 57], [150, 46]].map(function (p) { return '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="1.3" class="c-dot"/>'; }).join('');
+      var ends = [[58, 70], [104, 57], [150, 46]];
+      var labs = PHASES.map(function (p, i) {
+        var e = ends[i];
+        return cLab(e[0] - 2.5, e[1] - 13, '<div class="c-fig6">' + p.save + '</div><div class="c-n">' + p.name + ' &middot; ' + p.when + '</div><div class="c-d">' + p.what + '</div>', 'c-blk6', 'right');
+      }).join('') + cLab(12, 83, 'Q1 2027', 'c-ax') + cLab(104, 83, 'Q2 2027', 'c-ax') + cLab(150, 83, 'savings run rate', 'c-ax', 'right');
+      return '<div class="ms-in">' + svg(g) + cKick('s6', 'The plan') + cHead('s6', st, st.s6Short ? '' : 'c-h6') + '<div data-part="body">' + labs + '</div></div>';
+    },
+    s7: function (st) {
+      var curve = dayPts(0, 160, 88, 12);
+      var g = '<path d="' + smooth(curve) + ' L160 90 L0 90 Z" class="c-fill"/><path d="' + smooth(curve) + '" class="c-line"/>';
+      var cols = [11, 59, 107];
+      var labs = FIGS7[st.lead].map(function (f, i) {
+        return cLab(cols[i], 40, '<div class="c-fig7">' + f.fig + '</div><div class="c-d7">' + f.label + '</div>', 'c-blk7');
+      }).join('');
+      return '<div class="ms-in">' + svg(g) + cKick('s7', 'The case') + cHead('s7', st) + '<div data-part="body">' + labs + '</div></div>';
+    },
+    s8: function (st) {
+      var xs = [14, 56, 98, 140];
+      var g = '<line x1="0" y1="62" x2="160" y2="62" class="c-line c-thin"/>' +
+        xs.map(function (x, i) { return '<circle cx="' + x + '" cy="62" r="' + (i === 0 ? 2.2 : 1.1) + '" class="' + (i === 0 ? 'c-dot' : 'c-dot2') + '"/>'; }).join('');
+      var labs = cLab(11, 34, 'Approve a six-week pilot on 5% of assistant traffic, for <b>$85k</b>.', 'c-ask') +
+        cLab(11, 66, '<div class="c-n">30 Nov</div><div class="c-d">Decision</div>', 'c-blk8') +
+        STEPS8.map(function (s, i) { return cLab(xs[i + 1] - 3, 66, '<div class="c-n">' + s.when + '</div><div class="c-d">' + s.what + '</div>', 'c-blk8'); }).join('');
+      return '<div class="ms-in">' + svg(g) + cKick('s8', 'The decision') + cHead('s8', st) + '<div data-part="body">' + labs + '</div></div>';
+    }
+  };
+
+  var RENDER = { 'default': D, a: A, b: B, c: Cd };
+
+  /* ------------------------------------------------------------------ */
+  /* CSS                                                                 */
+  /* ------------------------------------------------------------------ */
+
+  var MONO = '"IBM Plex Mono","JetBrains Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace';
+  var COND = 'Archivo,"Arial Narrow","Roboto Condensed","Helvetica Neue",Inter,Arial,sans-serif';
+  var SANS = 'Archivo,"Helvetica Neue",Inter,"Segoe UI",Arial,sans-serif';
+  var SERIF = 'Fraunces,Georgia,"Iowan Old Style","DejaVu Serif","Times New Roman",serif';
+
+  var css = [
+    /* base */
+    '.ms-slide{display:block;position:relative;aspect-ratio:16/9;width:100%;container-type:inline-size;overflow:hidden;box-sizing:border-box;line-height:1.25;text-align:left;font-size:1.6cqw;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}',
+    '.ms-slide *,.ms-slide *::before,.ms-slide *::after{box-sizing:border-box;margin:0;padding:0}',
+    '.ms-slide ol,.ms-slide ul{list-style:none}',
+    '.ms-slide b{font-weight:inherit}',
+    '.ms-slide em{font-style:normal}',
+    '.ms-slide h2,.ms-slide h3{font-weight:inherit;font-size:inherit}',
+    '.ms-slide .ms-in{position:absolute;inset:0;overflow:hidden}',
+    '.ms-slide svg{display:block}',
+
+    /* ---------- default ---------- */
+    '.ms-slide.ms-dir-default .ms-in{background:#fff;color:#1f2937;font-family:Calibri,Carlito,Arial,Helvetica,"Liberation Sans",sans-serif;padding:4.2cqw 5.5cqw 0}',
+    '.ms-slide.ms-dir-default .d-h{font-size:3.3cqw;font-weight:700;line-height:1.15;color:#111827;max-width:82cqw}',
+    '.ms-slide.ms-dir-default .d-bar{width:8cqw;height:.5cqw;background:#2563eb;margin-top:1.3cqw}',
+    '.ms-slide.ms-dir-default .d-body{position:absolute;left:5.5cqw;right:5.5cqw;top:17.5cqw;bottom:6.5cqw}',
+    '.ms-slide.ms-dir-default .d-foot{position:absolute;left:5.5cqw;right:5.5cqw;bottom:1.8cqw;display:flex;justify-content:space-between;font-size:1.05cqw;color:#6b7280;border-top:.1cqw solid #e5e7eb;padding-top:.8cqw}',
+    '.ms-slide.ms-dir-default .d-ul li{position:relative;font-size:1.85cqw;line-height:1.35;padding-left:2.4cqw;margin-bottom:1.4cqw}',
+    '.ms-slide.ms-dir-default .d-ul li::before{content:"";position:absolute;left:0;top:.75cqw;width:.8cqw;height:.8cqw;background:#2563eb}',
+    '.ms-slide.ms-dir-default .d-ul.d-sm li{font-size:1.55cqw;margin-bottom:1cqw}',
+    '.ms-slide.ms-dir-default .d-ul.d-sm li::before{top:.6cqw}',
+    '.ms-slide.ms-dir-default .d-two{display:grid;grid-template-columns:1fr 1fr;gap:5cqw;height:100%}',
+    '.ms-slide.ms-dir-default .d-chart{display:flex;flex-direction:column;min-height:0}',
+    '.ms-slide.ms-dir-default .d-ctitle{font-size:1.4cqw;font-weight:700;color:#374151;margin-bottom:1.2cqw}',
+    '.ms-slide.ms-dir-default .d-vbars{flex:1;display:flex;align-items:flex-end;gap:2.5cqw;border-bottom:.15cqw solid #9ca3af;padding:0 1cqw;min-height:0}',
+    '.ms-slide.ms-dir-default .d-vb{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;position:relative}',
+    '.ms-slide.ms-dir-default .d-vb em{position:absolute;bottom:-2.2cqw;left:0;right:0;text-align:center;font-size:1.2cqw;color:#4b5563}',
+    '.ms-slide.ms-dir-default .d-vbf{background:#2563eb;position:relative}',
+    '.ms-slide.ms-dir-default .d-vbf span{position:absolute;top:-2cqw;left:0;right:0;text-align:center;font-size:1.25cqw;font-weight:700}',
+    '.ms-slide.ms-dir-default .d-stk{margin-bottom:2.4cqw}',
+    '.ms-slide.ms-dir-default .d-col{height:88%;display:flex;flex-direction:column;width:60%;margin:0 auto}',
+    '.ms-slide.ms-dir-default .d-c1,.ms-slide.ms-dir-default .d-c2{display:flex;align-items:center;justify-content:center;font-size:1.25cqw;font-weight:700;color:#fff}',
+    '.ms-slide.ms-dir-default .d-c1{background:#2563eb}.ms-slide.ms-dir-default .d-c2{background:#9ca3af}',
+    '.ms-slide.ms-dir-default .d-vbars:not(.d-stk){margin-bottom:2.4cqw}',
+    '.ms-slide.ms-dir-default .d-leg{font-size:1.15cqw;color:#4b5563;display:flex;align-items:center;gap:.6cqw}',
+    '.ms-slide.ms-dir-default .d-leg i{display:inline-block;width:1cqw;height:1cqw;background:#2563eb}',
+    '.ms-slide.ms-dir-default .d-leg i.k2{background:#9ca3af;margin-left:1.2cqw}',
+    '.ms-slide.ms-dir-default .d-three{display:grid;grid-template-columns:repeat(3,1fr);gap:3cqw}',
+    '.ms-slide.ms-dir-default .d-c h3,.ms-slide.ms-dir-default .d-ph h3{font-size:1.9cqw;font-weight:700;margin:1.2cqw 0 .7cqw;color:#111827}',
+    '.ms-slide.ms-dir-default .d-c p,.ms-slide.ms-dir-default .d-ph p{font-size:1.5cqw;line-height:1.35;color:#4b5563;margin-bottom:.5cqw}',
+    '.ms-slide.ms-dir-default p.d-m{color:#2563eb;font-weight:700}',
+    '.ms-slide.ms-dir-default .d-num,.ms-slide.ms-dir-default .d-dot{width:4cqw;height:4cqw;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.8cqw;font-weight:700}',
+    '.ms-slide.ms-dir-default .d-hero{display:flex;align-items:center;gap:4cqw;margin-top:1cqw}',
+    '.ms-slide.ms-dir-default .d-big{font-size:13cqw;font-weight:700;color:#2563eb;line-height:1}',
+    '.ms-slide.ms-dir-default .d-bigt{font-size:2.4cqw;color:#374151;max-width:34cqw;line-height:1.3}',
+    '.ms-slide.ms-dir-default .d-fn{position:absolute;left:0;bottom:0;font-size:1.2cqw;color:#6b7280}',
+    '.ms-slide.ms-dir-default .d-hb{display:flex;align-items:center;gap:1.2cqw;margin:1.6cqw 0 2.2cqw}',
+    '.ms-slide.ms-dir-default .d-hb em{width:6cqw;font-size:1.4cqw;color:#374151}',
+    '.ms-slide.ms-dir-default .d-hb span{width:6cqw;font-size:1.5cqw;font-weight:700}',
+    '.ms-slide.ms-dir-default .d-hbt{flex:1;height:4.2cqw}',
+    '.ms-slide.ms-dir-default .d-hbf{height:100%;background:#2563eb}.ms-slide.ms-dir-default .d-hbf.k2{background:#9ca3af}',
+    '.ms-slide.ms-dir-default .d-dense{grid-template-columns:1.05fr 1fr;gap:3.5cqw}',
+    '.ms-slide.ms-dir-default .d-req{display:flex;height:5cqw;margin-top:1cqw}',
+    '.ms-slide.ms-dir-default .d-req div{display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.2cqw;font-weight:700;border-right:.2cqw solid #fff;background:#2563eb}',
+    '.ms-slide.ms-dir-default .d-req div.k2{background:#9ca3af}',
+    '.ms-slide.ms-dir-default .d-reql{display:flex;font-size:1.05cqw;color:#4b5563;margin:.7cqw 0 2cqw}',
+    '.ms-slide.ms-dir-default .d-reql span{text-align:center;overflow:hidden;white-space:nowrap}',
+    '.ms-slide.ms-dir-default .d-tl{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:3cqw;padding-top:1cqw}',
+    '.ms-slide.ms-dir-default .d-line{position:absolute;left:2cqw;right:2cqw;top:2.9cqw;height:.3cqw;background:#bfdbfe}',
+    '.ms-slide.ms-dir-default .d-dot{position:relative}',
+    '.ms-slide.ms-dir-default .d-kpi{background:#f3f4f6;padding:3cqw 2.5cqw;margin-top:2cqw}',
+    '.ms-slide.ms-dir-default .d-kv{font-size:5.4cqw;font-weight:700;color:#2563eb;line-height:1}',
+    '.ms-slide.ms-dir-default .d-kpi p{font-size:1.7cqw;color:#374151;margin-top:1.2cqw}',
+    '.ms-slide.ms-dir-default .d-ask{border-left:.6cqw solid #2563eb;background:#eff6ff;padding:2.4cqw 2.6cqw;align-self:start}',
+    '.ms-slide.ms-dir-default .d-ask h3,.ms-slide.ms-dir-default .d-h3{font-size:2cqw;font-weight:700;margin-bottom:1.2cqw;color:#111827}',
+    '.ms-slide.ms-dir-default .d-ask p{font-size:1.8cqw;line-height:1.35;margin-bottom:.8cqw}',
+    '.ms-slide.ms-dir-default .d-title{padding:0}',
+    '.ms-slide.ms-dir-default .d-kick{position:absolute;left:7cqw;top:9cqw;font-size:1.3cqw;font-weight:700;letter-spacing:.15em;color:#2563eb}',
+    '.ms-slide.ms-dir-default .d-th{position:absolute;left:7cqw;top:12.5cqw;width:72cqw;font-size:4.3cqw;font-weight:700;line-height:1.15;color:#111827}',
+    '.ms-slide.ms-dir-default .d-sub{position:absolute;left:7cqw;top:27.5cqw;font-size:2.1cqw;color:#374151;line-height:1.5}',
+    '.ms-slide.ms-dir-default .d-sub span{font-size:1.6cqw;color:#6b7280}',
+    '.ms-slide.ms-dir-default .d-band{position:absolute;left:0;right:0;bottom:0;height:8cqw;background:#1e40af;border-top:1cqw solid #60a5fa;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 7cqw;font-size:1.4cqw}',
+
+    /* ---------- a: Itemised ---------- */
+    '.ms-slide.ms-dir-a .ms-in{background:#d3dccf;color:#20252b;font-family:' + MONO + '}',
+    '.ms-slide.ms-dir-a .a-rcw{position:absolute;left:6cqw;top:0;width:37cqw;filter:drop-shadow(0 .35cqw .5cqw rgba(40,55,45,.18))}',
+        '.ms-slide.ms-dir-a .a-rc{background:#fcfcf9;padding:3.6cqw 3cqw 3.6cqw;clip-path:' + ZIG + ';font-size:1.4cqw;line-height:1.6}',
+        '.ms-slide.ms-dir-a .a-shop{text-align:center;font-weight:600;letter-spacing:.14em;font-size:1.3cqw}',
+    '.ms-slide.ms-dir-a .a-meta{text-align:center;color:#7a827c;font-size:1cqw;letter-spacing:.04em;line-height:1.5}',
+    '.ms-slide.ms-dir-a .a-sep{border-top:.18cqw dashed #a9b0aa;margin:1.1cqw 0}',
+    '.ms-slide.ms-dir-a .a-li{display:flex;align-items:baseline;gap:.6cqw;white-space:nowrap}',
+    '.ms-slide.ms-dir-a .a-li .dots{flex:1;min-width:1cqw;border-bottom:.2cqw dotted #b3bab4}',
+    '.ms-slide.ms-dir-a .a-li .v{font-weight:500}',
+    '.ms-slide.ms-dir-a .a-li.a-em .l,.ms-slide.ms-dir-a .a-li.a-em .v{font-weight:600}',
+    '.ms-slide.ms-dir-a .a-tot{font-size:1.9cqw;font-weight:600;letter-spacing:-.01em}',
+    '.ms-slide.ms-dir-a .a-tot .l{font-size:1.3cqw;letter-spacing:.08em}',
+    '.ms-slide.ms-dir-a .a-hl{background:linear-gradient(transparent 48%,#f1e05a 48%,#f1e05a 92%,transparent 92%);padding:0 .3cqw;font-weight:600}',
+    '.ms-slide.ms-dir-a .a-bar{height:1.1cqw;margin:.2cqw 0 .7cqw}',
+    '.ms-slide.ms-dir-a .a-bar i{display:block;height:100%;background:repeating-linear-gradient(90deg,#9aa39c 0 .3cqw,transparent .3cqw .45cqw)}',
+    '.ms-slide.ms-dir-a .a-bar-hl i{background:repeating-linear-gradient(90deg,#3446c9 0 .3cqw,transparent .3cqw .45cqw)}',
+    '.ms-slide.ms-dir-a .a-bar-tall{height:2.6cqw;margin:.4cqw 0 1.2cqw}',
+    '.ms-slide.ms-dir-a .a-yr{font-size:1.05cqw;letter-spacing:.14em;color:#3446c9;font-weight:600;margin:.5cqw 0 .1cqw}',
+    '.ms-slide.ms-dir-a .a-cut{text-align:center;color:#3446c9;font-size:1.05cqw;letter-spacing:.1em;margin:.2cqw 0}',
+    '.ms-slide.ms-dir-a .a-item{margin-bottom:1cqw}',
+    '.ms-slide.ms-dir-a .a-sub{color:#6c746e;font-size:1.1cqw;padding-left:2.2cqw}',
+    '.ms-slide.ms-dir-a .a-req{display:flex;height:2.6cqw;gap:.25cqw;margin:.4cqw 0 .4cqw}',
+    '.ms-slide.ms-dir-a .a-req i{display:block;background:repeating-linear-gradient(90deg,#9aa39c 0 .3cqw,transparent .3cqw .45cqw)}',
+    '.ms-slide.ms-dir-a .a-req i.c{background:repeating-linear-gradient(90deg,#3446c9 0 .3cqw,transparent .3cqw .45cqw)}',
+    '.ms-slide.ms-dir-a .a-brace{display:flex;font-size:1cqw;color:#3446c9;margin-bottom:.8cqw}',
+    '.ms-slide.ms-dir-a .a-brace span{border-top:.18cqw solid currentColor;padding-top:.2cqw;text-align:center;white-space:nowrap}',
+    '.ms-slide.ms-dir-a .a-brace span+span{color:#7a827c;margin-left:.6cqw}',
+    '.ms-slide.ms-dir-a .a-sign{margin-top:2.6cqw;font-size:1cqw;color:#7a827c;text-align:center}',
+    '.ms-slide.ms-dir-a .a-sign span{display:block;border-bottom:.18cqw solid #20252b;height:3cqw;margin:0 1.5cqw .6cqw}',
+    '.ms-slide.ms-dir-a .a-side{position:absolute;left:49cqw;right:5.5cqw;top:5.4cqw;bottom:4.2cqw;display:flex;flex-direction:column}',
+    '.ms-slide.ms-dir-a .a-k{font-size:1.05cqw;letter-spacing:.16em;color:#5d6a61;text-transform:uppercase;margin-bottom:1.8cqw;white-space:nowrap}',
+    '.ms-slide.ms-dir-a .a-h{font-size:3.3cqw;font-weight:600;line-height:1.17;letter-spacing:-.045em;color:#1b2026}',
+    '.ms-slide.ms-dir-a .a-h1{font-size:3.9cqw}',
+    '.ms-slide.ms-dir-a .a-hsm,.ms-slide.ms-dir-a .a-hs{font-size:2.9cqw}',
+    '.ms-slide.ms-dir-a .a-note{margin-top:auto;font-size:1.35cqw;line-height:1.55;color:#48524b;max-width:40cqw}',
+    '.ms-slide.ms-dir-a .a-note b{font-weight:600;color:#20252b}',
+    '.ms-slide.ms-dir-a .a-hero{font-size:13.5cqw;font-weight:500;letter-spacing:-.08em;line-height:1;color:#3446c9;margin-top:auto}',
+    '.ms-slide.ms-dir-a .a-hero+.a-note{margin-top:1.4cqw}',
+    '.ms-slide.ms-dir-a .a-list{margin-top:auto;font-size:1.3cqw;line-height:1.5;color:#3a433d}',
+    '.ms-slide.ms-dir-a .a-list li{display:flex;gap:1.2cqw;padding:.9cqw 0;border-top:.15cqw solid #bcc5bc}',
+    '.ms-slide.ms-dir-a .a-list li span{color:#3446c9;font-weight:600}',
+    '.ms-slide.ms-dir-a .a-list-sm{font-size:1.2cqw;line-height:1.45}',
+    '.ms-slide.ms-dir-a .a-list-sm li{padding:.7cqw 0}',
+    '.ms-slide.ms-dir-a .a-steps{margin-top:auto;height:19cqw;display:flex;align-items:flex-end;gap:.8cqw;border-bottom:.2cqw solid #20252b}',
+    '.ms-slide.ms-dir-a .a-step{flex:1;background:repeating-linear-gradient(90deg,#b6c0b7 0 .3cqw,transparent .3cqw .45cqw);display:flex;flex-direction:column;justify-content:flex-start;padding:.8cqw 0 0 .8cqw}',
+    '.ms-slide.ms-dir-a .a-step:last-child{background:repeating-linear-gradient(90deg,#3446c9 0 .3cqw,transparent .3cqw .45cqw)}',
+    '.ms-slide.ms-dir-a .a-step b{font-size:2.6cqw;font-weight:600;letter-spacing:-.05em;line-height:1;background:#d3dccf;align-self:flex-start;padding:0 .4cqw .3cqw 0}',
+    '.ms-slide.ms-dir-a .a-step span{font-size:1.05cqw;letter-spacing:.1em;text-transform:uppercase;background:#d3dccf;align-self:flex-start;padding-right:.4cqw}',
+    '.ms-slide.ms-dir-a .a-figs{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:1.6cqw}',
+    '.ms-slide.ms-dir-a .a-figs div{border-top:.25cqw solid #20252b;padding-top:1cqw}',
+    '.ms-slide.ms-dir-a .a-figs b{display:block;font-size:3.2cqw;font-weight:600;letter-spacing:-.06em;line-height:1.1;white-space:nowrap}',
+    '.ms-slide.ms-dir-a .a-figs div:nth-child(2) b{color:#3446c9}',
+    '.ms-slide.ms-dir-a .a-figs span{display:block;font-size:1.1cqw;line-height:1.4;color:#48524b;margin-top:.6cqw}',
+    '.ms-slide.ms-dir-a .a-next{margin-top:auto}',
+    '.ms-slide.ms-dir-a .a-next div{display:flex;gap:1.6cqw;font-size:1.35cqw;padding:1cqw 0;border-top:.15cqw solid #bcc5bc}',
+    '.ms-slide.ms-dir-a .a-next b{color:#3446c9;font-weight:600;width:6.5cqw;flex:none}',
+
+    /* ---------- b: Shelf price ---------- */
+    '.ms-slide.ms-dir-b .ms-in{background:#0e5a43;color:#fff;font-family:' + SANS + '}',
+    '.ms-slide.ms-dir-b .b-h{position:absolute;left:5cqw;top:4.6cqw;width:55cqw;font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:4.6cqw;line-height:1;letter-spacing:-.005em}',
+    '.ms-slide.ms-dir-b .b-h1{font-size:6.2cqw;width:56cqw;line-height:.96}',
+    '.ms-slide.ms-dir-b .b-hw{width:84cqw}',
+    '.ms-slide.ms-dir-b .b-hn{width:46cqw}',
+    '.ms-slide.ms-dir-b .b-h6{width:60cqw;font-size:4.2cqw}',
+    '.ms-slide.ms-dir-b .b-tag{background:#ffd43b;color:#10241b;position:relative;padding:2.2cqw 2.4cqw 2cqw;border-radius:.5cqw .5cqw .5cqw 2.4cqw}',
+    '.ms-slide.ms-dir-b .b-tag::before{content:"";position:absolute;top:1.5cqw;right:1.5cqw;width:1.3cqw;height:1.3cqw;border-radius:50%;background:#0e5a43}',
+    '.ms-slide.ms-dir-b .b-tag-r{position:absolute;right:5cqw;top:4.6cqw;min-width:27cqw;max-width:37cqw}',
+    '.ms-slide.ms-dir-b .b-tl{font-size:1.1cqw;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding-right:2cqw;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-was{font-size:1.5cqw;font-weight:600;margin-top:1cqw;text-decoration:line-through;text-decoration-color:#d9363e;text-decoration-thickness:.28cqw}',
+    '.ms-slide.ms-dir-b .b-big{font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:9.6cqw;line-height:.9;letter-spacing:-.02em;margin:.4cqw 0 .8cqw;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-big small{font-size:.45em;margin-left:.15em}',
+    '.ms-slide.ms-dir-b .b-mid{font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:6.4cqw;line-height:.95;letter-spacing:-.02em;margin:.8cqw 0 .8cqw;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-tf{font-size:1.2cqw;line-height:1.35}',
+    '.ms-slide.ms-dir-b .b-tf b{font-weight:700}',
+    '.ms-slide.ms-dir-b .b-meta{position:absolute;left:5cqw;bottom:8.6cqw;font-size:1.5cqw;line-height:1.45;color:#a9dcc6}',
+    '.ms-slide.ms-dir-b .b-shelf{position:absolute;left:0;right:0;bottom:0;height:5cqw;background:#09412f;border-top:.4cqw solid #ffd43b;display:flex;align-items:center;gap:2cqw;padding:0 5cqw;font-size:1cqw;letter-spacing:.12em;text-transform:uppercase;color:#a9dcc6;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-shelf .b-fine{letter-spacing:.04em;text-transform:none;color:#7fbfa4;overflow:hidden;text-overflow:ellipsis}',
+    '.ms-slide.ms-dir-b .b-shelf .b-pg{margin-left:auto;font-weight:700;color:#fff}',
+    '.ms-slide.ms-dir-b .b-bc{flex:none;width:6cqw;height:2.2cqw;background:repeating-linear-gradient(90deg,#d6efe3 0 .16cqw,transparent .16cqw .32cqw,#d6efe3 .32cqw .7cqw,transparent .7cqw .86cqw,#d6efe3 .86cqw .96cqw,transparent .96cqw 1.3cqw)}',
+    /* b charts */
+    '.ms-slide.ms-dir-b .b-rows{position:absolute;left:5cqw;right:5cqw;bottom:9cqw}',
+    '.ms-slide.ms-dir-b .b-row{display:flex;align-items:center;gap:1.6cqw;margin-top:1.4cqw}',
+    '.ms-slide.ms-dir-b .b-yr{font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2.6cqw;width:5.5cqw}',
+    '.ms-slide.ms-dir-b .b-track{flex:1;display:flex;height:5cqw;gap:.4cqw}',
+    '.ms-slide.ms-dir-b .b-tr,.ms-slide.ms-dir-b .b-inf{display:flex;align-items:center;padding:0 1.2cqw;font-size:1.3cqw;font-weight:700;white-space:nowrap;overflow:hidden}',
+    '.ms-slide.ms-dir-b .b-tr{border:.25cqw solid #6fbf9c;color:#cfeee0}',
+    '.ms-slide.ms-dir-b .b-inf{background:#ffd43b;color:#10241b}',
+    '.ms-slide.ms-dir-b .b-vbars{position:absolute;left:5cqw;width:55cqw;bottom:11.2cqw;height:20cqw;display:flex;align-items:flex-end;gap:1.6cqw;border-bottom:.25cqw solid #cfeee0}',
+    '.ms-slide.ms-dir-b .b-vb{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;position:relative}',
+    '.ms-slide.ms-dir-b .b-vb>span{position:absolute;left:0;right:0;bottom:-2.4cqw;font-size:1.15cqw;color:#a9dcc6;text-align:center}',
+    '.ms-slide.ms-dir-b .b-vbf{background:#2f7c62;position:relative}',
+    '.ms-slide.ms-dir-b .b-vbf.hot{background:#ffd43b}',
+    '.ms-slide.ms-dir-b .b-vbf b{position:absolute;top:-3cqw;left:0;right:0;text-align:center;font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2.4cqw}',
+    '.ms-slide.ms-dir-b .b-lim{position:absolute;left:50%;top:-1cqw;bottom:0;border-left:.25cqw dashed #fff;z-index:1}',
+    '.ms-slide.ms-dir-b .b-lim span{position:absolute;left:.6cqw;top:-.4cqw;font-size:1.1cqw;font-weight:700;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-rail{position:absolute;left:5cqw;right:5cqw;bottom:8.4cqw;display:grid;grid-template-columns:repeat(3,1fr);gap:2.4cqw;align-items:end}',
+    '.ms-slide.ms-dir-b .b-tag-s{padding:2cqw 2.2cqw 2cqw}',
+    '.ms-slide.ms-dir-b .b-rail .b-tag-s:not(.b-lead),.ms-slide.ms-dir-b .b-stairs .b-tag-s:not(.b-lead){background:#e9f6ef}',
+    '.ms-slide.ms-dir-b .b-rail7 .b-tag-s{min-height:15cqw}',
+    '.ms-slide.ms-dir-b .b-rail7 .b-lead{min-height:19cqw}',
+    '.ms-slide.ms-dir-b .b-rail7 .b-mid{font-size:7.4cqw;margin-top:0}',
+    '.ms-slide.ms-dir-b .b-hbars{position:absolute;left:5cqw;width:56cqw;bottom:9.4cqw}',
+    '.ms-slide.ms-dir-b .b-hb{display:flex;align-items:center;gap:1.4cqw;margin-top:1.4cqw}',
+    '.ms-slide.ms-dir-b .b-hb>span{width:6cqw;font-size:1.3cqw;font-weight:700;color:#a9dcc6;text-transform:uppercase;letter-spacing:.08em}',
+    '.ms-slide.ms-dir-b .b-hbt{flex:1;height:4.4cqw;position:relative;display:flex;align-items:center}',
+    '.ms-slide.ms-dir-b .b-hbf{height:100%;background:#ffd43b}',
+    '.ms-slide.ms-dir-b .b-hbf.old{background:transparent;border:.25cqw solid #6fbf9c}',
+    '.ms-slide.ms-dir-b .b-hbt em{margin-left:1cqw;font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2.6cqw;color:#ffd43b}',
+    '.ms-slide.ms-dir-b .b-hb>b{width:7cqw;font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2.8cqw}',
+    '.ms-slide.ms-dir-b .b-hb>b.strike{text-decoration:line-through;text-decoration-color:#ff6b6b;text-decoration-thickness:.3cqw;color:#a9dcc6}',
+    '.ms-slide.ms-dir-b .b-hero{position:absolute;right:4cqw;bottom:2.6cqw;font-family:' + COND + ';font-stretch:62%;font-weight:900;font-size:40cqw;line-height:.8;letter-spacing:-.04em;color:#ffd43b;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-hero small{font-size:.42em;letter-spacing:0}',
+    '.ms-slide.ms-dir-b .b-herot{position:absolute;left:5cqw;bottom:9cqw;font-size:2cqw;line-height:1.3;font-weight:600;color:#cfeee0}',
+    '.ms-slide.ms-dir-b .b-diag{position:absolute;left:5cqw;width:44cqw;bottom:9.4cqw}',
+    '.ms-slide.ms-dir-b .b-dl{font-size:1.1cqw;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a9dcc6;margin-bottom:1cqw}',
+    '.ms-slide.ms-dir-b .b-req{display:flex;height:9cqw;gap:.3cqw}',
+    '.ms-slide.ms-dir-b .b-req div{background:#2f7c62;padding:.8cqw;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;min-width:0}',
+    '.ms-slide.ms-dir-b .b-req div.c{background:#ffd43b;color:#10241b}',
+    '.ms-slide.ms-dir-b .b-req b{font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2.1cqw;line-height:1}',
+    '.ms-slide.ms-dir-b .b-req span{font-size:1cqw;font-weight:600;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-brk span{display:block;margin-top:.8cqw;border-top:.25cqw solid #ffd43b;padding-top:.5cqw;font-size:1.1cqw;color:#ffd43b;font-weight:600;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-pts{position:absolute;left:53cqw;right:5cqw;bottom:9.4cqw;display:grid;grid-template-columns:1fr 1fr;gap:1.6cqw 2.2cqw}',
+    '.ms-slide.ms-dir-b .b-pts li{font-size:1.25cqw;line-height:1.38;color:#e6f5ee;border-top:.25cqw solid #6fbf9c;padding-top:.8cqw}',
+    '.ms-slide.ms-dir-b .b-pts b{display:block;font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2cqw;color:#ffd43b;line-height:1;margin-bottom:.4cqw}',
+    '.ms-slide.ms-dir-b .b-stairs{position:absolute;left:5cqw;right:5cqw;bottom:8.4cqw;height:30cqw;display:grid;grid-template-columns:repeat(3,1fr);gap:2.4cqw;align-items:end}',
+    '.ms-slide.ms-dir-b .b-hn~.b-stairs{height:33cqw}',
+    '.ms-slide.ms-dir-b .b-st{display:flex;flex-direction:column;justify-content:flex-start;border-left:.25cqw solid #6fbf9c}',
+    '.ms-slide.ms-dir-b .b-st .b-tag{margin-left:-.25cqw}',
+    '.ms-slide.ms-dir-b .b-tag-ask{position:absolute;left:5cqw;bottom:8.4cqw;width:36cqw}',
+    '.ms-slide.ms-dir-b .b-tag-ask .b-mid{font-size:10cqw}',
+    '.ms-slide.ms-dir-b .b-tag-ask .b-tf{font-size:1.5cqw}',
+    '.ms-slide.ms-dir-b .b-next{position:absolute;left:47cqw;right:5cqw;bottom:8.6cqw}',
+    '.ms-slide.ms-dir-b .b-next>div:not(.b-dl){display:flex;align-items:baseline;gap:2cqw;border-top:.25cqw solid #6fbf9c;padding:1.2cqw 0}',
+    '.ms-slide.ms-dir-b .b-next b{font-family:' + COND + ';font-stretch:62%;font-weight:800;font-size:2.6cqw;color:#ffd43b;min-width:8cqw;flex:none;white-space:nowrap}',
+    '.ms-slide.ms-dir-b .b-next span{font-size:1.5cqw}',
+
+    /* ---------- c: Demand curve ---------- */
+    '.ms-slide.ms-dir-c .ms-in{background:#0f1d30;color:#eaf0f7;font-family:' + SANS + '}',
+    '.ms-slide.ms-dir-c .c-svg{position:absolute;inset:0;width:100%;height:100%}',
+    '.ms-slide.ms-dir-c .c-line{fill:none;stroke:#f2a57e;stroke-width:.5;stroke-linecap:round}',
+    '.ms-slide.ms-dir-c .c-thin{stroke-width:.3}',
+    '.ms-slide.ms-dir-c .c-line2{fill:none;stroke:#7fa6d8;stroke-width:.35;stroke-dasharray:1.2 1}',
+    '.ms-slide.ms-dir-c .c-faint{fill:none;stroke:#3a5272;stroke-width:.3}',
+    '.ms-slide.ms-dir-c .c-fill{fill:#14273f}',
+    '.ms-slide.ms-dir-c .c-band{fill:#15283f;stroke:#2c4361;stroke-width:.2}',
+    '.ms-slide.ms-dir-c .c-area{fill:#f2a57e;opacity:.92}',
+    '.ms-slide.ms-dir-c .c-axis{stroke:#3a5272;stroke-width:.25}',
+    '.ms-slide.ms-dir-c .c-gap{stroke:#eaf0f7;stroke-width:.25;stroke-dasharray:.6 .6}',
+    '.ms-slide.ms-dir-c .c-dot{fill:#f2a57e;stroke:#0f1d30;stroke-width:.5}',
+    '.ms-slide.ms-dir-c .c-dot2{fill:#0f1d30;stroke:#eaf0f7;stroke-width:.35}',
+    '.ms-slide.ms-dir-c .c-bar1{stroke:#7fa6d8;stroke-width:3}',
+    '.ms-slide.ms-dir-c .c-bar2{stroke:#f2a57e;stroke-width:3}',
+    '.ms-slide.ms-dir-c .c-ghost{stroke:#2c4361;stroke-width:3;stroke-dasharray:.6 .6}',
+    '.ms-slide.ms-dir-c .c-seg1{fill:#f2a57e}.ms-slide.ms-dir-c .c-seg2{fill:#2f4a6c}',
+    '.ms-slide.ms-dir-c .c-brk{fill:none;stroke:#f2a57e;stroke-width:.3}',
+    '.ms-slide.ms-dir-c .c-k{position:absolute;left:7cqw;top:5cqw;font-size:1.05cqw;letter-spacing:.2em;text-transform:uppercase;color:#8597b3;font-weight:600;white-space:nowrap}',
+    '.ms-slide.ms-dir-c .c-h{position:absolute;left:7cqw;top:8.2cqw;width:60cqw;font-family:' + SERIF + ';font-weight:300;font-size:3.9cqw;line-height:1.12;letter-spacing:-.012em;font-variation-settings:"opsz" 72}',
+    '.ms-slide.ms-dir-c .c-h em{font-style:italic;color:#f2a57e}',
+    '.ms-slide.ms-dir-c .c-h1{font-size:4.9cqw;width:66cqw;top:9cqw}',
+    '.ms-slide.ms-dir-c .c-h6{font-size:3.4cqw;width:60cqw}',
+    '.ms-slide.ms-dir-c .c-hs{font-size:3cqw;width:56cqw}',
+    '.ms-slide.ms-dir-c .c-l{position:absolute;font-size:1.15cqw;line-height:1.35;color:#a8b8cf;white-space:nowrap}',
+    '.ms-slide.ms-dir-c .c-ann{font-size:1.35cqw;color:#eaf0f7}',
+    '.ms-slide.ms-dir-c .c-ann b{font-family:' + SERIF + ';font-weight:400;font-style:italic;font-size:2.3cqw;color:#f2a57e}',
+    '.ms-slide.ms-dir-c .c-ann2{font-size:1.25cqw;color:#eaf0f7}',
+    '.ms-slide.ms-dir-c .c-ann3{font-size:1.1cqw;color:#f2a57e;letter-spacing:.04em}',
+    '.ms-slide.ms-dir-c .c-meta{font-size:1.15cqw;color:#8597b3;letter-spacing:.03em}',
+    '.ms-slide.ms-dir-c .c-ax{font-size:1.05cqw;color:#8597b3;letter-spacing:.08em;text-transform:uppercase}',
+    '.ms-slide.ms-dir-c .c-in{color:#a8b8cf}',
+    '.ms-slide.ms-dir-c .c-dark{color:#0f1d30;font-weight:700}',
+    '.ms-slide.ms-dir-c .c-v{font-family:' + SERIF + ';font-size:2.2cqw;font-weight:400;color:#eaf0f7}',
+    '.ms-slide.ms-dir-c .c-blk,.ms-slide.ms-dir-c .c-blk6,.ms-slide.ms-dir-c .c-blk7,.ms-slide.ms-dir-c .c-blk8{white-space:normal}',
+    '.ms-slide.ms-dir-c .c-blk{width:26cqw}',
+    '.ms-slide.ms-dir-c .c-fig3{font-family:' + SERIF + ';font-weight:300;font-size:3.2cqw;line-height:1.1;color:#f2a57e;white-space:nowrap}',
+    '.ms-slide.ms-dir-c .c-n{font-size:1.35cqw;font-weight:600;color:#eaf0f7;margin-top:.3cqw;white-space:nowrap}',
+    '.ms-slide.ms-dir-c .c-d{font-size:1.15cqw;color:#a8b8cf;margin-top:.2cqw}',
+    '.ms-slide.ms-dir-c .c-hero{position:absolute;left:6cqw;top:16cqw;font-family:' + SERIF + ';font-weight:300;font-size:26cqw;line-height:1;letter-spacing:-.04em;color:#f2a57e;font-variation-settings:"opsz" 144;white-space:nowrap}',
+    '.ms-slide.ms-dir-c .c-fig4{font-family:' + SERIF + ';font-style:italic;font-size:2.6cqw;color:#f2a57e}',
+    '.ms-slide.ms-dir-c .c-segl{font-size:1.05cqw;color:#eaf0f7;line-height:1.25}',
+    '.ms-slide.ms-dir-c .c-segl span{color:#8597b3}',
+    '.ms-slide.ms-dir-c .c-pts{position:absolute;right:6cqw;display:flex;flex-direction:column;gap:1.2cqw}',
+    '.ms-slide.ms-dir-c .c-pts li{display:flex;gap:1.2cqw;font-size:1.25cqw;line-height:1.4;color:#d5dfec;border-top:.12cqw solid #2c4361;padding-top:1cqw}',
+    '.ms-slide.ms-dir-c .c-pts b{font-family:' + SERIF + ';font-style:italic;color:#f2a57e;font-size:1.6cqw;line-height:1.1;flex:none;width:1.6cqw}',
+    '.ms-slide.ms-dir-c .c-blk6{width:24cqw;text-align:right}',
+    '.ms-slide.ms-dir-c .c-fig6{font-family:' + SERIF + ';font-weight:300;font-size:2.8cqw;line-height:1.05;color:#f2a57e}',
+    '.ms-slide.ms-dir-c .c-blk7{width:27cqw;border-left:.12cqw solid #2c4361;padding-left:1.6cqw}',
+    '.ms-slide.ms-dir-c .c-fig7{font-family:' + SERIF + ';font-weight:300;font-size:7cqw;line-height:1;letter-spacing:-.03em;color:#eaf0f7;white-space:nowrap}',
+    '.ms-slide.ms-dir-c .c-blk7:nth-child(2) .c-fig7{color:#f2a57e}',
+    '.ms-slide.ms-dir-c .c-d7{font-size:1.35cqw;color:#a8b8cf;margin-top:1cqw}',
+    '.ms-slide.ms-dir-c .c-ask{font-family:' + SERIF + ';font-style:italic;font-weight:300;font-size:2.2cqw;color:#d5dfec;white-space:normal;width:70cqw;line-height:1.3}',
+    '.ms-slide.ms-dir-c .c-ask b{color:#f2a57e;font-weight:400}',
+    '.ms-slide.ms-dir-c .c-blk8{width:14cqw}',
+    '.ms-slide.ms-dir-c .c-blk8 .c-n{font-family:' + SERIF + ';font-weight:400;font-size:1.9cqw;color:#f2a57e}'
+  ].join('\n');
+
+  /* ------------------------------------------------------------------ */
+  /* Directions                                                          */
+  /* ------------------------------------------------------------------ */
+
+  var directions = [
+    {
+      id: 'default', name: 'Default', provisional: true,
+      concept: 'No design decision was made: the stock layout every deck tool falls back to. Title top-left, a blue accent bar, bullets, a footer.',
+      palette: [
+        { name: 'White', hex: '#FFFFFF', role: 'Background' },
+        { name: 'Ink', hex: '#111827', role: 'Titles and text' },
+        { name: 'Template blue', hex: '#2563EB', role: 'Accent bar, bullets, charts' },
+        { name: 'Grey', hex: '#9CA3AF', role: 'Secondary chart series' },
+        { name: 'Pale blue', hex: '#EFF6FF', role: 'Callout boxes' }
+      ],
+      type: { display: 'Calibri / Arial Bold', body: 'Calibri / Arial' },
+      rules: [
+        'Every slide uses the same title-and-bullets layout.',
+        'One blue accent bar under every title.',
+        'Charts use the template blue and grey.',
+        'Nothing is sized or placed for the argument.'
+      ]
+    },
+    {
+      id: 'a', name: 'Itemised', provisional: false,
+      concept: 'Every slide is a till receipt for the claim it makes: the assistant\'s bill, itemised line by line, with the total circled in highlighter. The argument sits beside it on the counter.',
+      palette: [
+        { name: 'Counter sage', hex: '#D3DCCF', role: 'Ground' },
+        { name: 'Receipt', hex: '#FCFCF9', role: 'The receipt paper' },
+        { name: 'Print', hex: '#20252B', role: 'Text and printed bars' },
+        { name: 'Carbon blue', hex: '#3446C9', role: 'The figure that matters' },
+        { name: 'Highlighter', hex: '#F1E05A', role: 'The total, once per slide' }
+      ],
+      type: { display: 'IBM Plex Mono SemiBold', body: 'IBM Plex Mono' },
+      rules: [
+        'One monospace face; figures align like a till roll.',
+        'The receipt holds the evidence, always on the left; the claim stands on the right.',
+        'Charts are printed as dotted thermal bars, never smooth fills.',
+        'Highlighter marks exactly one total per slide.',
+        'No icons, no boxes, no photography.'
+      ]
+    },
+    {
+      id: 'b', name: 'Shelf price', provisional: false,
+      concept: 'Each slide states its number the way a supermarket shelf states a price: one condensed figure on a yellow ticket, the old value struck through, the reasoning in small print on the shelf edge.',
+      palette: [
+        { name: 'Aisle green', hex: '#0E5A43', role: 'Ground' },
+        { name: 'Ticket yellow', hex: '#FFD43B', role: 'The price ticket and the key series' },
+        { name: 'Ticket ink', hex: '#10241B', role: 'Text on tickets' },
+        { name: 'Shelf mint', hex: '#A9DCC6', role: 'Labels and small print' },
+        { name: 'Markdown red', hex: '#D9363E', role: 'Strike-through on old values only' }
+      ],
+      type: { display: 'Archivo Condensed ExtraBold', body: 'Archivo' },
+      rules: [
+        'One yellow ticket per slide carries the number; everything else is quieter.',
+        'Old values are struck through in red, never deleted.',
+        'Headers are condensed and set large, top left, in two or three lines.',
+        'A shelf edge runs along the foot of every slide with the fine print.',
+        'Red is only ever a strike-through.'
+      ]
+    },
+    {
+      id: 'c', name: 'Demand curve', provisional: false,
+      concept: 'One line runs through every slide: the assistant\'s traffic over a day, which is what the bill follows. Charts, timelines and figures hang off that line in calm, open space.',
+      palette: [
+        { name: 'Night', hex: '#0F1D30', role: 'Ground' },
+        { name: 'Curve', hex: '#F2A57E', role: 'The line and the figure that matters' },
+        { name: 'Paper', hex: '#EAF0F7', role: 'Headers and figures' },
+        { name: 'Mist', hex: '#A8B8CF', role: 'Labels and body' },
+        { name: 'Before', hex: '#7FA6D8', role: 'The old state in comparisons' }
+      ],
+      type: { display: 'Fraunces Light, italic for emphasis', body: 'Archivo' },
+      rules: [
+        'Every slide has exactly one continuous line, and it carries the data.',
+        'The header is a light serif; its key phrase turns italic and coloured.',
+        'Content is left-aligned and hangs off the line; at least a third of the slide stays empty.',
+        'Peach marks the one thing to look at; everything else is in cool greys.'
+      ]
+    }
+  ];
+
+  /* ------------------------------------------------------------------ */
+  /* Public API                                                          */
+  /* ------------------------------------------------------------------ */
+
+  function headers(state) {
+    var st = norm(state);
+    return IDS.map(function (id, i) {
+      return { id: id, n: i + 1, header: headerText(id, st), intent: intentText(id, st) };
+    });
+  }
+
+  function render(slideId, directionId, state) {
+    var st = norm(state);
+    var dir = RENDER[directionId] ? directionId : 'default';
+    var id = IDS.indexOf(slideId) >= 0 ? slideId : 's1';
+    var label = 'Slide ' + id.slice(1) + ': ' + headerText(id, st);
+    return '<div class="ms-slide ms-dir-' + dir + ' ms-' + id + '" data-slide="' + id + '" data-direction="' + dir + '" aria-label="' + label.replace(/"/g, '&quot;') + '">' + RENDER[dir][id](st) + '</div>';
+  }
+
+  function renderSample(directionId) {
+    var st = { lead: 'cost', s4Hero: false, s6Short: false };
+    return [render('s1', directionId, st), render('s3', directionId, st), render('s4', directionId, st)];
+  }
+
+  window.MockSlides = {
+    css: css,
+    directions: directions,
+    slideIds: IDS.slice(),
+    headers: headers,
+    render: render,
+    renderSample: renderSample
+  };
+})();
+
+</script>
+<script>
+(function () {
+  'use strict';
+
+  var MS = window.MockSlides;
+  var TIER = { lead: 'Lead', senior: 'Senior', mid: 'Mid', low: 'Low' };
+  var TIER_W = { lead: 6, senior: 3, mid: 1.5, low: 0.5 };   // relative cost per unit of work
+  var TIER_T = { lead: 2.2, senior: 1.4, mid: 1, low: 0.6 }; // relative time
+  var ALL = MS.slideIds.slice();
+  var THREAD = 'Design and refinement';
+  var VIEWS = ['home', 'thread', 'notes', 'strict', 'history'];
+  var KIND = { talk: 'Talk', proposal: 'Proposal', change: 'Change' };
+
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+
+  /* ------------------------------------------------------------------ data */
+
+  var SOURCES = [
+    ['Post-training quantisation for large language model serving: an empirical study', 'Paper · 2025 · 18 pages'],
+    ['Eight-bit weights, four-bit activations: where the accuracy goes', 'Paper · 2025 · 12 pages'],
+    ['Prefix caching and context reuse in production assistants', 'Paper · 2024 · 14 pages'],
+    ['Continuous batching under bursty retail traffic', 'Paper · 2025 · 10 pages'],
+    ['Cost per answer: a measurement framework for hosted inference', 'Paper · 2024 · 16 pages'],
+    ['Scoping call, 14 July (transcript, 42 min)', 'Transcript · 3 speakers'],
+    ['Northwind 2025 vendor deck (uploaded)', 'Slides · 24 pages'],
+    ['What you have said in threads', 'Decisions and preferences · updated today']
+  ];
+
+  var NOTES = [
+    { h: 'Summary', items: [
+      ['02:10', 'Northwind runs a shopping assistant that costs more to serve each month than the team budgeted. They want a plan that lowers the cost of each answer without a visible drop in quality.',
+        'Priya: The assistant costs more to serve every month than we budgeted, and traffic is still growing. I need a plan I can take to finance.']
+    ] },
+    { h: 'Attendees', items: [
+      ['00:30', 'Dana Okafor, engagement lead (us)', 'Dana: Thanks for making time. I am Dana, I lead the engagement on our side.'],
+      ['00:48', 'Priya Raman, platform lead (Northwind)', 'Priya: I am Priya. I run the platform team that owns the assistant.'],
+      ['01:05', 'Marcus Webb, finance partner (Northwind)', 'Marcus: Marcus, finance. I sign off the serving budget, so I will mostly be listening for numbers.']
+    ] },
+    { h: 'Themes', items: [
+      ['08:20', 'Serving cost is the pressure, not model quality. The team is happy with the answers.',
+        'Priya: Nobody is complaining about the answers. The complaint is the invoice.'],
+      ['17:35', 'Slow answers at peak hours lose shoppers, which makes latency a useful second argument.',
+        'Priya: At peak, answers take three or four seconds. We see people leave the chat during that wait.'],
+      ['26:10', 'There is little appetite for a large migration or a change of vendor.',
+        'Marcus: I will say it plainly: we are not moving vendors this year. Anything that works on what we run today is welcome.']
+    ] },
+    { h: 'Decisions', items: [
+      ['31:45', 'Lead the proposal with cost. Latency is the supporting argument.',
+        'Dana: So we lead with cost and use latency as the supporting point. Priya: Yes, that is what finance will read first.'],
+      ['33:02', 'No ROI calculator in the first draft.',
+        'Marcus: I do not want a calculator in the room. Show me the three figures and let me ask questions.'],
+      ['38:15', 'Pilot on one product category, not the whole catalogue.',
+        'Priya: Footwear is a good first category. High traffic, simple questions, easy to measure.']
+    ] },
+    { h: 'Key dates', items: [
+      ['12:40', 'Board pack is due on 12 December.',
+        'Marcus: The board pack closes on the twelfth of December. Anything after that waits for February.'],
+      ['36:20', 'Northwind wants the pilot decision by 30 November.',
+        'Priya: If we are going to pilot before the new year, we need a yes by the thirtieth of November.'],
+      ['19:50', 'The peak trading period starts on 20 November. No changes to production during it.',
+        'Priya: From the twentieth we freeze. No deploys, nothing that touches the assistant.']
+    ] },
+    { h: 'Action items', items: [
+      ['40:05', 'Dana to send the draft deck to Priya by Friday.',
+        'Dana: I will get a draft deck to you by Friday.'],
+      ['40:30', 'Priya to share twelve months of serving cost by endpoint.',
+        'Priya: I can pull twelve months of cost by endpoint. I will send it this week.'],
+      ['41:02', 'Marcus to confirm the budget ceiling for a pilot.',
+        'Marcus: Let me check the ceiling with my director and come back to you.'],
+      ['41:30', 'Agree who signs off a change to how traffic is shaped. Owner TBD.',
+        'Priya: Someone has to approve the traffic shaping. Marcus: Not me. Dana: We will park that. Nobody took it.', 'Owner TBD']
+    ] },
+    { h: 'Open questions and risks', items: [
+      ['22:48', 'Does eight-bit quantisation change the quality of product comparisons?',
+        'Priya: My worry is comparisons. If it gets the size or the price wrong in a comparison, we lose trust fast.'],
+      ['24:10', 'How fresh must a cached answer be when prices change hourly?',
+        'Priya: Prices move every hour on some lines. A cached answer with an old price is worse than a slow one.'],
+      ['29:15', 'The vendor contract may limit self-hosting.',
+        'Marcus: I have not read the self-hosting clause since we signed. I would not assume it is open.']
+    ] }
+  ];
+
+  var CLAIMS = [
+    { t: 'Inference accounts for 71% of the monthly bill for the shopping assistant.', v: 'Supported',
+      doc: 'Northwind 2025 vendor deck', page: 'p. 12',
+      q: 'Serving and inference now account for 71% of total assistant run cost; training and fine-tuning make up the rest.' },
+    { t: 'Caching repeated context removes about a fifth of the compute.', v: 'Supported',
+      doc: 'Prefix caching and context reuse in production assistants', page: 'p. 6',
+      q: 'On workloads with a shared system prompt, prefix caching removed 19 to 23% of total compute.' },
+    { t: 'Quantisation alone cuts serving cost by 38%.', v: 'Partially supported',
+      doc: 'Post-training quantisation for large language model serving: an empirical study', page: 'p. 9',
+      q: 'Across the models tested, serving cost fell by between 35 and 41%, depending on batch size and hardware.' }
+  ];
+
+  var CHECK = [
+    { fig: '$412,000 a month to serve the assistant (slide 2)', ok: true, src: 'Northwind 2025 vendor deck, p. 7' },
+    { fig: '71% of the bill is inference (slide 2)', ok: true, src: 'Northwind 2025 vendor deck, p. 12' },
+    { fig: '21% of compute removed by caching (slide 5)', ok: true, src: 'Prefix caching and context reuse in production assistants, p. 6' },
+    { fig: '$180,000 pilot cost over one quarter (slide 7)', ok: true, src: 'Northwind 2025 vendor deck, p. 19' },
+    { fig: '38% (slides 1 and 4)', ok: false, src: 'The quantisation paper reports a range of 35 to 41%. The exact figure does not appear.' }
+  ];
+
+  var HISTORY = [
+    { role: 'user', text: 'Draft a storyline for the Northwind deck from the scoping call and the papers.' },
+    { role: 'assistant', kind: 'proposal',
+      text: 'Here is a storyline in eight slides. It opens with the saving, shows where the money goes, names three techniques, proves the biggest one, explains caching, sets out a phased rollout, puts the numbers side by side and ends with the decision. I have not built any slides yet.',
+      trace: { rows: [
+        { layer: 'Direction', tier: 'lead', note: 'wrote the argument and eight headers', units: 1, secs: 9 },
+        { layer: 'Review', tier: 'senior', note: 'checked the order against the call notes', units: 1, secs: 5 }
+      ] } },
+    { role: 'user', text: 'Lead with cost. Drop the ROI calculator slide.' },
+    { role: 'assistant', kind: 'change',
+      text: 'Done. The storyline leads with cost and the ROI calculator slide is gone. Eight slides remain.',
+      items: ['Slide 1 now states the 38% saving', 'ROI calculator slide removed', 'Rejected idea noted: ROI calculator'],
+      trace: { rows: [
+        { layer: 'Direction', tier: 'lead', note: 'reordered the argument', units: 1, secs: 6 },
+        { layer: 'Mechanics', tier: 'low', note: 'renumbered slides', units: 1, secs: 1 }
+      ] } },
+    { role: 'assistant', kind: 'talk',
+      text: 'The design is still the provisional default. We have not decided on one. That is the next thread.',
+      trace: { plain: 'Built from the deck\'s state and change log. No earlier chat was read.' } }
+  ];
+
+  /* ----------------------------------------------------------------- state */
+
+  var state, ui;
+
+  function freshState() {
+    return {
+      direction: 'default', designDecided: false, lead: 'cost', s4Hero: false, s6Short: false,
+      stale: [], checked: false, log: [], step: 0, mode: 'auto', route: 'auto', selection: null
+    };
+  }
+  function freshUi() {
+    return {
+      slide: 's1', ptab: 'slides', nextId: 1, busy: false, gen: (ui ? ui.gen + 1 : 1),
+      msgs: [], notesMsgs: [], readout: false, did1: false, did5: false, followup5: false,
+      flash: null, scroll: { main: true, notes: true }, notesChipUsed: false, logId: 1
+    };
+  }
+
+  function initMessages() {
+    pushMsg({
+      role: 'assistant', kind: 'talk',
+      text: 'Picking up from yesterday. The deck has 8 slides and the argument is settled: it leads with cost. The design is still the provisional default, since nothing was decided. Rejected so far: a dark theme, and an ROI calculator slide. Open: whether slide 5 is too dense, and the pilot date on slide 8.',
+      trace: { plain: 'Built from the deck\'s state and change log. No earlier chat was read.' }
+    }, 'main');
+    pushMsg({
+      role: 'assistant', kind: 'talk',
+      text: 'I wrote these notes from the transcript. Every item links to the line it came from. I can turn them into a short readout deck.',
+      trace: { plain: 'Built from the transcript only. No other thread was read.' }
+    }, 'notes');
+  }
+
+  function reset() {
+    state = freshState();
+    ui = freshUi();
+    initMessages();
+  }
+
+  /* ------------------------------------------------------------- selectors */
+
+  function slideState(st, lead) { return { lead: lead || st.lead, s4Hero: st.s4Hero, s6Short: st.s6Short }; }
+  function effLead(id, st, ignoreStale) { return (!ignoreStale && st.stale.indexOf(id) >= 0) ? 'cost' : st.lead; }
+  function slideHtml(id, st, ignoreStale) {
+    return MS.render(id, st.direction, slideState(st, effLead(id, st, ignoreStale)));
+  }
+  function marker(id, st) {
+    return st.stale.indexOf(id) >= 0 ? 'stale' : (st.designDecided ? 'decided' : 'provisional');
+  }
+  function dirOf(id) { return MS.directions.filter(function (d) { return d.id === id; })[0] || MS.directions[0]; }
+  function headerFor(id, st) {
+    var hs = MS.headers(slideState(st, effLead(id, st)));
+    return hs.filter(function (h) { return h.id === id; })[0] || { n: 0, header: '', intent: '' };
+  }
+  function slideNum(id) { return ALL.indexOf(id) + 1; }
+  function tagHtml(mk) {
+    if (mk === 'provisional') return '<span class="tag tag-prov">Provisional</span>';
+    if (mk === 'stale') return '<span class="tag tag-stale">Stale</span>';
+    return '';
+  }
+  function aboutLabel(sel) {
+    if (!sel) return 'whole deck';
+    var s = 'slide ' + slideNum(sel.slide);
+    if (sel.part === 'header') s += ' · header';
+    if (sel.part === 'body') s += ' · body';
+    return s;
+  }
+  function withPatch(st, patch) {
+    var c = clone(st);
+    Object.keys(patch).forEach(function (k) { c[k] = clone(patch[k]); });
+    return c;
+  }
+
+  /* --------------------------------------------------------------- tracing */
+
+  function makeTrace(rows, foot) {
+    var pin = state.route;
+    if (pin === 'auto') return { rows: clone(rows), foot: foot || '' };
+    var out = [];
+    rows.forEach(function (r) {
+      if (r.skip) return;
+      var c = clone(r);
+      c.secs = Math.round(r.secs * TIER_T[pin] / TIER_T[r.tier] * 10) / 10;
+      c.tier = pin;
+      out.push(c);
+    });
+    return { rows: out, pinned: pin, foot: 'Pinned by you' + (pin === 'lead' ? '. Every layer ran on the Lead, which is the most expensive tier.' : '.') };
+  }
+  function layerSummary(rows) {
+    return rows.filter(function (r) { return !r.skip; }).map(function (r) { return r.layer + ' · ' + TIER[r.tier]; }).join(', ');
+  }
+  function traceTotals(t) {
+    var s = 0, c = 0;
+    t.rows.forEach(function (r) { if (!r.skip) { s += r.secs; c += r.units * TIER_W[r.tier]; } });
+    return { secs: Math.round(s * 10) / 10, cost: Math.round(c * 10) / 10 };
+  }
+  function traceHtml(m) {
+    var t = m.trace;
+    if (!t) return '';
+    if (t.plain) return '<div class="route plain"><span class="route-l">Routing</span><span>' + esc(t.plain) + '</span></div>';
+    var run = t.rows.filter(function (r) { return !r.skip; });
+    var tot = traceTotals(t);
+    var summary = run.map(function (r) { return r.layer + ' ' + TIER[r.tier]; }).join(' · ');
+    var rows = t.rows.map(function (r) {
+      if (r.skip) {
+        return '<li class="tr skip"><span class="tr-layer">' + r.layer + '</span><span class="tier t-' + r.tier + ' off">' + TIER[r.tier] + '</span><span class="tr-note">Not needed</span><span class="tr-time"></span><span class="bar"></span></li>';
+      }
+      var cost = r.units * TIER_W[r.tier];
+      var w = Math.max(3, Math.min(100, cost / 25 * 100));
+      return '<li class="tr"><span class="tr-layer">' + r.layer + '</span><span class="tier t-' + r.tier + '">' + TIER[r.tier] + '</span><span class="tr-note">' + esc(r.note) + '</span><span class="tr-time">' + r.secs + ' s</span><span class="bar" title="Relative cost ' + cost + '"><i style="width:' + w + '%"></i></span></li>';
+    }).join('');
+    var tw = Math.max(3, Math.min(100, tot.cost / 150 * 100));
+    return '<details class="route' + (t.pinned === 'lead' ? ' pin-lead' : '') + '" data-mid="' + m.id + '"' + (m.open ? ' open' : '') + '>' +
+      '<summary><span class="route-l">Routing</span><span class="route-sum">' + esc(summary || 'No layers ran') + '</span><span class="route-t">' + tot.secs + ' s</span></summary>' +
+      '<ol class="trace">' + rows + '</ol>' +
+      (t.foot ? '<p class="trace-foot' + (t.pinned ? ' pinned' : '') + '">' + esc(t.foot) + '</p>' : '') +
+      '<div class="trace-total"><span>Total ' + tot.secs + ' s</span><span class="bar big" title="Relative cost ' + tot.cost + '"><i style="width:' + tw + '%"></i></span><span>Relative cost ' + tot.cost + '</span></div>' +
+      '</details>';
+  }
+
+  /* -------------------------------------------------------------- messages */
+
+  function pushMsg(m, list) {
+    m.id = ui.nextId++;
+    m.list = list || 'main';
+    (m.list === 'notes' ? ui.notesMsgs : ui.msgs).push(m);
+    ui.scroll[m.list] = true;
+    return m;
+  }
+
+  function msgHtml(m) {
+    if (m.role === 'user') {
+      return '<article class="msg user"><div class="bubble">' + esc(m.text) + '</div>' +
+        (m.about ? '<div class="u-about">About: ' + esc(m.about) + '</div>' : '') + '</article>';
+    }
+    var h = '<article class="msg assistant m-' + m.kind + '" data-mid="' + m.id + '">';
+    h += '<div class="msg-meta"><span class="kind kind-' + m.kind + '">' + KIND[m.kind] + '</span>';
+    if (m.kind === 'proposal' && m.status) h += '<span class="pstat">' + (m.status === 'applied' ? 'Applied' : m.status === 'dismissed' ? 'Dismissed' : 'Waiting for you') + '</span>';
+    h += '</div><div class="bubble">';
+    h += '<p>' + esc(m.text) + '</p>';
+    if (m.cards) h += cardsHtml(m);
+    if (m.preview) h += previewHtml(m);
+    if (m.items) h += '<ul class="items">' + m.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    if (m.check) h += checkHtml(m);
+    if (m.after) h += '<p>' + esc(m.after) + '</p>';
+    var acts = '';
+    if (m.kind === 'proposal' && m.change) {
+      if (m.status === 'open') acts += '<button type="button" class="btn primary" data-action="apply" data-mid="' + m.id + '">Apply</button><button type="button" class="btn" data-action="dismiss" data-mid="' + m.id + '">Dismiss</button>';
+    }
+    if (m.rebuild) {
+      var n = state.stale.length;
+      acts += n > 0
+        ? '<button type="button" class="btn" data-action="rebuild">Rebuild the 4 stale slides</button>'
+        : '<button type="button" class="btn" aria-disabled="true" title="Nothing is stale right now">Rebuild the 4 stale slides</button>';
+    }
+    if (m.link === 'changes') acts += '<button type="button" class="linkbtn" data-action="goto-changes">View in the Changes tab</button>';
+    if (m.link === 'home') acts += '<a class="linkbtn" href="#home">See it on the engagement home</a>';
+    if (acts) h += '<div class="acts">' + acts + '</div>';
+    h += '</div>' + traceHtml(m) + '</article>';
+    return h;
+  }
+
+  function cardsHtml(m) {
+    return '<div class="dir-cards">' + MS.directions.slice(1).map(function (d) {
+      var chosen = state.designDecided && state.direction === d.id;
+      var locked = state.designDecided;
+      var pending = state.mode === 'propose';
+      var btn;
+      if (chosen) btn = '<button type="button" class="btn" aria-disabled="true">In use</button>';
+      else if (locked) btn = '<button type="button" class="btn" aria-disabled="true" title="A direction is already decided">Use this direction</button>';
+      else btn = '<button type="button" class="btn primary" data-action="pick-dir" data-dir="' + d.id + '">Use this direction</button>';
+      return '<div class="dir-card"><div class="dir-card-h"><strong>' + esc(d.name) + '</strong></div><p class="dir-concept">' + esc(d.concept) + '</p>' +
+        '<div class="samples">' + (m.samples[d.id] || []).map(function (s) { return '<div class="sample">' + s + '</div>'; }).join('') + '</div>' + btn + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function previewHtml(m) {
+    var p = m.preview;
+    var h = '<div class="preview">';
+    p.slides.forEach(function (s) {
+      h += '<div class="pv-row"><div class="pv"><span class="pv-l">Before · slide ' + s.n + '</span><div class="pv-s">' + s.before + '</div></div>' +
+        '<div class="pv"><span class="pv-l">After · slide ' + s.n + '</span><div class="pv-s">' + s.after + '</div></div></div>';
+    });
+    if (p.more) h += '<p class="pv-more">' + esc(p.more) + '</p>';
+    if (p.list) h += '<ul class="items">' + p.list.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    return h + '</div>';
+  }
+
+  function checkHtml() {
+    return '<div class="check"><div class="check-h">Five figures checked</div><ul>' + CHECK.map(function (c) {
+      return '<li class="' + (c.ok ? 'ok' : 'no') + '"><span class="ck-s">' + (c.ok ? 'Found' : 'Not found') + '</span><span class="ck-t"><strong>' + esc(c.fig) + '</strong>' +
+        (c.ok ? '<span class="ck-src">' + esc(c.src) + '</span>' : '<span class="ck-src">' + esc(c.src) + '</span>') + '</span></li>';
+    }).join('') + '</ul></div>';
+  }
+
+  function renderMsgsInto(el, list, key) {
+    var prev = el.scrollTop;
+    var h = list.map(msgHtml).join('');
+    if (ui.busy && ui.busyList === key) h += '<article class="msg assistant typing" aria-label="Working"><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div></article>';
+    el.innerHTML = h;
+    if (ui.scroll[key]) {
+      var last = el.querySelector('.msg:last-child');
+      el.scrollTop = el.scrollHeight;
+      if (last && !last.classList.contains('typing') && last.offsetHeight > el.clientHeight - 24) el.scrollTop = last.offsetTop - el.offsetTop - 12;
+      ui.scroll[key] = false;
+    } else el.scrollTop = prev;
+  }
+
+  function renderChats() {
+    renderMsgsInto($('#msgs'), ui.msgs, 'main');
+    renderMsgsInto($('#notes-msgs'), ui.notesMsgs, 'notes');
+  }
+
+  /* ------------------------------------------------------------- composer */
+
+  function buildComposers() {
+    $$('.composer').forEach(function (c) {
+      var scope = c.getAttribute('data-scope');
+      c.innerHTML =
+        '<div class="chips" role="group" aria-label="Suggested messages"></div>' +
+        (scope === 'thread' ? '<div class="about"></div>' : '') +
+        '<form class="cform" autocomplete="off"><input type="text" class="cinput" aria-label="Message" placeholder="' + (scope === 'thread' ? 'Message about the deck' : 'Message about the notes') + '"><button type="submit" class="btn primary">Send</button></form>' +
+        '<div class="controls">' +
+        '<div class="ctl"><span class="ctl-l" id="ml-' + scope + '">Editing</span><div class="seg" role="group" aria-labelledby="ml-' + scope + '" data-seg="mode">' +
+        '<button type="button" data-mode="auto" title="Edits are applied and logged straight away">Auto</button>' +
+        '<button type="button" data-mode="propose" title="Edits are shown as a preview first">Propose first</button></div></div>' +
+        '<div class="ctl"><span class="ctl-l" id="rl-' + scope + '">Routing</span><div class="seg" role="group" aria-labelledby="rl-' + scope + '" data-seg="route">' +
+        ['auto', 'lead', 'senior', 'mid', 'low'].map(function (r) { return '<button type="button" data-route="' + r + '">' + (r === 'auto' ? 'Auto' : TIER[r]) + '</button>'; }).join('') +
+        '</div></div></div>';
+    });
+  }
+
+  function chipDefs(scope) {
+    var c = [];
+    if (scope === 'notes') {
+      if (!ui.notesChipUsed) c.push({ id: 'n1', label: 'Turn this into a readout deck' });
+      return c;
+    }
+    if (ui.followup5) c.push({ id: 'f5y', label: 'Yes, cut it down' }, { id: 'f5n', label: 'Leave it' });
+    if (!ui.did1) c.push({ id: 's1', label: 'The deck looks generic. Give it a real design.' });
+    if (state.designDecided) {
+      if (!state.s4Hero) c.push({ id: 's3', label: 'Make the number the hero' });
+      if (!state.s6Short) c.push({ id: 's4', label: 'Shorten this title' });
+      if (!ui.did5) c.push({ id: 's5', label: 'Is slide 5 too dense?' });
+      if (state.lead === 'cost') c.push({ id: 's6', label: 'Lead with latency, not cost' });
+      if (!state.checked) c.push({ id: 's7', label: 'Check the numbers against my sources' });
+    }
+    return c;
+  }
+
+  function renderComposers() {
+    $$('.composer').forEach(function (c) {
+      var scope = c.getAttribute('data-scope');
+      var chips = chipDefs(scope);
+      var hint = '';
+      if (scope === 'thread' && ui.did1 && !state.designDecided) hint = '<span class="chip-hint">Choose a direction on one of the cards to continue.</span>';
+      if (scope === 'thread' && !chips.length && !hint) hint = '<span class="chip-hint">Nothing left in this script. Export when you are ready.</span>';
+      if (scope === 'notes' && !chips.length) hint = '<span class="chip-hint">Readout deck added to the engagement.</span>';
+      $('.chips', c).innerHTML = chips.map(function (x) {
+        return '<button type="button" class="chip" data-chip="' + x.id + '"' + (ui.busy ? ' aria-disabled="true"' : '') + '>' + esc(x.label) + '</button>';
+      }).join('') + hint;
+      $$('[data-mode]', c).forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-mode') === state.mode)); });
+      $$('[data-route]', c).forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-route') === state.route)); });
+      var ab = $('.about', c);
+      if (ab) {
+        ab.innerHTML = state.selection
+          ? '<span class="about-chip active">About: ' + esc(aboutLabel(state.selection)) + '<button type="button" class="x" data-action="clear-sel" aria-label="Clear selection">' +
+            '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>'
+          : '<span class="about-chip">About: whole deck</span>';
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------------- panel */
+
+  function renderPtabs() {
+    var tabs = [['slides', 'Slides'], ['story', 'Storyline'], ['design', 'Design'], ['changes', 'Changes' + (state.log.length ? ' (' + state.log.length + ')' : '')]];
+    $('#ptabs').innerHTML = tabs.map(function (t) {
+      return '<button type="button" role="tab" data-ptab="' + t[0] + '" aria-selected="' + (ui.ptab === t[0]) + '">' + t[1] + '</button>';
+    }).join('');
+  }
+
+  function thumbsHtml() {
+    return '<div class="strip" role="listbox" aria-label="Slides">' + ALL.map(function (id) {
+      var mk = marker(id, state);
+      var flash = ui.flash && ui.flash.indexOf(id) >= 0;
+      var selSlide = state.selection && state.selection.slide === id;
+      return '<button type="button" role="option" class="thumb mk-' + mk + (id === ui.slide ? ' cur' : '') + (flash ? ' flash' : '') + '" data-slide="' + id + '" aria-selected="' + (id === ui.slide) + '" aria-label="Slide ' + slideNum(id) + (mk === 'decided' ? '' : ', ' + mk) + '">' +
+        '<span class="th-frame"><span class="th-slide">' + slideHtml(id, state) + '</span></span>' +
+        '<span class="th-meta"><span class="th-n">' + slideNum(id) + '</span>' + tagHtml(mk) + (selSlide ? '<span class="th-sel" aria-hidden="true"></span>' : '') + '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  function stageHtml(id, st, sel, big) {
+    var mk = marker(id, st);
+    return '<div class="stage mk-' + mk + '"><div class="stage-slide"' + (big ? ' data-stage="1" title="Click the header or the body to select it"' : '') + '>' + slideHtml(id, st) +
+      (sel ? '<div class="sel sel-' + sel + '" aria-hidden="true"></div>' : '') + '</div></div>';
+  }
+
+  function slidesTab() {
+    var id = ui.slide, mk = marker(id, state);
+    var hd = headerFor(id, state);
+    var sel = state.selection && state.selection.slide === id ? state.selection.part : null;
+    var part = state.selection && state.selection.slide === id ? state.selection.part : null;
+    var h = thumbsHtml();
+    h += '<div class="stage-top"><div class="stage-title"><span class="mono">Slide ' + slideNum(id) + ' of 8</span><span class="stage-head">' + esc(hd.header) + '</span></div>' +
+      '<div class="stage-tags">' + tagHtml(mk) + '<span class="dir-name">' + esc(dirOf(state.direction).name) + '</span></div></div>';
+    h += stageHtml(id, state, sel, true);
+    h += '<div class="pick" role="group" aria-label="Select part of slide ' + slideNum(id) + '"><span class="pick-l">Ask about</span>' +
+      [['slide', 'Whole slide'], ['header', 'Header'], ['body', 'Body']].map(function (p) {
+        return '<button type="button" class="pickbtn" data-pick="' + p[0] + '" aria-pressed="' + (part === p[0]) + '">' + p[1] + '</button>';
+      }).join('') + '</div>';
+    if (state.selection) {
+      h += '<div class="narrow-only gochat"><span>About: ' + esc(aboutLabel(state.selection)) + '</span><button type="button" class="btn" data-action="go-chat">Ask in chat</button></div>';
+    }
+    if (mk === 'stale') h += '<p class="stale-note">This slide was built on the earlier argument (cost). It has not been rebuilt, so it still shows the old content.</p>';
+    return h;
+  }
+
+  function storyTab() {
+    var hs = MS.headers(slideState(state));
+    return '<ol class="story">' + hs.map(function (x) {
+      var mk = marker(x.id, state);
+      return '<li class="story-i"><span class="story-n mono">' + x.n + '</span><div class="story-b"><div class="story-h">' + esc(x.header) + '</div>' +
+        '<div class="story-int">' + esc(x.intent) + '</div>' +
+        (mk === 'stale' ? '<div class="story-note">The slide itself still shows: ' + esc(headerFor(x.id, state).header) + '</div>' : '') +
+        '</div><div class="story-t">' + (tagHtml(mk) || '<span class="tag tag-ok">Decided</span>') + '</div></li>';
+    }).join('') + '</ol>';
+  }
+
+  function designTab() {
+    var d = dirOf(state.direction);
+    var h = '<div class="design"><div class="design-top"><h2>' + esc(d.name) + '</h2>' +
+      (state.designDecided ? '<span class="tag tag-ok">Decided</span>' : '<span class="tag tag-prov">Provisional</span>') + '</div>';
+    h += '<p class="status-line">' + (state.designDecided
+      ? 'You chose this direction. It is saved to your preferences for later decks.'
+      : 'Nobody decided this design. It is what the system produces by default. Ask for a real design in the chat.') + '</p>';
+    h += '<p class="concept">' + esc(d.concept) + '</p>';
+    h += '<h3 class="mini-h">Palette</h3><ul class="swatches">' + d.palette.map(function (p) {
+      return '<li><span class="sw" style="background:' + esc(p.hex) + '"></span><span class="sw-n">' + esc(p.name) + '</span><span class="sw-h mono">' + esc(p.hex) + '</span><span class="sw-r">' + esc(p.role) + '</span></li>';
+    }).join('') + '</ul>';
+    h += '<h3 class="mini-h">Type</h3><dl class="type"><dt>Display</dt><dd>' + esc(d.type.display) + '</dd><dt>Body</dt><dd>' + esc(d.type.body) + '</dd></dl>';
+    h += '<h3 class="mini-h">Rules</h3><ul class="rules">' + d.rules.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
+    return h;
+  }
+
+  function undoable(e) {
+    var i = state.log.indexOf(e);
+    return !e.undone && state.log.slice(i + 1).every(function (x) { return x.undone; });
+  }
+  function redoable(e) {
+    if (!e.undone || e.superseded) return false;
+    var i = state.log.indexOf(e);
+    return state.log.slice(0, i).every(function (x) { return !x.undone || x.superseded; });
+  }
+
+  function changesTab() {
+    if (!state.log.length) return '<div class="empty"><strong>No changes yet.</strong><p>Edits made in the chat appear here, newest first, each with an Undo.</p></div>';
+    return '<ol class="changes">' + state.log.slice().reverse().map(function (e) {
+      var undo = '';
+      if (e.undone) {
+        var ok = redoable(e);
+        undo = '<button type="button" class="btn" data-action="redo" data-eid="' + e.id + '"' + (ok ? '' : ' aria-disabled="true" title="' + (e.superseded ? 'Superseded by a later change' : 'Redo earlier changes first') + '"') + '>Redo</button>';
+      } else {
+        var ok2 = undoable(e);
+        undo = '<button type="button" class="btn" data-action="undo" data-eid="' + e.id + '"' + (ok2 ? '' : ' aria-disabled="true" title="Undo later changes first"') + '>Undo</button>';
+      }
+      return '<li class="chg' + (e.undone ? ' undone' : '') + '"><div class="chg-main"><div class="chg-what">' + esc(e.what) + (e.undone ? ' <span class="tag tag-plain">Undone</span>' : '') + '</div>' +
+        '<div class="chg-meta"><span>Instruction: “' + esc(e.instruction) + '”</span><span>Thread: ' + esc(e.thread) + '</span><span>Made by: ' + esc(e.layers) + '</span></div></div>' + undo + '</li>';
+    }).join('') + '</ol>';
+  }
+
+  function renderPanel() {
+    renderPtabs();
+    var body = $('#panel-body');
+    var prev = body.scrollTop;
+    var h = ui.ptab === 'slides' ? slidesTab() : ui.ptab === 'story' ? storyTab() : ui.ptab === 'design' ? designTab() : changesTab();
+    var strip = $('.strip', body);
+    var sx = strip ? strip.scrollLeft : 0;
+    body.innerHTML = h;
+    body.scrollTop = prev;
+    var ns = $('.strip', body);
+    if (ns) ns.scrollLeft = sx;
+    if (ui.ptab === 'slides' && !ui.stripSeen) { ui.stripSeen = true; }
+  }
+
+  function renderThread() {
+    renderChats();
+    renderComposers();
+    renderPanel();
+    renderDialogIfOpen();
+  }
+
+  /* ------------------------------------------------------------ changes */
+
+  function flash(ids) {
+    ui.flash = ids.slice();
+    var g = ui.gen;
+    setTimeout(function () {
+      if (g !== ui.gen) return;
+      ui.flash = null;
+      $$('.thumb.flash').forEach(function (e) { e.classList.remove('flash'); });
+    }, 1700);
+  }
+
+  function applyChange(spec, trace, list) {
+    var prev = {};
+    Object.keys(spec.patch).forEach(function (k) { prev[k] = clone(state[k]); });
+    state.log.forEach(function (e) { if (e.undone) e.superseded = true; });
+    var entry = {
+      id: ui.logId++, what: spec.what, instruction: spec.instruction, thread: THREAD,
+      layers: spec.layers || layerSummary(spec.rows), patch: clone(spec.patch), prev: prev,
+      affected: spec.affected.slice(), undone: false, superseded: false
+    };
+    state.log.push(entry);
+    Object.keys(spec.patch).forEach(function (k) { state[k] = clone(spec.patch[k]); });
+    flash(spec.affected);
+    pushMsg({ role: 'assistant', kind: 'change', text: spec.doneText, items: spec.items, rebuild: !!spec.rebuild, link: 'changes', trace: trace }, list || 'main');
+  }
+
+  function stepChange(spec, list) {
+    var trace = makeTrace(spec.rows, spec.foot);
+    spec.layers = layerSummary(trace.rows);
+    if (state.mode === 'propose') {
+      var after = withPatch(state, spec.patch);
+      var ids = spec.preview;
+      var slides = ids.map(function (id) {
+        return { n: slideNum(id), before: slideHtml(id, state, false), after: slideHtml(id, after, true) };
+      });
+      var more = spec.previewMore || (spec.affected.length > ids.length ? 'Plus ' + (spec.affected.length - ids.length) + ' more slides, changed the same way.' : '');
+      pushMsg({ role: 'assistant', kind: 'proposal', text: spec.proposeText, preview: { slides: slides, more: more }, change: spec, status: 'open', trace: trace }, 'main');
+    } else {
+      applyChange(spec, trace);
+    }
+  }
+
+  function applyProposal(m) {
+    if (m.status !== 'open') return;
+    m.status = 'applied';
+    if (m.change.artifact) { applyReadout(m.change, { plain: 'Applied from the proposal. No layers re-ran.' }); return; }
+    applyChange(m.change, { plain: 'Applied from the proposal as previewed. No layers re-ran.' });
+    state.step = Math.max(state.step, m.change.step || 0);
+    renderThread();
+  }
+
+  function setLog(e, undo) {
+    var keys = Object.keys(e.patch);
+    keys.forEach(function (k) { state[k] = clone(undo ? e.prev[k] : e.patch[k]); });
+    e.undone = undo;
+    flash(e.affected);
+    renderThread();
+  }
+
+  /* ---------------------------------------------------------- the script */
+
+  function specDirection(dirId) {
+    var d = dirOf(dirId);
+    return {
+      step: 2, what: 'Chose ' + d.name + ' as the design and recomposed all eight slides in it.',
+      instruction: 'Use this direction (' + d.name + ')', affected: ALL.slice(),
+      patch: { direction: dirId, designDecided: true }, preview: ['s1', 's4'],
+      rows: [
+        { layer: 'Direction', tier: 'lead', skip: true },
+        { layer: 'System', tier: 'senior', note: 'wrote the decided system', units: 1, secs: 6 },
+        { layer: 'Composition', tier: 'mid', note: '8 slides in parallel', units: 8, secs: 7 },
+        { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 8, secs: 2 }
+      ],
+      foot: 'The Lead was not needed. The direction was already chosen.',
+      proposeText: 'This would make ' + d.name + ' the decided design and recompose all eight slides in it. Slides 1 and 4 are shown below. Nothing has changed yet.',
+      doneText: 'Done. ' + d.name + ' is now the decided system. All eight slides were recomposed in it, and I noted the choice in your preferences for later decks.',
+      items: ['All eight slides recomposed in ' + d.name, 'Design status: provisional to decided', 'Saved to your preferences: ' + d.name]
+    };
+  }
+  function specHero() {
+    return {
+      step: 3, what: 'Slide 4 now leads with the number 38%. The before and after bars are a quiet footnote.',
+      instruction: 'Make the number the hero', affected: ['s4'], patch: { s4Hero: true }, preview: ['s4'],
+      rows: [
+        { layer: 'Direction', tier: 'lead', skip: true },
+        { layer: 'Composition', tier: 'mid', note: 'recomposed slide 4', units: 1, secs: 4 },
+        { layer: 'Placement', tier: 'low', note: 'placed the number and footnote', units: 1, secs: 1 }
+      ],
+      proposeText: 'Slide 4 would lead with 38% and the before and after bars would become a footnote. Nothing has changed yet.',
+      doneText: 'Done. Slide 4 now leads with 38%. The before and after bars moved to a footnote.',
+      items: ['Slide 4: the number 38% is the hero', 'Slide 4: bar comparison reduced to a footnote']
+    };
+  }
+  function specShort() {
+    return {
+      step: 4, what: 'Slide 6 header shortened to “Two quarters, three phases”.',
+      instruction: 'Shorten this title', affected: ['s6'], patch: { s6Short: true }, preview: ['s6'],
+      rows: [{ layer: 'Mechanics', tier: 'low', note: 'edited one header', units: 1, secs: 1 }],
+      foot: 'Routed straight to the lowest tier. The lead was not invoked.',
+      proposeText: 'The header on slide 6 would become “Two quarters, three phases”. Nothing has changed yet.',
+      doneText: 'Done. The header on slide 6 now reads “Two quarters, three phases”.',
+      items: ['Slide 6 header: Two quarters, three phases']
+    };
+  }
+  function specLead() {
+    return {
+      step: 6, what: 'Changed the argument to lead with latency. Slides 1, 2, 3 and 7 are now stale.',
+      instruction: 'Lead with latency, not cost', affected: ['s1', 's2', 's3', 's7'],
+      patch: { lead: 'latency', stale: ['s1', 's2', 's3', 's7'] }, preview: ['s1', 's2'], rebuild: true,
+      rows: [{ layer: 'Direction', tier: 'lead', note: 'rewrote the argument and four headers', units: 1, secs: 8 }],
+      proposeText: 'This would change the argument to lead with latency and mark slides 1, 2, 3 and 7 as stale, because they were built on the cost argument. Nothing would be rebuilt yet. Slides 1 and 2 are shown as they would read once rebuilt.',
+      doneText: 'The storyline now leads with latency. Four slides were built on the old argument, so I marked them stale: slides 1, 2, 3 and 7. Nothing was rebuilt.',
+      items: ['Storyline: headers on slides 1, 2, 3 and 7 now lead with latency', 'Slides 1, 2, 3 and 7 marked Stale, still showing the cost argument']
+    };
+  }
+  function specRebuild() {
+    return {
+      step: 6, what: 'Rebuilt slides 1, 2, 3 and 7 on the latency argument.',
+      instruction: 'Rebuild the 4 stale slides', affected: state.stale.slice(),
+      patch: { stale: [] }, preview: ['s1', 's2'],
+      rows: [
+        { layer: 'Direction', tier: 'lead', skip: true },
+        { layer: 'Composition', tier: 'mid', note: '4 slides in parallel', units: 4, secs: 6 },
+        { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 4, secs: 2 },
+        { layer: 'Review', tier: 'senior', note: 'read the four renders', units: 1, secs: 5 }
+      ],
+      proposeText: 'This would rebuild the four stale slides on the latency argument. Slides 1 and 2 are shown before and after. Nothing has changed yet.',
+      doneText: 'Rebuilt. Slides 1, 2, 3 and 7 now follow the latency argument and are no longer stale.',
+      items: ['Slides 1, 2, 3 and 7 rebuilt on the latency argument', 'Stale markers cleared']
+    };
+  }
+  function specReadout() {
+    return {
+      artifact: true, list: 'notes',
+      proposeText: 'This would create a five-slide readout deck from the notes and add it to the engagement. It would be provisional, because no design has been decided for it. Nothing has been created yet.',
+      doneText: 'Done. I made a five-slide readout deck from these notes and added it to the engagement. It is provisional: its design has not been decided.',
+      items: ['Scoping call readout (deck, 5 slides, provisional) added to Artifacts', 'Slides: summary, themes, decisions, key dates, next steps'],
+      preview: { list: ['Slide 1: What we heard', 'Slide 2: Themes', 'Slide 3: Decisions so far', 'Slide 4: Key dates', 'Slide 5: Next steps and open questions'] },
+      rows: [
+        { layer: 'Direction', tier: 'lead', note: 'chose the five points from the notes', units: 1, secs: 6 },
+        { layer: 'Composition', tier: 'mid', note: '5 slides in parallel', units: 5, secs: 5 },
+        { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 5, secs: 2 }
+      ]
+    };
+  }
+
+  function applyReadout(spec, trace) {
+    ui.readout = true;
+    ui.notesChipUsed = true;
+    pushMsg({ role: 'assistant', kind: 'change', text: spec.doneText, items: spec.items, link: 'home', trace: trace }, 'notes');
+    renderChats(); renderComposers(); renderHome();
+  }
+
+  function stepReadout() {
+    var spec = specReadout();
+    var trace = makeTrace(spec.rows);
+    if (state.mode === 'propose') {
+      pushMsg({ role: 'assistant', kind: 'proposal', text: spec.proposeText, preview: spec.preview, change: spec, status: 'open', trace: trace }, 'notes');
+    } else {
+      applyReadout(spec, trace);
+    }
+  }
+
+  var STEPS = {
+    s1: { label: 'The deck looks generic. Give it a real design.', run: function () {
+      ui.did1 = true; state.step = Math.max(state.step, 1);
+      var samples = {};
+      MS.directions.slice(1).forEach(function (d) { samples[d.id] = MS.renderSample(d.id); });
+      pushMsg({
+        role: 'assistant', kind: 'proposal', samples: samples, cards: true,
+        text: 'The default was never a decision. It is what you get when nobody chooses. Here are three directions drawn from the content of this deck. Pick one and I will recompose all eight slides in it.',
+        trace: makeTrace([
+          { layer: 'Direction', tier: 'lead', note: 'wrote three concepts', units: 1, secs: 9 },
+          { layer: 'System', tier: 'senior', note: 'three systems, in parallel', units: 3, secs: 7 },
+          { layer: 'Composition', tier: 'mid', note: 'nine sample slides, in parallel', units: 9, secs: 6 },
+          { layer: 'Placement', tier: 'low', note: 'placed text and shapes', units: 9, secs: 2 },
+          { layer: 'Review', tier: 'senior', note: 'read the renders cold', units: 3, secs: 5 }
+        ])
+      });
+    } },
+    s3: { label: 'Make the number the hero', sel: { slide: 's4', part: 'slide' }, run: function () { state.step = Math.max(state.step, 3); stepChange(specHero()); } },
+    s4: { label: 'Shorten this title', sel: { slide: 's6', part: 'header' }, strict: true, run: function () { state.step = Math.max(state.step, 4); stepChange(specShort()); } },
+    s5: { label: 'Is slide 5 too dense?', sel: { slide: 's5', part: 'slide' }, run: function () {
+      ui.did5 = true; ui.followup5 = true; state.step = Math.max(state.step, 5);
+      pushMsg({
+        role: 'assistant', kind: 'talk',
+        text: 'Yes, a little. Slide 5 carries a diagram and four points, which is more than any other slide. I would cut it to the diagram and two points: the 21% figure and the one on cache freshness. The other two can go in the notes. Want me to do that?',
+        trace: makeTrace([{ layer: 'Review', tier: 'senior', note: 'read slide 5 against the others', units: 1, secs: 4 }])
+      });
+    } },
+    s6: { label: 'Lead with latency, not cost', run: function () { state.step = Math.max(state.step, 6); stepChange(specLead()); } },
+    s7: { label: 'Check the numbers against my sources', run: function () {
+      state.checked = true; state.step = Math.max(state.step, 7);
+      pushMsg({
+        role: 'assistant', kind: 'talk', check: true,
+        text: 'I checked the five figures that appear in the deck against your sources. Four are in your documents. One is not there in that exact form.',
+        after: 'Nothing is blocked. Tell me if you want the range instead.',
+        trace: makeTrace([
+          { layer: 'Mechanics', tier: 'low', note: 'extracted the figures', units: 5, secs: 2 },
+          { layer: 'Review', tier: 'senior', note: 'matched each to a source', units: 5, secs: 6 }
+        ])
+      });
+    } },
+    f5y: { label: 'Yes, cut it down', run: function () {
+      ui.followup5 = false;
+      pushMsg({ role: 'assistant', kind: 'talk', text: 'In the product this would recompose slide 5. Not scripted here.', trace: { plain: 'Nothing ran. This step is not scripted in the mock-up.' } });
+    } },
+    f5n: { label: 'Leave it', run: function () {
+      ui.followup5 = false;
+      pushMsg({ role: 'assistant', kind: 'talk', text: 'Understood. Slide 5 stays as it is. I will not raise it again unless you ask.', trace: { plain: 'Nothing ran. No layers were needed.' } });
+    } },
+    n1: { label: 'Turn this into a readout deck', list: 'notes', run: function () { stepReadout(); } }
+  };
+
+  function say(label, fn, list, about) {
+    if (ui.busy) return;
+    list = list || 'main';
+    pushMsg({ role: 'user', text: label, about: about || null }, list);
+    ui.busy = true; ui.busyList = list;
+    var g = ui.gen;
+    renderChats(); renderComposers(); renderDialogIfOpen();
+    setTimeout(function () {
+      if (g !== ui.gen) return;
+      ui.busy = false; ui.busyList = null;
+      fn();
+      renderThread();
+      if (list === 'notes') { renderChats(); renderComposers(); }
+    }, 520);
+  }
+
+  function runStep(id) {
+    var s = STEPS[id];
+    if (!s || ui.busy) return;
+    var about = null;
+    if (s.sel) {
+      var cur = state.selection;
+      if (!cur || cur.slide !== s.sel.slide || (s.sel.part !== 'slide' && cur.part !== s.sel.part)) state.selection = { slide: s.sel.slide, part: s.sel.part };
+      ui.slide = s.sel.slide;
+      about = aboutLabel(state.selection);
+    }
+    say(s.label, function () {
+      state.selection = null;
+      s.run();
+    }, s.list, about);
+    if (s.sel) { renderPanel(); }
+  }
+
+  /* ------------------------------------------------------------------ home */
+
+  function renderHome() {
+    $('#home-sources').innerHTML = SOURCES.map(function (s) {
+      return '<li class="row"><span class="ico" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3.5 1.5h5l3 3v8h-8z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></span>' +
+        '<span class="row-b"><span class="row-t">' + esc(s[0]) + '</span><span class="row-m">' + esc(s[1]) + '</span></span></li>';
+    }).join('');
+    var design = state.designDecided ? 'design decided: ' + dirOf(state.direction).name : 'design provisional';
+    var arts = [
+      { t: 'Serving the assistant for less', m: 'Deck · 8 slides · ' + design, href: '#thread', tags: [] },
+      { t: 'Scoping call notes', m: 'Notes · 7 sections', href: '#notes', tags: [] },
+      { t: 'Board evidence pack', m: 'Deck · 6 slides', href: '#strict', tags: ['<span class="tag tag-strict">Strict</span>'] }
+    ];
+    if (ui.readout) arts.push({ t: 'Scoping call readout', m: 'Deck · 5 slides · provisional', href: '', tags: ['<span class="tag tag-prov">Provisional</span>'], isNew: true });
+    $('#art-count').textContent = arts.length;
+    $('#home-artifacts').innerHTML = arts.map(function (a) {
+      var inner = '<span class="ico" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1.5" y="2.5" width="11" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 12.5h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>' +
+        '<span class="row-b"><span class="row-t">' + esc(a.t) + (a.isNew ? ' <span class="tag tag-ok">New</span>' : '') + '</span><span class="row-m">' + esc(a.m) + '</span></span>' + a.tags.join('');
+      return a.href ? '<li><a class="row link" href="' + a.href + '">' + inner + '</a></li>'
+        : '<li><button type="button" class="row link" data-action="toast" data-msg="Not scripted in this mock-up.">' + inner + '</button></li>';
+    }).join('');
+    $('#home-threads').innerHTML = [
+      ['Storyline and first draft', 'Yesterday · closed, read-only', '#history'],
+      ['Design and refinement', 'Today · open', '#thread'],
+      ['Scoping call notes', '14 July · notes', '#notes']
+    ].map(function (t) {
+      return '<li><a class="row link" href="' + t[2] + '"><span class="ico" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 12 3.5v5A1.5 1.5 0 0 1 10.5 10H6l-3 2.5V10A1.5 1.5 0 0 1 2 8.5z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>' +
+        '<span class="row-b"><span class="row-t">' + esc(t[0]) + '</span><span class="row-m">' + esc(t[1]) + '</span></span></a></li>';
+    }).join('');
+  }
+
+  /* ----------------------------------------------------------- notes view */
+
+  function renderNotes() {
+    $('#notes-body').innerHTML = NOTES.map(function (s) {
+      return '<section class="n-sec"><h2>' + esc(s.h) + '</h2><ul class="n-list">' + s.items.map(function (it, i) {
+        var id = 'q-' + s.h.replace(/\W+/g, '') + i;
+        return '<li class="n-item"><div class="n-line"><span class="n-text">' + esc(it[1]) + (it[3] ? ' <span class="tag tag-prov">' + esc(it[3]) + '</span>' : '') + '</span>' +
+          '<button type="button" class="time mono" aria-expanded="false" aria-controls="' + id + '">' + it[0] + '</button></div>' +
+          '<blockquote class="quote" id="' + id + '" hidden><span class="q-l mono">Transcript ' + it[0] + '</span>' + esc(it[2]) + '</blockquote></li>';
+      }).join('') + '</ul></section>';
+    }).join('');
+  }
+
+  function renderStrict() {
+    var dir = state.designDecided ? state.direction : 'a';
+    $('#strict-stage').innerHTML = '<div class="stage-slide">' + MS.render('s4', dir, { lead: 'cost', s4Hero: false, s6Short: false }) + '</div>';
+    $('#claims-list').innerHTML = CLAIMS.map(function (c, i) {
+      var cls = c.v === 'Supported' ? 'ok' : 'part';
+      return '<div class="claim"><div class="claim-top"><p class="claim-t">' + esc(c.t) + '</p><span class="verdict v-' + cls + '">' + c.v + '</span></div>' +
+        '<button type="button" class="linkbtn" aria-expanded="false" aria-controls="src-' + i + '" data-src="' + i + '">Show source</button>' +
+        '<div class="src" id="src-' + i + '" hidden><div class="src-doc">' + esc(c.doc) + ', ' + esc(c.page) + '</div><blockquote class="quote">' + esc(c.q) + '</blockquote></div></div>';
+    }).join('');
+  }
+
+  /* ------------------------------------------------------------- dialogs */
+
+  var lastFocus = null;
+  function dialogItems() {
+    var items = [];
+    if (!state.designDecided) items.push('The design is provisional. Nobody has chosen it yet.');
+    if (state.stale.length) items.push(state.stale.length + ' slides are stale and still show the earlier argument: ' + state.stale.map(slideNum).join(', ') + '.');
+    if (state.checked) items.push('One figure is not verified: 38% (slides 1 and 4). The quantisation paper reports a range of 35 to 41%.');
+    else items.push('Figures have not been checked against your sources. ' + (ui.busy ? 'Checking now.' : '<button type="button" class="linkbtn" data-action="check-now">Check now</button>'));
+    return items;
+  }
+  function renderDialogIfOpen() { if (!$('#dialog').hidden) $('#dlg-body').innerHTML = '<p>Before you export, note:</p><ul class="items">' + dialogItems().map(function (i) { return '<li>' + (i.indexOf('<button') >= 0 ? i : esc(i)) + '</li>'; }).join('') + '</ul><p class="muted">You can export anyway. Nothing is blocked.</p>'; }
+  function openDialog() {
+    lastFocus = document.activeElement;
+    $('#dialog').hidden = false;
+    renderDialogIfOpen();
+    $('#dlg-export').focus();
+  }
+  function closeDialog() {
+    $('#dialog').hidden = true;
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  var toastT;
+  function toast(msg) {
+    var t = $('#toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.hidden = true; }, 3200);
+  }
+
+  /* --------------------------------------------------------------- routing */
+
+  function route() {
+    var v = location.hash.replace(/^#/, '');
+    if (VIEWS.indexOf(v) < 0) v = 'home';
+    VIEWS.forEach(function (n) { $('#' + n).hidden = n !== v; });
+    if (v === 'home') renderHome();
+    if (v === 'thread') { ui.scroll.main = true; renderThread(); }
+    if (v === 'notes') { ui.scroll.notes = true; renderChats(); renderComposers(); }
+    if (v === 'strict') renderStrict();
+    if (v === 'history') {
+      var hist = $('#hist-msgs');
+      hist.innerHTML = HISTORY.map(function (m, i) { var c = clone(m); c.id = 'h' + i; return msgHtml(c); }).join('');
+    }
+    var focusId = { home: 'home-h', thread: 'thread-h', notes: 'notes-h', strict: 'strict-h', history: 'hist-h' }[v];
+    var f = document.getElementById(focusId);
+    if (f && ui.navigated) f.focus({ preventScroll: true });
+    ui.navigated = true;
+    var scroller = v === 'home' ? $('#home') : v === 'history' ? $('#history') : v === 'strict' ? $('#strict') : v === 'notes' ? $('#notes') : null;
+    if (scroller) scroller.scrollTop = 0;
+    document.body.setAttribute('data-view', v);
+  }
+
+  function setTab(t) {
+    $('#thread').setAttribute('data-tab', t);
+    $$('[data-ttab]').forEach(function (b) { b.setAttribute('aria-selected', String(b.getAttribute('data-ttab') === t)); });
+  }
+
+  /* ---------------------------------------------------------------- events */
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var el;
+
+    if ((el = t.closest('#sw-btn'))) {
+      var m = $('#sw-menu');
+      m.hidden = !m.hidden;
+      el.setAttribute('aria-expanded', String(!m.hidden));
+      return;
+    }
+    if (!t.closest('.switcher')) { $('#sw-menu').hidden = true; $('#sw-btn').setAttribute('aria-expanded', 'false'); }
+
+    if (t.closest('#restart')) {
+      reset();
+      buildComposers();
+      setTab('chat');
+      $('#dialog').hidden = true; $('#toast').hidden = true;
+      renderNotes(); renderStrict();
+      if (location.hash === '#home' || location.hash === '') route(); else location.hash = '#home';
+      return;
+    }
+
+    if ((el = t.closest('[data-ttab]'))) { setTab(el.getAttribute('data-ttab')); return; }
+    if ((el = t.closest('[data-ptab]'))) { ui.ptab = el.getAttribute('data-ptab'); renderPanel(); return; }
+
+    if ((el = t.closest('[data-chip]'))) {
+      if (el.getAttribute('aria-disabled') === 'true') return;
+      runStep(el.getAttribute('data-chip'));
+      return;
+    }
+    if ((el = t.closest('[data-mode]'))) { state.mode = el.getAttribute('data-mode'); renderComposers(); renderMsgsInto($('#msgs'), ui.msgs, 'main'); return; }
+    if ((el = t.closest('[data-route]'))) { state.route = el.getAttribute('data-route'); renderComposers(); return; }
+
+    if ((el = t.closest('.thumb'))) {
+      var id = el.getAttribute('data-slide');
+      ui.slide = id;
+      state.selection = { slide: id, part: 'slide' };
+      renderPanel(); renderComposers();
+      return;
+    }
+    if ((el = t.closest('[data-pick]'))) {
+      var part = el.getAttribute('data-pick');
+      var cur = state.selection;
+      state.selection = (cur && cur.slide === ui.slide && cur.part === part) ? null : { slide: ui.slide, part: part };
+      renderPanel(); renderComposers();
+      return;
+    }
+    if ((el = t.closest('[data-stage]'))) {
+      var r = el.getBoundingClientRect();
+      var y = (e.clientY - r.top) / r.height;
+      var p = y < 0.26 ? 'header' : 'body';
+      var c2 = state.selection;
+      state.selection = (c2 && c2.slide === ui.slide && c2.part === p) ? null : { slide: ui.slide, part: p };
+      renderPanel(); renderComposers();
+      return;
+    }
+
+    if ((el = t.closest('.time'))) {
+      var q = document.getElementById(el.getAttribute('aria-controls'));
+      q.hidden = !q.hidden;
+      el.setAttribute('aria-expanded', String(!q.hidden));
+      return;
+    }
+    if ((el = t.closest('[data-src]'))) {
+      var s = document.getElementById('src-' + el.getAttribute('data-src'));
+      s.hidden = !s.hidden;
+      el.setAttribute('aria-expanded', String(!s.hidden));
+      el.textContent = s.hidden ? 'Show source' : 'Hide source';
+      return;
+    }
+
+    if ((el = t.closest('[data-action]'))) {
+      var a = el.getAttribute('data-action');
+      if (el.getAttribute('aria-disabled') === 'true') return;
+      if (a === 'close-menu') { $('#sw-menu').hidden = true; $('#sw-btn').setAttribute('aria-expanded', 'false'); }
+      else if (a === 'clear-sel') { state.selection = null; renderPanel(); renderComposers(); }
+      else if (a === 'go-chat') setTab('chat');
+      else if (a === 'goto-changes') { ui.ptab = 'changes'; setTab('deck'); renderPanel(); }
+      else if (a === 'toast') toast(el.getAttribute('data-msg'));
+      else if (a === 'export') openDialog();
+      else if (a === 'close-dialog') closeDialog();
+      else if (a === 'do-export') { closeDialog(); toast('Exported (mock-up: no file is written)'); }
+      else if (a === 'check-now') runStep('s7');
+      else if (a === 'pick-dir') {
+        if (ui.busy || state.designDecided) return;
+        var dir = dirOf(el.getAttribute('data-dir'));
+        say('Use this direction: ' + dir.name, function () { stepChange(specDirection(dir.id)); });
+      }
+      else if (a === 'rebuild') {
+        if (!state.stale.length) return;
+        say('Rebuild the 4 stale slides', function () { stepChange(specRebuild()); });
+      }
+      else if (a === 'apply' || a === 'dismiss') {
+        var mid = +el.getAttribute('data-mid');
+        var msg = ui.msgs.concat(ui.notesMsgs).filter(function (x) { return x.id === mid; })[0];
+        if (!msg || msg.status !== 'open') return;
+        if (a === 'apply') applyProposal(msg);
+        else { msg.status = 'dismissed'; renderChats(); }
+        if (a === 'apply') { renderThread(); renderHome(); }
+      }
+      else if (a === 'undo' || a === 'redo') {
+        var eid = +el.getAttribute('data-eid');
+        var en = state.log.filter(function (x) { return x.id === eid; })[0];
+        if (!en) return;
+        if (a === 'undo' && undoable(en)) setLog(en, true);
+        if (a === 'redo' && redoable(en)) setLog(en, false);
+      }
+      return;
+    }
+
+    if (t.classList && t.classList.contains('scrim') && t.id === 'dialog') closeDialog();
+  });
+
+  document.addEventListener('submit', function (e) {
+    var f = e.target.closest('.cform');
+    if (!f) return;
+    e.preventDefault();
+    var inp = $('.cinput', f);
+    var v = inp.value.trim();
+    if (!v || ui.busy) return;
+    inp.value = '';
+    var scope = f.parentNode.getAttribute('data-scope') === 'notes' ? 'notes' : 'main';
+    say(v, function () {
+      pushMsg({ role: 'assistant', kind: 'talk', text: 'This is a scripted mock-up. Pick one of the suggested messages to continue.', trace: { plain: 'Nothing ran. Free text is not read in the mock-up.' } }, scope);
+    }, scope, scope === 'main' && state.selection ? aboutLabel(state.selection) : null);
+  });
+
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d.matches || !d.matches('details.route')) return;
+    var mid = +d.getAttribute('data-mid');
+    ui.msgs.concat(ui.notesMsgs).forEach(function (m) { if (m.id === mid) m.open = d.open; });
+    if (d.open) d.scrollIntoView({ block: 'nearest' });
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    var dlg = $('#dialog');
+    if (e.key === 'Escape') {
+      if (!dlg.hidden) { closeDialog(); return; }
+      if (!$('#sw-menu').hidden) { $('#sw-menu').hidden = true; $('#sw-btn').setAttribute('aria-expanded', 'false'); $('#sw-btn').focus(); }
+    }
+    if (e.key === 'Tab' && !dlg.hidden) {
+      var f = $$('button, a[href], input', dlg).filter(function (x) { return !x.disabled && x.offsetParent !== null; });
+      if (!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  window.addEventListener('hashchange', route);
+
+  /* ------------------------------------------------------------------ boot */
+
+  (function boot() {
+    var st = document.createElement('style');
+    st.id = 'ms-css';
+    st.textContent = MS.css;
+    document.head.appendChild(st);
+    reset();
+    buildComposers();
+    renderNotes();
+    renderStrict();
+    renderHome();
+    route();
+  })();
+})();
+
+</script>

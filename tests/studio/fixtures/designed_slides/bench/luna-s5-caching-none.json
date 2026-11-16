@@ -1,0 +1,410 @@
+{
+ "source": "slide bench round 1, luna, s5-caching, concept none",
+ "palette": {},
+ "slide": {
+  "id": "s5-caching",
+  "intent": "Make the 21% compute reduction the visual proof, with the request-composition chart showing that Instructions and Catalogue are the reusable 68% of every request.",
+  "blocks": [
+   {
+    "id": "headline",
+    "kind": "text",
+    "text": "Caching repeated context removes a fifth of the compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero21",
+    "kind": "text",
+    "text": "21%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "hero21label",
+    "kind": "text",
+    "text": "less compute",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "repeat68",
+    "kind": "text",
+    "text": "68%",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "repeat68label",
+    "kind": "text",
+    "text": "of each request is repeated",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chartlabel",
+    "kind": "text",
+    "text": "SHARE OF A 2,400-TOKEN REQUEST (%)",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "chart",
+    "kind": "chart",
+    "text": null,
+    "chart": {
+     "chart_type": "bar",
+     "title": null,
+     "categories": [
+      "Instructions",
+      "Catalogue",
+      "Chat",
+      "Ask"
+     ],
+     "series": [
+      {
+       "name": "Share of a 2,400-token request (%)",
+       "values": [
+        18.0,
+        50.0,
+        22.0,
+        10.0
+       ]
+      }
+     ],
+     "x_axis_label": null,
+     "y_axis_label": null
+    },
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "reusehead",
+    "kind": "text",
+    "text": "REUSE THE SHARED PART",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point1",
+    "kind": "text",
+    "text": "68% of every request repeats: the same instructions and catalogue",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point2",
+    "kind": "text",
+    "text": "That shared part is computed once an hour, then reused",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point3",
+    "kind": "text",
+    "text": "Net compute falls 21% after misses and refreshes",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   },
+   {
+    "id": "point4",
+    "kind": "text",
+    "text": "Answers are unchanged; the cache resets when prices change",
+    "chart": null,
+    "figure": null,
+    "icon": null,
+    "source_note": null
+   }
+  ],
+  "speaker_notes": "",
+  "layout": {
+   "background": "dk1",
+   "elements": [
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 35.5,
+      "y": 0.0,
+      "w": 64.5,
+      "h": 100.0
+     },
+     "fill": "lt2",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "rect",
+     "frame": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 35.5,
+      "h": 100.0
+     },
+     "fill": "accent1",
+     "line": null,
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 41.8,
+      "y": 53.5,
+      "w": 52.5,
+      "h": 0.2
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.2,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 66.8,
+      "y": 63.5,
+      "w": 0.2,
+      "h": 28.0
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "shape",
+     "shape": "line",
+     "frame": {
+      "x": 41.8,
+      "y": 77.5,
+      "w": 52.5,
+      "h": 0.2
+     },
+     "fill": null,
+     "line": "accent6",
+     "line_pt": 1.0,
+     "tint": 0.0
+    },
+    {
+     "type": "text",
+     "block_id": "headline",
+     "frame": {
+      "x": 5.5,
+      "y": 8.0,
+      "w": 27.0,
+      "h": 25.0
+     },
+     "role": "title",
+     "size_pt": 29.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero21",
+     "frame": {
+      "x": 5.5,
+      "y": 37.0,
+      "w": 28.0,
+      "h": 27.0
+     },
+     "role": "display",
+     "size_pt": 100.0,
+     "bold": true,
+     "color": "accent3",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "hero21label",
+     "frame": {
+      "x": 5.8,
+      "y": 64.5,
+      "w": 25.0,
+      "h": 5.0
+     },
+     "role": "body",
+     "size_pt": 17.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "repeat68",
+     "frame": {
+      "x": 5.5,
+      "y": 72.0,
+      "w": 20.0,
+      "h": 12.5
+     },
+     "role": "heading",
+     "size_pt": 43.0,
+     "bold": true,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "repeat68label",
+     "frame": {
+      "x": 5.8,
+      "y": 86.0,
+      "w": 27.0,
+      "h": 7.0
+     },
+     "role": "caption",
+     "size_pt": 13.0,
+     "bold": false,
+     "color": "lt1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "chartlabel",
+     "frame": {
+      "x": 42.0,
+      "y": 7.0,
+      "w": 51.0,
+      "h": 4.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "chart",
+     "block_id": "chart",
+     "frame": {
+      "x": 42.0,
+      "y": 12.5,
+      "w": 52.0,
+      "h": 39.0
+     },
+     "accent": "accent3",
+     "emphasis": [
+      "Instructions",
+      "Catalogue"
+     ]
+    },
+    {
+     "type": "text",
+     "block_id": "reusehead",
+     "frame": {
+      "x": 42.0,
+      "y": 56.0,
+      "w": 50.0,
+      "h": 5.0
+     },
+     "role": "label",
+     "size_pt": 11.0,
+     "bold": true,
+     "color": "accent1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point1",
+     "frame": {
+      "x": 42.0,
+      "y": 65.0,
+      "w": 22.5,
+      "h": 10.5
+     },
+     "role": "body",
+     "size_pt": 15.5,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point2",
+     "frame": {
+      "x": 69.0,
+      "y": 65.0,
+      "w": 24.5,
+      "h": 10.5
+     },
+     "role": "body",
+     "size_pt": 15.5,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point3",
+     "frame": {
+      "x": 42.0,
+      "y": 79.5,
+      "w": 22.5,
+      "h": 11.5
+     },
+     "role": "body",
+     "size_pt": 15.5,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    },
+    {
+     "type": "text",
+     "block_id": "point4",
+     "frame": {
+      "x": 69.0,
+      "y": 79.5,
+      "w": 24.5,
+      "h": 11.5
+     },
+     "role": "body",
+     "size_pt": 15.5,
+     "bold": false,
+     "color": "dk1",
+     "align": "left",
+     "anchor": "top"
+    }
+   ],
+   "rationale": "A dark left field turns the 21% reduction into the hero proof, while the wide light field pairs the highlighted request-composition chart with a compact four-point reuse explanation."
+  },
+  "marker": "decided",
+  "serves": []
+ }
+}

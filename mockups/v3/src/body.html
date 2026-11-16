@@ -1,0 +1,168 @@
+<div class="wrap" id="app">
+  <header class="topbar">
+    <a class="brand" href="#home" aria-label="AutoDeck, engagement home">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="1.5" y="3" width="15" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>AutoDeck</span>
+    </a>
+    <div class="switcher">
+      <button type="button" id="sw-btn" class="sw-btn" aria-haspopup="true" aria-expanded="false" aria-controls="sw-menu">
+        <span class="sw-label">Northwind Retail · Inference efficiency</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="sw-menu" class="menu" hidden>
+        <button type="button" class="menu-item current" data-action="close-menu">Northwind Retail · Inference efficiency</button>
+        <button type="button" class="menu-item" disabled>Contoso Health · locked to its own engagement</button>
+        <p class="menu-note">Each engagement keeps its own sources, threads and preferences. Nothing is shared across clients.</p>
+      </div>
+    </div>
+    <span class="note">Scripted mock-up, fictional data</span>
+    <button type="button" id="restart" class="btn">Restart</button>
+  </header>
+
+  <main id="main">
+    <!-- Engagement home -->
+    <section id="home" class="view home" aria-labelledby="home-h" hidden>
+      <div class="home-inner">
+        <div class="home-head">
+          <div>
+            <h1 id="home-h" tabindex="-1">Northwind Retail</h1>
+            <p class="lede">Inference efficiency. Everything here belongs to this engagement only.</p>
+          </div>
+          <a class="btn primary" href="#thread">Continue: Design and refinement</a>
+        </div>
+        <div class="cols">
+          <section class="col" aria-labelledby="h-src">
+            <h2 id="h-src" class="col-h">Sources <span class="count">8</span></h2>
+            <ul class="list" id="home-sources"></ul>
+          </section>
+          <section class="col" aria-labelledby="h-art">
+            <h2 id="h-art" class="col-h">Artifacts <span class="count" id="art-count">3</span></h2>
+            <ul class="list" id="home-artifacts"></ul>
+          </section>
+          <section class="col" aria-labelledby="h-thr">
+            <h2 id="h-thr" class="col-h">Threads <span class="count">3</span></h2>
+            <ul class="list" id="home-threads"></ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Thread: Design and refinement -->
+    <section id="thread" class="view thread" aria-label="Design and refinement thread" data-tab="chat" hidden>
+      <div class="thread-tabs" role="tablist" aria-label="Thread panes">
+        <button type="button" role="tab" id="ttab-chat" data-ttab="chat" aria-selected="true">Chat</button>
+        <button type="button" role="tab" id="ttab-deck" data-ttab="deck" aria-selected="false">Deck</button>
+      </div>
+      <div class="thread-grid">
+        <section class="chat" id="chat-pane" aria-label="Conversation">
+          <div class="pane-head">
+            <a class="back" href="#home">Engagement</a>
+            <h1 id="thread-h" tabindex="-1">Design and refinement</h1>
+            <span class="muted">Today</span>
+          </div>
+          <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages"></div>
+          <div class="composer" data-scope="thread"></div>
+        </section>
+        <section class="panel" id="panel" aria-label="Artifact: Serving the assistant for less">
+          <div class="panel-head">
+            <div class="ptabs" role="tablist" aria-label="Artifact views" id="ptabs"></div>
+            <button type="button" class="btn primary" id="export-btn" data-action="export">Export</button>
+          </div>
+          <div class="panel-body" id="panel-body"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Notes -->
+    <section id="notes" class="view notes" aria-labelledby="notes-h" hidden>
+      <div class="notes-grid">
+        <article class="notes-doc">
+          <div class="pane-head">
+            <a class="back" href="#home">Engagement</a>
+            <span class="tag tag-plain">Notes</span>
+          </div>
+          <h1 id="notes-h" tabindex="-1">Scoping call notes</h1>
+          <p class="lede">14 July, 42 minutes. Select a time to see the line in the transcript each item came from.</p>
+          <div id="notes-body"></div>
+        </article>
+        <aside class="chat notes-chat" aria-label="Notes chat">
+          <div class="pane-head"><h2 class="pane-title">Chat</h2></div>
+          <div class="msgs" id="notes-msgs" role="log" aria-live="polite" aria-label="Messages"></div>
+          <div class="composer" data-scope="notes"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Strict -->
+    <section id="strict" class="view strict" aria-labelledby="strict-h" hidden>
+      <div class="strict-inner">
+        <div class="pane-head">
+          <a class="back" href="#home">Engagement</a>
+          <span class="tag tag-strict">Strict</span>
+        </div>
+        <div class="strict-title">
+          <div>
+            <h1 id="strict-h" tabindex="-1">Board evidence pack</h1>
+            <p class="lede">Strict mode: every claim needs a source, and nothing is exported until it has been approved.</p>
+          </div>
+          <div class="strict-actions">
+            <button type="button" class="btn primary" id="strict-export" aria-disabled="true" aria-describedby="strict-export-why">Export</button>
+            <span class="why" id="strict-export-why">Two approvals outstanding</span>
+          </div>
+        </div>
+        <ol class="approvals" aria-label="Approvals">
+          <li class="ap done"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Brief approved</span><span class="ap-s">Done</span></li>
+          <li class="ap done"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Outline approved</span><span class="ap-s">Done</span></li>
+          <li class="ap now"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Claims pending</span><span class="ap-s">Waiting for you</span></li>
+          <li class="ap todo"><span class="ap-dot" aria-hidden="true"></span><span class="ap-t">Final render locked</span><span class="ap-s">After claims</span></li>
+        </ol>
+        <div class="strict-grid">
+          <div class="strict-slide">
+            <div class="stage" id="strict-stage"></div>
+            <p class="cap">Slide 4 as it would be exported. Claims on it are checked below.</p>
+          </div>
+          <div class="claims">
+            <h2 class="col-h">Claims</h2>
+            <div id="claims-list"></div>
+          </div>
+        </div>
+        <div class="strict-mode">
+          <div class="ctl">
+            <span class="ctl-l">Editing</span>
+            <div class="seg locked" role="group" aria-label="Editing mode, locked">
+              <button type="button" aria-pressed="false" aria-disabled="true">Auto</button>
+              <button type="button" aria-pressed="true" aria-disabled="true">Propose first</button>
+            </div>
+          </div>
+          <p class="muted">Locked to Propose first. In strict mode an edit can change a claim, so nothing is applied until you have seen it.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Earlier thread, read only -->
+    <section id="history" class="view history" aria-labelledby="hist-h" hidden>
+      <div class="hist-inner">
+        <div class="pane-head">
+          <a class="back" href="#home">Engagement</a>
+          <h1 id="hist-h" tabindex="-1">Storyline and first draft</h1>
+          <span class="muted">Yesterday</span>
+        </div>
+        <p class="banner">This thread is closed. It is read-only. Your decisions from it are in the deck's change log.</p>
+        <div class="msgs hist-msgs" id="hist-msgs"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="dialog" class="scrim" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-h">
+      <h2 id="dlg-h">Export Serving the assistant for less</h2>
+      <div id="dlg-body"></div>
+      <div class="dlg-foot">
+        <button type="button" class="btn" data-action="close-dialog">Cancel</button>
+        <button type="button" class="btn primary" id="dlg-export" data-action="do-export">Export .pptx</button>
+      </div>
+    </div>
+  </div>
+</div>

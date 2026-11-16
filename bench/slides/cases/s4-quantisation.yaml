@@ -1,0 +1,20 @@
+id: s4-quantisation
+title: Quantisation alone cuts serving cost by 38%
+intent: >
+  The single biggest saving comes from one technique: running the model with 8-bit instead of
+  16-bit weights takes monthly serving cost from $412k to $255k without changing the answers.
+content:
+  points:
+    - "8-bit weights instead of 16-bit"
+    - "Same answer quality on 2,000 test questions"
+  figures:
+    - {value: "38%", label: "lower monthly serving cost"}
+  chart:
+    kind: bar
+    categories: ["Before", "After"]
+    series:
+      - {name: "Monthly serving cost ($k)", values: [412, 255]}
+    emphasis: ["After"]
+notes: >
+  The number 38% is the hero of this slide. The before and after comparison supports it and
+  should read as quieter evidence, not compete with it.

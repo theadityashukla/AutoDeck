@@ -1,0 +1,88 @@
+# Runtime provider bindings — plan §6.2, decision B8, docs/MODEL_ROUTING.md Part 2.
+#
+# Three kinds of environment, because the cost profile of development and the accuracy
+# requirement of production pull in opposite directions:
+#
+#   dev-mistral — small paid Mistral models on the included monthly allowance (B51).
+#                 Day-to-day iteration: high call volume, a few cents a draft.
+#   sit         — Claude. Pre-production verification on the bindings production uses.
+#   prod        — Claude. Real client deliverables.
+#
+# Nebius and OpenAI adapters exist (autodeck/providers/) but no environment binds them yet.
+#
+# Selected with `--env`, defaulting to `default_env` below. The build manifest records the
+# environment and every resolved model ID (A6), so a dev-built deck is never mistaken for a
+# production one.
+#
+# READ THIS BEFORE TRUSTING A DEV RESULT: A3 (independent re-retrieval) and A8 (honest
+# uncertainty) are *model-sensitive*. A weaker model fails them plausibly rather than
+# loudly, so an accuracy result measured on `dev-mistral` is evidence about it only. The
+# deterministic invariants — A1, A2, A4, A5, A6 — are code and transfer unchanged. Measure
+# headline accuracy on `sit`.
+#
+# Model IDs are resolved by querying each provider at implementation time, never recalled
+# from memory (plan §6.2, §9). See DECISIONS.md B15, B23.
+#
+# Aliases (`-latest`) are deliberately NOT used. An alias moves under you, so the same
+# build manifest could resolve to a different model on a re-run — which would make A6's
+# "same manifest re-renders comparable output" untrue in a way nothing would detect.
+
+default_env: dev-mistral
+
+# confidential_ok (B81): a meeting transcript is client-confidential, and any LLM call on a
+# meeting run sends transcript text to that environment's providers. An environment without
+# `confidential_ok: true` refuses meeting runs (clarify, validate, notes). The owner flagged
+# all three environments on 2026-11-04.
+
+environments:
+  # Mistral, paid, on small models: the owner's $10/month included API allowance (B51).
+  # Ministral is ~$0.20/M tokens, so a draft run costs a few
+  # cents. Validation is on a different model from the composer (B44). Both models take
+  # images and 256k context. On this account mistral-small/medium have a 0 req/min limit;
+  # ministral-14b allows 30/min, ministral-8b 188/min (response headers, 2026-10-03).
+  # Pinned IDs, not `-latest` (see the alias note above).
+  # design_mode (B69) is the environment's default for how slides are designed:
+  # `structured` (catalog layouts, safe for small models) or `creative` (the writer places
+  # every slide). A run can override it either way; this is only the preselected choice.
+  dev-mistral:
+    confidential_ok: true
+    design_mode: structured
+    planner:    {provider: mistral, model: ministral-14b-2512}
+    outline:    {provider: mistral, model: ministral-14b-2512}
+    content:    {provider: mistral, model: ministral-14b-2512}
+    composer:   {provider: mistral, model: ministral-14b-2512}
+    validation: {provider: mistral, model: ministral-8b-2512}
+    aesthetic:  {provider: mistral, model: ministral-14b-2512}
+    ingest_vlm: {provider: mistral, model: ministral-8b-2512}
+    # B73: the deck agent's second reader. Never validation's model (8b here).
+    advisor:    {provider: mistral, model: ministral-14b-2512}
+
+  # Claude bindings are unverified against a live API — this environment has no
+  # ANTHROPIC_API_KEY. Confirm the IDs against the models endpoint before first use.
+  sit:
+    confidential_ok: true
+    design_mode: creative
+    planner:    {provider: claude, model: claude-opus-5}
+    outline:    {provider: claude, model: claude-opus-5}
+    content:    {provider: claude, model: claude-sonnet-5}
+    composer:   {provider: claude, model: claude-sonnet-5}  # not validation's model (B44)
+    validation: {provider: claude, model: claude-opus-5}
+    aesthetic:  {provider: claude, model: claude-opus-5}
+    # INTERIM: ingest_vlm's output is metadata that can never back a claim, so there is no
+    # accuracy reason to pay for it. Mistral (vision-capable) stands in until Nebius/OpenAI
+    # keys and verified model ids exist.
+    ingest_vlm: {provider: mistral, model: ministral-14b-2512}
+    advisor:    {provider: claude, model: claude-sonnet-5}  # not validation's model (B73)
+
+  prod:
+    confidential_ok: true
+    design_mode: creative
+    planner:    {provider: claude, model: claude-opus-5}
+    outline:    {provider: claude, model: claude-opus-5}
+    content:    {provider: claude, model: claude-sonnet-5}
+    composer:   {provider: claude, model: claude-sonnet-5}  # not validation's model (B44)
+    validation: {provider: claude, model: claude-opus-5}
+    aesthetic:  {provider: claude, model: claude-opus-5}
+    # INTERIM, as in sit: until Nebius/OpenAI keys and verified model ids exist.
+    ingest_vlm: {provider: mistral, model: ministral-14b-2512}
+    advisor:    {provider: claude, model: claude-sonnet-5}  # not validation's model (B73)

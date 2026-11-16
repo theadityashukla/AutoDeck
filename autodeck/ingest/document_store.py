@@ -1,0 +1,464 @@
+"""The document store — every citation the system ever produces resolves through here.
+
+Ingestion writes elements with provenance; the writer and the validator both come back
+here to turn a quote into a `Citation`. That makes this module the single chokepoint for
+A1, and it enforces the invariant in three structural ways rather than by convention:
+
+1. **Only verbatim source text is citable.** `DocumentElement.text` holds exactly what the
+   document said. A citation is always sliced out of that field, so `quote_sha256`
+   verifies by construction.
+2. **VLM figure descriptions live in a different field and can never be cited.** Plan §6.3
+   says descriptions are "metadata, never a citable source of fact", and the Phase 1 brief
+   is explicit that this must be enforced *in the resolver, not by convention*. So
+   `description` is a separate field the resolver never searches, and elements whose text
+   is model-generated are marked `citable=False`. The temptation to let a good description
+   back a claim recurs in Phase 2b; by then it is structurally impossible.
+3. **No provenance, no citation.** An element with a degenerate bounding box cannot produce
+   a citation at all. GATE 1a is a manual spot-check against source PDFs, and a citation
+   whose box points nowhere fails that check while looking fine in a table.
+
+Owning phase: 1 (task 1.2, extended by 1.3 and 1.4).
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from autodeck.ingest.provenance import bbox_is_sane, find_span, normalise_text
+from autodeck.ir.models import BBox, Citation, RetrievedBy, quote_digest
+
+ElementKind = Literal[
+    "title",
+    "section_header",
+    "text",
+    "list_item",
+    "caption",
+    "footnote",
+    "formula",
+    "table",
+    "figure",
+    "code",
+    "reference",
+    "page_header",
+    "page_footer",
+]
+
+#: Kinds whose `text` is transcribed from the document and may therefore back a claim.
+#: `figure` is absent by design — a figure's text is its caption, which is a separate
+#: `caption` element with its own provenance.
+CITABLE_KINDS: frozenset[str] = frozenset(
+    {
+        "title",
+        "section_header",
+        "text",
+        "list_item",
+        "caption",
+        "footnote",
+        "formula",
+        "table",
+        "code",
+        "reference",
+    }
+)
+
+#: Running headers and footers are page furniture. They are stored (a reader may want
+#: them) but citing "Nature | Vol 621 | 14" as evidence is never correct.
+NON_CITABLE_KINDS: frozenset[str] = frozenset({"figure", "page_header", "page_footer"})
+
+
+class IngestError(RuntimeError):
+    """Base class for document-store failures."""
+
+
+class UncitableSourceError(IngestError):
+    """An attempt to cite something that cannot back a fact.
+
+    Raised for figures, page furniture, and — the case that matters — VLM-generated
+    descriptions. This is A1's enforcement point (plan §6.3).
+    """
+
+
+class QuoteNotFoundError(IngestError):
+    """The quote does not appear verbatim in the document.
+
+    Deliberately fatal. Returning a nearest match would manufacture a citation that points
+    at text the source never contained, which is worse than no citation at all.
+    """
+
+
+class ProvenanceError(IngestError):
+    """An element has no usable provenance, so nothing it contains can be cited."""
+
+
+class StoreModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+# ---------------------------------------------------------------------------
+# Elements
+# ---------------------------------------------------------------------------
+
+
+class TableCell(StoreModel):
+    """One cell, with its own bounding box.
+
+    D10 requires charts to carry data provenance, and "the table on page 4" is not
+    provenance for a single number. A `ChartSpec` cites the cell it read (task 1.4).
+    """
+
+    row: int = Field(ge=0)
+    column: int = Field(ge=0)
+    row_span: int = Field(default=1, ge=1)
+    column_span: int = Field(default=1, ge=1)
+    text: str
+    bbox: BBox | None = None
+    is_header: bool = False
+
+
+class TableData(StoreModel):
+    """A table's cell structure, preserved so individual cells stay citable."""
+
+    rows: int = Field(ge=0)
+    columns: int = Field(ge=0)
+    cells: list[TableCell] = Field(default_factory=list)
+
+    def cell(self, row: int, column: int) -> TableCell | None:
+        for candidate in self.cells:
+            if candidate.row == row and candidate.column == column:
+                return candidate
+        return None
+
+
+class DocumentElement(StoreModel):
+    """One element of a parsed document, with provenance.
+
+    The separation between `text` and `description` is the load-bearing detail. `text` is
+    transcribed from the document; `description` is generated by a vision model and is
+    metadata. They are different fields because a single `content` field would eventually
+    be searched by something that did not know the difference.
+    """
+
+    element_id: str = Field(min_length=1)
+    doc_id: str = Field(min_length=1)
+    kind: ElementKind
+    page: int = Field(ge=1)
+    bbox: BBox
+    reading_order: int = Field(ge=0)
+
+    text: str = Field(
+        default="",
+        description="Verbatim text from the document. Never normalised, never generated.",
+    )
+    description: str | None = Field(
+        default=None,
+        description=(
+            "VLM-generated figure description. Metadata for retrieval only — A1 forbids it "
+            "backing a claim, and the resolver never searches it."
+        ),
+    )
+    table: TableData | None = None
+    caption_ref: str | None = Field(
+        default=None, description="element_id of this figure or table's caption, if any."
+    )
+
+    @property
+    def is_citable(self) -> bool:
+        """Whether this element can back a claim.
+
+        Three conditions, all structural: a citable kind, verbatim text to quote, and
+        provenance good enough for a human to check at GATE 1a.
+        """
+        return (
+            self.kind in CITABLE_KINDS and bool(self.text.strip()) and bbox_is_sane(self.bbox)
+        )
+
+    @property
+    def normalised_text(self) -> str:
+        """Matching form. Never stored as source text."""
+        return normalise_text(self.text)
+
+    def retrieval_text(self) -> str:
+        """Everything searchable about this element, description included.
+
+        Descriptions *are* retrievable — that is their whole purpose (§6.3) — so a search
+        index may use this. It must never be used to build a citation, which is why the
+        resolver reads `text` and this method is not involved in citation at all.
+        """
+        parts = [self.text]
+        if self.description:
+            parts.append(self.description)
+        if self.table:
+            parts.extend(cell.text for cell in self.table.cells)
+        return "\n".join(part for part in parts if part.strip())
+
+
+class Document(StoreModel):
+    """A parsed source document."""
+
+    doc_id: str = Field(min_length=1)
+    source_path: str
+    title: str | None = None
+    page_count: int = Field(ge=0)
+    elements: list[DocumentElement] = Field(default_factory=list)
+    low_provenance: bool = Field(
+        default=False,
+        description=(
+            "Set at ingest when a meaningful share of elements lack usable boxes. Plan §9 "
+            "requires flagging such documents for human review rather than papering over "
+            "them with approximate boxes."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _element_ids_unique(self) -> Document:
+        ids = [element.element_id for element in self.elements]
+        duplicates = sorted({i for i in ids if ids.count(i) > 1})
+        if duplicates:
+            raise ValueError(
+                f"duplicate element ids in {self.doc_id!r}: {', '.join(duplicates)}"
+            )
+        return self
+
+    def element(self, element_id: str) -> DocumentElement | None:
+        for candidate in self.elements:
+            if candidate.element_id == element_id:
+                return candidate
+        return None
+
+    def citable_elements(self) -> list[DocumentElement]:
+        return [element for element in self.elements if element.is_citable]
+
+    def provenance_coverage(self) -> float:
+        """Fraction of elements carrying a usable bounding box."""
+        if not self.elements:
+            return 1.0
+        good = sum(1 for element in self.elements if bbox_is_sane(element.bbox))
+        return good / len(self.elements)
+
+
+# ---------------------------------------------------------------------------
+# Store
+# ---------------------------------------------------------------------------
+
+
+class DocumentStore:
+    """Persisted documents, and the only supported way to build a `Citation`.
+
+    Nothing else in the codebase constructs a `Citation` from source material. Keeping that
+    true is what makes A1 auditable: there is one function to review, and it is
+    `resolve_quote`.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root)
+        self._cache: dict[str, Document] = {}
+
+    # -- persistence -------------------------------------------------------
+
+    def path_for(self, doc_id: str) -> Path:
+        if not doc_id or "/" in doc_id or doc_id in (".", ".."):
+            raise IngestError(f"invalid doc_id: {doc_id!r}")
+        return self.root / f"{doc_id}.json"
+
+    def add(self, document: Document) -> Path:
+        """Persist a document, replacing any previous version."""
+        path = self.path_for(document.doc_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(document.model_dump(mode="json"), indent=2, ensure_ascii=False)
+        path.write_text(payload + "\n", encoding="utf-8")
+        self._cache[document.doc_id] = document
+        return path
+
+    def get(self, doc_id: str) -> Document:
+        """Load a document.
+
+        Raises:
+            IngestError: no such document.
+        """
+        if doc_id in self._cache:
+            return self._cache[doc_id]
+        path = self.path_for(doc_id)
+        if not path.exists():
+            raise IngestError(f"document {doc_id!r} not in the store ({path})")
+        document = Document.model_validate_json(path.read_text(encoding="utf-8"))
+        self._cache[doc_id] = document
+        return document
+
+    def doc_ids(self) -> list[str]:
+        if not self.root.is_dir():
+            return []
+        return sorted(path.stem for path in self.root.glob("*.json"))
+
+    def documents(self) -> Iterator[Document]:
+        for doc_id in self.doc_ids():
+            yield self.get(doc_id)
+
+    # -- citation resolution — the A1 chokepoint ---------------------------
+
+    def resolve_quote(
+        self,
+        doc_id: str,
+        quote: str,
+        *,
+        retrieved_by: RetrievedBy = "writer",
+        element_id: str | None = None,
+    ) -> Citation:
+        """Turn a quote into a verified `Citation`.
+
+        The quote is located in the **verbatim** text of a citable element, and the
+        citation carries the exact characters found there — not the caller's version of
+        them. A caller who paraphrases gets `QuoteNotFoundError`, which is the point: a
+        paraphrase is not a quote, and A1 asks for a quote.
+
+        Args:
+            doc_id: which document to search.
+            quote: the text to cite. Matched tolerantly (ligatures, line-break hyphens,
+                curly quotes) but never approximately.
+            retrieved_by: `writer` or `validator` — A3 needs to know who found the span.
+            element_id: restrict the search to one element.
+
+        Raises:
+            QuoteNotFoundError: the quote does not appear in any citable element.
+            UncitableSourceError: `element_id` names an element that cannot back a fact.
+            ProvenanceError: the matching element has no usable bounding box.
+        """
+        document = self.get(doc_id)
+
+        if element_id is not None:
+            element = document.element(element_id)
+            if element is None:
+                raise IngestError(f"element {element_id!r} not in document {doc_id!r}")
+            candidates = [element]
+            self._reject_uncitable(element)
+        else:
+            candidates = document.citable_elements()
+
+        for element in candidates:
+            span = find_span(element.text, quote)
+            if span is None:
+                continue
+            verbatim = element.text[span[0] : span[1]]
+            if not bbox_is_sane(element.bbox):
+                raise ProvenanceError(
+                    f"element {element.element_id!r} in {doc_id!r} matched the quote but has "
+                    f"no usable bounding box {element.bbox}. A citation nobody can check "
+                    "against the source is not a citation (GATE 1a)."
+                )
+            return Citation(
+                doc_id=doc_id,
+                page=element.page,
+                bbox=element.bbox,
+                quote=verbatim,
+                quote_sha256=quote_digest(verbatim),
+                retrieved_by=retrieved_by,
+            )
+
+        raise QuoteNotFoundError(
+            f"quote not found verbatim in {doc_id!r}: {quote[:120]!r}. "
+            "A1 requires a verbatim span — paraphrase it in the slide text if you must, "
+            "but cite what the document actually says."
+        )
+
+    def resolve_cell(
+        self,
+        doc_id: str,
+        element_id: str,
+        row: int,
+        column: int,
+        *,
+        retrieved_by: RetrievedBy = "writer",
+    ) -> Citation:
+        """Cite one table cell, with the cell's own bounding box (task 1.4, D10).
+
+        A `ChartSpec` built from a table cites the cells it read. "Table 2" is a location,
+        not evidence for a particular number.
+
+        Raises:
+            IngestError: no such element, or it is not a table.
+            QuoteNotFoundError: no such cell, or the cell is empty.
+            ProvenanceError: the cell has no usable box and neither does its table.
+        """
+        document = self.get(doc_id)
+        element = document.element(element_id)
+        if element is None or element.table is None:
+            raise IngestError(f"{element_id!r} in {doc_id!r} is not a table element")
+        self._reject_uncitable(element)
+
+        cell = element.table.cell(row, column)
+        if cell is None or not cell.text.strip():
+            raise QuoteNotFoundError(
+                f"table {element_id!r} in {doc_id!r} has no non-empty cell at "
+                f"row {row}, column {column}"
+            )
+
+        # A cell box is far better provenance than the whole table, but Docling does not
+        # always supply one; falling back to the table keeps the citation checkable.
+        bbox = cell.bbox if cell.bbox and bbox_is_sane(cell.bbox) else element.bbox
+        if not bbox_is_sane(bbox):
+            raise ProvenanceError(
+                f"neither cell ({row}, {column}) nor table {element_id!r} has a usable box"
+            )
+
+        return Citation(
+            doc_id=doc_id,
+            page=element.page,
+            bbox=bbox,
+            quote=cell.text,
+            quote_sha256=quote_digest(cell.text),
+            retrieved_by=retrieved_by,
+        )
+
+    def _reject_uncitable(self, element: DocumentElement) -> None:
+        if element.kind in NON_CITABLE_KINDS:
+            detail = (
+                " Its VLM description is metadata for retrieval, not evidence — cite the "
+                "figure's caption or the text that discusses it (§6.3)."
+                if element.kind == "figure"
+                else ""
+            )
+            raise UncitableSourceError(
+                f"element {element.element_id!r} is a {element.kind} and cannot back a "
+                f"claim (A1).{detail}"
+            )
+        if not element.is_citable:
+            raise UncitableSourceError(
+                f"element {element.element_id!r} has no verbatim citable text or no usable "
+                "provenance"
+            )
+
+    # -- verification ------------------------------------------------------
+
+    def verify_citation(self, citation: Citation) -> bool:
+        """Whether `citation` still resolves against the stored document.
+
+        Catches drift in both directions: a quote edited in the IR after the fact (already
+        caught by the citation's own hash) and a document re-ingested differently since the
+        citation was made. The audit report (A6) runs this over every claim.
+        """
+        try:
+            document = self.get(citation.doc_id)
+        except IngestError:
+            return False
+
+        if quote_digest(citation.quote) != citation.quote_sha256:
+            return False
+
+        for element in document.elements:
+            if element.page != citation.page or not element.is_citable:
+                continue
+            if find_span(element.text, citation.quote) is not None:
+                return True
+
+        # A table cell citation quotes the cell exactly rather than a span of prose.
+        return any(
+            element.page == citation.page
+            and element.table is not None
+            and element.kind not in NON_CITABLE_KINDS
+            and any(cell.text == citation.quote for cell in element.table.cells)
+            for element in document.elements
+        )

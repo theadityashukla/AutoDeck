@@ -1,0 +1,19 @@
+{
+  "name": "ocean",
+  "description": "The original AutoDeck dev palette: navy and teal.",
+  "dark": false,
+  "palette": {
+    "dk1": "15202B",
+    "lt1": "FFFFFF",
+    "dk2": "5B6B78",
+    "lt2": "F4F6F8",
+    "accent1": "1E8E7E",
+    "accent2": "1B4965",
+    "accent3": "D98324",
+    "accent4": "A4303F",
+    "accent5": "B4621A",
+    "accent6": "C3CDD5",
+    "hyperlink": "1E8E7E",
+    "followed_hyperlink": "1B4965"
+  }
+}

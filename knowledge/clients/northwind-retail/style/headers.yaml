@@ -1,0 +1,46 @@
+# Writing-style profile for Northwind Retail Group.
+#
+# Consumed by the loader as `ClientKnowledge.header_profile`. It shapes deck copy; it
+# never relaxes an accuracy rule. A header that is punchier than its evidence is still a
+# violation — the profile changes how a supported claim is phrased, not what counts as
+# supported.
+
+style: assertion
+# Headers state the finding ("KV-cache waste is the binding constraint"), not the topic
+# ("KV cache"). This audience reads the header as the argument.
+
+max_words: 12
+# Their own internal decks run short. Longer headers get skimmed past.
+
+sentence_case: true
+# Title Case reads as marketing to this audience.
+
+terminal_punctuation: false
+# No full stops on headers. Question marks are allowed where the slide genuinely poses one.
+
+numbers_in_headers: allowed
+# Encouraged, in fact — a number in the header is what this audience reads first. It
+# carries the same citation requirement as anywhere else (A1), and it must arrive with its
+# configuration attached or not at all.
+
+hedges:
+  # Preferred hedge vocabulary when the evidence is conditional. Using these is not a way
+  # to make an unsupported claim sayable — an uncited claim is blocked whether hedged or
+  # not (A3).
+  - "on the reported setup"
+  - "as measured"
+  - "in the published configuration"
+
+avoid:
+  # Vocabulary this audience reacts badly to. See value_prop.md for why.
+  - "revolutionary"
+  - "seamless"
+  - "industry-standard"
+  - "10x"
+  - "game-changing"
+
+body:
+  bullets_max: 5
+  words_per_bullet_max: 18
+  # Deliberately tight. Overflowing a text box is v1's most familiar failure, and the
+  # layout kit raises LayoutOverflowError rather than shrinking type to fit.

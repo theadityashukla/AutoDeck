@@ -1,0 +1,18 @@
+id: s1-title
+title: Northwind can serve its shopping assistant at 38% lower cost
+intent: >
+  This is the opening slide of a proposal. Before anyone speaks, the reader should know who it
+  is for and what it promises: the same shopping assistant, costing 38% less to run, with the
+  price of 1,000 answers falling from $4.20 to $2.60.
+content:
+  points:
+    - "Serving the assistant for less"
+    - "A proposal to Northwind Retail · November 2026"
+  figures:
+    - {value: "$2.60", label: "per 1,000 answers, proposed"}
+    - {value: "$4.20", label: "per 1,000 answers today"}
+notes: >
+  A title slide, so the header is the largest text and no chart is needed. "Serving the
+  assistant for less" is the deck's name; the second point is the byline. The two figures are
+  the before and after that the header's 38% comes from: $2.60 is the new state and matters
+  more than $4.20.
